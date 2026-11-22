@@ -23,7 +23,7 @@
 //! holds it exactly as well as one somebody typed. A `usize` a `len()` hands to
 //! a comparison or a `get` and nobody keeps is not asked about, because a
 //! library handing one over is not this tree holding one. Nor is the binding
-//! `console_core_number_conversion::index` hands back, which is the meeting the
+//! `console_core_number_conversion::index` or its range conversions hand back, which is the meeting the
 //! help sends every other site to; and an array's length, which is a `usize`
 //! the compiler keeps inside the type rather than a number anybody holds. A
 //! const generic parameter is the same length given a name so a function can
@@ -39,28 +39,51 @@
 #![warn(unused_extern_crates)]
 
 extern crate rustc_ast;
+extern crate rustc_abi;
+extern crate rustc_lexer;
 extern crate rustc_hir;
 extern crate rustc_middle;
+extern crate rustc_errors;
+extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+mod assignment;
+mod bounded_ranges;
+mod immediate_position;
+mod fixes;
+mod operands;
+mod public_width;
+mod stored_positions;
+#[path = "../../shared/boundary_conversion.rs"]
+mod boundary_conversion;
+#[path = "../../shared/float_conversion.rs"]
+mod float_conversion;
+
+use clippy_utils::diagnostics::span_lint_and_then;
 use rustc_ast::{IntTy, UintTy};
 use rustc_hir::def::Res;
 use rustc_hir::{AmbigArg, Expr, ExprKind, GenericParamKind, LetStmt, PrimTy, QPath, Ty, TyKind};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty;
 
-dylint_linting::declare_late_lint! {
+dylint_linting::impl_late_lint! {
     /// EXPLICIT051: a `usize` or `isize` is a range the machine decides and
     /// the source never declared. Say the width: `u32`, `u64`, `i64`.
     pub EXPLICIT051_NO_MACHINE_WIDTH,
     Deny,
-    "a machine-width number; say the width"
+    "a machine-width number; say the width",
+    Explicit051NoMachineWidth {
+        public_compatibility: dylint_linting::config_or_default("explicit051_public_compatibility"),
+    }
+}
+
+pub struct Explicit051NoMachineWidth {
+    public_compatibility: bool,
 }
 
 // The standard library's other spellings of the same width, which name the
 // machine as surely as the primitive does.
-const CONVERSION_CRATE: &str = "console_core_number_conversion";
-const CONVERSION_TO_POSITION: &str = "index";
+const CONVERSION_CRATE: &str = boundary_conversion::CRATE;
+const CONVERSIONS_TO_POSITION: [&str; 10] = ["index", "indices", "indices_from", "indices_to", "indices_inclusive", "indices_to_inclusive", "wrapped_index", "wrapped_offset", "toward_zero_usize", "toward_zero_isize"];
 
 const POINTER_SIZED_TYPES: [&str; 4] = ["NonZeroUsize", "NonZeroIsize", "AtomicUsize", "AtomicIsize"];
 
@@ -88,17 +111,28 @@ impl<'tcx> LateLintPass<'tcx> for Explicit051NoMachineWidth {
             return;
         }
 
-        let Some(width) = written_pointer_sized(written_type) else {
+        let Some(width) = written_pointer_sized(written_type).or_else(|| public_width::internal_alias(context, written_type)) else {
             return;
         };
 
-        span_lint_and_help(
+        span_lint_and_then(
             context,
             EXPLICIT051_NO_MACHINE_WIDTH,
             written_type.span,
             format!("`{width}` is as wide as the machine, and the source never says how wide that is"),
-            None,
-            HELP_TEXT,
+            |diagnostic| {
+                if self.public_compatibility && let Some(replacement) = public_width::replacement(context, written_type, &width) {
+                    diagnostic.span_suggestion(written_type.span, "retain the public interface's native width through the compatibility crate", replacement, rustc_errors::Applicability::MachineApplicable);
+                } else if let Some(edits) = fixes::replacement(context, written_type, &width) {
+                    if let [(span, edit)] = edits.as_slice() {
+                        diagnostic.span_suggestion(*span, "use the conversion that names this machine-width boundary", edit.clone(), rustc_errors::Applicability::MachineApplicable);
+                    } else {
+                        diagnostic.multipart_suggestion("use the conversion that names this machine-width boundary", edits, rustc_errors::Applicability::MachineApplicable);
+                    }
+                } else {
+                    diagnostic.help(HELP_TEXT);
+                }
+            },
         );
     }
 
@@ -122,13 +156,35 @@ impl<'tcx> LateLintPass<'tcx> for Explicit051NoMachineWidth {
                 return;
             };
 
-            span_lint_and_help(
+            span_lint_and_then(
                 context,
                 EXPLICIT051_NO_MACHINE_WIDTH,
                 span,
                 format!("`{name}` holds a `{width}`, which is as wide as the machine, and the source never says how wide that is"),
-                None,
-                HELP_TEXT,
+                |diagnostic| {
+                    if let Some((block, replacement)) = assignment::replacement(context, local) {
+                        diagnostic.span_suggestion(
+                            block,
+                            "update the position through the named wrapping boundary",
+                            replacement,
+                            rustc_errors::Applicability::MachineApplicable,
+                        );
+                    } else if let Some(edits) = immediate_position::replacement(context, local) {
+                        diagnostic.multipart_suggestion(
+                            "pass the returned position directly to its consumer",
+                            edits,
+                            rustc_errors::Applicability::MachineApplicable,
+                        );
+                    } else if let Some(edits) = stored_positions::replacement(context, local) {
+                        diagnostic.multipart_suggestion(
+                            "hold this position at a fixed width and convert it where the API needs a native index",
+                            edits,
+                            rustc_errors::Applicability::MachineApplicable,
+                        );
+                    } else {
+                        diagnostic.help(HELP_TEXT);
+                    }
+                },
             );
         });
     }
@@ -177,7 +233,27 @@ fn is_const_parameter(context: &LateContext<'_>, written_type: &Ty<'_>) -> bool 
 }
 
 fn is_conversion_to_position(context: &LateContext<'_>, initializer: &Expr<'_>) -> bool {
-    let ExprKind::Call(callee, _) = initializer.kind else {
+    let mut value = initializer;
+    let is_checked = if let ExprKind::Match(branch, _, rustc_hir::MatchSource::TryDesugar(_)) = value.kind
+        && let ExprKind::Call(_, [operand]) = branch.kind
+    {
+        value = operand;
+        let types = context.typeck_results();
+        while let ExprKind::MethodCall(method, receiver, [_], _) = value.kind
+            && method.ident.as_str() == "map_err"
+            && let Some(result) = types.expr_ty(receiver).ty_adt_def()
+            && context.tcx.is_diagnostic_item(rustc_span::sym::Result, result.did())
+            && let Some(id) = types.type_dependent_def_id(value.hir_id)
+            && id.krate == result.did().krate
+            && context.tcx.inherent_impl_of_assoc(id).is_some()
+        {
+            value = receiver;
+        }
+        true
+    } else {
+        false
+    };
+    let ExprKind::Call(callee, _) = value.kind else {
         return false;
     };
 
@@ -189,11 +265,20 @@ fn is_conversion_to_position(context: &LateContext<'_>, initializer: &Expr<'_>) 
         return false;
     };
 
+    let name = context.tcx.item_name(definition);
     context.tcx.crate_name(definition.krate).as_str() == CONVERSION_CRATE
-        && context.tcx.item_name(definition).as_str() == CONVERSION_TO_POSITION
+        && (CONVERSIONS_TO_POSITION.contains(&name.as_str())
+            || is_checked && matches!(name.as_str(), "checked_index" | "checked_offset"))
 }
 
 #[test]
 fn ui() {
     dylint_testing::ui_test(env!("CARGO_PKG_NAME"), "ui");
+}
+
+#[test]
+fn public_widths() {
+    dylint_testing::ui::Test::src_base(env!("CARGO_PKG_NAME"), "ui_compat")
+        .dylint_toml("explicit051_public_compatibility = true")
+        .run();
 }

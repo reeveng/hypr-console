@@ -8,11 +8,10 @@
 //! with, which is the answer to someone looking for something this machine
 //! does not have or has under another name.
 
+pub mod cache;
 pub mod counts;
 pub mod entry;
 pub mod found;
 pub mod icons;
-pub mod image;
-pub mod cache;
 pub mod narrow;
 pub mod words;

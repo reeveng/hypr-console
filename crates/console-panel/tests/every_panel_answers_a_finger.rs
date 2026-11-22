@@ -7,11 +7,11 @@
 //! files panel is tried against the files panel in a few seconds rather than
 //! against the whole desktop in a few minutes. That is the point of the tier.
 //!
-//! The rules are the ones in `docs/button-contract.md`, and they are asked of
-//! the panel that ran rather than of the code that built it. Every one of them
-//! was broken by every panel here until the day this was written, and not one
-//! check could see it: Y reached six panels from the pad and none from the
-//! glass, because no row had ever drawn a mark for Y.
+//! The rules are the ones in the `button-contract.md` note in Orbit, and they
+//! are asked of the panel that ran rather than of the code that built it. Every
+//! one of them was broken by every panel here until the day this was written,
+//! and not one check could see it: Y reached six panels from the pad and none
+//! from the glass, because no row had ever drawn a mark for Y.
 //!
 //! A panel that will not come up in the nested desktop fails rather than
 //! skipping. A check that quietly passes because the thing it was checking
@@ -19,70 +19,70 @@
 
 use console_test_stages::Error;
 use console_test_stages::panels::{
-    Panel, a_way_out_is_drawn, every_mark_reachable, every_offer_answered,
-    every_row_draws_what_it_carries,
+  Panel, a_way_out_is_drawn, every_mark_reachable, every_offer_answered,
+  every_row_draws_what_it_carries,
 };
 
 fn held_to_the_contract(program: &str, arguments: &[&str]) -> Result<(), Error> {
-    let Ok(mut panel) = Panel::opening(program, arguments);
-    let every = panel.descriptions()?;
+  let Ok(mut panel) = Panel::opening(program, arguments);
+  let every = panel.descriptions()?;
 
-    for card in &every {
-        every_offer_answered(card)?;
-        every_mark_reachable(card)?;
-        a_way_out_is_drawn(card)?;
-        every_row_draws_what_it_carries(card)?;
-    }
+  for card in &every {
+    every_offer_answered(card)?;
+    every_mark_reachable(card)?;
+    a_way_out_is_drawn(card)?;
+    every_row_draws_what_it_carries(card)?;
+  }
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn the_files() -> Result<(), Error> {
-    held_to_the_contract("files", &[])
+  held_to_the_contract("files", &[])
 }
 
 #[test]
 fn the_settings() -> Result<(), Error> {
-    held_to_the_contract("settings-panel", &[])
+  held_to_the_contract("settings-panel", &[])
 }
 
 #[test]
 fn the_menu() -> Result<(), Error> {
-    held_to_the_contract("launcher", &[])
+  held_to_the_contract("launcher", &[])
 }
 
 #[test]
 fn the_music() -> Result<(), Error> {
-    held_to_the_contract("music-panel", &[])
+  held_to_the_contract("music-panel", &[])
 }
 
 #[test]
 fn the_music_library() -> Result<(), Error> {
-    held_to_the_contract("music", &[])
+  held_to_the_contract("music", &[])
 }
 
 #[test]
 fn the_notifications() -> Result<(), Error> {
-    held_to_the_contract("notifications-panel", &[])
+  held_to_the_contract("notifications-panel", &[])
 }
 
 #[test]
 fn the_downloads() -> Result<(), Error> {
-    held_to_the_contract("downloads", &[])
+  held_to_the_contract("downloads", &[])
 }
 
 #[test]
 fn the_calculator() -> Result<(), Error> {
-    held_to_the_contract("calculator", &[])
+  held_to_the_contract("calculator", &[])
 }
 
 #[test]
 fn the_calendar() -> Result<(), Error> {
-    held_to_the_contract("calendar-panel", &[])
+  held_to_the_contract("calendar-panel", &[])
 }
 
 #[test]
 fn the_guide() -> Result<(), Error> {
-    held_to_the_contract("mapping-panel", &[])
+  held_to_the_contract("mapping-panel", &[])
 }

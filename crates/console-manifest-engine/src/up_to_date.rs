@@ -6,6 +6,6 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpToDate {
-    Yes,
-    No,
+  Yes,
+  No,
 }

@@ -1,0 +1,20 @@
+error: boolean parameter is forbidden
+  --> $DIR/integer_decision.rs:10:24
+   |
+LL | fn thresholds(enabled: bool) -> (i32, u16) {
+   |                        ^^^^
+   |
+   = note: `#[deny(explicit008_no_bool_param)]` on by default
+help: propagate the reviewed enum through this function family
+   |
+LL ~ fn thresholds(enabled: crate::Shortcut) -> (i32, u16) {
+LL ~     ((match enabled { crate::Shortcut::Available => 1_i32, crate::Shortcut::Unavailable => 0_i32 }) - 1, (match enabled { crate::Shortcut::Available => 1_u16, crate::Shortcut::Unavailable => 0_u16 }))
+LL | }
+LL |
+LL | fn main() {
+LL ~     assert_eq!(thresholds(crate::Shortcut::Available), (0, 1));
+LL ~     assert_eq!(thresholds(crate::Shortcut::Unavailable), (-1, 0));
+   |
+
+error: aborting due to 1 previous error
+

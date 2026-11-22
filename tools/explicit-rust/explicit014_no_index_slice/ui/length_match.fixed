@@ -1,0 +1,25 @@
+// run-rustfix
+// edition:2024
+
+#[derive(Clone, Copy)]
+struct Point { x: u8 }
+
+fn select(points: &[Point]) -> u8 {
+    match points {
+        [] => 0,
+        [points_0] => { let Point { x } = *points_0; x }
+        [points_0, points_1] => points_0.x + points_1.x,
+        [points_0, ..] if points.len() & 1 != 0 => points_0.x,
+        [_, points_1, ..] => points_1.x,
+    }
+}
+
+#[allow(explicit014_no_index_slice)]
+fn main() {
+    let points = [Point { x: 2 }, Point { x: 3 }, Point { x: 4 }, Point { x: 5 }];
+    assert_eq!(select(&[]), 0);
+    assert_eq!(select(&points[..1]), 2);
+    assert_eq!(select(&points[..2]), 5);
+    assert_eq!(select(&points[..3]), 2);
+    assert_eq!(select(&points), 3);
+}

@@ -16,163 +16,175 @@
 //! that is not is damage. Building and undoing the codes is
 //! `console-core-prefix-codes`, which deflate shares.
 
+use core::cmp::Ordering;
+
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 use console_core_prefix_codes::{Bits, Code};
 
 use crate::WebpError;
 
-const ORDER: [u8; 19] = [17, 18, 0, 1, 2, 3, 4, 5, 16, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const ORDER: [u8; 19] = [
+  17, 18, 0, 1, 2, 3, 4, 5, 16, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+];
 
 const FIRST_LENGTH: u8 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Repeat {
-    length: u8,
-    times: u32,
+  length: u8,
+  times: u32,
 }
 
 pub(crate) fn read(bits: &mut Bits<'_>, alphabet: u32) -> Result<Code, WebpError> {
-    let Ok(symbols) = index(alphabet);
-    let mut lengths = vec![0u8; symbols];
-    let kind = bits.take(1)?;
+  let mut lengths = crate::filled(u64::from(alphabet), 0u8)?;
+  let kind = bits.take(1)?;
 
-    match kind {
-        1 => simple(bits, &mut lengths)?,
-        _ => normal(bits, (&mut lengths, alphabet))?,
-    }
+  match kind {
+    1 => simple(bits, &mut lengths)?,
+    _ => normal(bits, (&mut lengths, alphabet))?,
+  }
 
-    let code = Code::complete(&lengths)?;
+  let code = Code::complete(&lengths)?;
 
-    Ok(code)
+  Ok(code)
 }
 
 fn simple(bits: &mut Bits<'_>, lengths: &mut [u8]) -> Result<(), WebpError> {
-    let two = bits.take(1)?;
-    let eight_bits = bits.take(1)?;
-    let first = bits.take(eight_bits.saturating_mul(7).saturating_add(1))?;
-    let Ok(()) = marked(lengths, first);
+  let two = bits.take(1)?;
+  let eight_bits = bits.take(1)?;
+  let first = bits.take(eight_bits.saturating_mul(7).saturating_add(1))?;
+  let Ok(()) = marked(lengths, first);
 
-    match two {
-        1 => {
-            let second = bits.take(8)?;
-            let Ok(()) = marked(lengths, second);
-        },
-        _ => {},
+  match two {
+    1 => {
+      let second = bits.take(8)?;
+      let Ok(()) = marked(lengths, second);
     }
+    _ => {}
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn marked(lengths: &mut [u8], symbol: u32) -> Result<(), Never> {
-    let Ok(at) = index(symbol);
+  let Ok(at) = index(symbol);
 
-    match lengths.get_mut(at) {
-        Some(length) => *length = 1,
-        None => {},
-    }
+  match lengths.get_mut(at) {
+    Some(length) => *length = 1,
+    None => {}
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn normal(bits: &mut Bits<'_>, lengths: (&mut [u8], u32)) -> Result<(), WebpError> {
-    let (lengths, alphabet) = lengths;
-    let sent = bits.take(4)?;
-    let Ok(sent) = index(sent.saturating_add(4));
-    let mut short = [0u8; 19];
+  let (lengths_2, alphabet) = lengths;
+  let sent = bits.take(4)?;
+  let Ok(sent_2) = index(sent.saturating_add(4));
+  let mut short = [0u8; 19];
 
-    for at in ORDER.iter().take(sent) {
-        let length = bits.take(3)?;
-        let Ok(at) = index(*at);
+  for at in ORDER.iter().take(sent_2) {
+    let length = bits.take(3)?;
+    let Ok(at_2) = index(*at);
 
-        match short.get_mut(at) {
-            Some(slot) => {
-                let Ok(length) = fitted::<u32, u8>(length);
+    match short.get_mut(at_2) {
+      Some(slot) => {
+        let Ok(length_2) = fitted::<u32, u8>(length);
 
-                *slot = length;
-            },
-            None => return Err(WebpError::Corrupt),
-        }
+        *slot = length_2;
+      }
+      None => return Err(WebpError::Corrupt),
+    }
+  }
+
+  let short_2 = Code::complete(&short)?;
+  let limited = bits.take(1)?;
+
+  let most = match limited {
+    1 => {
+      let long = bits.take(3)?;
+      let most = bits.take(long.saturating_mul(2).saturating_add(2))?;
+
+      most.saturating_add(2)
+    }
+    _ => alphabet,
+  };
+
+  match most.cmp(&alphabet) {
+    Ordering::Less | Ordering::Equal => {}
+    Ordering::Greater => return Err(WebpError::Corrupt),
+  }
+
+  let mut previous = FIRST_LENGTH;
+  let mut filled = 0u32;
+
+  for _sent in 0..most {
+    match filled.cmp(&alphabet) {
+      Ordering::Less => {}
+      Ordering::Equal | Ordering::Greater => return Ok(()),
     }
 
-    let short = Code::complete(&short)?;
-    let limited = bits.take(1)?;
+    let Ok(()) = bits.fill();
+    let symbol = short_2.decoded(bits)?;
+    let repeat = repeated(bits, symbol, previous)?;
+    let past = filled.saturating_add(repeat.times);
 
-    let most = match limited {
-        1 => {
-            let long = bits.take(3)?;
-            let most = bits.take(long.saturating_mul(2).saturating_add(2))?;
+    match past.cmp(&alphabet) {
+      Ordering::Less | Ordering::Equal => {}
+      Ordering::Greater => return Err(WebpError::Corrupt),
+    }
 
-            most.saturating_add(2)
-        },
-        _ => alphabet,
+    let Ok(from) = index(filled);
+    let Ok(to) = index(past);
+
+    match lengths_2.get_mut(from..to) {
+      Some(run) => run.fill(repeat.length),
+      None => return Err(WebpError::Corrupt),
+    }
+
+    previous = match (symbol, repeat.length) {
+      (0..=15, 1..) => repeat.length,
+      (_, _) => previous,
     };
 
-    match most <= alphabet {
-        true => {},
-        false => return Err(WebpError::Corrupt),
-    }
+    filled = past;
+  }
 
-    let mut previous = FIRST_LENGTH;
-    let mut filled = 0u32;
-
-    for _sent in 0..most {
-        match filled < alphabet {
-            true => {},
-            false => return Ok(()),
-        }
-
-        let Ok(()) = bits.fill();
-        let symbol = short.decoded(bits)?;
-        let repeat = repeated(bits, symbol, previous)?;
-        let past = filled.saturating_add(repeat.times);
-
-        match past <= alphabet {
-            true => {},
-            false => return Err(WebpError::Corrupt),
-        }
-
-        let Ok(from) = index(filled);
-        let Ok(to) = index(past);
-
-        match lengths.get_mut(from..to) {
-            Some(run) => run.fill(repeat.length),
-            None => return Err(WebpError::Corrupt),
-        }
-
-        previous = match (symbol, repeat.length) {
-            (0..=15, 1..) => repeat.length,
-            (_, _) => previous,
-        };
-
-        filled = past;
-    }
-
-    Ok(())
+  Ok(())
 }
 
 fn repeated(bits: &mut Bits<'_>, symbol: u16, previous: u8) -> Result<Repeat, WebpError> {
-    Ok(match symbol {
-        0..=15 => {
-            let Ok(length) = fitted::<u16, u8>(symbol);
+  Ok(match symbol {
+    0..=15 => {
+      let Ok(length) = fitted::<u16, u8>(symbol);
 
-            Repeat { length, times: 1 }
-        },
-        16 => {
-            let Ok(more) = bits.held(2);
+      Repeat { length, times: 1 }
+    }
+    16 => {
+      let Ok(more) = bits.held(2);
 
-            Repeat { length: previous, times: more.saturating_add(3) }
-        },
-        17 => {
-            let Ok(more) = bits.held(3);
+      Repeat {
+        length: previous,
+        times: more.saturating_add(3),
+      }
+    }
+    17 => {
+      let Ok(more) = bits.held(3);
 
-            Repeat { length: 0, times: more.saturating_add(3) }
-        },
-        18 => {
-            let Ok(more) = bits.held(7);
+      Repeat {
+        length: 0,
+        times: more.saturating_add(3),
+      }
+    }
+    18 => {
+      let Ok(more) = bits.held(7);
 
-            Repeat { length: 0, times: more.saturating_add(11) }
-        },
-        _ => return Err(WebpError::Corrupt),
-    })
+      Repeat {
+        length: 0,
+        times: more.saturating_add(11),
+      }
+    }
+    _ => return Err(WebpError::Corrupt),
+  })
 }

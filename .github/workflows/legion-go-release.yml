@@ -1,0 +1,51 @@
+name: Legion Go release
+
+on:
+  push:
+    tags:
+      - 'legion-go-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init --quiet .
+          git fetch --quiet --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$GITHUB_REF"
+          git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$GITHUB_SHA^{commit}")"
+
+      - name: Build Legion Go binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target
+          docker run --rm --volume "$PWD:/build" --workdir /build \
+            --env CARGO_BUILD_JOBS=4 archlinux:base-devel bash -euc '
+              pacman -Syu --needed --noconfirm git libxcrypt pam rust wayland
+              pacman -Scc --noconfirm
+              git config --global --add safe.directory /build
+              rustc --edition=2024 -O tools/legion-go-bundle.rs -o target/legion-go-bundle
+              target/legion-go-bundle /build/legion-go-x86_64.tar.gz
+            '
+
+      - name: Publish the bundle
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^legion-go-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          gh release create "$GITHUB_REF_NAME" legion-go-x86_64.tar.gz \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest

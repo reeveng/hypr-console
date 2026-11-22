@@ -26,9 +26,7 @@
 use crate::sweeping::{Migration, Moment, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1789935190),
-    says: "sweeping the picture press under its old name",
-    steps: &[
-        Step::Attic("/usr/local/bin/wallpaper-press"),
-    ],
+  moment: Moment(1789935190),
+  says: "sweeping the picture press under its old name",
+  steps: &[Step::Attic("/usr/local/bin/wallpaper-press")],
 };

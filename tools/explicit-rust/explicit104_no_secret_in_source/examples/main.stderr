@@ -1,0 +1,35 @@
+warning: `DEFAULT_PASSWORD` is a secret by its name, and its value is typed out here
+  --> $DIR/main.rs:2:1
+   |
+LL | const DEFAULT_PASSWORD: &str = "console";
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: read it at the edge, from the keyring or a file only its owner can open, and hand it inward in a type made for one. Where the word is one nothing anywhere accepts -- a test typing into a field -- allow this rule here and let the reason say so
+   = note: `#[warn(explicit104_no_secret_in_source)]` on by default
+
+warning: `WIFI_PSK` is a secret by its name, and its value is typed out here
+  --> $DIR/main.rs:5:1
+   |
+LL | static WIFI_PSK: &[u8] = b"at-home";
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: read it at the edge, from the keyring or a file only its owner can open, and hand it inward in a type made for one. Where the word is one nothing anywhere accepts -- a test typing into a field -- allow this rule here and let the reason say so
+
+warning: `password` is a secret by its name, and its value is typed out here
+  --> $DIR/main.rs:19:9
+   |
+LL |         password: "console".to_string(),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: read it at the edge, from the keyring or a file only its owner can open, and hand it inward in a type made for one. Where the word is one nothing anywhere accepts -- a test typing into a field -- allow this rule here and let the reason say so
+
+warning: `passphrase` is a secret by its name, and its value is typed out here
+  --> $DIR/main.rs:25:5
+   |
+LL |     let passphrase = String::from("correct horse");
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: read it at the edge, from the keyring or a file only its owner can open, and hand it inward in a type made for one. Where the word is one nothing anywhere accepts -- a test typing into a field -- allow this rule here and let the reason say so
+
+warning: 4 warnings emitted
+

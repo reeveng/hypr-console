@@ -5,7 +5,8 @@
 //! the machine is stopped for it. Where each of them starts is a person's own
 //! answer -- twenty-five is early on a quiet evening and late in a game -- so
 //! the three numbers are settings, kept where the other settings no one else
-//! owns are kept, and this is the shape of them.
+//! owns are kept, and this is the shape of them. At 1% there is a final
+//! safeguard even when all three configurable steps are turned off.
 //!
 //! It is the one reading on this device that moves without anyone pressing
 //! anything, which is what makes it worth saying and also what makes it harder
@@ -42,189 +43,216 @@ use console_core_words::Words;
 
 const NOTHING_SAID: &str = "";
 
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Words)]
 pub enum Step {
-    #[words(word = "low", key = "battery-low", says = "Low Battery Alert", about = "say it is getting low")]
-    Low,
-    #[words(word = "lower", key = "battery-lower", says = "Very Low Battery Alert", about = "say it is getting really low")]
-    Lower,
-    #[words(word = "protect", key = "battery-protect", says = "Shut Down Before Empty", about = "say the machine is stopping, wait, and stop it")]
-    Protect,
+  #[words(
+    word = "low",
+    key = "battery-low",
+    says = "Low Battery Alert",
+    about = "say it is getting low"
+  )]
+  Low,
+  #[words(
+    word = "lower",
+    key = "battery-lower",
+    says = "Very Low Battery Alert",
+    about = "say it is getting really low"
+  )]
+  Lower,
+  #[words(
+    word = "protect",
+    key = "battery-protect",
+    says = "Shut Down Before Empty",
+    about = "say the machine is stopping, wait, and stop it"
+  )]
+  Protect,
 }
 
 impl Subcommand for Step {
-    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
-        Ok(Step::VARIANTS.iter().copied())
-    }
+  fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+    Ok(Step::VARIANTS.iter().copied())
+  }
 
-    fn spelling(self) -> Result<&'static str, Never> {
-        self.word()
-    }
+  fn spelling(self) -> Result<&'static str, Never> {
+    self.word()
+  }
 
-    fn about(self) -> Result<&'static str, Never> {
-        Step::about(self)
-    }
+  fn about(self) -> Result<&'static str, Never> {
+    Step::about(self)
+  }
 }
 
 pub const EVERY: [Step; 3] = [Step::Low, Step::Lower, Step::Protect];
 
+pub const EMERGENCY_PERCENT: i32 = 1;
+
 impl Step {
-    pub fn at(self) -> Result<i32, Never> {
-        Ok(match self {
-            Step::Low => 25,
-            Step::Lower => 10,
-            Step::Protect => 5,
-        })
+  pub fn at(self) -> Result<i32, Never> {
+    Ok(match self {
+      Step::Low => 25,
+      Step::Lower => 10,
+      Step::Protect => 5,
+    })
+  }
+
+  pub fn number(self) -> Result<u32, Never> {
+    Ok(match self {
+      Step::Low => 1,
+      Step::Lower => 2,
+      Step::Protect => 3,
+    })
+  }
+
+  pub fn of_number(number: u32) -> Result<Option<Self>, Never> {
+    for step in EVERY {
+      let numbered = step.number()?;
+
+      match ::core::primitive::bool::then_some(numbered == number, ()) {
+        ::core::option::Option::Some(()) => return Ok(Some(step)),
+        ::core::option::Option::None => {}
+      }
     }
 
-    pub fn number(self) -> Result<u32, Never> {
-        Ok(match self {
-            Step::Low => 1,
-            Step::Lower => 2,
-            Step::Protect => 3,
-        })
-    }
-
-    pub fn of_number(number: u32) -> Result<Option<Self>, Never> {
-        for step in EVERY {
-            let numbered = step.number()?;
-
-            match numbered == number {
-                true => return Ok(Some(step)),
-                false => {},
-            }
-        }
-
-        Ok(None)
-    }
+    Ok(None)
+  }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Levels {
-    pub low: i32,
-    pub lower: i32,
-    pub protect: i32,
+  pub low: i32,
+  pub lower: i32,
+  pub protect: i32,
 }
 
 impl Default for Levels {
-    fn default() -> Self {
-        let Ok(low) = Step::Low.at();
-        let Ok(lower) = Step::Lower.at();
-        let Ok(protect) = Step::Protect.at();
+  fn default() -> Self {
+    let Ok(low) = Step::Low.at();
+    let Ok(lower) = Step::Lower.at();
+    let Ok(protect) = Step::Protect.at();
 
-        Levels { low, lower, protect }
+    Levels {
+      low,
+      lower,
+      protect,
     }
+  }
 }
 
 pub const NEVER: i32 = 0;
 
 impl Levels {
-    pub fn at(self, step: Step) -> Result<i32, Never> {
-        Ok(match step {
-            Step::Low => self.low,
-            Step::Lower => self.lower,
-            Step::Protect => self.protect,
-        })
+  pub fn at(self, step: Step) -> Result<i32, Never> {
+    Ok(match step {
+      Step::Low => self.low,
+      Step::Lower => self.lower,
+      Step::Protect => self.protect,
+    })
+  }
+
+  pub fn with(self, step: Step, level: i32) -> Result<Self, Never> {
+    let (floor, ceiling) = match step {
+      Step::Low => (self.lower, 100),
+      Step::Lower => (self.protect, self.low),
+      Step::Protect => (NEVER, self.lower),
+    };
+    let level_2 = level.clamp(floor, ceiling);
+    let mut levels = self;
+
+    match step {
+      Step::Low => levels.low = level_2,
+      Step::Lower => levels.lower = level_2,
+      Step::Protect => levels.protect = level_2,
     }
 
-    pub fn with(self, step: Step, level: i32) -> Result<Self, Never> {
-        let (floor, ceiling) = match step {
-            Step::Low => (self.lower, 100),
-            Step::Lower => (self.protect, self.low),
-            Step::Protect => (NEVER, self.lower),
-        };
-        let level = level.clamp(floor, ceiling);
-        let mut levels = self;
+    Ok(levels)
+  }
 
-        match step {
-            Step::Low => levels.low = level,
-            Step::Lower => levels.lower = level,
-            Step::Protect => levels.protect = level,
+  pub fn sane(self) -> Result<Self, Never> {
+    let low = self.low.clamp(NEVER, 100);
+    let lower = self.lower.clamp(NEVER, low);
+    let protect = self.protect.clamp(NEVER, lower);
+
+    Ok(Levels {
+      low,
+      lower,
+      protect,
+    })
+  }
+
+  pub fn read(said: &str) -> Result<Self, Never> {
+    let settings = console_defaults::read(said)?;
+    let mut levels = Levels::default();
+
+    for step in EVERY {
+      let key = step.key()?;
+      let found = settings.iter().find(|(named, _)| named == key);
+
+      let (_key, value) = match found {
+        Some((_key, value)) => (_key, value),
+        None => continue,
+      };
+
+      let level = match value.parse() {
+        Ok(level) => level,
+        Err(fault) => {
+          eprintln!("console-battery: {key}: {value:?}: {fault}");
+
+          continue;
         }
+      };
 
-        Ok(levels)
+      match step {
+        Step::Low => levels.low = level,
+        Step::Lower => levels.lower = level,
+        Step::Protect => levels.protect = level,
+      }
     }
 
-    pub fn sane(self) -> Result<Self, Never> {
-        let low = self.low.clamp(NEVER, 100);
-        let lower = self.lower.clamp(NEVER, low);
-        let protect = self.protect.clamp(NEVER, lower);
+    levels.sane()
+  }
 
-        Ok(Levels { low, lower, protect })
-    }
+  pub fn here() -> Result<Self, Never> {
+    let at = console_defaults::where_()?;
 
-    pub fn read(said: &str) -> Result<Self, Never> {
-        let settings = console_defaults::read(said)?;
-        let mut levels = Levels::default();
+    let said =
+      match at.map(|settings_path| console_core_atomic_writes::text_or_empty(&settings_path)) {
+        Some(Ok(said)) => said,
+        None => String::new(),
+        Some(Err(fault)) => {
+          eprintln!("console-battery: {fault}");
 
-        for step in EVERY {
-            let key = step.key()?;
-            let found = settings.iter().find(|(named, _)| named == key);
-
-            let (_key, value) = match found {
-                Some((_key, value)) => (_key, value),
-                None => continue,
-            };
-
-            let level = match value.parse() {
-                Ok(level) => level,
-                Err(fault) => {
-                    eprintln!("console-battery: {key}: {value:?}: {fault}");
-
-                    continue;
-                }
-            };
-
-            match step {
-                Step::Low => levels.low = level,
-                Step::Lower => levels.lower = level,
-                Step::Protect => levels.protect = level,
-            }
+          String::new()
         }
+      };
 
-        levels.sane()
+    Levels::read(&said)
+  }
+
+  pub fn set(self, step: Step, level: i32) -> Result<Self, Never> {
+    let moved = self.with(step, level)?;
+    let key = step.key()?;
+    let at = moved.at(step)?;
+
+    console_defaults::set(console_defaults::Setting {
+      key,
+      value: &at.to_string(),
+    })?;
+
+    Ok(moved)
+  }
+
+  pub fn step_at(self, charge: i32) -> Result<Option<Step>, Never> {
+    for step in EVERY.into_iter().rev() {
+      let level = self.at(step)?;
+
+      match ::core::primitive::bool::then_some(level != NEVER && charge <= level, ()) {
+        ::core::option::Option::Some(()) => return Ok(Some(step)),
+        ::core::option::Option::None => {}
+      }
     }
 
-    pub fn here() -> Result<Self, Never> {
-        let at = console_defaults::where_()?;
-
-        let said = match at.map(|at| console_core_atomic_writes::text_or_empty(&at)) {
-            Some(Ok(said)) => said,
-            None => String::new(),
-            Some(Err(fault)) => {
-                eprintln!("console-battery: {fault}");
-
-                String::new()
-            }
-        };
-
-
-        Levels::read(&said)
-    }
-
-    pub fn set(self, step: Step, level: i32) -> Result<Self, Never> {
-        let moved = self.with(step, level)?;
-        let key = step.key()?;
-        let at = moved.at(step)?;
-
-        console_defaults::set(console_defaults::Setting { key, value: &at.to_string() })?;
-
-        Ok(moved)
-    }
-
-    pub fn step_at(self, charge: i32) -> Result<Option<Step>, Never> {
-        for step in EVERY.into_iter().rev() {
-            let level = self.at(step)?;
-
-            match level != NEVER && charge <= level {
-                true => return Ok(Some(step)),
-                false => {},
-            }
-        }
-
-        Ok(None)
-    }
+    Ok(None)
+  }
 }
 
 pub const SUPPLIES: &str = "/sys/class/power_supply";
@@ -239,378 +267,600 @@ pub const FULL: &str = "Full";
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Words)]
 pub enum Mains {
-    #[words(word = "plugged")]
-    On,
-    #[words(word = "unplugged")]
-    Off,
-    #[default]
-    #[words(word = "unasked")]
-    NothingToAsk,
+  #[words(word = "plugged")]
+  On,
+  #[words(word = "unplugged")]
+  Off,
+  #[default]
+  #[words(word = "unasked")]
+  NothingToAsk,
 }
 
 impl Mains {
-    pub fn parse(word: &str) -> Result<Self, Never> {
-        Ok(match word {
-            "plugged" => Mains::On,
-            "unplugged" => Mains::Off,
-            _nothing_said_about_a_cable => Mains::NothingToAsk,
-        })
-    }
+  pub fn parse(word: &str) -> Result<Self, Never> {
+    Ok(match word {
+      "plugged" => Mains::On,
+      "unplugged" => Mains::Off,
+      _nothing_said_about_a_cable => Mains::NothingToAsk,
+    })
+  }
 }
 
 pub fn mains() -> Result<Mains, Never> {
-    let supplies = match std::fs::read_dir(SUPPLIES) {
-        Ok(supplies) => supplies,
-        Err(_this_machine_says_nothing_about_its_supplies) => return Ok(Mains::NothingToAsk),
+  let supplies = match std::fs::read_dir(SUPPLIES) {
+    Ok(supplies) => supplies,
+    Err(_this_machine_says_nothing_about_its_supplies) => return Ok(Mains::NothingToAsk),
+  };
+  let mut found = Mains::NothingToAsk;
+
+  for supply in supplies.flatten() {
+    let at = supply.path();
+
+    let kind = match std::fs::read_to_string(at.join("type")) {
+      Ok(kind) => kind,
+      Err(_not_a_supply_that_says_what_it_is) => continue,
     };
-    let mut found = Mains::NothingToAsk;
 
-    for supply in supplies.flatten() {
-        let at = supply.path();
-
-        let kind = match std::fs::read_to_string(at.join("type")) {
-            Ok(kind) => kind,
-            Err(_not_a_supply_that_says_what_it_is) => continue,
-        };
-
-        match kind.trim() == MAINS {
-            true => {},
-            false => continue,
-        }
-
-        let online = match std::fs::read_to_string(at.join("online")) {
-            Ok(online) => online,
-            Err(_a_mains_supply_that_will_not_say) => continue,
-        };
-
-        match online.trim() {
-            "1" => return Ok(Mains::On),
-            _not_this_one => found = Mains::Off,
-        }
+    match ::core::primitive::bool::then_some(kind.trim() == MAINS, ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => continue,
     }
 
-    Ok(found)
+    let online = match std::fs::read_to_string(at.join("online")) {
+      Ok(online) => online,
+      Err(_a_mains_supply_that_will_not_say) => continue,
+    };
+
+    match online.trim() {
+      "1" => return Ok(Mains::On),
+      _not_this_one => found = Mains::Off,
+    }
+  }
+
+  Ok(found)
 }
 
 pub fn charge() -> Result<String, Never> {
-    let Ok(mains) = mains();
-    let Ok(cable) = mains.word();
+  let Ok(mains) = mains();
+  let Ok(cable) = mains.word();
 
-    let supplies = match std::fs::read_dir(SUPPLIES) {
-        Ok(supplies) => supplies,
-        Err(_unreadable) => return Ok(String::new()),
-    };
+  let supplies = match std::fs::read_dir(SUPPLIES) {
+    Ok(supplies) => supplies,
+    Err(_unreadable) => return Ok(String::new()),
+  };
 
-    let found = supplies
-        .flatten()
-        .map(|supply| supply.path())
-        .filter(|at| {
-            at.file_name().is_some_and(|name| name.to_string_lossy().starts_with("BAT"))
-        })
-        .filter_map(|at| {
-            let (capacity, status) = match (
-                std::fs::read_to_string(at.join("capacity")),
-                std::fs::read_to_string(at.join("status")),
-            ) {
-                (Ok(capacity), Ok(status)) => (capacity, status),
-                (Err(_unreadable), _) | (_, Err(_unreadable)) => return None,
-            };
-
-            Some(format!("{} {cable} {}", capacity.trim(), status.trim()))
-        })
-        .next();
-
-    Ok(match found {
-        Some(said) => said,
-        None => String::new(),
+  let found = supplies
+    .flatten()
+    .map(|supply| supply.path())
+    .filter(|at| {
+      at.file_name()
+        .is_some_and(|name| name.as_encoded_bytes().starts_with(b"BAT"))
     })
+    .filter_map(|at| {
+      let (capacity, status) = match (
+        std::fs::read_to_string(at.join("capacity")),
+        std::fs::read_to_string(at.join("status")),
+      ) {
+        (Ok(capacity), Ok(status)) => (capacity, status),
+        (Err(_unreadable), _) | (_, Err(_unreadable)) => return None,
+      };
+
+      Some(format!("{} {cable} {}", capacity.trim(), status.trim()))
+    })
+    .next();
+
+  Ok(match found {
+    Some(said) => said,
+    None => String::new(),
+  })
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Charge {
-    pub percent: Option<i32>,
-    pub filling: Filling,
+  pub percent: Option<i32>,
+  pub filling: Filling,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Filling {
-    Yes,
-    Charged,
-    #[default]
-    No,
+  Yes,
+  Charged,
+  #[default]
+  No,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Cable {
-    Connected,
-    Disconnected,
+  Connected,
+  Disconnected,
 }
 
 impl Filling {
-    pub fn cable(self) -> Result<Cable, Never> {
-        Ok(match self {
-            Filling::Yes | Filling::Charged => Cable::Connected,
-            Filling::No => Cable::Disconnected,
-        })
-    }
+  pub fn cable(self) -> Result<Cable, Never> {
+    Ok(match self {
+      Filling::Yes | Filling::Charged => Cable::Connected,
+      Filling::No => Cable::Disconnected,
+    })
+  }
 }
 
 pub fn charging_state(mains: Mains, status: &str) -> Result<Filling, Never> {
-    Ok(match (mains, status) {
-        (_whatever_the_cable_says, CHARGING) => Filling::Yes,
-        (Mains::On, FULL) => Filling::Yes,
-        (Mains::On, _not_filling_but_on_the_cable) => Filling::Charged,
-        (Mains::Off | Mains::NothingToAsk, FULL) => Filling::No,
-        (Mains::Off | Mains::NothingToAsk, _on_its_own) => Filling::No,
-    })
+  Ok(match (mains, status) {
+    (_whatever_the_cable_says, CHARGING) => Filling::Yes,
+    (Mains::On, FULL) => Filling::Yes,
+    (Mains::On, _not_filling_but_on_the_cable) => Filling::Charged,
+    (Mains::Off | Mains::NothingToAsk, FULL) => Filling::No,
+    (Mains::Off | Mains::NothingToAsk, _on_its_own) => Filling::No,
+  })
 }
 
 impl Charge {
-    pub fn of(said: &str) -> Result<Self, Never> {
-        let mut words = said.split_whitespace();
-        let percent = words.next().and_then(|word| match word.parse() {
-            Ok(percent) => Some(percent),
-            Err(fault) => {
-                eprintln!("console-battery: the battery said {word:?}: {fault}");
+  pub fn emergency(self) -> Result<Option<i32>, Never> {
+    let cable = self.filling.cable()?;
 
-                None
-            }
-        });
+    Ok(match cable {
+      Cable::Connected => None,
+      Cable::Disconnected => self.percent.filter(|percent| *percent <= EMERGENCY_PERCENT),
+    })
+  }
 
-        let cable = match words.next() {
-            Some(cable) => cable,
-            None => NOTHING_SAID,
-        };
+  pub fn of(said: &str) -> Result<Self, Never> {
+    let mut words = said.split_whitespace();
+    let percent = words.next().and_then(|word| match word.parse() {
+      Ok(percent) => Some(percent),
+      Err(fault) => {
+        eprintln!("console-battery: the battery said {word:?}: {fault}");
 
-        let Ok(mains) = Mains::parse(cable);
-        let status = words.collect::<Vec<&str>>().join(" ");
-        let Ok(filling) = charging_state(mains, &status);
+        None
+      }
+    });
 
-        Ok(Charge { percent, filling })
-    }
+    let cable = match words.next() {
+      Some(cable) => cable,
+      None => NOTHING_SAID,
+    };
+
+    let Ok(mains) = Mains::parse(cable);
+    let status = words.collect::<Vec<&str>>().join(" ");
+    let Ok(filling) = charging_state(mains, &status);
+
+    Ok(Charge { percent, filling })
+  }
 }
 
 pub const MARGIN: i32 = 3;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum Action {
+  Configured(Step),
+  Emergency,
+}
+
+const EMERGENCY_NUMBER: u32 = 4;
+
+impl Action {
+  pub fn word(self) -> Result<&'static str, Never> {
+    match self {
+      Self::Configured(step) => step.word(),
+      Self::Emergency => Ok("emergency"),
+    }
+  }
+
+  pub fn number(self) -> Result<u32, Never> {
+    match self {
+      Self::Configured(step) => step.number(),
+      Self::Emergency => Ok(EMERGENCY_NUMBER),
+    }
+  }
+
+  pub fn of_number(number: u32) -> Result<Option<Self>, Never> {
+    match number {
+      EMERGENCY_NUMBER => Ok(Some(Self::Emergency)),
+      _ => {
+        let Ok(step) = Step::of_number(number);
+
+        Ok(step.map(Self::Configured))
+      }
+    }
+  }
+}
+
+impl Subcommand for Action {
+  fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+    Ok(
+      EVERY
+        .into_iter()
+        .map(Self::Configured)
+        .chain([Self::Emergency]),
+    )
+  }
+
+  fn spelling(self) -> Result<&'static str, Never> {
+    self.word()
+  }
+
+  fn about(self) -> Result<&'static str, Never> {
+    match self {
+      Self::Configured(step) => step.about(),
+      Self::Emergency => Ok("put the machine to sleep when it is unplugged at 1% or less"),
+    }
+  }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Alert {
-    pub act: Option<Step>,
-    pub told: Option<Step>,
+  pub act: Option<Action>,
+  pub told: Option<Action>,
 }
 
 pub fn alert(
-    levels: Levels,
-    charge: i32,
-    filling: Filling,
-    told: Option<Step>,
+  levels: Levels,
+  charge: i32,
+  filling: Filling,
+  told: Option<Action>,
 ) -> Result<Alert, Never> {
-    let Ok(cable) = filling.cable();
+  let Ok(cable) = filling.cable();
 
-    match cable {
-        Cable::Connected => return Ok(Alert { act: None, told: None }),
-        Cable::Disconnected => {}
+  match cable {
+    Cable::Connected => {
+      return Ok(Alert {
+        act: None,
+        told: None,
+      });
     }
+    Cable::Disconnected => {}
+  }
 
-    let held = match told {
-        Some(step) => {
-            let level = levels.at(step)?;
+  let held = match told {
+    Some(action) => {
+      let level = match action {
+        Action::Configured(step) => levels.at(step)?,
+        Action::Emergency => EMERGENCY_PERCENT,
+      };
 
-            match charge < level.saturating_add(MARGIN) {
-                true => Some(step),
-                false => None,
-            }
-        }
-        None => None,
-    };
+      match ::core::primitive::bool::then_some(charge < level.saturating_add(MARGIN), ()) {
+        ::core::option::Option::Some(()) => Some(action),
+        ::core::option::Option::None => None,
+      }
+    }
+    None => None,
+  };
 
-    let reached = levels.step_at(charge)?;
+  let reached = match ::core::primitive::bool::then_some(charge <= EMERGENCY_PERCENT, ()) {
+    ::core::option::Option::Some(()) => Some(Action::Emergency),
+    ::core::option::Option::None => {
+      let Ok(step) = levels.step_at(charge);
 
-    Ok(match reached {
-        Some(now) => match held.is_none_or(|before| now > before) {
-            true => Alert { act: Some(now), told: Some(now) },
-            false => Alert { act: None, told: held },
-        },
-        None => Alert { act: None, told: held },
-    })
+      step.map(Action::Configured)
+    }
+  };
+
+  Ok(match reached {
+    Some(now) => match ::core::primitive::bool::then_some(held.is_none_or(|before| now > before), ()) {
+      ::core::option::Option::Some(()) => Alert {
+        act: Some(now),
+        told: Some(now),
+      },
+      ::core::option::Option::None => Alert {
+        act: None,
+        told: held,
+      },
+    },
+    None => Alert {
+      act: None,
+      told: held,
+    },
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_step_is_said_once_and_not_again_while_it_is_held() {
-        let levels = Levels::default();
-        let Ok(first) = alert(levels, 19, Filling::No, None);
+  #[test]
+  fn a_step_is_said_once_and_not_again_while_it_is_held() {
+    let levels = Levels::default();
+    let Ok(first) = alert(levels, 19, Filling::No, None);
 
-        assert_eq!(first, Alert { act: Some(Step::Low), told: Some(Step::Low) });
+    assert_eq!(
+      first,
+      Alert {
+        act: Some(Action::Configured(Step::Low)),
+        told: Some(Action::Configured(Step::Low))
+      }
+    );
 
-        let Ok(again) = alert(levels, 19, Filling::No, first.told);
+    let Ok(again) = alert(levels, 19, Filling::No, first.told);
 
-        assert_eq!(again, Alert { act: None, told: Some(Step::Low) });
+    assert_eq!(
+      again,
+      Alert {
+        act: None,
+        told: Some(Action::Configured(Step::Low))
+      }
+    );
 
-        let Ok(lower) = alert(levels, 18, Filling::No, again.told);
+    let Ok(lower) = alert(levels, 18, Filling::No, again.told);
 
-        assert_eq!(lower.act, None, "still the same step");
+    assert_eq!(lower.act, None, "still the same step");
+  }
+
+  #[test]
+  fn a_reading_that_falls_through_two_steps_owes_the_deeper_one() {
+    let Ok(said) = alert(
+      Levels::default(),
+      4,
+      Filling::No,
+      Some(Action::Configured(Step::Low)),
+    );
+
+    assert_eq!(
+      said,
+      Alert {
+        act: Some(Action::Configured(Step::Protect)),
+        told: Some(Action::Configured(Step::Protect))
+      }
+    );
+  }
+
+  #[test]
+  fn nothing_happens_to_a_battery_that_is_filling() {
+    let Ok(said) = alert(
+      Levels::default(),
+      3,
+      Filling::Yes,
+      Some(Action::Configured(Step::Lower)),
+    );
+
+    assert_eq!(
+      said,
+      Alert {
+        act: None,
+        told: None
+      }
+    );
+  }
+
+  #[test]
+  fn nothing_happens_to_a_battery_on_the_cable_that_is_not_filling() {
+    let Ok(said) = alert(
+      Levels::default(),
+      3,
+      Filling::Charged,
+      Some(Action::Configured(Step::Lower)),
+    );
+
+    assert_eq!(
+      said,
+      Alert {
+        act: None,
+        told: None
+      },
+      "a machine at its charge limit was told it was about to run out"
+    );
+  }
+
+  #[test]
+  fn a_battery_that_is_not_filling_on_the_cable_is_still_on_the_cable() {
+    assert_eq!(Filling::Charged.cable(), Ok(Cable::Connected));
+    assert_eq!(Filling::Yes.cable(), Ok(Cable::Connected));
+    assert_eq!(Filling::No.cable(), Ok(Cable::Disconnected));
+  }
+
+  #[test]
+  fn a_charge_limit_reads_as_held_and_not_as_a_machine_running_flat() {
+    let Ok(said) = charging_state(Mains::On, "Not charging");
+
+    assert_eq!(said, Filling::Charged);
+    assert_eq!(
+      Charge::of("78 plugged Not charging"),
+      Ok(Charge {
+        percent: Some(78),
+        filling: Filling::Charged
+      })
+    );
+  }
+
+  #[test]
+  fn a_machine_with_no_mains_supply_is_read_the_way_it_always_was() {
+    assert_eq!(
+      charging_state(Mains::NothingToAsk, "Charging"),
+      Ok(Filling::Yes)
+    );
+    assert_eq!(
+      charging_state(Mains::NothingToAsk, "Discharging"),
+      Ok(Filling::No)
+    );
+    assert_eq!(
+      charging_state(Mains::NothingToAsk, "Not charging"),
+      Ok(Filling::No)
+    );
+  }
+
+  #[test]
+  fn a_cable_that_is_out_is_a_battery_on_its_own_whatever_it_is_full_of() {
+    assert_eq!(charging_state(Mains::Off, "Full"), Ok(Filling::No));
+    assert_eq!(charging_state(Mains::On, "Full"), Ok(Filling::Yes));
+  }
+
+  #[test]
+  fn what_the_cable_is_called_survives_being_written_down_and_read_back() {
+    for mains in [Mains::On, Mains::Off, Mains::NothingToAsk] {
+      let Ok(word) = mains.word();
+
+      assert_eq!(Mains::parse(word), Ok(mains));
     }
 
-    #[test]
-    fn a_reading_that_falls_through_two_steps_owes_the_deeper_one() {
-        let Ok(said) = alert(Levels::default(), 4, Filling::No, Some(Step::Low));
+    assert_eq!(Mains::parse("something else"), Ok(Mains::NothingToAsk));
+  }
 
-        assert_eq!(said, Alert { act: Some(Step::Protect), told: Some(Step::Protect) });
-    }
+  #[test]
+  fn a_charge_that_climbs_clear_of_a_step_can_meet_it_again() {
+    let levels = Levels::default();
+    let Ok(climbed) = alert(levels, 40, Filling::No, Some(Action::Configured(Step::Low)));
+    let Ok(met) = alert(levels, 24, Filling::No, None);
 
-    #[test]
-    fn nothing_happens_to_a_battery_that_is_filling() {
-        let Ok(said) = alert(Levels::default(), 3, Filling::Yes, Some(Step::Lower));
+    assert_eq!(climbed.told, None);
+    assert_eq!(met.act, Some(Action::Configured(Step::Low)));
+  }
 
-        assert_eq!(said, Alert { act: None, told: None });
-    }
+  #[test]
+  fn a_reading_wobbling_on_a_step_does_not_say_it_twice() {
+    let levels = Levels::default();
+    let Ok(said) = alert(levels, 25, Filling::No, None);
 
-    #[test]
-    fn nothing_happens_to_a_battery_on_the_cable_that_is_not_filling() {
-        let Ok(said) = alert(Levels::default(), 3, Filling::Charged, Some(Step::Lower));
+    assert_eq!(said.act, Some(Action::Configured(Step::Low)));
 
-        assert_eq!(
-            said,
-            Alert { act: None, told: None },
-            "a machine at its charge limit was told it was about to run out"
+    let Ok(above) = alert(levels, 26, Filling::No, said.told);
+    let Ok(back) = alert(levels, 25, Filling::No, said.told);
+
+    assert_eq!(above.told, Some(Action::Configured(Step::Low)));
+    assert_eq!(back.act, None);
+  }
+
+  #[test]
+  fn a_step_set_to_never_is_never_reached() {
+    let levels = Levels {
+      low: 25,
+      lower: 10,
+      protect: NEVER,
+    };
+
+    assert_eq!(levels.step_at(0), Ok(Some(Step::Lower)));
+    assert_eq!(
+      Levels {
+        low: NEVER,
+        lower: NEVER,
+        protect: NEVER
+      }
+      .step_at(0),
+      Ok(None)
+    );
+  }
+
+  #[test]
+  fn the_final_safeguard_overrides_settings_and_earlier_alerts() {
+    let disabled = Levels {
+      low: NEVER,
+      lower: NEVER,
+      protect: NEVER,
+    };
+
+    for levels in [disabled, Levels::default()] {
+      for percent in [0, EMERGENCY_PERCENT] {
+        let Ok(reached) = alert(
+          levels,
+          percent,
+          Filling::No,
+          Some(Action::Configured(Step::Protect)),
         );
-    }
-
-    #[test]
-    fn a_battery_that_is_not_filling_on_the_cable_is_still_on_the_cable() {
-        assert_eq!(Filling::Charged.cable(), Ok(Cable::Connected));
-        assert_eq!(Filling::Yes.cable(), Ok(Cable::Connected));
-        assert_eq!(Filling::No.cable(), Ok(Cable::Disconnected));
-    }
-
-    #[test]
-    fn a_charge_limit_reads_as_held_and_not_as_a_machine_running_flat() {
-        let Ok(said) = charging_state(Mains::On, "Not charging");
-
-        assert_eq!(said, Filling::Charged);
-        assert_eq!(Charge::of("78 plugged Not charging"), Ok(Charge { percent: Some(78), filling: Filling::Charged }));
-    }
-
-    #[test]
-    fn a_machine_with_no_mains_supply_is_read_the_way_it_always_was() {
-        assert_eq!(charging_state(Mains::NothingToAsk, "Charging"), Ok(Filling::Yes));
-        assert_eq!(charging_state(Mains::NothingToAsk, "Discharging"), Ok(Filling::No));
-        assert_eq!(charging_state(Mains::NothingToAsk, "Not charging"), Ok(Filling::No));
-    }
-
-    #[test]
-    fn a_cable_that_is_out_is_a_battery_on_its_own_whatever_it_is_full_of() {
-        assert_eq!(charging_state(Mains::Off, "Full"), Ok(Filling::No));
-        assert_eq!(charging_state(Mains::On, "Full"), Ok(Filling::Yes));
-    }
-
-    #[test]
-    fn what_the_cable_is_called_survives_being_written_down_and_read_back() {
-        for mains in [Mains::On, Mains::Off, Mains::NothingToAsk] {
-            let Ok(word) = mains.word();
-
-            assert_eq!(Mains::parse(word), Ok(mains));
-        }
-
-        assert_eq!(Mains::parse("something else"), Ok(Mains::NothingToAsk));
-    }
-
-    #[test]
-    fn a_charge_that_climbs_clear_of_a_step_can_meet_it_again() {
-        let levels = Levels::default();
-        let Ok(climbed) = alert(levels, 40, Filling::No, Some(Step::Low));
-        let Ok(met) = alert(levels, 24, Filling::No, None);
-
-        assert_eq!(climbed.told, None);
-        assert_eq!(met.act, Some(Step::Low));
-    }
-
-    #[test]
-    fn a_reading_wobbling_on_a_step_does_not_say_it_twice() {
-        let levels = Levels::default();
-        let Ok(said) = alert(levels, 25, Filling::No, None);
-
-        assert_eq!(said.act, Some(Step::Low));
-
-        let Ok(above) = alert(levels, 26, Filling::No, said.told);
-        let Ok(back) = alert(levels, 25, Filling::No, said.told);
-
-        assert_eq!(above.told, Some(Step::Low));
-        assert_eq!(back.act, None);
-    }
-
-    #[test]
-    fn a_step_set_to_never_is_never_reached() {
-        let levels = Levels { low: 25, lower: 10, protect: NEVER };
-
-        assert_eq!(levels.step_at(0), Ok(Some(Step::Lower)));
-        assert_eq!(Levels { low: NEVER, lower: NEVER, protect: NEVER }.step_at(0), Ok(None));
-    }
-
-    #[test]
-    fn a_step_stops_where_the_one_under_it_is() {
-        let levels = Levels::default();
-        let Ok(up) = levels.with(Step::Lower, 30);
-        let Ok(down) = levels.with(Step::Lower, 0);
-        let Ok(full) = levels.with(Step::Low, 100);
-
-        assert_eq!(up.lower, levels.low);
-        assert_eq!(down.lower, levels.protect);
-        assert_eq!(full.low, 100);
-    }
-
-    #[test]
-    fn a_file_with_the_three_in_the_wrong_order_is_read_in_order() {
-        let said = "battery-low=5\nbattery-lower=40\nbattery-protect=90\n";
-
-        assert_eq!(Levels::read(said), Ok(Levels { low: 5, lower: 5, protect: 5 }));
-    }
-
-    #[test]
-    fn a_file_that_says_nothing_is_this_desktops_own_answers() {
-        assert_eq!(Levels::read(""), Ok(Levels::default()));
-        assert_eq!(Levels::read("search=startpage\n"), Ok(Levels::default()));
-    }
-
-    #[test]
-    fn a_charge_is_a_number_and_whether_it_is_filling() {
         assert_eq!(
-            Charge::of("72 unplugged Discharging"),
-            Ok(Charge { percent: Some(72), filling: Filling::No })
+          reached,
+          Alert {
+            act: Some(Action::Emergency),
+            told: Some(Action::Emergency)
+          }
         );
         assert_eq!(
-            Charge::of("100 plugged Full"),
-            Ok(Charge { percent: Some(100), filling: Filling::Yes })
+          alert(levels, percent, Filling::No, reached.told),
+          Ok(Alert {
+            act: None,
+            told: reached.told
+          })
         );
-        assert_eq!(Charge::of(""), Ok(Charge { percent: None, filling: Filling::No }));
+        assert_eq!(
+          alert(levels, percent, Filling::Charged, reached.told),
+          Ok(Alert {
+            act: None,
+            told: None
+          })
+        );
+      }
+    }
+  }
+
+  #[test]
+  fn a_step_stops_where_the_one_under_it_is() {
+    let levels = Levels::default();
+    let Ok(up) = levels.with(Step::Lower, 30);
+    let Ok(down) = levels.with(Step::Lower, 0);
+    let Ok(full) = levels.with(Step::Low, 100);
+
+    assert_eq!(up.lower, levels.low);
+    assert_eq!(down.lower, levels.protect);
+    assert_eq!(full.low, 100);
+  }
+
+  #[test]
+  fn a_file_with_the_three_in_the_wrong_order_is_read_in_order() {
+    let said = "battery-low=5\nbattery-lower=40\nbattery-protect=90\n";
+
+    assert_eq!(
+      Levels::read(said),
+      Ok(Levels {
+        low: 5,
+        lower: 5,
+        protect: 5
+      })
+    );
+  }
+
+  #[test]
+  fn a_file_that_says_nothing_is_this_desktops_own_answers() {
+    assert_eq!(Levels::read(""), Ok(Levels::default()));
+    assert_eq!(Levels::read("search=startpage\n"), Ok(Levels::default()));
+  }
+
+  #[test]
+  fn a_charge_is_a_number_and_whether_it_is_filling() {
+    assert_eq!(
+      Charge::of("72 unplugged Discharging"),
+      Ok(Charge {
+        percent: Some(72),
+        filling: Filling::No
+      })
+    );
+    assert_eq!(
+      Charge::of("100 plugged Full"),
+      Ok(Charge {
+        percent: Some(100),
+        filling: Filling::Yes
+      })
+    );
+    assert_eq!(
+      Charge::of(""),
+      Ok(Charge {
+        percent: None,
+        filling: Filling::No
+      })
+    );
+  }
+
+  #[test]
+  fn a_machine_with_no_battery_is_not_a_machine_about_to_stop() {
+    let Ok(none) = Charge::of("");
+    let Ok(empty) = Charge::of("0 unplugged Discharging");
+
+    assert_eq!(none.percent, None);
+    assert_eq!(empty.percent, Some(0));
+  }
+
+  #[test]
+  fn a_step_survives_as_one_number() {
+    let Ok(actions) = Action::variants();
+
+    for action in actions {
+      let Ok(number) = action.number();
+
+      assert_eq!(Action::of_number(number), Ok(Some(action)));
     }
 
-    #[test]
-    fn a_machine_with_no_battery_is_not_a_machine_about_to_stop() {
-        let Ok(none) = Charge::of("");
-        let Ok(empty) = Charge::of("0 unplugged Discharging");
+    assert_eq!(Action::of_number(0), Ok(None));
+  }
 
-        assert_eq!(none.percent, None);
-        assert_eq!(empty.percent, Some(0));
-    }
-
-    #[test]
-    fn a_step_survives_as_one_number() {
-        for step in EVERY {
-            let Ok(number) = step.number();
-
-            assert_eq!(Step::of_number(number), Ok(Some(step)));
-        }
-
-        assert_eq!(Step::of_number(0), Ok(None));
-    }
-
-    #[test]
-    fn a_step_is_asked_for_by_its_own_word() {
-        assert_eq!(Step::from_word("protect"), Ok(Some(Step::Protect)));
-        assert_eq!(Step::from_word("nothing"), Ok(None));
-    }
+  #[test]
+  fn a_step_is_asked_for_by_its_own_word() {
+    assert_eq!(Step::from_word("protect"), Ok(Some(Step::Protect)));
+    assert_eq!(Step::from_word("nothing"), Ok(None));
+  }
 }

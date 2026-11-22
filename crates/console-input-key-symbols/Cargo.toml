@@ -1,0 +1,15 @@
+[package]
+name = "console-input-key-symbols"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "XKB key symbols mapped to names, characters, and case."
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-perfect-hash.workspace = true
+
+[lints]
+workspace = true

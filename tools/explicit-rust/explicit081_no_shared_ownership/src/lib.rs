@@ -24,14 +24,14 @@
 //! `std::thread::scope` lends across threads for as long as the scope and no
 //! longer. Or keep it behind an actor (`console-actor`) that owns it and
 //! answers requests, which is the shape a panel's handlers are already moving
-//! toward (`docs/programs.md`): a button that sends its machine a request
-//! rather than holding a closure everybody holds. `Rc` is the same question on
-//! one thread, and the `Weak` of either is a handle to a value nobody owns that
-//! may already be gone, so the four are asked together -- an `Arc` denied alone
-//! is an `Rc` written instead. JPL's coding standard for flight software says
-//! the same as its eighth rule, about C: a data object in shared memory has a
-//! single owning task, and ownership passes between tasks explicitly,
-//! preferably by message.
+//! toward (the `programs.md` note in Orbit): a button that sends its machine a
+//! request rather than holding a closure everybody holds. `Rc` is the same
+//! question on one thread, and the `Weak` of either is a handle to a value
+//! nobody owns that may already be gone, so the four are asked together -- an
+//! `Arc` denied alone is an `Rc` written instead. JPL's coding standard for
+//! flight software says the same as its eighth rule, about C: a data object in
+//! shared memory has a single owning task, and ownership passes between tasks
+//! explicitly, preferably by message.
 //!
 //! What is read is the type as it is written -- a field, a signature, an
 //! alias, a binding, the `Arc` in `Arc::new` and `Arc::clone` -- and a

@@ -1,0 +1,43 @@
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/unconverted.rs:12:5
+   |
+LL |     setup().unwrap();
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+   = note: `#[deny(explicit004_no_panic)]` on by default
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/unconverted.rs:17:5
+   |
+LL |     setup().unwrap();
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/unconverted.rs:23:23
+   |
+LL |     let action = || { setup().unwrap(); };
+   |                       ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/unconverted.rs:29:5
+   |
+LL |     setup().unwrap();
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/unconverted.rs:42:5
+   |
+LL |     setup().unwrap();
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: aborting due to 5 previous errors
+

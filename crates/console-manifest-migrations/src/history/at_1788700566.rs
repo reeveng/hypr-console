@@ -14,9 +14,7 @@
 use crate::sweeping::{Migration, Moment, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1788700566),
-    says: "sweeping the reader under its old name",
-    steps: &[
-        Step::Attic("/usr/local/bin/console-wait-times"),
-    ],
+  moment: Moment(1788700566),
+  says: "sweeping the reader under its old name",
+  steps: &[Step::Attic("/usr/local/bin/console-wait-times")],
 };

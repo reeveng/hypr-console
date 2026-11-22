@@ -1,0 +1,28 @@
+error: `end` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/stored_result_positions.rs:30:12
+   |
+LL |     let Ok(end) = last(&Stamp(trace));
+   |            ^^^
+   |
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+help: hold this position at a fixed width and convert it where the API needs a native index
+   |
+LL ~     let Ok(end) = ::console_core_number_conversion::fixed_index(match last(&Stamp(trace)) { ::core::result::Result::Ok(end) => end });
+LL |     trace.set(trace.get() * 10 + 3);
+LL ~     &data[..match ::console_core_number_conversion::index(end) { ::core::result::Result::Ok(native_position_) => native_position_ }]
+   |
+
+error: `offset` holds a `isize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/stored_result_positions.rs:38:12
+   |
+LL |     let Ok(offset) = base();
+   |            ^^^^^^
+   |
+help: hold this position at a fixed width and convert it where the API needs a native index
+   |
+LL ~     let Ok(offset) = ::console_core_number_conversion::fixed_offset(match base() { ::core::result::Result::Ok(offset) => offset });
+LL ~     (match ::console_core_number_conversion::wrapped_offset(offset) { ::core::result::Result::Ok(native_position_) => native_position_ }).wrapping_sub(distance)
+   |
+
+error: aborting due to 2 previous errors
+

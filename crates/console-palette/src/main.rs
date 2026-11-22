@@ -11,16 +11,16 @@
 //! everything else and `console check` reports a drifted color like any other
 //! drift.
 
+mod configuration;
 mod measure;
 mod palette;
 mod region;
 mod report;
-mod configuration;
 mod spend;
 mod terminal;
 
-use console_core_color::Short;
 use console_core_arguments::{Command, Flag, Operands, Presence, Takes, ValidationError};
+use console_core_color::Short;
 use console_core_never::Never;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -31,195 +31,200 @@ use terminal::Terminal;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Effect {
-    Write,
-    Check,
+  Write,
+  Check,
 }
 
 #[derive(Debug)]
 enum Unspent {
-    Rootless(console_repository::NotFound),
-    Undeclared(std::io::Error),
-    Unparsed(toml::de::Error),
-    Color(Short),
-    FallsShort(String),
-    Read(PathBuf, std::io::Error),
-    NoRegion(PathBuf),
-    Holding(PathBuf, std::io::Error),
-    Writing(console_core_atomic_writes::Unwritten),
+  Rootless(console_repository::NotFound),
+  Undeclared(std::io::Error),
+  Unparsed(toml::de::Error),
+  Color(Short),
+  FallsShort(String),
+  Read(PathBuf, std::io::Error),
+  NoRegion(PathBuf),
+  Holding(PathBuf, std::io::Error),
+  Writing(console_core_atomic_writes::Unwritten),
 }
 
 impl std::fmt::Display for Unspent {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unspent::Rootless(fault) => write!(to, "{fault}"),
-            Unspent::Undeclared(fault) => {
-                write!(to, "theme/palette.toml could not be read: {fault}")
-            }
-            Unspent::Unparsed(fault) => write!(to, "theme/palette.toml does not parse: {fault}"),
-            Unspent::Color(fault) => write!(to, "{fault}"),
-            Unspent::FallsShort(complaint) => write!(to, "{complaint}"),
-            Unspent::Read(at, fault) => {
-                write!(to, "{} could not be read: {fault}", at.display())
-            }
-            Unspent::NoRegion(at) => write!(
-                to,
-                "{} has no single {}..{} to write into",
-                at.display(),
-                region::BEGIN,
-                region::END
-            ),
-            Unspent::Holding(at, fault) => {
-                write!(to, "{} could not be made: {fault}", at.display())
-            }
-            Unspent::Writing(fault) => write!(to, "{fault}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unspent::Rootless(fault) => write!(to, "{fault}"),
+      Unspent::Undeclared(fault) => {
+        write!(to, "theme/palette.toml could not be read: {fault}")
+      }
+      Unspent::Unparsed(fault) => write!(to, "theme/palette.toml does not parse: {fault}"),
+      Unspent::Color(fault) => write!(to, "{fault}"),
+      Unspent::FallsShort(complaint) => write!(to, "{complaint}"),
+      Unspent::Read(at, fault) => {
+        write!(to, "{} could not be read: {fault}", at.display())
+      }
+      Unspent::NoRegion(at) => write!(
+        to,
+        "{} has no single {}..{} to write into",
+        at.display(),
+        region::BEGIN,
+        region::END
+      ),
+      Unspent::Holding(at, fault) => {
+        write!(to, "{} could not be made: {fault}", at.display())
+      }
+      Unspent::Writing(fault) => write!(to, "{fault}"),
     }
+  }
 }
 
 impl std::error::Error for Unspent {}
 
 impl From<console_repository::NotFound> for Unspent {
-    fn from(fault: console_repository::NotFound) -> Self {
-        Unspent::Rootless(fault)
-    }
+  fn from(fault: console_repository::NotFound) -> Self {
+    Unspent::Rootless(fault)
+  }
 }
 
 impl From<Short> for Unspent {
-    fn from(fault: Short) -> Self {
-        Unspent::Color(fault)
-    }
+  fn from(fault: Short) -> Self {
+    Unspent::Color(fault)
+  }
 }
 
 fn main() -> ExitCode {
-    let said: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(code) = console_core_arguments::run_main(&COMMAND, &said, effect, run);
+  let said: Vec<String> = std::env::args().skip(1).collect();
+  let Ok(code) = console_core_arguments::run_main(&COMMAND, &said, effect, run);
 
-    code
+  code
 }
 
-const CHECK: Flag = Flag { spelling: "--check", takes: Takes::None, about: "say what it would change, and change nothing" };
+const CHECK: Flag = Flag {
+  spelling: "--check",
+  takes: Takes::None,
+  about: "say what it would change, and change nothing",
+};
 
 const COMMAND: Command = Command {
-    name: "console-palette",
-    about: "write the palette out of theme/palette.toml into every file that spends it",
-    flags: &[CHECK],
-    operands: Operands::None,
+  name: "console-palette",
+  about: "write the palette out of theme/palette.toml into every file that spends it",
+  flags: &[CHECK],
+  operands: Operands::None,
 };
 
 fn effect(said: &[String]) -> Result<Effect, ValidationError> {
-    let line = console_core_arguments::read(&COMMAND, said)?;
-    let Ok(checking) = line.presence(CHECK);
+  let line = console_core_arguments::read(&COMMAND, said)?;
+  let Ok(checking) = line.presence(CHECK);
 
-    Ok(match checking {
-        Presence::Present => Effect::Check,
-        Presence::Absent => Effect::Write,
-    })
+  Ok(match checking {
+    Presence::Present => Effect::Check,
+    Presence::Absent => Effect::Write,
+  })
 }
 
 fn run(doing: Effect) -> Result<ExitCode, Unspent> {
+  let root = console_repository::root()?;
+  let declared = console_core_atomic_writes::read_text(&root.join("theme/palette.toml"))
+    .map_err(Unspent::Undeclared)?;
+  let configuration: configuration::Configuration =
+    toml::from_str(&declared).map_err(Unspent::Unparsed)?;
 
-    let root = console_repository::root()?;
-    let declared = std::fs::read_to_string(root.join("theme/palette.toml"))
-        .map_err(Unspent::Undeclared)?;
-    let configuration: configuration::Configuration = toml::from_str(&declared).map_err(Unspent::Unparsed)?;
+  let palette = palette::resolve(&configuration.color)?;
+  let rows = measure(&configuration, &palette)?;
 
-    let palette = palette::resolve(&configuration.color)?;
-    let rows = measure(&configuration, &palette)?;
+  let Ok(short) = falls_short(&rows);
 
-    let Ok(short) = falls_short(&rows);
+  match short {
+    Some(complaint) => return Err(Unspent::FallsShort(complaint)),
+    None => {}
+  }
 
-    match short {
-        Some(complaint) => return Err(Unspent::FallsShort(complaint)),
-        None => {},
-    }
+  let terminal = Terminal::of(&configuration, &palette)?;
+  let work = {
+    let mut work = spend::everywhere(&root.join("files"), &palette, &terminal)?;
+    let body = report::write(&configuration, &palette, &rows, &terminal)?;
 
-    let terminal = Terminal::of(&configuration, &palette)?;
-    let work = {
-        let mut work = spend::everywhere(&root.join("files"), &palette, &terminal)?;
-        let body = report::write(&configuration, &palette, &rows, &terminal)?;
+    work.push(Written {
+      path: root.join("theme/report.md"),
+      how: How::Whole,
+      body,
+    });
+    work.sort_by(|one, other| one.path.cmp(&other.path));
+    work
+  };
 
-        work.push(Written {
-            path: root.join("theme/report.md"),
-            how: How::Whole,
-            body,
-        });
-        work.sort_by(|one, other| one.path.cmp(&other.path));
-        work
-    };
+  let asked = work
+    .iter()
+    .map(|written| desired_contents(written).map(|body| (written, body)))
+    .collect::<Result<Vec<_>, Unspent>>()?;
+  let changed = asked
+    .into_iter()
+    .filter(|(written, body)| match std::fs::read(&written.path) {
+      Ok(held) => held != body.as_bytes(),
+      Err(_unreadable) => true,
+    })
+    .map(|(written, body)| match doing {
+      Effect::Check => Ok(written.path.clone()),
+      Effect::Write => write_file(&written.path, &body).map(|()| written.path.clone()),
+    })
+    .collect::<Result<Vec<PathBuf>, Unspent>>()?;
 
-    let asked = work
+  let Ok(()) = say(&configuration, &rows);
+
+  let named = |path: &Path| match path.strip_prefix(&root) {
+    Ok(under) => under.display().to_string(),
+    Err(_outside_the_tree) => path.display().to_string(),
+  };
+
+  match (doing, changed.as_slice()) {
+    (_, []) => println!("  every file already says this."),
+    (Effect::Check, paths) => {
+      paths
         .iter()
-        .map(|written| desired_contents(written).map(|body| (written, body)))
-        .collect::<Result<Vec<_>, Unspent>>()?;
-    let changed = asked
-        .into_iter()
-        .filter(|(written, body)| match std::fs::read(&written.path) {
-            Ok(held) => held != body.as_bytes(),
-            Err(_unreadable) => true,
-        })
-        .map(|(written, body)| match doing {
-            Effect::Check => Ok(written.path.clone()),
-            Effect::Write => write_file(&written.path, &body).map(|()| written.path.clone()),
-        })
-        .collect::<Result<Vec<PathBuf>, Unspent>>()?;
-
-    let Ok(()) = say(&configuration, &rows);
-
-    let named = |path: &Path| {
-        match path.strip_prefix(&root) {
-            Ok(under) => under.display().to_string(),
-            Err(_outside_the_tree) => path.display().to_string(),
-        }
-    };
-
-    match (doing, changed.as_slice()) {
-        (_, []) => println!("  every file already says this."),
-        (Effect::Check, paths) => {
-            paths
-                .iter()
-                .for_each(|path| println!("  would rewrite {}", named(path)));
-            return Ok(ExitCode::FAILURE);
-        }
-        (Effect::Write, paths) => {
-            paths
-                .iter()
-                .for_each(|path| println!("  wrote {}", named(path)));
-        }
+        .for_each(|path| println!("  would rewrite {}", named(path)));
+      return Ok(ExitCode::FAILURE);
     }
+    (Effect::Write, paths) => {
+      paths
+        .iter()
+        .for_each(|path| println!("  wrote {}", named(path)));
+    }
+  }
 
-    Ok(ExitCode::SUCCESS)
+  Ok(ExitCode::SUCCESS)
 }
 
 fn desired_contents(written: &Written) -> Result<String, Unspent> {
-    match written.how {
-        How::Whole => Ok(written.body.clone()),
-        How::Region => {
-            let held = std::fs::read_to_string(&written.path)
-                .map_err(|fault| Unspent::Read(written.path.clone(), fault))?;
-            let Ok(spliced) = region::spliced(&held, region::Body(&written.body));
+  match written.how {
+    How::Whole => Ok(written.body.clone()),
+    How::Region => {
+      let held = std::fs::read_to_string(&written.path)
+        .map_err(|fault| Unspent::Read(written.path.clone(), fault))?;
+      let Ok(spliced) = region::spliced(&held, region::Body(&written.body));
 
-            spliced.ok_or_else(|| Unspent::NoRegion(written.path.clone()))
-        }
+      spliced.ok_or_else(|| Unspent::NoRegion(written.path.clone()))
     }
+  }
 }
 
 fn write_file(path: &Path, body: &str) -> Result<(), Unspent> {
-    match path.parent() {
-        Some(holding) => std::fs::create_dir_all(holding)
-            .map_err(|fault| Unspent::Holding(holding.to_path_buf(), fault))?,
-        None => {},
-    }
+  match path.parent() {
+    Some(holding) => std::fs::create_dir_all(holding)
+      .map_err(|fault| Unspent::Holding(holding.to_path_buf(), fault))?,
+    None => {}
+  }
 
-    console_core_atomic_writes::whole(path, body.as_bytes()).map_err(Unspent::Writing)
+  console_core_atomic_writes::whole(path, body.as_bytes()).map_err(Unspent::Writing)
 }
 
 fn falls_short(rows: &[Row]) -> Result<Option<String>, Never> {
-    let short: Vec<&Row> = rows.iter().filter(|row| row.short() == Ok(Clears::Short)).collect();
+  let short: Vec<&Row> = rows
+    .iter()
+    .filter(|row| row.short() == Ok(Clears::Short))
+    .collect();
 
-    match short.as_slice() {
+  match short.as_slice() {
         [] => Ok(None),
-        short => Ok(Some(
-            short
+        short_2 => Ok(Some(
+            short_2
                 .iter()
                 .map(|row| {
                     let Ok(asked) = report::ratio(row.asked);
@@ -228,7 +233,7 @@ fn falls_short(rows: &[Row]) -> Result<Option<String>, Never> {
 
                     format!(
                         "  {} on {}: asked {asked}:1 and {lightness_contrast}, got {:.2}:1 and Contrast {:.1} ({})",
-                        row.front, row.back, row.got, row.got_lightness_contrast, row.where_
+                        row.front, row.back, row.got.0, row.got_lightness_contrast.0, row.where_
                     )
                 })
                 .chain(["the palette does not clear what it declares; nothing written".to_string()])
@@ -239,60 +244,66 @@ fn falls_short(rows: &[Row]) -> Result<Option<String>, Never> {
 }
 
 fn say(configuration: &configuration::Configuration, rows: &[Row]) -> Result<(), Never> {
-    let closest = rows.iter().min_by(|one, other| {
-        let Ok(one) = one.room();
+  let closest = rows.iter().min_by(|one, other| {
+    let Ok(one_2) = one.room();
 
-        let Ok(other) = other.room();
+    let Ok(other_2) = other.room();
 
-        one.total_cmp(&other)
-    });
+    one_2.total_cmp(&other_2)
+  });
 
-    let worst = match closest {
-        Some(worst) => worst,
-        None => {
-            println!("nothing to measure: this palette declares no pairing");
+  let worst = match closest {
+    Some(worst) => worst,
+    None => {
+      println!("nothing to measure: this palette declares no pairing");
 
-            return Ok(());
-        }
-    };
-
-    println!(
-        "{}: {} colors, {} pairings, all clearing both measures.",
-        configuration.metadata.name,
-        configuration.color.len(),
-        rows.len()
-    );
-    let asked = report::ratio(worst.asked)?;
-
-    let grade = worst.grade()?;
-
-    println!(
-        "  the closest ratio is {} on {}, asked for {asked}:1 and reaching {:.2}:1 ({grade}).",
-        worst.front, worst.back, worst.got
-    );
-
-    let tightest = rows.iter().filter(|row| row.asked_lightness_contrast > 0.0).min_by(|one, other| {
-        let Ok(one) = one.room_lightness_contrast();
-
-        let Ok(other) = other.room_lightness_contrast();
-
-        one.total_cmp(&other)
-    });
-
-    match tightest {
-        Some(tightest) => {
-            let asked = report::asked_lightness_contrast(tightest.asked_lightness_contrast)?;
-
-            let grade = tightest.grade_lightness_contrast()?;
-
-            println!(
-                "  the closest Contrast is {} on {}, asked for {asked} and reaching {:.1} ({grade}).",
-                tightest.front, tightest.back, tightest.got_lightness_contrast
-            );
-        }
-        None => {},
+      return Ok(());
     }
+  };
 
-    Ok(())
+  println!(
+    "{}: {} colors, {} pairings, all clearing both measures.",
+    configuration.metadata.name,
+    configuration.color.len(),
+    rows.len()
+  );
+  let asked = report::ratio(worst.asked)?;
+
+  let grade = worst.grade()?;
+
+  println!(
+    "  the closest ratio is {} on {}, asked for {asked}:1 and reaching {:.2}:1 ({grade}).",
+    worst.front, worst.back, worst.got.0
+  );
+
+  let tightest = rows
+    .iter()
+    .filter(|row| row.asked_lightness_contrast.0 > 0.0)
+    .min_by(|one, other| {
+      let Ok(one_3) = one.room_lightness_contrast();
+
+      let Ok(other_3) = other.room_lightness_contrast();
+
+      one_3.total_cmp(&other_3)
+    });
+
+  match tightest {
+    Some(tightest_2) => {
+      let asked_2 = report::asked_lightness_contrast(tightest_2.asked_lightness_contrast)?;
+
+      let grade_2 = tightest_2.grade_lightness_contrast()?;
+
+      println!(
+        "  the closest Contrast is {} on {}, asked for {asked} and reaching {:.1} ({grade}).",
+        tightest_2.front,
+        tightest_2.back,
+        tightest_2.got_lightness_contrast.0,
+        grade = grade_2,
+        asked = asked_2
+      );
+    }
+    None => {}
+  }
+
+  Ok(())
 }
-

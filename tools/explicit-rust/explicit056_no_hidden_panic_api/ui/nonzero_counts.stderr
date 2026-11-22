@@ -1,0 +1,51 @@
+warning: `windows` panics on zero; this count is not proven nonzero
+  --> $DIR/nonzero_counts.rs:8:13
+   |
+LL |     let _ = cells.windows(order.saturating_add(0));
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: the count is a quantity that cannot be zero -- a `NonZeroUsize`, the same proof division already asks for -- rather than a panic at runtime
+   = note: `#[warn(explicit056_no_hidden_panic_api)]` on by default
+
+warning: `windows` panics on zero; this count is not proven nonzero
+  --> $DIR/nonzero_counts.rs:9:13
+   |
+LL |     let _ = cells.windows(order.wrapping_add(1));
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: the count is a quantity that cannot be zero -- a `NonZeroUsize`, the same proof division already asks for -- rather than a panic at runtime
+
+warning: `chunks` panics on zero; this count is not proven nonzero
+  --> $DIR/nonzero_counts.rs:12:13
+   |
+LL |     let _ = cells.chunks(mutable);
+   |             ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: the count is a quantity that cannot be zero -- a `NonZeroUsize`, the same proof division already asks for -- rather than a panic at runtime
+
+warning: `insert` answers an index that is not in the list with a panic
+  --> $DIR/nonzero_counts.rs:17:5
+   |
+LL |     values.insert(at, 7);
+   |     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get`, or reorder so the index is one the list itself handed over, rather than one a caller could be wrong about
+
+warning: wrapping division or remainder still panics on a zero divisor
+  --> $DIR/nonzero_counts.rs:25:13
+   |
+LL |     let _ = 8_u32.wrapping_div(2_u32.wrapping_shl(shift));
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the checked method, or prove that the divisor cannot be zero
+
+warning: wrapping division or remainder still panics on a zero divisor
+  --> $DIR/nonzero_counts.rs:26:13
+   |
+LL |     let _ = 8_u32.wrapping_div(BASE.saturating_mul(shift));
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the checked method, or prove that the divisor cannot be zero
+
+warning: 6 warnings emitted
+

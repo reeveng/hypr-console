@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry queued Orbit error reports
+PartOf=console.target
+
+[Timer]
+OnActiveSec=5s
+OnCalendar=*-*-* *:*:00
+AccuracySec=5s
+
+[Install]
+WantedBy=console.target

@@ -1,0 +1,48 @@
+error: a second parameter of type `u16`: the compiler takes these two in either order and says nothing
+  --> $DIR/private_arguments.rs:6:41
+   |
+LL |     fn interpolated(near: u16, mut far: u16) -> u16 {
+   |                                         ^^^
+   |
+   = note: `#[deny(explicit024_no_swappable_params)]` on by default
+help: name the arguments at every call to this private function
+   |
+LL ~     fn interpolated(InterpolatedArguments { near, mut far }: InterpolatedArguments) -> u16 {
+LL |         far = far.wrapping_add(1);
+LL |         near.wrapping_mul(3).wrapping_add(far)
+LL ~     }
+LL + 
+LL +     struct InterpolatedArguments {
+LL +         near: u16,
+LL +         far: u16,
+LL +     }
+LL |
+...
+LL |         [
+LL ~             interpolated(self::InterpolatedArguments { near: (step()), far: (step()) }),
+LL ~             interpolated(self::InterpolatedArguments { near, far: interpolated(self::InterpolatedArguments { near, far: step() }) },),
+   |
+
+error: a second parameter of type `u8`: the compiler takes these two in either order and says nothing
+  --> $DIR/private_arguments.rs:27:61
+   |
+LL |     fn sample(_before: Mark<'_>, even: u32, start: u8, end: u8, limit: u16, _after: Mark<'_>) -> u8 {
+   |                                                             ^^
+   |
+help: name the arguments at every call to this private function
+   |
+LL ~     fn sample(_before: Mark<'_>, even: u32, SampleArguments { start, end }: SampleArguments, limit: u16, _after: Mark<'_>) -> u8 {
+LL |         if even == 2 && limit == 16 { end - start } else { 0 }
+LL ~     }
+LL + 
+LL +     struct SampleArguments {
+LL +         start: u8,
+LL +         end: u8,
+LL +     }
+LL |     pub fn run() -> (u8, u32) {
+LL |         let record = std::cell::Cell::new(0);
+LL ~         let v = sample(Mark(&record, 1), 2, self::SampleArguments { start: 5, end: 9 }, 16, Mark(&record, 2));
+   |
+
+error: aborting due to 2 previous errors
+

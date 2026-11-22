@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for a Legion Go release each hour
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=10min
+Persistent=yes
+
+[Install]
+WantedBy=timers.target

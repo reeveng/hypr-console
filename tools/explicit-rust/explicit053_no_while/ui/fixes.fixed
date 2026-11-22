@@ -1,0 +1,82 @@
+// run-rustfix
+// edition:2024
+
+fn drain(iter: &mut dyn Iterator<Item = i32>) -> i32 {
+    let mut total = 0;
+    'walk: for entry in &mut *iter {
+        if entry < 0 {
+            break 'walk;
+        }
+        total += entry;
+    }
+    total
+}
+
+fn counted(start: i32, end: i32) -> (i32, i32) {
+    let mut current = start;
+    let mut visits = 0;
+    for _ in (::core::ops::Range { start: current, end }) {
+        visits += 1;
+        current = (::core::num::Wrapping(current) + ::core::num::Wrapping(1)).0;
+    }
+    (current, visits)
+}
+
+fn stop_early(end: u8) -> u8 {
+    let mut position = 0;
+    'walk: for _ in (::core::ops::Range { start: position, end }) {
+        if position == 2 {
+            break 'walk;
+        }
+        position = (::core::num::Wrapping(position) + ::core::num::Wrapping(1)).0;
+    }
+    position
+}
+
+fn computed_bound(mut position: u16, width: u16, limit: u16) -> u16 {
+    for _ in (::core::ops::Range { start: position, end: core::cmp::min(u16::saturating_add(width, 2), limit) }) {
+        position = position.wrapping_add(1);
+    }
+    position
+}
+
+fn down_to(mut position: i16, floor: i16, delta: i16) -> i16 {
+    use core::num::Wrapping;
+
+    for _ in (::core::ops::Range { start: (Wrapping(floor) - Wrapping(delta)).0, end: position }).rev() {
+        position = position.saturating_sub(1);
+    }
+    position
+}
+
+struct Totals {
+    items: core::array::IntoIter<i32, 3>,
+    total: i32,
+}
+
+impl Totals {
+    fn sum(&mut self) {
+        for item in &mut self.items {
+            self.total += item;
+        }
+    }
+}
+
+fn main() {
+    let mut values = [1, 3, -1, 7].into_iter();
+    assert_eq!(drain(&mut values), 4);
+    assert_eq!(values.next(), Some(7));
+    assert_eq!(counted(3, 6), (6, 3));
+    assert_eq!(counted(6, 3), (6, 0));
+    assert_eq!(counted(i32::MAX - 1, i32::MAX), (i32::MAX, 1));
+    assert_eq!(stop_early(3), 2);
+    assert_eq!(computed_bound(1, 4, 5), 5);
+    assert_eq!(computed_bound(7, 4, 5), 7);
+    assert_eq!(computed_bound(u16::MAX - 1, u16::MAX, u16::MAX), u16::MAX);
+    assert_eq!(down_to(9, -1, 2), -3);
+    assert_eq!(down_to(-7, -1, 2), -7);
+    assert_eq!(down_to(i16::MIN + 1, i16::MIN, 0), i16::MIN);
+    let mut totals = Totals { items: [1, 2, 3].into_iter(), total: 5 };
+    totals.sum();
+    assert_eq!(totals.total, 11);
+}

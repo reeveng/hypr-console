@@ -1,0 +1,35 @@
+warning: this name is already bound outside the scope being entered
+  --> $DIR/format_review.rs:7:9
+   |
+LL |     let value = value + 1;
+   |         ^^^^^
+   |
+   = help: name the new value what it is -- a conversion names what it becomes, EXPLICIT045's own sentence -- or bind it `_`-prefixed if nobody will read it again. Where the second binding really is the same value narrowed, allow this rule here and let the reason say so
+   = note: `#[warn(explicit073_no_shadowing)]` on by default
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/format_review.rs:12:9
+   |
+LL |     let value = value + 1;
+   |         ^^^^^
+   |
+   = help: name the new value what it is -- a conversion names what it becomes, EXPLICIT045's own sentence -- or bind it `_`-prefixed if nobody will read it again. Where the second binding really is the same value narrowed, allow this rule here and let the reason say so
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/format_review.rs:17:9
+   |
+LL |     let value = value + 1;
+   |         ^^^^^
+   |
+   = help: name the new value what it is -- a conversion names what it becomes, EXPLICIT045's own sentence -- or bind it `_`-prefixed if nobody will read it again. Where the second binding really is the same value narrowed, allow this rule here and let the reason say so
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/format_review.rs:26:13
+   |
+LL |         let value = value + 1;
+   |             ^^^^^
+   |
+   = help: name the new value what it is -- a conversion names what it becomes, EXPLICIT045's own sentence -- or bind it `_`-prefixed if nobody will read it again. Where the second binding really is the same value narrowed, allow this rule here and let the reason say so
+
+warning: 4 warnings emitted
+

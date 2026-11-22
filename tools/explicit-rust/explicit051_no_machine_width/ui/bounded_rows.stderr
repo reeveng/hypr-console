@@ -1,0 +1,65 @@
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/bounded_rows.rs:9:30
+   |
+LL |         sum += u32::from(buf[usize::wrapping_mul(j, 4)]);
+   |                              ^^^^^
+   |
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+help: use the conversion that names this machine-width boundary
+   |
+LL ~     for j in match ::console_core_number_conversion::indices::<::core::primitive::u16>(0..4) { ::core::result::Result::Ok(j) => j } {
+LL ~         sum += u32::from(buf[j.wrapping_mul(4)]);
+LL ~         sum += u32::from(buf[j.wrapping_mul(4).wrapping_add(3)]);
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/bounded_rows.rs:10:30
+   |
+LL |         sum += u32::from(buf[usize::wrapping_mul(j, 4).wrapping_add(3)]);
+   |                              ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/bounded_rows.rs:18:21
+   |
+LL |         reversed &= usize::wrapping_add(i, 1) == 0;
+   |                     ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL ~     for i in match ::console_core_number_conversion::indices_inclusive::<::core::primitive::u16>(4..=3) { ::core::result::Result::Ok(i) => i } {
+LL ~         reversed &= i.wrapping_add(1) == 0;
+LL ~         reversed &= i.wrapping_mul(2) == 0;
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/bounded_rows.rs:19:21
+   |
+LL |         reversed &= usize::wrapping_mul(i, 2) == 0;
+   |                     ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/bounded_rows.rs:23:19
+   |
+LL |         visited = usize::wrapping_sub(i, 65535) == 0 && usize::wrapping_mul(i, 0) == 0;
+   |                   ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL ~     for i in match ::console_core_number_conversion::indices_inclusive::<::core::primitive::u16>(65535..=65535) { ::core::result::Result::Ok(i) => i } {
+LL ~         visited = i.wrapping_sub(65535) == 0 && i.wrapping_mul(0) == 0;
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/bounded_rows.rs:23:57
+   |
+LL |         visited = usize::wrapping_sub(i, 65535) == 0 && usize::wrapping_mul(i, 0) == 0;
+   |                                                         ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: aborting due to 6 previous errors
+

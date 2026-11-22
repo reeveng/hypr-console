@@ -21,129 +21,142 @@
 //! an opening that is never written down, which is what every hosted panel was
 //! from the day the toolkit went until the first frame was timed again.
 
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::time::Duration;
 
 use console_core_never::Never;
-use console_response_times::{Wait, Note, Waiting};
+use console_response_times::{Note, Wait, Waiting};
 
 thread_local! {
-    static OPENING: RefCell<Option<Waiting>> = const { RefCell::new(None) };
+    static OPENING: Cell<Option<Waiting>> = const { Cell::new(None) };
 }
 
 pub struct Provided(Option<Waiting>);
 
 pub fn handing() -> Result<Provided, Never> {
-    Ok(Provided(OPENING.with(|held| held.borrow_mut().take())))
+  Ok(Provided(OPENING.with(|held| held.take())))
 }
 
 pub fn handed(handed: Provided) -> Result<(), Never> {
-    match handed.0 {
-        Some(waiting) => OPENING.with(|held| *held.borrow_mut() = Some(waiting)),
-        None => {},
-    }
+  match handed.0 {
+    Some(waiting) => OPENING.with(|held| held.set(Some(waiting))),
+    None => {}
+  }
 
-    Ok(())
+  Ok(())
 }
 
 pub fn started(who: &str) -> Result<(), Never> {
-    let Ok(waiting) = Waiting::on(Wait { who, what: "opening" });
+  let Ok(waiting) = Waiting::on(Wait {
+    who,
+    what: "opening",
+  });
 
-    OPENING.with(|held| *held.borrow_mut() = Some(waiting));
+  OPENING.with(|held| held.set(Some(waiting)));
 
-    Ok(())
+  Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Came<'a>(pub &'a str);
 
 pub fn start(
-    who: &str,
-    pressed: Option<&str>,
-    from: Came<'_>,
-    exec: Duration,
+  who: &str,
+  pressed: Option<&str>,
+  from: Came<'_>,
+  exec: Duration,
 ) -> Result<(), Never> {
-    let wait = Wait { who, what: "opening" };
-    let Ok(waiting) = Waiting::start(wait, pressed, from.0, exec);
+  let wait = Wait {
+    who,
+    what: "opening",
+  };
+  let Ok(waiting) = Waiting::start(wait, pressed, from.0, exec);
 
-    OPENING.with(|held| *held.borrow_mut() = Some(waiting));
+  OPENING.with(|held| held.set(Some(waiting)));
 
-    Ok(())
+  Ok(())
 }
 
 pub fn mark(doing: &str) -> Result<(), Never> {
-    with(|waiting| waiting.mark(doing))
+  with(|waiting| waiting.mark(doing))
 }
 
 pub fn taking(doing: &str, took: Duration) -> Result<(), Never> {
-    with(|waiting| waiting.taking(doing, took))
+  with(|waiting| waiting.taking(doing, took))
 }
 
 pub fn counted(name: &str, many: u64) -> Result<(), Never> {
-    with(|waiting| waiting.counted(name, many))
+  with(|waiting| waiting.counted(name, many))
 }
 
 pub fn add_note(note: Note<'_>) -> Result<(), Never> {
-    with(|waiting| waiting.add_note(note))
+  with(|waiting| waiting.add_note(note))
 }
 
 pub fn running() -> Result<Running, Never> {
-    Ok(match OPENING.with(|held| held.try_borrow().is_ok_and(|held| held.is_some())) {
-        true => Running::Yes,
-        false => Running::No,
-    })
+  OPENING.with(|held| {
+    let waiting = held.take();
+    let mode = match waiting.as_ref() {
+      Some(_) => Running::Yes,
+      None => Running::No,
+    };
+    held.set(waiting);
+
+    Ok(mode)
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Running {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 pub fn finish() -> Result<(), Never> {
-    let waiting = OPENING.with(|held| held.borrow_mut().take());
+  let waiting = OPENING.with(|held| held.take());
 
-    match waiting {
-        Some(waiting) => {
-            let Ok(()) = waiting.finish();
-        }
-        None => {},
+  match waiting {
+    Some(waiting_2) => {
+      let Ok(()) = waiting_2.finish();
     }
+    None => {}
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn with(doing: impl FnOnce(&mut Waiting) -> Result<(), Never>) -> Result<(), Never> {
-    OPENING.with(|held| {
-        match held.try_borrow_mut() {
-            Ok(mut held) => match held.as_mut() {
-                Some(waiting) => {
-                    let Ok(()) = doing(waiting);
-                }
-                None => {},
-            },
-            Err(_it_is_already_being_written) => {},
-        }
-    });
+  OPENING.with(|held| {
+    match held.take() {
+      Some(mut waiting) => {
+        let Ok(()) = doing(&mut waiting);
+        held.set(Some(waiting));
+      }
+      None => {}
+    }
 
     Ok(())
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn nothing_is_running_until_something_starts_it() {
-        assert_eq!(running(), Ok(Running::No));
-    }
+  #[test]
+  fn nothing_is_running_until_something_starts_it() {
+    assert_eq!(running(), Ok(Running::No));
+  }
 
-    #[test]
-    fn stamping_an_opening_that_was_never_started_does_nothing() {
-        let Ok(()) = mark("surface");
-        let Ok(()) = counted("rows", 4);
-        let Ok(()) = add_note(Note { name: "door", said: "menu" });
-        let Ok(()) = taking("screen", Duration::from_millis(20));
-        let Ok(()) = finish();
-    }
+  #[test]
+  fn stamping_an_opening_that_was_never_started_does_nothing() {
+    let Ok(()) = mark("surface");
+    let Ok(()) = counted("rows", 4);
+    let Ok(()) = add_note(Note {
+      name: "door",
+      said: "menu",
+    });
+    let Ok(()) = taking("screen", Duration::from_millis(20));
+    let Ok(()) = finish();
+  }
 }

@@ -1,200 +1,108 @@
-//! POSIX shims the C keyboard needed to talk to Wayland.
-//!
-//! `os-compatibility.c` carried the things that were missing or awkward in
-//! POSIX circa the year wlroots was written: `epoll_create_cloexec`,
-//! `socketpair_cloexec`, `mkostemp`, `strchrnul`. Most of those have made
-//! it into Rust's std by now — `OwnedFd`, `UnixListener::pair`, `cvt` — and
-//! the ones that haven't are short enough to write inline.
-//!
-//! What remains is the one thing the Wayland console-keyboard protocol
-//! actually asks for: a file descriptor pointing at a buffer the compositor
-//! can mmap. The C version built it via `shm_open` + `ftruncate` + `mmap`,
-//! which is fine, but Linux has had `memfd_create` for a decade and it is
-//! the right tool here — an anonymous file backed by RAM, no name on the
-//! filesystem, sealed so the compositor cannot grow it.
-//!
-//! The keymap string is written into the memfd and the fd is passed to
-//! `zwp_virtual_keyboard_v1_keymap`. The compositor reads it once and that
-//! is the end of it.
+//! A sealed keymap descriptor is passed to `zwp_virtual_keyboard_v1_keymap`.
+//! The compositor maps the file and expects a NUL after the xkb source.
 
-
-use console_core_never::Never;
-use console_core_number_conversion::{fitted, index};
-use std::ffi::c_void;
+use std::fs::File;
 use std::io;
 use std::os::fd::OwnedFd;
+use std::os::unix::fs::FileExt;
 
+use console_core_number_conversion::fitted;
 use rustix::fs::{MemfdFlags, SealFlags, fcntl_add_seals, ftruncate, memfd_create};
-use rustix::io::Errno;
-use rustix::mm::{MapFlags, ProtFlags, mmap, munmap};
 
 pub fn keymap_file(text: &str) -> io::Result<(OwnedFd, u64)> {
-    let Ok(written) = fitted::<_, u64>(text.len());
-    let long = written.saturating_add(1);
-    let held = create("console-keyboard-keymap", long)?;
+  let Ok(written) = fitted::<_, u64>(text.len());
+  let long = written.saturating_add(1);
+  let held = memfd_create(
+    "console-keyboard-keymap",
+    MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
+  )?;
 
-    {
-        let mut mapped = Mapped::of(&held, long)?;
-        let Ok(into) = mapped.pixels();
+  ftruncate(&held, long)?;
 
-        let words = match into.get_mut(..text.len()) {
-            Some(words) => words,
-            None => return Err(io::Error::other("the keymap file came back too short to write")),
-        };
+  let file = File::from(held);
 
-        words.copy_from_slice(text.as_bytes());
+  file.write_all_at(text.as_bytes(), 0)?;
+  file.write_all_at(&[0], written)?;
 
-        let terminator = match into.get_mut(text.len()) {
-            Some(terminator) => terminator,
-            None => return Err(io::Error::other("the keymap file has no room for its terminator")),
-        };
+  let seals = SealFlags::SEAL | SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE;
 
-        *terminator = 0;
-    }
+  fcntl_add_seals(&file, seals)?;
 
-    let everything = SealFlags::SEAL | SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE;
-
-    match fcntl_add_seals(&held, everything) {
-        Ok(()) => {},
-        Err(Errno::INVAL | Errno::PERM) => {},
-        Err(why) => return Err(io::Error::from(why)),
-    }
-
-    Ok((held, long))
-}
-
-pub fn drawing_buffer(length: u64) -> io::Result<OwnedFd> {
-    let held = create("console-keyboard-pixels", length)?;
-
-    match fcntl_add_seals(&held, SealFlags::SHRINK | SealFlags::GROW) {
-        Ok(()) => {},
-        Err(_a_frame_that_can_be_resized_is_still_a_frame) => {},
-    }
-
-    Ok(held)
-}
-
-pub struct Mapped {
-    at: *mut c_void,
-    long: u64,
-}
-
-impl Mapped {
-    pub fn of(fd: &OwnedFd, length: u64) -> io::Result<Mapped> {
-        Mapped::with(fd, length, ProtFlags::READ | ProtFlags::WRITE)
-    }
-
-    pub fn reading(fd: &OwnedFd, length: u64) -> io::Result<Mapped> {
-        Mapped::with(fd, length, ProtFlags::READ)
-    }
-
-    fn with(fd: &OwnedFd, length: u64, protection: ProtFlags) -> io::Result<Mapped> {
-        let Ok(mapping) = index(length);
-
-        // SAFETY: the fd is a memfd of at least `len` bytes, and `protection` is what the caller may do with it.
-        let at = unsafe { mmap(std::ptr::null_mut(), mapping, protection, MapFlags::SHARED, fd, 0) }?;
-
-        Ok(Mapped { at, long: length })
-    }
-
-    pub fn bytes(&self) -> Result<&[u8], Never> {
-        let Ok(long) = index(self.long);
-
-        // SAFETY: `at` is a live mapping of `long` bytes.
-        let seen = unsafe { std::slice::from_raw_parts(self.at.cast::<u8>(), long) };
-
-        Ok(seen)
-    }
-
-    pub fn pixels(&mut self) -> Result<&mut [u8], Never> {
-        let Ok(long) = index(self.long);
-
-        // SAFETY: `at` is a live mapping of `long` bytes, and this borrows it
-        let seen = unsafe { std::slice::from_raw_parts_mut(self.at.cast::<u8>(), long) };
-
-        Ok(seen)
-    }
-}
-
-impl Drop for Mapped {
-    fn drop(&mut self) {
-        let Ok(long) = index(self.long);
-
-        // SAFETY: unmapping exactly what was mapped, once.
-        let _ = unsafe { munmap(self.at, long) };
-    }
-}
-
-fn create(called: &str, length: u64) -> io::Result<OwnedFd> {
-    let owned = memfd_create(called, MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING)?;
-
-    ftruncate(&owned, length)?;
-
-    Ok(owned)
+  Ok((OwnedFd::from(file), long))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use console_draw_surface::memory::Shared;
+  use rustix::io::Errno;
 
-    type Failure = Box<dyn std::error::Error>;
+  use super::*;
 
-    #[test]
-    fn a_keymap_is_written_and_reads_back_with_its_terminator() -> Result<(), Failure> {
-        let text = "xkb_keymap { }";
-        let (held, long) = keymap_file(text)?;
+  type Failure = Box<dyn std::error::Error>;
 
-        assert_eq!(long, 15);
+  #[test]
+  fn a_keymap_is_written_and_reads_back_with_its_terminator() -> Result<(), Failure> {
+    let text = "xkb_keymap { }";
+    let (held, long) = keymap_file(text)?;
+    let file = File::from(held);
+    let mut bytes = [0; 15];
 
-        let mapped = Mapped::reading(&held, long)?;
-        let Ok(got) = mapped.bytes();
+    file.read_exact_at(&mut bytes, 0)?;
 
-        assert_eq!(got.strip_suffix(&[0]), Some(text.as_bytes()), "the compositor reads to the length and wants a nul");
+    assert_eq!(long, 15);
+    assert_eq!(
+      bytes.strip_suffix(&[0]),
+      Some(text.as_bytes()),
+      "the compositor reads to the length and wants a nul"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_keymap_that_has_been_handed_over_cannot_be_rewritten() -> Result<(), Failure> {
-        let (held, long) = keymap_file("xkb_keymap { }")?;
-        let refused = match Mapped::of(&held, long) {
-            Ok(_) => None,
-            Err(fault) => Some(fault.kind()),
-        };
+  #[test]
+  fn a_keymap_that_has_been_handed_over_cannot_be_rewritten() -> Result<(), Failure> {
+    let (held, _long) = keymap_file("xkb_keymap { }")?;
+    let file = File::from(held);
+    let refused = file.write_all_at(b"bad", 0);
 
-        assert_eq!(
-            refused,
-            Some(io::ErrorKind::PermissionDenied),
-            "a sealed keymap mapped writable again: the seal is not being applied"
-        );
+    assert!(
+      matches!(refused, Err(fault) if fault.kind() == io::ErrorKind::PermissionDenied),
+      "a sealed keymap was writable again"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_frame_can_be_drawn_into_more_than_once() -> Result<(), Failure> {
-        let held = drawing_buffer(64)?;
-        let mut mapped = Mapped::of(&held, 64)?;
-        let Ok(first) = mapped.pixels();
+  #[test]
+  fn a_frame_can_be_drawn_into_more_than_once() -> Result<(), Failure> {
+    let mut shared = Shared::of(64)?;
+    let Ok(first) = shared.pixels();
 
-        first.fill(1);
-        let Ok(again) = mapped.pixels();
+    first.fill(1);
+    let Ok(again) = shared.pixels();
 
-        again.fill(2);
-        let Ok(now) = mapped.pixels();
+    again.fill(2);
+    let Ok(now) = shared.pixels();
 
-        assert_eq!(now.first(), Some(&2));
+    assert_eq!(now.first(), Some(&2));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_frame_cannot_be_grown_or_shrunk() -> Result<(), Failure> {
-        let held = drawing_buffer(64)?;
-        let shrunk = ftruncate(&held, 32);
+  #[test]
+  fn a_frame_cannot_be_grown_or_shrunk() -> Result<(), Failure> {
+    let shared = Shared::of(64)?;
+    let Ok(held) = shared.descriptor();
+    let shrunk = ftruncate(held, 32);
+    let grown = ftruncate(held, 128);
 
-        assert_eq!(shrunk, Err(Errno::PERM), "the frame shrank while the compositor was reading it");
+    assert_eq!(
+      shrunk,
+      Err(Errno::PERM),
+      "the frame shrank while the compositor was reading it"
+    );
+    assert_eq!(grown, Err(Errno::PERM));
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

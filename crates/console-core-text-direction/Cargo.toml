@@ -1,0 +1,20 @@
+[package]
+name = "console-core-text-direction"
+version = "0.3.18"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors = ["The Servo Project Developers"]
+repository = "https://github.com/servo/unicode-bidi"
+description = "The Unicode Bidirectional Algorithm: the embedding level of every character, and the order a line is shown in"
+
+[lib]
+name = "console_core_text_direction"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+
+[lints]
+workspace = true

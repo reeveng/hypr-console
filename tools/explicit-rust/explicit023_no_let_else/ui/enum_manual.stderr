@@ -1,0 +1,63 @@
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/enum_manual.rs:13:5
+   |
+LL | /     let WithDrop::Count(value) = new_record() else {
+LL | |         panic!("temporary dropped before panic");
+LL | |     };
+   | |______^
+   |
+   = help: write the decision as a `match` in the initializer -- `let held = match value { Some(held) => held, None => … };` -- so the case that leaves is named as well as the case that binds
+   = note: `#[deny(explicit023_no_let_else)]` on by default
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/enum_manual.rs:27:5
+   |
+LL | /     let Configured::Count(value) = record else {
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+   = help: write the decision as a `match` in the initializer -- `let held = match value { Some(held) => held, None => … };` -- so the case that leaves is named as well as the case that binds
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/enum_manual.rs:39:5
+   |
+LL | /     let Nested::Count(Some(value)) = record else {
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+   = help: write the decision as a `match` in the initializer -- `let held = match value { Some(held) => held, None => … };` -- so the case that leaves is named as well as the case that binds
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/enum_manual.rs:50:5
+   |
+LL | /     let WithDrop::Count(value) = record else {
+LL | |         custom_failure!();
+LL | |     };
+   | |______^
+   |
+   = help: write the decision as a `match` in the initializer -- `let held = match value { Some(held) => held, None => … };` -- so the case that leaves is named as well as the case that binds
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/enum_manual.rs:63:9
+   |
+LL | /         let WithDrop::Count(value) = WithDrop::Count(2) else {
+LL | |             return 0;
+LL | |         };
+   | |__________^
+   |
+   = help: write the decision as a `match` in the initializer -- `let held = match value { Some(held) => held, None => … };` -- so the case that leaves is named as well as the case that binds
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/enum_manual.rs:74:9
+   |
+LL | /         let Included::Count(value) = record else {
+LL | |             return 0;
+LL | |         };
+   | |__________^
+   |
+   = help: write the decision as a `match` in the initializer -- `let held = match value { Some(held) => held, None => … };` -- so the case that leaves is named as well as the case that binds
+
+error: aborting due to 6 previous errors
+

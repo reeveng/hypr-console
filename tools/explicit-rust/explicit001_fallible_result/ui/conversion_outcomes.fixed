@@ -1,0 +1,24 @@
+// run-rustfix
+// edition:2024
+
+use core::convert::Infallible;
+
+fn projected(answer: Result<usize, Infallible>) -> usize {
+    match answer { ::core::result::Result::Ok(value) => value }
+}
+
+fn byte(input: i32) -> Option<u8> { match u8::try_from(input) { ::core::result::Result::Ok(value) => ::core::option::Option::Some(value), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None } }
+fn can_encode(input: i32) -> bool { match &(u8::try_from(input)) { ::core::result::Result::Ok(_) => true, ::core::result::Result::Err(_outside_integer_range) => false } }
+fn utf8(bytes: &[u8]) -> bool {
+    let read = core::str::from_utf8(bytes);
+    let rejected = match &(read) { ::core::result::Result::Ok(_) => false, ::core::result::Result::Err(_invalid_utf8) => true };
+    rejected && match &(read) { ::core::result::Result::Ok(_) => false, ::core::result::Result::Err(_invalid_utf8) => true }
+}
+
+fn main() {
+    assert_eq!(projected(Ok(7)), 7);
+    assert_eq!(byte(255), Some(255));
+    assert_eq!(byte(-1), None);
+    assert!(can_encode(0) && !can_encode(256));
+    assert!(!utf8(b"hello") && utf8(&[0xff]));
+}

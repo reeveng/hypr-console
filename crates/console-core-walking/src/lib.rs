@@ -32,187 +32,189 @@ pub struct Ring(pub NonZeroU32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
-    Forward,
-    Back,
+  Forward,
+  Back,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Between {
-    pub from: u32,
-    pub to: u32,
+  pub from: u32,
+  pub to: u32,
 }
 
 impl Ring {
-    pub fn round(many: u32) -> Result<Option<Ring>, Never> {
-        Ok(NonZeroU32::new(many).map(Ring))
-    }
+  pub fn round(many: u32) -> Result<Option<Ring>, Never> {
+    Ok(NonZeroU32::new(many).map(Ring))
+  }
 
-    pub fn of<T>(every: &[T]) -> Result<Option<Ring>, Never> {
-        let Ok(many) = fitted::<_, u32>(every.len());
+  pub fn of<T>(every: &[T]) -> Result<Option<Ring>, Never> {
+    let Ok(many) = fitted::<_, u32>(every.len());
 
-        Ring::round(many)
-    }
+    Ring::round(many)
+  }
 
-    pub fn many(&self) -> Result<u32, Never> {
-        Ok(self.0.get())
-    }
+  pub fn many(&self) -> Result<u32, Never> {
+    Ok(self.0.get())
+  }
 
-    pub fn last(&self) -> Result<u32, Never> {
-        Ok(self.0.get().saturating_sub(1))
-    }
+  pub fn last(&self) -> Result<u32, Never> {
+    Ok(self.0.get().saturating_sub(1))
+  }
 
-    pub fn at(&self, which: u32) -> Result<u32, Never> {
-        Ok(which % self.0)
-    }
+  pub fn at(&self, which: u32) -> Result<u32, Never> {
+    Ok(which % self.0)
+  }
 
-    pub fn step(&self, from: u32, step: Step) -> Result<u32, Never> {
-        let Ok(here) = self.at(from);
+  pub fn step(&self, from: u32, step: Step) -> Result<u32, Never> {
+    let Ok(here) = self.at(from);
 
-        Ok(match step {
-            Step::Forward => {
-                let Ok(round) = self.at(here.saturating_add(1));
+    Ok(match step {
+      Step::Forward => {
+        let Ok(round) = self.at(here.saturating_add(1));
 
-                round
-            }
-            Step::Back => match here.checked_sub(1) {
-                Some(before) => before,
-                None => {
-                    let Ok(last) = self.last();
+        round
+      }
+      Step::Back => match here.checked_sub(1) {
+        Some(before) => before,
+        None => {
+          let Ok(last) = self.last();
 
-                    last
-                }
-            },
-        })
-    }
+          last
+        }
+      },
+    })
+  }
 
-    pub fn walk(&self, from: u32, by: i32) -> Result<u32, Never> {
-        let Ok(away) = self.at(by.unsigned_abs());
+  pub fn walk(&self, from: u32, by: i32) -> Result<u32, Never> {
+    let Ok(away) = self.at(by.unsigned_abs());
 
-        let forward = match by < 0 {
-            true => self.0.get().saturating_sub(away),
-            false => away,
-        };
+    let forward = match by {
+      ..=-1 => self.0.get().saturating_sub(away),
+      0.. => away,
+    };
 
-        self.at(from.saturating_add(forward))
-    }
+    self.at(from.saturating_add(forward))
+  }
 
-    pub fn steps(&self, between: Between) -> Result<u32, Never> {
-        let Between { from, to } = between;
+  pub fn steps(&self, between: Between) -> Result<u32, Never> {
+    let Between { from, to } = between;
 
-        let Ok(from) = self.at(from);
-        let Ok(to) = self.at(to);
+    let Ok(start) = self.at(from);
+    let Ok(end) = self.at(to);
 
-        self.at(self.0.get().saturating_add(to).saturating_sub(from))
-    }
+    self.at(self.0.get().saturating_add(end).saturating_sub(start))
+  }
 }
 
 pub fn where_it_is<T: PartialEq>(every: &[T], wanted: &T) -> Result<Option<u32>, Never> {
-    Ok(every.iter().position(|one| one == wanted).map(|at| {
-        let Ok(at) = fitted::<_, u32>(at);
+  Ok(every.iter().position(|one| one == wanted).map(|at| {
+    let Ok(position) = fitted::<_, u32>(at);
 
-        at
-    }))
+    position
+  }))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    use std::error::Error;
+  use std::error::Error;
 
-    fn ring(many: u32) -> Result<Ring, Box<dyn Error>> {
-        let Ok(round) = Ring::round(many);
+  fn ring(many: u32) -> Result<Ring, Box<dyn Error>> {
+    let Ok(round) = Ring::round(many);
 
-        match round {
-            Some(ring) => Ok(ring),
-            None => Err(Box::from("a ring of nothing")),
-        }
+    match round {
+      Some(ring) => Ok(ring),
+      None => Err(Box::from("a ring of nothing")),
     }
+  }
 
-    #[test]
-    fn an_empty_list_is_not_a_ring_at_all() {
-        let nothing: [u8; 0] = [];
-        let Ok(round) = Ring::of(&nothing);
+  #[test]
+  fn an_empty_list_is_not_a_ring_at_all() {
+    let nothing: [u8; 0] = [];
+    let Ok(round) = Ring::of(&nothing);
 
-        assert_eq!(round, None);
-    }
+    assert_eq!(round, None);
+  }
 
-    #[test]
-    fn a_step_forward_off_the_end_comes_back_to_the_front() -> Result<(), Box<dyn Error>> {
-        let ring = ring(3)?;
-        let Ok(went) = ring.step(2, Step::Forward);
+  #[test]
+  fn a_step_forward_off_the_end_comes_back_to_the_front() -> Result<(), Box<dyn Error>> {
+    let ring = ring(3)?;
+    let Ok(went) = ring.step(2, Step::Forward);
 
-        assert_eq!(went, 0);
+    assert_eq!(went, 0);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_step_back_off_the_front_comes_round_to_the_end() -> Result<(), Box<dyn Error>> {
-        let ring = ring(3)?;
-        let Ok(went) = ring.step(0, Step::Back);
+  #[test]
+  fn a_step_back_off_the_front_comes_round_to_the_end() -> Result<(), Box<dyn Error>> {
+    let ring = ring(3)?;
+    let Ok(went) = ring.step(0, Step::Back);
 
-        assert_eq!(went, 2);
+    assert_eq!(went, 2);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_position_past_the_end_is_wrapped_rather_than_refused() -> Result<(), Box<dyn Error>> {
-        let ring = ring(3)?;
-        let Ok(at) = ring.at(7);
+  #[test]
+  fn a_position_past_the_end_is_wrapped_rather_than_refused() -> Result<(), Box<dyn Error>> {
+    let ring = ring(3)?;
+    let Ok(at) = ring.at(7);
 
-        assert_eq!(at, 1);
+    assert_eq!(at, 1);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn walking_backwards_is_walking_the_long_way_round() -> Result<(), Box<dyn Error>> {
-        let ring = ring(5)?;
-        let Ok(went) = ring.walk(1, -3);
+  #[test]
+  fn walking_backwards_is_walking_the_long_way_round() -> Result<(), Box<dyn Error>> {
+    let ring = ring(5)?;
+    let Ok(went) = ring.walk(1, -3);
 
-        assert_eq!(went, 3);
+    assert_eq!(went, 3);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn walking_further_than_the_ring_is_long_lands_where_the_remainder_does() -> Result<(), Box<dyn Error>> {
-        let ring = ring(4)?;
-        let Ok(went) = ring.walk(0, 9);
+  #[test]
+  fn walking_further_than_the_ring_is_long_lands_where_the_remainder_does()
+  -> Result<(), Box<dyn Error>> {
+    let ring = ring(4)?;
+    let Ok(went) = ring.walk(0, 9);
 
-        assert_eq!(went, 1);
+    assert_eq!(went, 1);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn the_steps_between_two_places_are_counted_the_way_round_they_go() -> Result<(), Box<dyn Error>> {
-        let ring = ring(4)?;
-        let Ok(forward) = ring.steps(Between { from: 3, to: 1 });
+  #[test]
+  fn the_steps_between_two_places_are_counted_the_way_round_they_go() -> Result<(), Box<dyn Error>>
+  {
+    let ring = ring(4)?;
+    let Ok(forward) = ring.steps(Between { from: 3, to: 1 });
 
-        assert_eq!(forward, 2);
+    assert_eq!(forward, 2);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_single_place_ring_never_goes_anywhere() -> Result<(), Box<dyn Error>> {
-        let ring = ring(1)?;
-        let Ok(forward) = ring.step(0, Step::Forward);
-        let Ok(back) = ring.step(0, Step::Back);
+  #[test]
+  fn a_single_place_ring_never_goes_anywhere() -> Result<(), Box<dyn Error>> {
+    let ring = ring(1)?;
+    let Ok(forward) = ring.step(0, Step::Forward);
+    let Ok(back) = ring.step(0, Step::Back);
 
-        assert_eq!((forward, back), (0, 0));
+    assert_eq!((forward, back), (0, 0));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn what_is_not_in_the_list_is_nowhere_rather_than_at_the_front() {
-        let held = ["one", "two"];
-        let Ok(found) = where_it_is(&held, &"three");
+  #[test]
+  fn what_is_not_in_the_list_is_nowhere_rather_than_at_the_front() {
+    let held = ["one", "two"];
+    let Ok(found) = where_it_is(&held, &"three");
 
-        assert_eq!(found, None);
-    }
+    assert_eq!(found, None);
+  }
 }

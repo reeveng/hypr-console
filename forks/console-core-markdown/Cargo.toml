@@ -1,0 +1,12 @@
+[package]
+name = "console-core-markdown"
+version = "0.13.6"
+edition = "2021"
+# The upstream copyright and permission notices remain with the source.
+license = "AGPL-3.0-or-later"
+description = "CommonMark and GFM events with source ranges for Notes and Mermaid"
+
+[dependencies]
+bitflags = "2"
+memchr = "2.5"
+unicase = "2.6"

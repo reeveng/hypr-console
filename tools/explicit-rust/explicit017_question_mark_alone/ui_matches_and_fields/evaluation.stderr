@@ -1,0 +1,58 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/evaluation.rs:12:30
+   |
+LL |     Some(enabled && matches!(read()?, Bit::One))
+   |                              ^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = read()?; checked_value }`
+   |
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/evaluation.rs:16:25
+   |
+LL |     Some(core::matches![read()?, Some(byte) if byte > 3])
+   |                         ^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = read()?; checked_value }`
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/evaluation.rs:28:17
+   |
+LL |         second: read()?,
+   |                 ^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = read()?; checked_value }`
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/evaluation.rs:33:6
+   |
+LL |       *(<[_]>::get_mut(&mut *bytes, {
+   |  ______^
+LL | |         trace.set(trace.get() * 10 + 2);
+LL | |         0
+LL | |     }).ok_or("empty")?) = {
+   | |_______________________^
+   |
+help: bind the fallible operand where it is evaluated
+   |
+LL ~     *{ let checked_value = <[_]>::get_mut(&mut *bytes, {
+LL +         trace.set(trace.get() * 10 + 2);
+LL +         0
+LL ~     }).ok_or("empty")?; checked_value } = {
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/evaluation.rs:44:11
+   |
+LL |     Some(*(bytes.get(0)?))
+   |           ^^^^^^^^^^^^^^^
+   |
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = bytes.get(0)?;
+LL ~     Some(*checked_value)
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/evaluation.rs:49:6
+   |
+LL |     *bytes.get_mut(index)? = 8;
+   |      ^^^^^^^^^^^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = bytes.get_mut(index)?; checked_value }`
+
+error: aborting due to 6 previous errors
+

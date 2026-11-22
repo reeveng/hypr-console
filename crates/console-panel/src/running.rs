@@ -7,18 +7,18 @@
 //! because the environment is inherited and a stamp handed on is a wait
 //! measured from a press that was already answered.
 //!
-//! **A program let go of is still a child of whoever started it.** [`Detached`]
+//! **A program let go of is still a child of whoever started it.** [`Detached`](console_program_lifetime::Detached)
 //! holds one so that it can be reaped and never ends it, and nothing here was
 //! doing the reaping: every application started from a row and every notification
 //! said stayed in the process table as a dead entry until the panel that
 //! started it exited. Read on the device that was eleven notifications panels, a
 //! browser and everything else someone had opened and closed that afternoon.
 //!
-//! [`and_waited`] is the other half of that: a row that asks for something to
-//! be run to the end rather than started and left. It is waited for on a thread
-//! of its own because the thread that called it is the one holding the frame,
-//! and a panel that stops drawing while a program runs is a panel nobody can
-//! put away.
+//! A row that asks for something to be run to the end rather than started and
+//! left is not started here: it is a task, and `tasks` waits for it on a
+//! thread of its own, because the thread that pressed it is the one holding
+//! the frame, and a panel that stops drawing while a program runs is a panel
+//! nobody can put away.
 //!
 //! What has been started is waited for on a thread of its own, and reaped
 //! the moment it ends. It used to be held in a list and swept the next time
@@ -28,202 +28,148 @@
 //! host for as long as nobody presses anything -- which is exactly the state
 //! a closed panel is meant to cost nothing in.
 
-use std::process::{Command, Stdio};
-use std::thread;
 use std::time::Duration;
 
-use console_core_internal_programs::InternalProgram;
-use console_program_lifetime::threads;
-use console_program_lifetime::{Detached, Wrapped, in_a_scope_of_its_own, let_go};
 use console_core_external_programs::Program;
+use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
+use console_operating_system_linux::program_runtime::commands::{Linux, Timing};
+use console_program_contract::Command;
+use console_program_runtime::commands::{self as execution_commands, Launch, Platform, Streams};
 
-pub fn reap_in_background(mut started: Detached) -> Result<(), Never> {
-    let waiting = thread::spawn(move || {
-        let _ = started.wait();
-    });
-
-    threads::let_go(waiting)
-}
+pub use console_operating_system_linux::program_runtime::commands::reap_in_background;
 
 pub fn run_output(program: Program, rest: &[&str]) -> Result<String, Never> {
-    let Ok(mut asking) = program.command();
+  let Ok(command) = Command::external(program, rest);
+  let mut platform = Linux {
+    timing: Timing::Background,
+  };
 
-    asking.args(rest);
-
-    let Ok(()) = console_response_times::not_a_press(&mut asking);
-
-    let done = match asking.output() {
-        Ok(done) => done,
-        Err(_would_not_start) => return Ok(String::new()),
-    };
-
-    Ok(String::from_utf8_lossy(&done.stdout).trim().to_string())
+  Ok(
+    match execution_commands::run(&mut platform, &command, Streams::COLLECT) {
+      Ok(answer) => answer.output.trim().to_string(),
+      Err(_would_not_start) => String::new(),
+    },
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Notification<'a> {
-    pub summary: &'a str,
-    pub body: &'a str,
+  pub summary: &'a str,
+  pub body: &'a str,
 }
 
 pub fn say(kind: &str, said: Notification<'_>) -> Result<(), Never> {
-    let Ok(mut saying) = InternalProgram::ConsoleSay.command();
-    saying.args([kind, said.summary, said.body]).stdout(Stdio::null()).stderr(Stdio::null());
-    let Ok(()) = console_response_times::not_a_press(&mut saying);
+  let Ok(command) = Command::internal(
+    InternalProgram::ConsoleSay,
+    &[kind, said.summary, said.body],
+  );
+  let mut platform = Linux {
+    timing: Timing::Background,
+  };
 
-    let started = let_go(&mut saying);
-
-    match started {
-        Ok(saying) => {
-            let Ok(()) = reap_in_background(saying);
-        },
-        Err(fault) => {
-            eprintln!("console-say: {fault}");
-            eprintln!("{kind}: {} - {}", said.summary, said.body);
-        }
+  match execution_commands::spawn(&mut platform, &command, Streams::QUIET, Launch::Background) {
+    Ok(()) => {}
+    Err(fault) => {
+      console_core_logging::warn!("console-say: {fault}");
+      console_core_logging::warn!("{kind}: {} - {}", said.summary, said.body);
     }
+  }
 
-    Ok(())
+  Ok(())
 }
 
-pub fn words_of(runs: &console_program_contract::Command) -> Result<Vec<String>, Never> {
-    let program = match runs.program {
-        console_program_contract::Executable::External(program) => {
-            let Ok(name) = program.name();
+pub fn words_of(command: &Command) -> Result<Vec<String>, Never> {
+  let platform = Linux {
+    timing: Timing::Inherited,
+  };
+  let invocation = match execution_commands::resolve(&platform, command) {
+    Ok(invocation) => invocation,
+    Err(_unresolved) => return Ok(Vec::new()),
+  };
 
-            name.to_string()
-        }
-        console_program_contract::Executable::Internal(program) => {
-            let Ok(at) = program.at();
+  let program = match invocation.program.to_str() {
+    Some(text) => text,
+    None => {
+      console_core_logging::warn!(
+        "console-panel: a command label cannot represent {:?}",
+        invocation.program
+      );
 
-            at.to_string_lossy().into_owned()
-        }
-    };
+      return Ok(Vec::new());
+    }
+  };
 
-    let mut words = vec![program];
-
-    words.extend(runs.arguments.iter().cloned());
-
-    Ok(words)
+  Ok(
+    std::iter::once(program.to_owned())
+      .chain(invocation.arguments)
+      .collect(),
+  )
 }
 
 pub fn and_waited(arguments: Vec<String>) -> Result<(), Never> {
-    let doing = thread::spawn(move || {
-        let (program, rest) = match arguments.split_first() {
-            Some((program, rest)) => (program, rest),
-            None => return,
-        };
-
-        let mut doing = Command::new(program);
-        doing.args(rest).stdout(Stdio::null()).stderr(Stdio::null());
-
-        let Ok(()) = console_response_times::not_a_press(&mut doing);
-
-        let _ = doing.status();
-    });
-
-    threads::let_go(doing)
+  on_exit(arguments, |_exit| {})
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Exit {
-    Success,
-    Failure { said: String },
+  Success,
+  Failure { said: String },
 }
 
-pub fn on_exit(arguments: Vec<String>, then: impl FnOnce(Exit) + Send + 'static) -> Result<(), Never> {
-    let doing = thread::spawn(move || {
-        let (program, rest) = match arguments.split_first() {
-            Some((program, rest)) => (program, rest),
-            None => return,
-        };
+pub fn on_exit(
+  arguments: Vec<String>,
+  then: impl FnOnce(Exit) + Send + 'static,
+) -> Result<(), Never> {
+  let doing = std::thread::spawn(move || {
+    let Ok(invocation) =
+      console_operating_system_linux::program_runtime::commands::invocation(&arguments);
+    let invocation_3 = match invocation {
+      Some(invocation_2) => invocation_2,
+      None => return,
+    };
+    let mut platform = Linux {
+      timing: Timing::Background,
+    };
+    let exit = match platform.run(&invocation_3, Streams::COLLECT, None) {
+      Ok(completion) => match completion.status {
+        console_program_contract::ExitStatus::Success => Exit::Success,
+        console_program_contract::ExitStatus::Failure(_)
+        | console_program_contract::ExitStatus::Interrupt => Exit::Failure {
+          said: completion.error_output.trim().to_string(),
+        },
+      },
+      Err(fault) => Exit::Failure {
+        said: format!(
+          "{} would not start: {fault}",
+          invocation_3.program.display()
+        ),
+      },
+    };
 
-        let mut doing = Command::new(program);
-        doing.args(rest).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+    then(exit);
+  });
 
-        let Ok(()) = console_response_times::not_a_press(&mut doing);
-
-        let exit = match doing.output() {
-            Ok(done) => match done.status.success() {
-                true => Exit::Success,
-                false => Exit::Failure { said: String::from_utf8_lossy(&done.stderr).trim().to_string() },
-            },
-            Err(fault) => Exit::Failure { said: format!("{program} would not start: {fault}") },
-        };
-
-        then(exit);
-    });
-
-    threads::let_go(doing)
+  console_program_lifetime::threads::let_go(doing)
 }
 
 pub fn left_running(arguments: &[String]) -> Result<(), Never> {
-    use std::os::unix::process::CommandExt;
+  let Ok(invocation) =
+    console_operating_system_linux::program_runtime::commands::invocation(arguments);
+  let invocation_3 = match invocation {
+    Some(invocation_2) => invocation_2,
+    None => return Ok(()),
+  };
+  let mut platform = Linux {
+    timing: Timing::Pressed,
+  };
 
-    let (program, rest) = match arguments.split_first() {
-        Some((program, rest)) => (program, rest),
-        None => return Ok(()),
-    };
+  match platform.spawn(&invocation_3, Streams::QUIET, Launch::Application) {
+    Ok(()) => {}
+    Err(fault) => console_core_logging::warn!("left_running: nothing started: {fault}"),
+  }
 
-    let Ok((scope, scope_argv)) = in_a_scope_of_its_own(None, arguments);
-
-    match (scope, scope_argv.split_first()) {
-        (Wrapped::InAScope, Some((wrapper, wrapped))) => {
-            let mut starting = Command::new(wrapper);
-            starting
-                .args(wrapped)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            let Ok(()) = console_response_times::pressed_here(&mut starting);
-
-            let Ok(()) = spawn_detached(&mut starting);
-
-            return Ok(());
-        }
-        (Wrapped::InAScope, None) | (Wrapped::AsItWasHandedIn, _) => {},
-    }
-
-    match scope {
-        Wrapped::AsItWasHandedIn => {
-            eprintln!("left_running: not wrapping {} in a scope: {}", program, arguments.join(" "));
-        }
-        Wrapped::InAScope => {},
-    }
-
-    let mut starting = Command::new(program);
-    starting
-        .args(rest)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    let Ok(()) = console_response_times::pressed_here(&mut starting);
-
-    // SAFETY: between the fork and the exec, and setsid is one call that
-    // allocates nothing and touches nothing this side of the fork holds.
-    unsafe {
-        starting.pre_exec(|| {
-            let _ = rustix::process::setsid();
-
-            Ok(())
-        })
-    };
-
-    let Ok(()) = spawn_detached(&mut starting);
-
-    Ok(())
-}
-
-fn spawn_detached(starting: &mut Command) -> Result<(), Never> {
-    match let_go(starting) {
-        Ok(started) => {
-            let Ok(()) = reap_in_background(started);
-        },
-        Err(fault) => {
-            eprintln!("left_running: nothing started: {fault}");
-        },
-    }
-
-    Ok(())
+  Ok(())
 }
 
 pub const PATIENCE: Duration = Duration::from_secs(45);
@@ -232,61 +178,74 @@ pub const SETTLING: Duration = Duration::from_millis(250);
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    use console_waiting::{Outcome, Ready, Schedule, until};
+  use console_program_lifetime::let_go;
+  use console_waiting::{Outcome, Ready, Schedule, until};
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    #[test]
-    fn a_program_let_go_is_reaped_when_it_ends_rather_than_at_the_next_press() -> Result<(), Failure> {
-        let mut ending = Program::True.command()?;
-        let started = let_go(&mut ending)?;
-        let id = started.id()?;
-        let at = std::path::PathBuf::from(format!("/proc/{id}"));
+  #[test]
+  fn a_program_let_go_is_reaped_when_it_ends_rather_than_at_the_next_press() -> Result<(), Failure>
+  {
+    let mut ending = Program::True.command()?;
+    let started = let_go(&mut ending)?;
+    let id = started.id()?;
+    let at = std::path::PathBuf::from(format!("/proc/{id}"));
 
-        reap_in_background(started)?;
+    reap_in_background(started)?;
 
-        let patience = Schedule::of(Duration::from_secs(5))?;
-        let gone = until(patience, || {
-            Ok(match at.exists() {
-                true => Ready::NotYet,
-                false => Ready::Yes,
-            })
-        });
+    let patience = Schedule::of(Duration::from_secs(5))?;
+    let gone = until(patience, || {
+      Ok(match std::fs::metadata(&at) {
+        Ok(_still_in_proc) => Ready::NotYet,
+        Err(fault) => match ::core::primitive::bool::then_some(
+          fault.kind() == std::io::ErrorKind::NotFound,
+          (),
+        ) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      })
+    });
 
-        assert_eq!(
-            gone,
-            Ok(Outcome::Happened),
-            "{} is still in the process table after it ended, so a host that stays up holds a \
+    assert_eq!(
+      gone,
+      Ok(Outcome::Happened),
+      "{} is still in the process table after it ended, so a host that stays up holds a \
              dead entry for every picture it asked for until someone presses something",
-            at.display()
-        );
+      at.display()
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_program_of_ours_is_run_from_beside_this_one_and_not_from_whatever_path_says() -> Result<(), Failure> {
-        let runs = console_program_contract::Command::internal(InternalProgram::Files, &["/music"])?;
-        let at = InternalProgram::Files.at()?;
+  #[test]
+  fn a_program_of_ours_is_run_from_beside_this_one_and_not_from_whatever_path_says()
+  -> Result<(), Failure> {
+    let runs = console_program_contract::Command::internal(InternalProgram::Files, &["/music"])?;
+    let at = InternalProgram::Files.at()?;
+    let program = at.to_str().ok_or("the fixture program path is not UTF-8")?;
 
-        assert_eq!(
-            words_of(&runs),
-            Ok(vec![at.to_string_lossy().into_owned(), "/music".to_string()]),
-            "a panel asked to run files ran the name, which is the installed copy rather than the one \
+    assert_eq!(
+      words_of(&runs),
+      Ok(vec![
+        program.to_owned(),
+        "/music".to_string()
+      ]),
+      "a panel asked to run files ran the name, which is the installed copy rather than the one \
              staged or built beside it"
-        );
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_program_somebody_else_wrote_is_run_by_its_name() -> Result<(), Failure> {
-        let runs = console_program_contract::Command::external(Program::True, &[])?;
+  #[test]
+  fn a_program_somebody_else_wrote_is_run_by_its_name() -> Result<(), Failure> {
+    let runs = console_program_contract::Command::external(Program::True, &[])?;
 
-        assert_eq!(words_of(&runs), Ok(vec!["true".to_string()]));
+    assert_eq!(words_of(&runs), Ok(vec!["true".to_string()]));
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

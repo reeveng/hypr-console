@@ -1,0 +1,111 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads.rs:17:39
+   |
+LL |         self.at < self.bytes.len() && self.bytes[self.at] == byte
+   |                                       ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: use one checked lookup for the bounds guard and the comparison
+   |
+LL -         self.at < self.bytes.len() && self.bytes[self.at] == byte
+LL +         match <[_]>::get(&*self.bytes, self.at) { ::core::option::Option::Some(&checked_element) => checked_element == byte, ::core::option::Option::None => false }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads.rs:22:47
+   |
+LL |     enabled && at + 1 < bytes.len() && sees_x(bytes[at + 1]) && bytes[at + 1] < b'z'
+   |                                               ^^^^^^^^^^^^^
+   |
+help: use one checked lookup for the bounds guard and the comparison
+   |
+LL -     enabled && at + 1 < bytes.len() && sees_x(bytes[at + 1]) && bytes[at + 1] < b'z'
+LL +     enabled && match <[_]>::get(&*bytes, at + 1) { ::core::option::Option::Some(&checked_element) => sees_x(checked_element) && checked_element < b'z', ::core::option::Option::None => false }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads.rs:22:65
+   |
+LL |     enabled && at + 1 < bytes.len() && sees_x(bytes[at + 1]) && bytes[at + 1] < b'z'
+   |                                                                 ^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads.rs:26:26
+   |
+LL |     !bytes.is_empty() && bytes[0] == byte
+   |                          ^^^^^^^^
+   |
+help: use one checked lookup for the bounds guard and the comparison
+   |
+LL -     !bytes.is_empty() && bytes[0] == byte
+LL +     match <[_]>::get(&*bytes, 0) { ::core::option::Option::Some(&checked_element) => checked_element == byte, ::core::option::Option::None => false }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads.rs:30:33
+   |
+LL |     bytes.is_empty() || !sees_x(bytes[0])
+   |                                 ^^^^^^^^
+   |
+help: use one checked lookup for the bounds guard and the comparison
+   |
+LL -     bytes.is_empty() || !sees_x(bytes[0])
+LL +     match <[_]>::get(&*bytes, 0) { ::core::option::Option::Some(&checked_element) => !sees_x(checked_element), ::core::option::Option::None => true }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads.rs:34:25
+   |
+LL |     at < bytes.len() && bytes[at] | 0x20 == b'x'
+   |                         ^^^^^^^^^
+   |
+help: use one checked lookup for the bounds guard and the comparison
+   |
+LL -     at < bytes.len() && bytes[at] | 0x20 == b'x'
+LL +     match <[_]>::get(&*bytes, at) { ::core::option::Option::Some(&checked_element) => checked_element | 0x20 == b'x', ::core::option::Option::None => false }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads.rs:38:39
+   |
+LL |     ((a || b) && bytes.len() > at && (bytes[at] == b'x' || bytes[at] == b'y') && bytes[at] < b'y')
+   |                                       ^^^^^^^^^
+   |
+help: use one checked lookup for the bounds guard and the comparison
+   |
+LL -     ((a || b) && bytes.len() > at && (bytes[at] == b'x' || bytes[at] == b'y') && bytes[at] < b'y')
+LL +     ((a || b) && match <[_]>::get(&bytes, at) { ::core::option::Option::Some(&checked_element) => (checked_element == b'x' || checked_element == b'y') && checked_element < b'y', ::core::option::Option::None => false })
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads.rs:38:60
+   |
+LL |     ((a || b) && bytes.len() > at && (bytes[at] == b'x' || bytes[at] == b'y') && bytes[at] < b'y')
+   |                                                            ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads.rs:38:82
+   |
+LL |     ((a || b) && bytes.len() > at && (bytes[at] == b'x' || bytes[at] == b'y') && bytes[at] < b'y')
+   |                                                                                  ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads.rs:44:31
+   |
+LL |     while at < bytes.len() && bytes[at] == b'x' {
+   |                               ^^^^^^^^^
+   |
+help: use one checked lookup for the bounds guard and the comparison
+   |
+LL -     while at < bytes.len() && bytes[at] == b'x' {
+LL +     while match <[_]>::get(&*bytes, at) { ::core::option::Option::Some(&checked_element) => checked_element == b'x', ::core::option::Option::None => false } {
+   |
+
+error: aborting due to 10 previous errors
+

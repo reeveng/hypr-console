@@ -1,0 +1,28 @@
+[package]
+name = "console-core-audio-metadata"
+version = "0.25.4"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The tags, pictures and length kept inside an audio file"
+
+[lib]
+name = "console_core_audio_metadata"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-audio-decoding-advanced-audio-coding = { path = "../console-core-audio-decoding-advanced-audio-coding" }
+console-core-mpeg-audio-frames.workspace = true
+console-core-iso-media-boxes.workspace = true
+console-core-deflate.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-ogg-pages.workspace = true
+data-encoding = "2.11.1"
+
+[dev-dependencies]
+console-core-atomic-writes.workspace = true
+console-core-temporary-directories.workspace = true
+
+[lints]
+workspace = true

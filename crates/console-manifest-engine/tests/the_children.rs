@@ -11,12 +11,14 @@
 //!
 //! The panel's mistake is not visible at the line that made it. `spawn` hands
 //! back a `Child`, a `Child` that is dropped is not killed, and a field holding
-//! one says nothing about whether that is meant. `console-program-lifetime` has
-//! the two answers as types -- `BoundToParent`, which dies with whoever started it,
-//! and `Detached`, which is meant not to -- and both of them survive the paths
-//! no one thought about, because one is a kernel signal and the other is a
-//! drop. What this test does is make them the only answers available: a
-//! `Child` named anywhere else is a third answer, given by not answering.
+//! one says nothing about whether that is meant. The lifetime crates have
+//! the answers as types -- `BoundToParent`, which dies with whoever started it,
+//! `Detached`, which is meant not to, and `Forked`, which dies with whoever
+//! started it, takes what it started along, and can be interrupted by a value
+//! -- and every one of them survives the paths no one thought about, because
+//! the kernel's signal and the drop are both under each. What this test does is
+//! make them the only answers available: a `Child` named anywhere else is an
+//! answer given by not answering.
 //!
 //! One thing it deliberately does not look at: it reads the type, not `spawn`.
 //! A command that is spawned, read to the end and waited for inside one
@@ -29,39 +31,61 @@ mod reading;
 
 use reading::{Failure, missing, naming, read};
 
-const EXCUSED: [&str; 2] = ["console-program-lifetime", "console-test-desktop"];
+const EXCUSED: [&str; 6] = [
+  "console-program-lifetime",
+  "console-operating-system-linux",
+  "console-test-desktop",
+  "console-core-cascading-style-sheets",
+  "console-core-iso-media-boxes",
+  "console-core-video-decoding-matroska-container",
+];
 
 #[test]
 fn nothing_holds_a_child_without_saying_how_long_for() -> Result<(), Failure> {
-    let word = format!("{}{}", "Chi", "ld");
-    let holding = naming(&word, &EXCUSED)?;
+  let word = format!("{}{}", "Chi", "ld");
+  let holding = naming(&word, &EXCUSED)?;
 
-    assert!(
-        holding.is_empty(),
-        "these hold a process without saying whether it outlives them; ask \
-         console_program_lifetime for an BoundToParent or a Detached: {holding:?}"
-    );
+  assert!(
+    holding.is_empty(),
+    "these hold a process without saying whether it outlives them; use \
+         the platform's BoundToParent or console_program_lifetime's Detached: {holding:?}"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
-fn the_crate_that_declares_them_still_does() -> Result<(), Failure> {
-    let said = read("crates/console-program-lifetime/src/lib.rs")?;
+fn the_lifetime_types_still_declare_their_guarantees() -> Result<(), Failure> {
+  let said = read("crates/console-program-lifetime/src/lib.rs")?;
+  let native = read("crates/console-operating-system-linux/src/program_lifetime/mod.rs")?;
+  let forks = read("crates/console-operating-system-linux/src/program_lifetime/forks.rs")?;
 
-    assert!(said.contains("pub struct BoundToParent"), "the one that dies with us is gone");
-    assert!(said.contains("pub struct Detached"), "the one that is meant not to is gone");
-    assert!(
-        said.contains("PR_SET_PDEATHSIG"),
-        "the kernel's half is gone, and the drop is alone again"
-    );
+  assert!(
+    native.contains("pub struct BoundToParent"),
+    "the one that dies with us is gone"
+  );
+  assert!(
+    said.contains("pub struct Detached"),
+    "the one that is meant not to is gone"
+  );
+  assert!(
+    forks.contains("pub struct Forked"),
+    "the one that can be interrupted is gone"
+  );
+  assert!(
+    native.contains("PR_SET_PDEATHSIG"),
+    "the kernel's half is gone, and the drop is alone again"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn every_excused_crate_is_a_crate() {
-    let Ok(missing) = missing(&EXCUSED);
+  let Ok(missing) = missing(&EXCUSED);
 
-    assert!(missing.is_empty(), "excused from a rule but not in the tree: {missing:?}");
+  assert!(
+    missing.is_empty(),
+    "excused from a rule but not in the tree: {missing:?}"
+  );
 }

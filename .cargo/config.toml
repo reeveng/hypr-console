@@ -6,3 +6,6 @@ x = "run --quiet --package console-tasks --bin console-tasks --"
 # for x86_64-unknown-uefi and is left at that target's baseline.
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "target-cpu=native"]
+
+[registry]
+global-min-publish-age = "3 days"

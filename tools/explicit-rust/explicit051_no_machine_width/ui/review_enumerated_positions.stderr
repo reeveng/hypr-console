@@ -1,0 +1,27 @@
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_enumerated_positions.rs:20:16
+   |
+LL |         answer[usize::wrapping_add(position, 0)] = item;
+   |                ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_enumerated_positions.rs:23:16
+   |
+LL |         answer[usize::wrapping_add(item, 0)] = 1;
+   |                ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_enumerated_positions.rs:26:36
+   |
+LL |         let _as_written = spelled!(usize::wrapping_add(position, 0));
+   |                                    ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: aborting due to 3 previous errors
+

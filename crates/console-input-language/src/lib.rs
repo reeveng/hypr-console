@@ -28,238 +28,235 @@
 //! exists. So the list is set from the alphabets every time, and the file
 //! keeps the one layout that is right before anything of ours has run.
 
-use console_core_arguments::{Command, CommandLine, Flag, NoSubcommand, Operands, Presence, Reason, Takes, ValidationError};
+use console_core_arguments::{
+  Command, CommandLine, Flag, NoSubcommand, Operands, Presence, Reason, Takes, ValidationError,
+};
 use console_core_never::Never;
 use console_core_number_conversion::index;
-use console_input_alphabets::Alphabet;
 use console_core_walking::{Ring, Step};
+use console_input_alphabets::Alphabet;
 
 pub const NAMED: &str = "language-switch";
 
 pub const SETTLE: Flag = Flag {
-    spelling: "--settle",
-    takes: Takes::None,
-    about: "put each keyboard back on what it was last switched to",
+  spelling: "--settle",
+  takes: Takes::None,
+  about: "put each keyboard back on what it was last switched to",
 };
 
-pub const BACK: Flag = Flag { spelling: "--back", takes: Takes::None, about: "the alphabet before this one instead of the next" };
+pub const BACK: Flag = Flag {
+  spelling: "--back",
+  takes: Takes::None,
+  about: "the alphabet before this one instead of the next",
+};
 
 pub const COMMAND: Command = Command {
-    name: NAMED,
-    about: "step every keyboard along to the next alphabet",
-    flags: &[BACK, SETTLE],
-    operands: Operands::None,
+  name: NAMED,
+  about: "step every keyboard along to the next alphabet",
+  flags: &[BACK, SETTLE],
+  operands: Operands::None,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Switch {
-    Along(Step),
-    Settle,
+  Along(Step),
+  Settle,
 }
 
 impl Switch {
-    pub fn of(line: &CommandLine<NoSubcommand>) -> Result<Switch, ValidationError> {
-        let Ok(back) = line.presence(BACK);
-        let Ok(settle) = line.presence(SETTLE);
+  pub fn of(line: &CommandLine<NoSubcommand>) -> Result<Switch, ValidationError> {
+    let Ok(back) = line.presence(BACK);
+    let Ok(settle) = line.presence(SETTLE);
 
-        match (back, settle) {
-            (Presence::Absent, Presence::Absent) => Ok(Switch::Along(Step::Forward)),
-            (Presence::Present, Presence::Absent) => Ok(Switch::Along(Step::Back)),
-            (Presence::Absent, Presence::Present) => Ok(Switch::Settle),
-            (Presence::Present, Presence::Present) => {
-                let Ok(refusal) = line.refusal(Reason::ExtraArgument(SETTLE.spelling.to_string()));
+    match (back, settle) {
+      (Presence::Absent, Presence::Absent) => Ok(Switch::Along(Step::Forward)),
+      (Presence::Present, Presence::Absent) => Ok(Switch::Along(Step::Back)),
+      (Presence::Absent, Presence::Present) => Ok(Switch::Settle),
+      (Presence::Present, Presence::Present) => {
+        let Ok(refusal) = line.refusal(Reason::ExtraArgument(SETTLE.spelling.to_string()));
 
-                Err(refusal)
-            }
-        }
+        Err(refusal)
+      }
     }
+  }
 }
 
 pub fn layouts(walk: &[&'static Alphabet]) -> Result<String, Never> {
-    let said: Vec<&str> = walk.iter().map(|alphabet| alphabet.xkb).collect();
+  let said: Vec<&str> = walk.iter().map(|alphabet| alphabet.xkb).collect();
 
-    match said.is_empty() {
-        true => {
-            let Ok(latin) = console_input_alphabets::latin();
+  match said.as_slice() {
+    [] => {
+      let Ok(latin) = console_input_alphabets::latin();
 
-            Ok(latin.xkb.to_string())
-        }
-        false => Ok(said.join(",")),
+      Ok(latin.xkb.to_string())
     }
+    [_first, ..] => Ok(said.join(",")),
+  }
 }
 
 pub fn at(walk: &[&'static Alphabet], alphabet: &Alphabet) -> Result<u32, Never> {
-    Ok(match (0..).zip(walk).find(|(_, kept)| kept.key == alphabet.key) {
-        Some((at, _)) => at,
-        None => THE_FIRST_ONE,
-    })
+  Ok(
+    match (0..).zip(walk).find(|(_, kept)| kept.key == alphabet.key) {
+      Some((at, _)) => at,
+      None => THE_FIRST_ONE,
+    },
+  )
 }
 
 const THE_FIRST_ONE: u32 = 0;
 
 pub fn along(
-    walk: &[&'static Alphabet],
-    alphabet: &Alphabet,
-    step: Step,
+  walk: &[&'static Alphabet],
+  alphabet: &Alphabet,
+  step: Step,
 ) -> Result<&'static Alphabet, Never> {
-    let Ok(round) = Ring::of(walk);
+  let Ok(round) = Ring::of(walk);
 
-    let ring = match round {
-        Some(ring) => ring,
-        None => return console_input_alphabets::latin(),
-    };
+  let ring = match round {
+    Some(ring) => ring,
+    None => return console_input_alphabets::latin(),
+  };
 
-    let Ok(now) = at(walk, alphabet);
-    let Ok(next) = ring.step(now, step);
-    let Ok(next) = index(next);
+  let Ok(now) = at(walk, alphabet);
+  let Ok(next) = ring.step(now, step);
+  let Ok(next_2) = index(next);
 
-    match walk.get(next) {
-        Some(alphabet) => Ok(alphabet),
-        None => console_input_alphabets::latin(),
-    }
+  match walk.get(next_2) {
+    Some(alphabet_2) => Ok(alphabet_2),
+    None => console_input_alphabets::latin(),
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    fn one(key: &str) -> Result<&'static Alphabet, Box<dyn Error>> {
-        let Ok(one) = console_input_alphabets::one(key);
+  fn one(key: &str) -> Result<&'static Alphabet, Box<dyn Error>> {
+    let Ok(one) = console_input_alphabets::one(key);
 
-        one.ok_or_else(|| Box::from(format!("{key} is not an alphabet")))
+    one.ok_or_else(|| Box::from(format!("{key} is not an alphabet")))
+  }
+
+  #[test]
+  fn the_list_a_compositor_is_told_is_the_alphabets_in_the_order_they_are_walked() {
+    let Ok(walk) = console_input_alphabets::read("greek,thai");
+    let Ok(said) = layouts(&walk);
+
+    assert_eq!(said, "us,gr,th");
+  }
+
+  #[test]
+  fn a_machine_that_types_nothing_still_types_english() {
+    let Ok(said) = layouts(&[]);
+
+    assert_eq!(said, "us");
+  }
+
+  #[test]
+  fn the_next_one_comes_after_and_the_last_one_comes_round() -> Result<(), Box<dyn Error>> {
+    let Ok(walk) = console_input_alphabets::read("greek,thai");
+
+    for (start, expected) in [("latin", "greek"), ("greek", "thai"), ("thai", "latin")] {
+      let alphabet = one(start)?;
+      let Ok(found) = along(&walk, alphabet, Step::Forward);
+
+      assert_eq!(found.key, expected);
     }
 
-    #[test]
-    fn the_list_a_compositor_is_told_is_the_alphabets_in_the_order_they_are_walked() {
-        let Ok(walk) = console_input_alphabets::read("greek,thai");
-        let Ok(said) = layouts(&walk);
+    Ok(())
+  }
 
-        assert_eq!(said, "us,gr,th");
+  #[test]
+  fn the_one_before_comes_back_and_the_first_one_comes_round() -> Result<(), Box<dyn Error>> {
+    let Ok(walk) = console_input_alphabets::read("greek,thai");
+
+    for (start, expected) in [("thai", "greek"), ("greek", "latin"), ("latin", "thai")] {
+      let alphabet = one(start)?;
+      let Ok(found) = along(&walk, alphabet, Step::Back);
+
+      assert_eq!(found.key, expected);
     }
 
-    #[test]
-    fn a_machine_that_types_nothing_still_types_english() {
-        let Ok(said) = layouts(&[]);
+    Ok(())
+  }
 
-        assert_eq!(said, "us");
+  #[test]
+  fn a_step_each_way_is_where_it_started() {
+    let Ok(walk) = console_input_alphabets::read("greek,thai");
+
+    for alphabet in &walk {
+      let Ok(on) = along(&walk, alphabet, Step::Forward);
+      let Ok(back) = along(&walk, on, Step::Back);
+
+      assert_eq!(
+        back.key, alphabet.key,
+        "{} does not come back",
+        alphabet.key
+      );
+    }
+  }
+
+  #[test]
+  fn an_alphabet_this_machine_no_longer_types_steps_on_from_the_front()
+  -> Result<(), Box<dyn Error>> {
+    let Ok(walk) = console_input_alphabets::read("thai");
+    let alphabet = one("greek")?;
+    let Ok(found) = along(&walk, alphabet, Step::Forward);
+
+    assert_eq!(
+      found.key, "thai",
+      "greek is not in the walk, so where it sits is the front and the next is the second"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn where_an_alphabet_sits_is_what_the_compositor_is_handed() -> Result<(), Box<dyn Error>> {
+    let Ok(walk) = console_input_alphabets::read("greek,thai");
+
+    for (name, position) in [("latin", 0), ("greek", 1), ("thai", 2)] {
+      let alphabet = one(name)?;
+
+      assert_eq!(at(&walk, alphabet), Ok(position));
     }
 
-    #[test]
-    fn the_next_one_comes_after_and_the_last_one_comes_round() -> Result<(), Box<dyn Error>> {
-        let Ok(walk) = console_input_alphabets::read("greek,thai");
-        let alphabet = one("latin")?;
-        let Ok(found) = along(&walk, alphabet, Step::Forward);
+    Ok(())
+  }
 
-        assert_eq!(found.key, "greek");
+  #[test]
+  fn a_list_with_one_thing_in_it_stays_where_it_is() -> Result<(), Box<dyn Error>> {
+    let Ok(walk) = console_input_alphabets::read("");
+    let alphabet = one("latin")?;
 
-        let alphabet = one("greek")?;
-        let Ok(found) = along(&walk, alphabet, Step::Forward);
+    for step in [Step::Forward, Step::Back] {
+      let Ok(found) = along(&walk, alphabet, step);
 
-        assert_eq!(found.key, "thai");
-
-        let alphabet = one("thai")?;
-        let Ok(found) = along(&walk, alphabet, Step::Forward);
-
-        assert_eq!(found.key, "latin");
-
-        Ok(())
+      assert_eq!(found.key, "latin");
     }
 
-    #[test]
-    fn the_one_before_comes_back_and_the_first_one_comes_round() -> Result<(), Box<dyn Error>> {
-        let Ok(walk) = console_input_alphabets::read("greek,thai");
-        let alphabet = one("thai")?;
-        let Ok(found) = along(&walk, alphabet, Step::Back);
+    Ok(())
+  }
 
-        assert_eq!(found.key, "greek");
+  #[test]
+  fn nothing_steps_forward_back_steps_back_settle_settles_and_both_are_refused() {
+    let switched = |words: &[&str]| {
+      console_core_arguments::read(&COMMAND, words)
+        .and_then(|line| Switch::of(&line))
+        .map_err(|refusal| refusal.reason)
+    };
 
-        let alphabet = one("greek")?;
-        let Ok(found) = along(&walk, alphabet, Step::Back);
-
-        assert_eq!(found.key, "latin");
-
-        let alphabet = one("latin")?;
-        let Ok(found) = along(&walk, alphabet, Step::Back);
-
-        assert_eq!(found.key, "thai");
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_step_each_way_is_where_it_started() {
-        let Ok(walk) = console_input_alphabets::read("greek,thai");
-
-        for alphabet in &walk {
-            let Ok(on) = along(&walk, alphabet, Step::Forward);
-            let Ok(back) = along(&walk, on, Step::Back);
-
-            assert_eq!(back.key, alphabet.key, "{} does not come back", alphabet.key);
-        }
-    }
-
-    #[test]
-    fn an_alphabet_this_machine_no_longer_types_steps_on_from_the_front() -> Result<(), Box<dyn Error>> {
-        let Ok(walk) = console_input_alphabets::read("thai");
-        let alphabet = one("greek")?;
-        let Ok(found) = along(&walk, alphabet, Step::Forward);
-
-        assert_eq!(
-            found.key,
-            "thai",
-            "greek is not in the walk, so where it sits is the front and the next is the second"
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn where_an_alphabet_sits_is_what_the_compositor_is_handed() -> Result<(), Box<dyn Error>> {
-        let Ok(walk) = console_input_alphabets::read("greek,thai");
-        let alphabet = one("latin")?;
-
-        assert_eq!(at(&walk, alphabet), Ok(0));
-
-        let alphabet = one("greek")?;
-
-        assert_eq!(at(&walk, alphabet), Ok(1));
-
-        let alphabet = one("thai")?;
-
-        assert_eq!(at(&walk, alphabet), Ok(2));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_list_with_one_thing_in_it_stays_where_it_is() -> Result<(), Box<dyn Error>> {
-        let Ok(walk) = console_input_alphabets::read("");
-        let alphabet = one("latin")?;
-        let Ok(found) = along(&walk, alphabet, Step::Forward);
-
-        assert_eq!(found.key, "latin");
-
-        let alphabet = one("latin")?;
-        let Ok(found) = along(&walk, alphabet, Step::Back);
-
-        assert_eq!(found.key, "latin");
-
-        Ok(())
-    }
-
-    #[test]
-    fn nothing_steps_forward_back_steps_back_settle_settles_and_both_are_refused() {
-        let switched = |words: &[&str]| {
-            console_core_arguments::read(&COMMAND, words)
-                .and_then(|line| Switch::of(&line))
-                .map_err(|refusal| refusal.reason)
-        };
-
-        assert_eq!(switched(&[]), Ok(Switch::Along(Step::Forward)));
-        assert_eq!(switched(&[BACK.spelling]), Ok(Switch::Along(Step::Back)));
-        assert_eq!(switched(&[SETTLE.spelling]), Ok(Switch::Settle));
-        assert_eq!(switched(&[BACK.spelling, SETTLE.spelling]), Err(Reason::ExtraArgument(SETTLE.spelling.to_string())));
-        assert_eq!(switched(&["--forward"]), Err(Reason::NoSuchFlag("--forward".to_string())));
-    }
+    assert_eq!(switched(&[]), Ok(Switch::Along(Step::Forward)));
+    assert_eq!(switched(&[BACK.spelling]), Ok(Switch::Along(Step::Back)));
+    assert_eq!(switched(&[SETTLE.spelling]), Ok(Switch::Settle));
+    assert_eq!(
+      switched(&[BACK.spelling, SETTLE.spelling]),
+      Err(Reason::ExtraArgument(SETTLE.spelling.to_string()))
+    );
+    assert_eq!(
+      switched(&["--forward"]),
+      Err(Reason::NoSuchFlag("--forward".to_string()))
+    );
+  }
 }

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Clipboard History
+Comment=Choose something you copied earlier
+Exec=/usr/local/bin/console-clipboard
+Icon=edit-paste
+Terminal=false
+Categories=Utility;

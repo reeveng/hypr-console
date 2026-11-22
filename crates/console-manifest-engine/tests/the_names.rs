@@ -38,117 +38,126 @@ mod reading;
 
 use std::collections::BTreeSet;
 
-use reading::{Failure, Section, section, read, root};
+use reading::{Failure, Section, read, root, section};
 
 fn crates() -> Result<Vec<String>, Failure> {
-    let Ok(root) = root();
-    let mut found = Vec::new();
+  let Ok(root) = root();
+  let mut found = Vec::new();
 
-    let entries = std::fs::read_dir(root.join("crates"))?;
+  let entries = std::fs::read_dir(root.join("crates"))?;
 
+  for entry in entries {
+    let entry_2 = entry?;
+    let at = entry_2.path();
 
-    for entry in entries {
-        let entry = entry?;
-        let at = entry.path();
+    let metadata = std::fs::metadata(&at)?;
 
-        match (at.is_dir(), at.file_name().and_then(|name| name.to_str())) {
-            (true, Some(name)) => found.push(name.to_string()),
-            (true, None) | (false, _) => {},
-        }
+    match (
+      metadata.is_dir(),
+      at.file_name().and_then(|name| name.to_str()),
+    ) {
+      (true, Some(name)) => found.push(name.to_string()),
+      (true, None) | (false, _) => {}
     }
+  }
 
-    Ok(found)
+  Ok(found)
 }
 
 fn entries() -> Result<Vec<String>, Failure> {
-    let Ok(root) = root();
-    let mut found = Vec::new();
+  let Ok(root) = root();
+  let mut found = Vec::new();
 
-    let entries = std::fs::read_dir(root.join("files/usr/share/applications"))?;
+  let entries = std::fs::read_dir(root.join("files/usr/share/applications"))?;
 
+  for entry in entries {
+    let entry_2 = entry?;
+    let path = entry_2.path();
+    let desktop = path.extension().and_then(|kind| kind.to_str()) == Some("desktop");
 
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        let desktop = path.extension().and_then(|kind| kind.to_str()) == Some("desktop");
-
-        match (desktop, path.file_stem().and_then(|stem| stem.to_str())) {
-            (true, Some(stem)) => found.push(stem.to_string()),
-            (true, None) | (false, _) => {},
-        }
+    match (desktop, path.file_stem().and_then(|stem| stem.to_str())) {
+      (true, Some(stem)) => found.push(stem.to_string()),
+      (true, None) | (false, _) => {}
     }
+  }
 
-    found.sort();
+  found.sort();
 
-    Ok(found)
+  Ok(found)
 }
 
 fn known() -> Result<BTreeSet<String>, Failure> {
-    let held = read("desktop.conf")?;
-    let built = section(&held, Section::Build)?;
-    let packages = section(&held, Section::Packages)?;
-    let crates = crates()?;
-    let mut names: BTreeSet<String> = crates.into_iter().collect();
+  let held = read("desktop.conf")?;
+  let built = section(&held, Section::Build)?;
+  let packages = section(&held, Section::Packages)?;
+  let crates = crates()?;
+  let mut names: BTreeSet<String> = crates.into_iter().collect();
 
-    names.extend(built);
-    names.extend(packages.iter().map(|name| format!("console-{name}")));
-    names.extend(packages);
+  names.extend(built);
+  names.extend(packages.iter().map(|name| format!("console-{name}")));
+  names.extend(packages);
 
-    Ok(names)
+  Ok(names)
 }
 
 #[test]
 fn every_desktop_entry_is_named_for_something_this_tree_still_uses() -> Result<(), Failure> {
-    let known = known()?;
-    let entries = entries()?;
-    let stale: Vec<String> = entries.into_iter().filter(|name| !known.contains(name)).collect();
+  let known = known()?;
+  let entries = entries()?;
+  let stale: Vec<String> = entries
+    .into_iter()
+    .filter(|name| !known.contains(name))
+    .collect();
 
-    assert!(
-        stale.is_empty(),
-        "these name nothing on the machine: {stale:?}\n\
+  assert!(
+    stale.is_empty(),
+    "these name nothing on the machine: {stale:?}\n\
          a desktop entry's filename is what mimeapps.list and the menu point at, \
          so rename it to a crate, a built binary or a package -- and sweep the old \
          path in a migration, because an apply installs a name and never removes one",
-    );
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn every_entry_the_mime_list_points_at_is_one_this_tree_installs() -> Result<(), Failure> {
-    let list = read("files/etc/xdg/mimeapps.list")?;
-    let entries = entries()?;
-    let held: BTreeSet<String> = entries.into_iter().collect();
+  let list = read("files/etc/xdg/mimeapps.list")?;
+  let entries = entries()?;
+  let held: BTreeSet<String> = entries.into_iter().collect();
 
-    let missing: Vec<String> = list
-        .lines()
-        .filter_map(|line| line.split_once('='))
-        .flat_map(|(_kind, said)| said.split(';').map(str::trim).map(str::to_string))
-        .filter(|said| said.starts_with("console-") && said.ends_with(".desktop"))
-        .filter(|said| !held.contains(said.trim_end_matches(".desktop")))
-        .collect();
+  let missing: Vec<String> = list
+    .lines()
+    .filter_map(|line| line.split_once('='))
+    .flat_map(|(_kind, said)| said.split(';').map(str::trim).map(str::to_string))
+    .filter(|said| said.starts_with("console-") && said.ends_with(".desktop"))
+    .filter(|said| !held.contains(said.trim_end_matches(".desktop")))
+    .collect();
 
-    assert!(
-        missing.is_empty(),
-        "mimeapps.list points at entries this tree does not install: {missing:?}",
-    );
+  assert!(
+    missing.is_empty(),
+    "mimeapps.list points at entries this tree does not install: {missing:?}",
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn the_manifest_installs_every_entry_that_is_in_the_tree() -> Result<(), Failure> {
-    let held = read("desktop.conf")?;
-    let files = section(&held, Section::Files)?;
-    let installed: BTreeSet<String> = files.into_iter().collect();
+  let held = read("desktop.conf")?;
+  let files = section(&held, Section::Files)?;
+  let installed: BTreeSet<String> = files.into_iter().collect();
 
-    let entries = entries()?;
-    let unnamed: Vec<String> = entries
-        .into_iter()
-        .filter(|name| !installed.contains(&format!("/usr/share/applications/{name}.desktop")))
-        .collect();
+  let entries = entries()?;
+  let unnamed: Vec<String> = entries
+    .into_iter()
+    .filter(|name| !installed.contains(&format!("/usr/share/applications/{name}.desktop")))
+    .collect();
 
-    assert!(unnamed.is_empty(), "in the tree and not in [files]: {unnamed:?}");
+  assert!(
+    unnamed.is_empty(),
+    "in the tree and not in [files]: {unnamed:?}"
+  );
 
-    Ok(())
+  Ok(())
 }

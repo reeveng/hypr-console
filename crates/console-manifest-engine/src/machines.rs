@@ -36,6 +36,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use console_core_atomic_writes::Stored;
 use console_core_ini_files::{Key, Under, field, heading};
 use console_core_never::Never;
 
@@ -45,9 +46,7 @@ pub const AT: &str = "machines.conf";
 
 pub const MATCHES: &str = "matches";
 
-pub const FIRMWARE: &str = "/sys/class/dmi/id";
-
-pub const ASKED: [&str; 2] = ["product_name", "product_family"];
+pub const FIRMWARE: &str = "/sys/devices/virtual/dmi/id";
 
 const JOINED: char = '.';
 
@@ -56,179 +55,191 @@ pub struct Named<'a>(pub &'a str);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Machine {
-    pub named: String,
-    pub matches: String,
+  pub named: String,
+  pub matches: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fits {
-    ThisMachine,
-    Another,
+  ThisMachine,
+  Another,
 }
 
 pub fn every(said: &str) -> Result<Vec<Machine>, Unapplied> {
-    let mut every: Vec<Machine> = Vec::new();
+  let mut every: Vec<Machine> = Vec::new();
 
-    for line in said.lines() {
-        let Ok(heading) = heading(line);
+  for line in said.lines() {
+    let Ok(heading) = heading(line);
 
-        let named = match heading {
-            Some(named) => named,
-            None => continue,
-        };
+    let named = match heading {
+      Some(named) => named,
+      None => continue,
+    };
 
-        match named.contains(JOINED) {
-            true => continue,
-            false => {},
-        }
-
-        let Ok(matches) = field(said, Under(named), Key(MATCHES));
-
-        let matches = match matches {
-            Some(matches) => matches,
-            None => {
-                return Err(Unapplied::NoMatches(named.to_owned()));
-            }
-        };
-
-        every.push(Machine { named: named.to_owned(), matches: matches.to_owned() });
+    match ::core::primitive::bool::then_some(named.contains(JOINED), ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
     }
 
-    Ok(every)
+    let Ok(matches) = field(said, Under(named), Key(MATCHES));
+
+    let matches_3 = match matches {
+      Some(matches_2) => matches_2,
+      None => {
+        return Err(Unapplied::NoMatches(named.to_owned()));
+      }
+    };
+
+    every.push(Machine {
+      named: named.to_owned(),
+      matches: matches_3.to_owned(),
+    });
+  }
+
+  Ok(every)
 }
 
 pub fn called(firmware: &Path) -> Result<Vec<String>, Never> {
-    let mut every: Vec<String> = Vec::new();
+  let mut every: Vec<String> = Vec::new();
 
-    for asked in ASKED {
-        let said = match std::fs::read_to_string(firmware.join(asked)) {
-            Ok(said) => said,
-            Err(_firmware_that_will_not_say) => continue,
-        };
+  for attribute in [
+    firmware.join("product_name"),
+    firmware.join("product_family"),
+  ] {
+    let Ok(stored) = console_core_atomic_writes::read(&attribute);
+    let said = match stored {
+      Stored::Text(text) => text,
+      Stored::Absent | Stored::Failed(_) => continue,
+    };
 
-        let said = said.trim().to_lowercase();
+    let said_2 = said.trim().to_lowercase();
 
-        match said.is_empty() {
-            true => {},
-            false => every.push(said),
-        }
+    match ::core::primitive::bool::then_some(said_2.is_empty(), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => every.push(said_2),
     }
+  }
 
-    Ok(every)
+  Ok(every)
 }
 
 impl Machine {
-    pub fn fits(&self, called: &[String]) -> Result<Fits, Never> {
-        let wanted = self.matches.trim().to_lowercase();
+  pub fn fits(&self, called: &[String]) -> Result<Fits, Never> {
+    let wanted = self.matches.trim().to_lowercase();
 
-        Ok(match called.iter().any(|called| called.contains(&wanted)) {
-            true => Fits::ThisMachine,
-            false => Fits::Another,
-        })
-    }
+    Ok(
+      match ::core::primitive::bool::then_some(called.iter().any(|called_2| called_2.contains(&wanted)), ()) {
+        ::core::option::Option::Some(()) => Fits::ThisMachine,
+        ::core::option::Option::None => Fits::Another,
+      },
+    )
+  }
 }
 
 pub fn entries(said: &str) -> Result<BTreeMap<String, Vec<(String, String)>>, Never> {
-    let mut held: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-    let mut under: Option<(String, String)> = None;
+  let mut held: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+  let mut under: Option<(String, String)> = None;
 
-    for line in said.lines() {
-        let Ok(heading) = heading(line);
+  for line in said.lines() {
+    let Ok(heading) = heading(line);
 
-        match heading {
-            Some(named) => {
-                under = named
-                    .split_once(JOINED)
-                    .map(|(machine, section)| (machine.to_owned(), section.to_owned()));
-            }
-            None => {
-                let Ok(entry) = console_core_ini_files::without_a_comment(line);
+    match heading {
+      Some(named) => {
+        under = named
+          .split_once(JOINED)
+          .map(|(machine, section)| (machine.to_owned(), section.to_owned()));
+      }
+      None => {
+        let Ok(entry) = console_core_ini_files::without_a_comment(line);
 
-                match (under.as_ref(), entry.is_empty()) {
-                    (Some((machine, section)), false) => {
-                        held.entry(machine.clone())
-                            .or_default()
-                            .push((section.clone(), entry.to_owned()));
-                    }
-                    (Some(_), true) | (None, _) => {},
-                }
-            }
+        match (under.as_ref(), entry.is_empty()) {
+          (Some((machine, section)), false) => {
+            held
+              .entry(machine.clone())
+              .or_default()
+              .push((section.clone(), entry.to_owned()));
+          }
+          (Some(_), true) | (None, _) => {}
         }
+      }
     }
+  }
 
-    Ok(held)
+  Ok(held)
 }
 
 pub fn said_as_manifest(held: &[(String, String)]) -> Result<String, Never> {
-    let mut out = String::new();
-    let mut under: Option<&str> = None;
+  let mut out = String::new();
+  let mut under: Option<&str> = None;
 
-    for (section, entry) in held {
-        match under == Some(section.as_str()) {
-            true => {},
-            false => {
-                out.push_str(&format!("[{section}]\n"));
+  for (section, entry) in held {
+    match ::core::primitive::bool::then_some(under == Some(section.as_str()), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => {
+        out.push_str(&format!("[{section}]\n"));
 
-                under = Some(section);
-            }
-        }
-
-        out.push_str(&format!("{entry}\n"));
+        under = Some(section);
+      }
     }
 
-    Ok(out)
+    out.push_str(&format!("{entry}\n"));
+  }
+
+  Ok(out)
 }
 
 pub fn of_every(said: &str) -> Result<String, Never> {
-    let Ok(entries) = entries(said);
+  let Ok(entries) = entries(said);
 
-    Ok(entries
-        .values()
-        .map(|held| {
-            let Ok(said) = said_as_manifest(held);
+  Ok(
+    entries
+      .values()
+      .map(|held| {
+        let Ok(said_2) = said_as_manifest(held);
 
-            said
-        })
-        .collect())
+        said_2
+      })
+      .collect(),
+  )
 }
 
 pub fn of(said: &str, machine: Named<'_>) -> Result<String, Never> {
-    let Named(named) = machine;
-    let Ok(entries) = entries(said);
+  let Named(named) = machine;
+  let Ok(entries) = entries(said);
 
-    match entries.get(named) {
-        Some(held) => said_as_manifest(held),
-        None => Ok(String::new()),
-    }
+  match entries.get(named) {
+    Some(held) => said_as_manifest(held),
+    None => Ok(String::new()),
+  }
 }
 
 pub fn here(said: &str, firmware: &Path) -> Result<String, Unapplied> {
-    let every = every(said)?;
-    let Ok(called) = called(firmware);
+  let every = every(said)?;
+  let Ok(called) = called(firmware);
 
-    let mut out = String::new();
+  let mut out = String::new();
 
-    for machine in &every {
-        let Ok(fits) = machine.fits(&called);
+  for machine in &every {
+    let Ok(fits) = machine.fits(&called);
 
-        match fits {
-            Fits::ThisMachine => {
-                let Ok(held) = of(said, Named(&machine.named));
+    match fits {
+      Fits::ThisMachine => {
+        let Ok(held) = of(said, Named(&machine.named));
 
-                out.push_str(&held);
-            }
-            Fits::Another => {},
-        }
+        out.push_str(&held);
+      }
+      Fits::Another => {}
     }
+  }
 
-    Ok(out)
+  Ok(out)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const TABLE: &str = "\
+  const TABLE: &str = "\
 [legion-go]
 matches = Legion Go
 
@@ -246,93 +257,101 @@ matches = Surface Pro
 iptsd
 ";
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    fn firmware(whose: &str, said: &[(&str, &str)]) -> Result<std::path::PathBuf, Failure> {
-        let at = console_core_temporary_directories::fresh(&format!("machines-{whose}"))?;
+  fn firmware(whose: &str, said: &[(&str, &str)]) -> Result<std::path::PathBuf, Failure> {
+    let at = console_core_temporary_directories::fresh(&format!("machines-{whose}"))?;
 
-        for (named, holds) in said {
-            console_core_atomic_writes::whole(&at.join(named), format!("{holds}\n").as_bytes())?;
-        }
-
-        Ok(at)
+    for (named, holds) in said {
+      let name = crate::manifest::BuildName::parse(named)?;
+      console_core_atomic_writes::whole(&at.join(name), format!("{holds}\n").as_bytes())?;
     }
 
-    #[test]
-    fn a_machine_is_what_its_firmware_calls_it() -> Result<(), Failure> {
-        let at = firmware("handheld", &[("product_name", "83E1"), ("product_family", "Legion Go")])?;
-        let said = here(TABLE, &at)?;
+    Ok(at)
+  }
 
-        assert_eq!(
-            said,
-            "[files]\n/usr/share/inputplumber/devices/50-legion_go.yaml\n\
+  #[test]
+  fn a_machine_is_what_its_firmware_calls_it() -> Result<(), Failure> {
+    let at = firmware(
+      "handheld",
+      &[("product_name", "83E1"), ("product_family", "Legion Go")],
+    )?;
+    let said = here(TABLE, &at)?;
+
+    assert_eq!(
+      said,
+      "[files]\n/usr/share/inputplumber/devices/50-legion_go.yaml\n\
              /etc/udev/rules.d/92-console-haptics.rules\n\
              [masked]\ncachyos-gamescope-autologin.service\n"
-        );
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_machine_in_no_block_gets_nothing_rather_than_someone_elses_hardware() -> Result<(), Failure> {
-        let at = firmware("laptop", &[
-            ("product_name", "21MC001RCK"),
-            ("product_family", "ThinkPad T14 Gen 5"),
-        ])?;
-        let said = here(TABLE, &at)?;
+  #[test]
+  fn a_machine_in_no_block_gets_nothing_rather_than_someone_elses_hardware() -> Result<(), Failure>
+  {
+    let at = firmware(
+      "laptop",
+      &[
+        ("product_name", "21MC001RCK"),
+        ("product_family", "ThinkPad T14 Gen 5"),
+      ],
+    )?;
+    let said = here(TABLE, &at)?;
 
-        assert_eq!(said, "", "a laptop needs no file in this repository");
+    assert_eq!(said, "", "a laptop needs no file in this repository");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_part_of_the_name_is_enough_and_case_is_not_a_question() -> Result<(), Failure> {
-        let at = firmware("tablet", &[("product_name", "Surface Pro 9 for Business")])?;
-        let said = here(TABLE, &at)?;
+  #[test]
+  fn a_part_of_the_name_is_enough_and_case_is_not_a_question() -> Result<(), Failure> {
+    let at = firmware("tablet", &[("product_name", "Surface Pro 9 for Business")])?;
+    let said = here(TABLE, &at)?;
 
-        assert_eq!(said, "[packages]\niptsd\n");
+    assert_eq!(said, "[packages]\niptsd\n");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn firmware_that_says_nothing_at_all_is_a_machine_with_no_block() -> Result<(), Failure> {
-        let at = firmware("nothing", &[])?;
-        let said = here(TABLE, &at)?;
+  #[test]
+  fn firmware_that_says_nothing_at_all_is_a_machine_with_no_block() -> Result<(), Failure> {
+    let at = firmware("nothing", &[])?;
+    let said = here(TABLE, &at)?;
 
-        assert_eq!(said, "");
+    assert_eq!(said, "");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_machine_that_nothing_can_ever_be_is_a_fault_in_the_file() -> Result<(), Failure> {
-        let said = "[legion-go]\n\n[legion-go.files]\n/etc/a\n";
+  #[test]
+  fn a_machine_that_nothing_can_ever_be_is_a_fault_in_the_file() -> Result<(), Failure> {
+    let said = "[legion-go]\n\n[legion-go.files]\n/etc/a\n";
 
-        let refused = here(said, Path::new("/nowhere"));
+    let refused = here(said, Path::new("/nowhere"));
 
-        assert!(
-            matches!(refused, Err(Unapplied::NoMatches(..))),
-            "a block with no matches line selects nothing and says nothing: {refused:?}"
-        );
+    assert!(
+      matches!(refused, Err(Unapplied::NoMatches(..))),
+      "a block with no matches line selects nothing and says nothing: {refused:?}"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn the_blocks_are_read_in_the_manifests_own_vocabulary() -> Result<(), Failure> {
-        let at = firmware("vocabulary", &[("product_name", "Legion Go")])?;
-        let said = here(TABLE, &at)?;
-        let read = crate::manifest::Manifest::read(&said)?;
-        let Ok(files) = read.of(crate::manifest::Section::Files);
+  #[test]
+  fn the_blocks_are_read_in_the_manifests_own_vocabulary() -> Result<(), Failure> {
+    let at = firmware("vocabulary", &[("product_name", "Legion Go")])?;
+    let said = here(TABLE, &at)?;
+    let read = crate::manifest::Manifest::read(&said)?;
+    let Ok(files) = read.of(crate::manifest::Section::Files);
 
-        assert_eq!(files.len(), 2);
+    assert_eq!(files.len(), 2);
 
-        let Ok(masked) = read.of(crate::manifest::Section::Masked);
+    let Ok(masked) = read.of(crate::manifest::Section::Masked);
 
-        assert_eq!(masked, ["cachyos-gamescope-autologin.service"]);
+    assert_eq!(masked, ["cachyos-gamescope-autologin.service"]);
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

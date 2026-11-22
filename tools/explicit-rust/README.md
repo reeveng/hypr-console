@@ -18,7 +18,11 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
 `rustc-dev` component it needs, and `cargo dylint` builds them on demand.
 
     just explicit        the rules, by kind, by count
-    just explicit-gate   the rules the workspace already keeps, enforced
+    just explicit-gate   run the merge audit
+    just explicit-fix PACKAGE   apply automatic fixes to one package
+    just explicit-fix-branches -p PACKAGE --all-targets   apply the enum match rewrites
+    just explicit-rust fix-all  apply and recheck fixes across the workspace and the UEFI kernel
+    just explicit-batch audit   count findings and available fixes for all rules
 
 ## The rules
 
@@ -28,7 +32,7 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT004  unwrap / expect / panic / todo / unimplemented / unreachable
     EXPLICIT005  fallible values must be handled or propagated
     EXPLICIT006  Option is for `may not exist`, not for errors
-    EXPLICIT007  no bool return values
+    EXPLICIT007  name boolean function results with enums, including inside Option and Result
     EXPLICIT008  no bool parameters
     EXPLICIT009  discarded #[must_use] values must be `let _ = …`
     EXPLICIT010  no implicit numeric coercion
@@ -40,7 +44,7 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT016  no wildcard arm on a match over an enum, foreign ones included
     EXPLICIT017  `?` stands alone: the whole of a statement, never buried
     EXPLICIT018  an `allow` carries its reason, in the attribute
-    EXPLICIT019  no `if` and no match guard; a decision names both outcomes
+    EXPLICIT019  no `if`, match guards, or boolean matches
     EXPLICIT020  no comments; a `//!` head and a `// SAFETY:` are the two that stay
     EXPLICIT021  no waiting on the clock; ask for the thing, and keep asking
     EXPLICIT022  no settling on a number of seconds on the handheld; ask it
@@ -77,7 +81,7 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT053  no `while`; a loop names where it stops
     EXPLICIT054  no `loop`; walk a list, an iterator or a source of events
     EXPLICIT055  an iterator with no end in it is a loop with no bound
-    EXPLICIT056  a std call that panics without looking like it
+    EXPLICIT056  a std call that panics without looking like it, including zero steps and wrapping division
     EXPLICIT057  a wait with no deadline; the end is said at the wait
     EXPLICIT058  an `unsafe` is held to where it is written
     EXPLICIT059  the unchecked spellings are promises, not shortcuts
@@ -86,7 +90,7 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT062  a warning silenced by region rather than answered
     EXPLICIT063  a fault met by an arm that does nothing
     EXPLICIT064  outside data read by a type that accepts more than it says
-    EXPLICIT065  a checked constructor with a route around the check
+    EXPLICIT065  a checked constructor or conversion with a route around the check
     EXPLICIT066  the heap reached for after init, in a crate that flies
     EXPLICIT067  a quantity that is a bare float in a signature
     EXPLICIT068  a value the whole process shares, which nobody handed anybody
@@ -95,7 +99,7 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT071  floats compared with `==` rather than asked
     EXPLICIT072  a call the call graph does not hold, in a crate that flies
     EXPLICIT073  a name that means two values in one scope
-    EXPLICIT074  a type handed across an `extern` signature with no layout said
+    EXPLICIT074  a type handed across an `extern` signature needs a pinned layout with const assertions
     EXPLICIT075  nesting past six or parameters past eight
     EXPLICIT076  a state field assigned from outside the type that owns it
     EXPLICIT077  a decision read from a source nobody handed in
@@ -103,6 +107,30 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT079  a task loop with no kick in it, in a crate that flies
     EXPLICIT080  a `macro_rules!` with no reason at it
     EXPLICIT081  a value nobody owns: no `Arc`, no `Rc`, no `Weak` of either
+    EXPLICIT082  a line a shell reads, assembled rather than written
+    EXPLICIT083  a path followed by root, in a crate that runs as root
+    EXPLICIT084  a path asked whether it is there before it is used
+    EXPLICIT085  a name kept in a directory everybody can write to
+    EXPLICIT086  a name joined to a path that nobody checked for climbing
+    EXPLICIT087  a read to the end of a stream with no end said
+    EXPLICIT088  a buffer sized by a number that arrived
+    EXPLICIT089  text made out of what was not text, lossily
+    EXPLICIT090  a descriptor held as a number
+    EXPLICIT091  a descriptor made without `CLOEXEC`
+    EXPLICIT092  root given up out of order
+    EXPLICIT093  a program started by root on an inherited environment
+    EXPLICIT094  a secret held as a plain string
+    EXPLICIT095  a call in a signal handler or before `exec` that may take a lock
+    EXPLICIT096  memory declared rather than checked, including raw reads and manual destruction
+    EXPLICIT097  a channel with no bound
+    EXPLICIT098  JSON decoded into a `Value` and walked
+    EXPLICIT099  a path or an address compared as text
+    EXPLICIT100  certificate verification switched off
+    EXPLICIT101  a mode that lets everybody write, or runs a file as its owner
+    EXPLICIT102  a mode set by name after the file was made
+    EXPLICIT103  a thread started for each item of a list
+    EXPLICIT104  a secret typed out in the source
+    EXPLICIT105  a machine handler waiting for external work
 
 All of them are written. Each is one crate with a `ui/` case beside it.
 
@@ -335,17 +363,339 @@ read as a unit.
 A comment belongs to the block it explains, so the blank line goes above the
 pair rather than between them, and an attribute is read the same way.
 
-It is also the one rule in the suite a machine can apply. What it asks for is a
-newline at a place the rule has already walked to, so it offers exactly that,
-machine-applicable:
+### Converting booleans to named outcomes
 
-    cargo dylint --fix --lib explicit013_breathing_room
+When a predicate has two outcomes with domain-specific meanings, define an
+enum that names them. Implement `From<bool>` for the conversion, call it where
+the predicate is evaluated, and match exhaustively on the named variants.
+Use the enum as the outcome type in APIs that expose the decision.
 
-The other rules do not, and will not. Each of them is asking for a decision --
-a name for the case that was left out, a sentence saying why an `unsafe` is
-sound -- and a machine that guessed one would be writing the thing the rule
-exists to prevent. A blank line is the one thing here that changes what a file
-says to a reader and nothing at all to the compiler.
+```rust
+enum Threshold {
+  Above,
+  AtOrBelow,
+}
+
+impl From<bool> for Threshold {
+  fn from(above: bool) -> Self {
+    match bool::then_some(above, ()) {
+      Some(()) => Self::Above,
+      None => Self::AtOrBelow,
+    }
+  }
+}
+
+let reading = 120;
+let limit = 100;
+let label = match Threshold::from(reading > limit) {
+  Threshold::Above => "above limit",
+  Threshold::AtOrBelow => "within limit",
+};
+```
+
+The optimizer can eliminate the temporary enum when it sees both the
+conversion and the match.
+
+### Applying automatic fixes
+
+Run `just explicit-fix PACKAGE` to apply the Rust lint suggestions across a
+package's library, binaries, tests, examples, and benches. Add `--all-features`
+for feature-gated code.
+
+Run `just explicit-fix-branches -p PACKAGE --all-targets` to apply only the
+EXPLICIT019 rewrites. The recipe accepts Cargo flags, including
+`--all-features`, `--workspace`, and `--allow-dirty --allow-staged`.
+Supported `if let` patterns match `Option`, `Result`, and local enum variants
+directly. The fixer can name the remaining cases in nested variants and tuples.
+Slice emptiness can match `[]` and `[_, ..]`. Supported integer and character
+comparisons can match a literal directly, including in const functions, or
+use `Ordering` at runtime.
+Use a domain enum for a decision that comes from a boolean API. A standard
+`From<bool>` implementation can map `true` and `false` directly to two
+distinct unit variants. Match the resulting enum in the caller.
+Set `explicit019_structural_only = true` to apply direct matches and leave
+opaque predicates for a domain enum. The standalone lint can also fix a plain
+predicate by using `bool::then_some(predicate, ())`. Guards and branches with
+uncertain drop scopes or conditional types can require manual edits.
+
+Run `just explicit-rust fix-all` to apply Dylint's machine-applicable
+suggestions repeatedly across all workspace targets and features, including
+the kernel for `x86_64-unknown-uefi`. It backs up edited sources, checks each
+batch with the compiler, and captures a fresh inventory to find newly
+available fixes. The final report includes findings that still need review.
+The command succeeds when the automatic queue is empty.
+By default the recipe uses structural branch rewrites and the reviewed
+domain enum mappings for Type 1 token classification, AV1 rectangular
+transform scaling, superblock size, ADST row order, and the DC shortcut. Set
+`DYLINT_TOML` or supply a root `dylint.toml` to choose a different configuration.
+Use `--package PACKAGE` to focus the edits or `--exclude PACKAGE` when a
+package's native prerequisites are unavailable.
+
+`just explicit-fix-all` also runs a workspace-wide pass through
+`cargo dylint --fix --all`. Cargo asks for a clean checkout by default.
+Pass `--allow-dirty --allow-staged` to that recipe to apply fixes on top of
+existing changes.
+Use `--lib` to run one fixer over several packages with the same pattern.
+
+    DYLINT_RUSTFLAGS=--cap-lints=warn cargo dylint --fix --no-deps \
+        --lib explicit014_no_index_slice -- -p PACKAGE -p OTHER_PACKAGE --all-targets
+
+Omit `--fix` to preview the suggestions. Re-run the inventory after each
+batch. `just explicit-batch audit` reports findings and available suggestions
+by rule. Its [batch guide](migration-collector/BATCHES.md) describes the
+saved reports.
+
+The fixers cover infallible `Result::unwrap()` calls (004), `Result` to
+`Option` conversions of uninhabited variants (006), reviewed enum outcomes
+for private boolean return values (007) and parameter families (008), numeric
+`.into()` (010), `as` casts (011), blank lines
+(013), fixed-array access and iteration (014), arithmetic with proven bounds (015),
+final catch-alls over `Option`, `Result`, `Ordering`, `FpCategory`, and
+supported local enums (016),
+redundant `Some(value?)` and `Ok(value?)` returns, shared borrows, and
+fallible compound-assignment operands (017),
+boolean matches, boolean chains, and selected `if let` branches (019), supported
+`Option`, `Result`, and supported local enum binding patterns in Rust 2024 (023),
+eager `Option` fallbacks and explicit default values (033), missing
+`#[must_use]` annotations (034), standard `.into()`
+calls with a named `From` equivalent (045), nested loop labels (046),
+machine-width conversions (051), bounded loop rewrites (053), and shadowed
+bindings (073). The shadowing fixer adds a numeric suffix and renames the
+references to that binding. Macro-dependent and conditionally compiled
+bindings may still need manual review.
+
+EXPLICIT014 can reuse a fixed-array loop position through the workspace's
+infallible `fixed_index` and `index` conversions. Enable
+`explicit014_round_trip_loops = true` for reviewed functions identified by
+`explicit014_fix_functions`.
+
+EXPLICIT016 can name the remaining `Ordering` and `FpCategory` variants,
+including payloads inside `Option` and `Result`. These rewrites require
+absolute variant paths so the compiler can resolve the same names across
+configurations.
+
+EXPLICIT033 can name a local enum's default variant when its `Default`
+implementation returns that unit variant directly. The `unwrap_or` rewrite
+keeps fallback evaluation eager when it has effects or moves an owned value.
+
+Run `just explicit-fix-reviewed --offline --locked --allow-dirty --allow-staged`
+to apply the reviewed presets together to the host workspace and the UEFI
+kernel. This includes test failure propagation, checked decoder bounds, AV1
+macro rewrites, reviewed enum outcomes, process-local pipes and the public API
+compatibility boundary.
+Cargo prints the files it edits and checks them with the active target features.
+
+With `explicit004_fixed_array_bounds = true`, supported AV1 SIMD conversions
+from a borrowed slice to an array reference propagate the decoder's bounds
+error. The conversion retains the original exact-length requirement.
+With `explicit024_typed_coordinates = true`, calls to positional path-builder
+methods can pass a `Point` for each coordinate pair. The original public
+methods continue to accept the same arguments through
+`console-core-api-compatibility`.
+
+EXPLICIT014 can bind elements directly when a match on a shared slice's length
+establishes which elements exist. In loops over fixed-width chunks or windows,
+it can bind indexed elements in the loop pattern. This also works for supported
+`zip` and `enumerate` loops and keeps the original treatment of partial tails.
+It can destructure a fixed-array field behind an indexed struct or tuple when
+reading a `Copy` element. A shared method receiver keeps borrowing that element.
+EXPLICIT017 lifts fallible receivers and operands in evaluation order, including
+consecutive operations in a chain. It can extract a shared reference when its
+referent outlives the extraction. A fallible operand that must follow an
+earlier effect or short-circuit test can be bound at its original evaluation
+point. For compound assignments this also preserves the evaluation order of
+built-in and overloaded operators. The fixer can bind an input to standard
+`matches!`, a struct field value, or a checked reference in a dereferenced
+place at the point where it is evaluated. Its `av1-first-slice.toml` preset covers
+checked slice arguments to the reviewed AV1 SIMD macros in `#[arcane]` and
+`#[rite]` functions. The fixer can bind the reference inside the macro input
+when its enclosing expression controls when it runs. It also follows nested
+checked lookups that borrow rows or view existing storage. For an infallible
+native-width result, it can match the sole possible variant at the original
+operand.
+
+EXPLICIT015 carries operand bounds through widening integer conversions and
+through arithmetic whose intermediate values fit. EXPLICIT053 recognizes the
+named one-step updates emitted by the arithmetic fixer when proving that a
+`while` loop can use a finite range. EXPLICIT056 replaces swaps
+at proven fixed-array positions with destructuring and `mem::swap`. For a
+split point clamped to the slice length, it uses `split_at_checked` and keeps
+the trailing empty slice at the original address.
+
+For a future revision of EXPLICIT017, consider replacing trailing `?` with
+exhaustive `match` expressions, including calls that simply pass an error to
+the caller. Spell out `Ok` and `Err` for `Result`, and `Some` and `None` for
+`Option`. Preserve each early return and any error conversion that `?` performs.
+
+EXPLICIT037 uses an enclosing endianness or x86 target gate to choose a byte
+order. EXPLICIT051 recognizes standard integer conversions written with fully
+qualified `From` syntax and wrapping arithmetic whose type is constrained by
+the destination or an earlier operand. Standard `usize::try_from` and
+`isize::try_from` calls on integers can use the checked index or offset boundary,
+which returns the same conversion error. EXPLICIT071 can compare a float against
+a literal or inspect the partial ordering of two scalar reads while preserving
+the behavior of both signs of zero and NaN. EXPLICIT091 follows close-on-exec
+flags through immutable bindings. Its `local-pipes.toml` preset enables fixes
+for the Linux tests whose pipe ends both stay in the test process.
+EXPLICIT002 can migrate private helpers and their direct callers together.
+For owned forks, `DYLINT_TOML='explicit002_core_infallible = true'` enables
+`core::convert::Infallible` when the workspace's `Never` type is unavailable.
+Rules 005, 009 and 060 can explicitly discard the sole success
+variant of an infallible call while keeping the payload's drop timing.
+
+EXPLICIT001 can name the failure in standard scalar parsing, slice-to-array
+conversions, and binary searches while preserving the existing optional or
+boolean result.
+EXPLICIT014 can use a checked lookup after a successful binary search on the
+same immutable collection. It can also combine an exact short-circuit bounds
+check and the guarded reads into a single checked lookup, or bind a fixed
+prefix when a minimum-length guard proves it exists. EXPLICIT017 can bind
+a checked value with a by-value pattern inside a fallible `let` condition,
+preserving the condition's evaluation order and short-circuit behavior. An
+inline binding can also move an owned value into its original argument,
+field, assignment, or by-value match while preserving evaluation and drop
+order.
+
+EXPLICIT051 stores eligible internal positions as `u64` and signed offsets as
+`i64` when every use can be converted at a known native-width boundary. This
+includes immutable `Ok` bindings whose error type is uninhabited. It can also
+use a fixed-width counter for small constant ranges whose arithmetic stays
+within the original bounds. Small literals passed to native wrapping shifts
+use a `u16` or `i16` conversion boundary and keep the native shift's modulo
+behavior. With `explicit051_public_compatibility = true`,
+exported signatures can use `NativeSize` and `NativeOffset` from
+`console-core-api-compatibility`. These preserve the types external callers
+already use. Private storage and local variables still receive diagnostics.
+
+Set `DYLINT_TOML='explicit004_test_results = true'` when running a fix to
+report test setup failures through the Rust test harness. The fixer replaces
+top-level `Result::unwrap()` setup calls with `?` and can give a unit test
+a concrete local error type. It groups the signature, setup calls and final
+success value in one suggestion. Tests marked `#[should_panic]` keep their
+panic behavior.
+
+Run `just explicit-shadow-av1` to include the reviewed AV1 macros in that
+fix. The `explicit073_body_macros` setting names attribute macros that
+preserve the authored function body. The `explicit073_expression_macros`
+setting names macros that use their expression inputs as Rust code. Both
+settings use fully qualified macro definition paths. The fixer requires each
+edited macro argument token to resolve to one binding. Nested opaque macros,
+format captures, and conditional bindings are left for review.
+
+EXPLICIT046 follows the compiler's resolved destination for each nested `break`
+and `continue`. It reuses an existing label when the jump can see it, or adds
+one label and updates the jumps to that loop together. For a simple `for`
+binding, the label includes the bound variable's name.
+
+For fixed arrays, a literal index or literal-only index calculation and a
+known array length can allow an irrefutable pattern. For example,
+`let red = rgb[0]` becomes `let [red, ..] = rgb`. The pattern can also read
+nested arrays and handle assignments and borrows. The fixer limits the
+skipped prefix to 16 elements and preserves the borrow's mutability and
+slice type. A single suggestion can also rewrite a literal-count loop over
+fixed arrays. It uses `zip` for parallel arrays, destructures fixed rows, and
+keeps the counter with `enumerate` when the body still needs the position.
+The iterator fixer also handles loops bounded by a collection's own length
+or by the const parameter that sizes the arrays. It recognizes wrapping
+offsets into fixed rows and can check the written body of Archmage-wrapped
+AV1 functions. Extra shared reads are permitted when the collection is
+copyable and remains unmodified through the loop.
+`just explicit-index-bulk` applies fixed-array patterns across eight codec
+and graphics packages and checked lookups to AV1, AVC, and HEVC.
+`explicit014_fixed_places = true` enables irrefutable borrow patterns for
+more fixed-array places, including arrays reached through a method call or
+through an enclosing projection.
+The `explicit014_bounds_errors` table maps a fully qualified local error
+type to a unit or string-message variant. For a function that already returns
+`Result<_, ()>`, an entry by fully qualified function path can select `()`.
+The fixer uses the compiler-resolved return type and preserves whether each
+lookup reads or mutates the place. Missing elements and out-of-bounds ranges
+return the configured error. Add fully qualified `Option`-returning functions
+to `explicit014_none_on_bounds` when a missing element or range should return
+`None`. For strings, checked ranges also reject invalid UTF-8 boundaries.
+
+EXPLICIT017 can lift a primitive fallible argument out of a tuple or a
+direct function call in a `let` initializer when evaluation and temporary
+drop order are preserved. EXPLICIT056 rewrites copies between same-sized
+arrays of primitive values into assignments and recognizes an unsigned `max`
+with a nonzero constant as a nonzero bound.
+
+The reviewed AV1 endian-copy fixer uses a fixed-size mutable chunk for a
+checked destination range whose width matches the byte array. It preserves
+the existing error when the destination is missing or too short.
+
+    DYLINT_TOML='explicit056_checked_endian_copies = true' \
+    DYLINT_RUSTFLAGS=--cap-lints=warn cargo dylint --fix --no-deps \
+        --lib explicit056_no_hidden_panic_api -- \
+        -p console-core-video-decoding-av1 --lib --all-features
+
+For paired checked AV1 copies, set `explicit056_checked_paired_copies = true`
+with the same command. The fixer proves equal widths and preserves the order
+and failure of both lookups before copying.
+
+EXPLICIT053 rewrites direct iterator loops and supported `Option`-producing
+method calls whose borrows are disjoint from the loop body. Counted loops can
+use stable lengths, field reads, and infallible integer conversions as bounds.
+A counted loop can also keep a literal stop check inside the range and
+preserve the counter's value on early exit.
+
+EXPLICIT070 can add even parity to the discriminants of a reviewed fieldless
+enum. First move wire values, conversions, ordering and lookup-table indices
+behind explicit mappings. Choose an unsigned fixed-width representation with
+at least one spare bit. Then opt in by the fully qualified enum path.
+
+    DYLINT_TOML='explicit070_parity = ["my_crate::module::State"]' \
+    DYLINT_RUSTFLAGS=--cap-lints=warn cargo dylint --fix --no-deps \
+        --lib explicit070_spaced_discriminants -- -p my-crate --all-targets
+
+The fixer adds parity above the highest payload bit and edits the whole enum
+in one suggestion. It supports integer literals and implicit sequential
+discriminants. Existing on-disk and wire formats remain the responsibility
+of their explicit encoders and decoders.
+
+For machine-width casts the fixer uses
+`wrapped_index` and `wrapped_offset` where the package already depends on
+`console-core-number-conversion`. Its saturating `fitted::<_, usize>` conversion
+can use the equivalent `index` helper. If a parameter, type annotation, or
+concrete initializer already fixes the receiver's type,
+`usize::wrapping_add(at, 1)` can become `at.wrapping_add(1)` and
+`usize::cast_signed(at)` can become `at.cast_signed()`. The fixer also
+follows ordinary references, explicitly typed closure parameters, tuple fields,
+match arms, and reads from typed arrays. With a typed right operand,
+addition and multiplication can put an inert literal on the right of a method
+call. Other supported calls use `core::num::Wrapping` to keep operand
+evaluation in order. Lossless `usize::from` and `isize::from` conversions
+from small integers and booleans can use the named index and offset helpers.
+The fixer also folds wrapping compound assignments on library positions and
+offsets into `wrapping_*_index` and `wrapping_*_offset` calls. It resolves both
+operands and the arithmetic operation, and retains the original order and
+temporary lifetimes when the amount is evaluated before borrowing the target.
+For arithmetic,
+the standard library's `min`, `max`, `clamp`, and unsigned `NonZero::get`
+can provide bounds for the surrounding operation.
+For the numeric conversions the compiler resolves
+both primitive types and checks the standard library's `From` implementation.
+On Rust 1.87 or later, a cast between signed and unsigned counterparts can use
+`cast_signed` or `cast_unsigned`, including in const code. A shared reference
+local cast to a trait object or from an array to a slice can use
+`core::convert::identity::<&Target>(value)` to preserve the written type.
+Runtime integer casts can use `wrapped` to preserve sign extension and
+truncation. Other integer casts in const expressions can use
+`const_wrapped_integer!` when the package already depends on
+`console-core-number-conversion`. Supported runtime casts involving floats use
+the shared `toward_zero_*` and `nearest_f32_from_*` conversions when the dependency
+already exports them. The replacements preserve the original rounding,
+saturation, and nonfinite behavior. Operations that need a domain-specific
+policy still receive diagnostics. Run the package's tests after applying.
+
+For a preview across every rule, use `just explicit-batch fix`. Its report
+identifies the rules and packages with machine-applicable suggestions.
+Add `--apply --max-batches 1` to apply a single batch and measure the change.
+Use `--min-fixes 100` to skip batches with fewer than 100 suggestion groups.
+[Dylint batch commands](migration-collector/BATCHES.md)
+
+For changes that span callers, the Rust migration tools also cover nested
+`?` expressions and return types. [Compiler-guided migrations](migration-collector/README.md)
 
 **002 was the last rule to reach `Deny`, and it took the longest.** The other
 nineteen described a workspace that already kept them by the time they were
@@ -477,8 +827,8 @@ built out of. The checks have all crossed and the rule is denied, so what
 `settle` is now is a word said deliberately, wherever it is said, with the
 reason beside it. It stays `pub` because all but the gap are written in another
 crate, which is a smaller thing than it was: the rule stands between a number
-and anyone who would name one without saying why. `docs/checks.md` argues for
-what a crossed check looks like.
+and anyone who would name one without saying why. The `checks.md` note in Orbit
+argues for what a crossed check looks like.
 
 ## The six that came later
 
@@ -491,6 +841,9 @@ panics no one declared, and `get` turns the absence into a value that 005 then
 makes sure is met. Const contexts are left alone, exactly as 015 leaves them:
 an index the compiler evaluates and finds out of range fails the build, which
 is a failure with a name, at the right time, on the machine that has a screen.
+The fixer also uses irrefutable array patterns for literal ranges proven to
+fit a fixed array. Element accesses near the end use a suffix pattern so the
+edit stays short even when the array is large.
 
 **015** is about the one behavior in the language that differs by build
 profile: bare `+`, `-`, `*` and the shifts panic in debug and wrap in release,
@@ -501,6 +854,31 @@ name, at the right time -- and a negated literal with them, because `-1` is how
 a negative number is written rather than a subtraction anyone performs.
 `console-core-number-conversion`'s hand-rolled float decoder is what this rule
 looks like adopted early.
+
+The rule offers an automatic fix where operand bounds prove the operator cannot
+fail: a positive divisor, a shift below the integer width, or a masked or widened
+value whose result fits. The named `wrapping_*` operation then has the same
+answer in every profile, and both operands still run in their original order.
+`cargo dylint --fix --lib explicit015_no_bare_arithmetic` applies those fixes.
+The range check follows unsigned division and remainder, including the named
+`wrapping_div` and `wrapping_rem` forms. For example, `index.wrapping_rem(32)`
+is a valid shift count for a `u32`. Two `i16` values widened to `i32` can be
+added, subtracted or multiplied without overflow. The checker also follows
+integer `From` conversions, immutable integer locals and indices in integer ranges.
+For example, `y * 16` fits in a `usize` when `y` comes from `0_usize..16`.
+In `for x in 1_u8..end`, the half-open upper bound proves `x + 1` fits even when `end` is only known at runtime.
+Compound division, remainder
+and shifts can also be fixed when the destination is an integer local and the
+right side is a safe literal.
+
+To apply wrapping arithmetic in a package after choosing that policy, run
+`just explicit-wrap PACKAGE --all-features`. This also fixes addition,
+subtraction, multiplication, shifts, and negation where the default fixer
+cannot prove a bound. With this policy, compound assignments to primitive
+places can also be fixed when their targets can be borrowed safely. The right
+side still runs first, and an indexed target is evaluated once. When the shared
+index or offset update is available, the fix uses it for machine-width places.
+Unproven division and remainder still need a policy at their call sites.
 
 Adopting it everywhere else said one thing worth writing down. Nearly every
 site wanted `saturating_*`, because nearly every number in this tree is a size,
@@ -559,10 +937,11 @@ and is not charged for it here; 053 charges it under its own name.
 is written in, the one nothing compiles. Every `///` and every `//` in the
 workspace was deleted once, on the rule that a sentence beside a line of code is
 a second statement of the same thing that nothing keeps true; what was worth
-keeping went to `docs/`. Then they came back, a `///` at a time, because the
-rule was a paragraph someone had read and not a thing the build could fail on.
-That is the whole argument for this rule existing: it is not a stronger claim
-than the paragraph made, it is the same claim with a gate under it.
+keeping went to the documentation, which is in Orbit now. Then they came back, a
+`///` at a time, because the rule was a paragraph someone had read and not a
+thing the build could fail on. That is the whole argument for this rule
+existing: it is not a stronger claim than the paragraph made, it is the same
+claim with a gate under it.
 
 Two stay. A `//!` module head, because what a file is *for* is the one thing no
 line inside it can say, and a `// SAFETY:` reason, because EXPLICIT012 will not
@@ -577,6 +956,10 @@ thrown away before any pass runs, so half the rule would be written against the
 text anyway -- and a rule enforced by two mechanisms is a rule with two sets of
 edge cases. It uses the compiler's own lexer, which knows that a `//` inside a
 string is a string.
+
+The fixer removes ordinary line-comment runs while keeping source line numbers.
+Runs that contain legal notices, safety explanations, tool directives, API
+documentation, or block comments still receive the diagnostic for review.
 
 The head it points at is not itself judged. Whether a `//!` earns its place is a
 reading, and a lint cannot do a reading; the backlog carries that as work for a
@@ -676,6 +1059,14 @@ that anyone can pass by wrapping, which is no rule. Taking the `bool` as
 how the lint reads types, silently, and turns a later improvement to the lint
 into a mystery failure. And a newtype whose only purpose is to carry a `bool`
 past the check, which buys notation and still needs the allow.
+
+EXPLICIT007 checks the resolved return type. This includes booleans inside
+`Option` or either side of `Result`, including aliases and nested wrappers.
+The lint checks future outputs with explicit bounds and includes `async fn`.
+For a fallible lookup, `Result<Membership, LookupError>` can report
+`Membership::Member` and `Membership::NonMember` while preserving lookup
+errors. An enum's variant names depend on the API, so these changes need
+review. Trait declarations are checked where the signature is chosen.
 
 ## What an error says
 
@@ -1254,33 +1645,122 @@ type as written, the `Arc` in `Arc::new` and `Arc::clone` included, and a
 the standard library's name for it, so a type of this tree's that is called
 `Arc` is left alone, and its case has one. It arrived warned. What it found is
 mostly the panel's handlers -- an `Arc<dyn Fn>` per button, cloned into every
-GTK signal that can press it, which is the closure `docs/programs.md` already
-wants to become a request sent to the page's machine -- and after them an
-`Arc<Mutex<…>>` between a thread that reads and a thread that asks, in the
-event subscription, the status bar and the notification daemon, which is an
+GTK signal that can press it, which is the closure the `programs.md` note in
+Orbit already wants to become a request sent to the page's machine -- and after
+them an `Arc<Mutex<…>>` between a thread that reads and a thread that asks, in
+the event subscription, the status bar and the notification daemon, which is an
 actor written by hand without the mailbox. The media viewer's clock and sound
 are the third kind: one value read at once by the card and by a picture thread
 that was let go, which a scope can lend only once somebody waits for that
 thread.
 
-## What it is, and what it is not yet
+## The ones that are about somebody else
 
-`just explicit-gate` is a gate. It denies the rules that nothing in the tree
-breaks and warns the rest; which tier a rule is in is the level in its own
-crate and nowhere else. The warned tier holds whatever rule was written ahead
-of the code, and it is empty between sweeps rather than finished: a rule
-stands there until its last call site is answered. A rule moves up when the last call site that broke it
-is fixed, and it never moves back. That is the whole ratchet.
+Every rule before 082 is about a program being wrong on its own. These are
+about a program being right until somebody wants it not to be, and they were
+read off the other kind of list: what the published vulnerabilities of the
+last twenty-five years have in common once the products are taken away. Most
+of that was already answered here. A read past the end of a buffer is 014 and
+015 and 059; a failure nobody met is 001 and 005; an arm that decides for
+cases nobody named is 016. What was left is what this suite had never asked
+about because none of it fails: the filesystem, a shell, a child, a descriptor
+and a length, each doing exactly what it was told by whoever got to say.
 
-`just explicit` is the other half: every rule over every crate, counted rather
-than enforced, so the distance is visible whether or not it is being enforced
-yet. There is no number written down here on purpose -- a count in a README is
-a count that is wrong by the next commit. Run it.
+They are three arguments, and they are the three that list keeps finding.
 
-Turning every rule on at once would mean a deploy no one can make until every
-call site is answered, and a gate someone starts going around is worse than no
-gate. The grind is the point when it happens: each denial is a call site that
-deserves an honest look.
+**A value from outside is given more than it earned.** 082 is a string handed
+to a shell, which parses it. 086 is a name handed to `join`, which lets a `/`
+replace the base and a `..` leave it. 088 is a length handed to the allocator
+and 087 a stream read until its writer chooses to stop. 094 is a secret handed
+to every function that takes a word. Each asks for the same thing 024 and 065
+ask for: a type that only a checked constructor makes, or a literal somebody
+read, where there was a `str`.
+
+**The safe form was a second call somebody had to remember.** 091 is
+`CLOEXEC`, which the kernel's own calls leave off. 093 is `env_clear`, which a
+`Command` does not do. 092 is the two calls that have to come before `setuid`.
+095 is the list of what may run in a handler, which is the sentence
+EXPLICIT012 has every `install_handler` promise and nothing reads. 089 is the
+conversion that cannot fail because it was told not to say.
+
+**Two steps that should have been one.** 084 is a path asked and then used.
+083 is the same fault with root on one end of it: a path walked again at every
+call, through a directory its owner can rearrange between two of them. 085 is
+a name chosen and then made, in a place where somebody else can make it first.
+The answer to all three is the kernel's -- open it and meet what that says,
+reach beneath a descriptor rather than along a path, make with the call that
+refuses what is already there.
+
+090 and 096 are the two that are about memory after all, at the two places a
+safe language still lets a number stand for a thing: a descriptor kept as an
+`i32`, and a slice declared out of a pointer and a length. 096 is 059's list
+and is a rule of its own only because 059 is denied and the tree still writes
+`from_raw_parts` over a mapping; when what is left is what the allows explain,
+the names move there and the crate goes.
+
+083 and 093 are asked of the crates that run as root and nowhere else, the way
+the flight rules are asked of the kernel, and their cases are built as a crate
+named like the engine's. Which crates those are is a prefix in each rule's
+`runs_as_root`, which is one more place than a fact should be written; the
+day a third rule wants it, it moves somewhere all three read.
+
+They arrive `Warn`, all but 092. Several have nowhere to point yet, which is the
+position 002 was in before `console-core-never`: there is no crate that opens
+beneath a descriptor, no type for a name that may not climb, no `Secret`.
+Each rule's head says what the thing it is waiting for has to be, and the
+distance `just explicit` prints for it is mostly the distance to that crate.
+092 expected to find nothing, found nothing the first time it was run over
+the tree, and is denied.
+
+Four more came after, out of the same list, and each is one of those three
+arguments again. 097 is 087 and 088 with a thread in the middle: an
+`mpsc::channel()` holds whatever its sender puts in it, and `sync_channel`
+is the same queue with the bound said. 098 is the way round 064 -- a decode
+into a `Value` accepts any JSON, and the checking is then done a field at a
+time by every reader separately. 099 is two readers disagreeing in one line:
+a prefix test on text does not know where a component ends, so
+`/home/someone-else` passes for `/home/someone`, and `Path::starts_with`
+asks the question that was meant. It reads only a literal with no `/` at its
+end, which is its own boundary when it has one. 100 is the spellings that
+stop a connection asking who answered; nothing in the tree writes one, so it
+arrived `Deny`, a ratchet like 037 and 059. The other three arrived `Warn`.
+
+094 grew a half at the same time: an `==` or a `!=` with a secret's name on
+either side, because a comparison that stops at the first byte that differs
+says in how long it took how much of a guess was right. Its names stayed as
+they were. A token and a signature are secrets in the list it was read off
+and are a lexer's and a D-Bus message's here, and a rule that reads names
+has to be right about the names it reads.
+
+Then four that are each the other half of one already here. 101 and 102 are
+about a mode. 101 is the two shapes of one that are a door -- the bit that
+lets others write, unless the sticky bit is beside it, and the bits that run
+a file as its owner -- written as an octal number that reads like any other.
+102 is 084 with the order turned round: a file made open and narrowed on the
+next line exists in between with the wrong mode, and the narrowing is by
+name, which is walked again. The mode goes in the call that makes the file.
+103 is 029 said of a thread and 097 said of a count: a `spawn` in a loop is
+as many threads as the list is long, and the list is whatever arrived. 104
+is 094's other end -- a secret that has a type should not also have a value
+in the repository, where it is in every clone, the public copy and the
+binary. It reads names for the reason 094 does. All four arrived `Warn`.
+
+What they do not reach is the largest part of that list and is not a lint's
+to hold: whether the thing that was asked for is something the asker may
+have. A rule can see that a call was made and not that it was the right
+call, and that half is the checks'.
+
+## Merge audit
+
+`just explicit-gate` runs `just explicit-batch audit`. Its full matrix
+includes workspace targets, UEFI kernel targets, and owned fork libraries
+resolved by the desktop. The default requires zero findings. During migration,
+pass `--baseline PATH/TO/remaining.json` to reject new findings against a
+reviewed inventory. The [batch guide](migration-collector/BATCHES.md)
+describes the matrix, report format, and internalization checks.
+
+`just explicit` prints a workspace summary for inspection. `cargo x rules`
+enforces the lint levels declared in their crates for the deploy checks.
 
 ## It needs rustup on PATH
 

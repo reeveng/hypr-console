@@ -1,0 +1,18 @@
+// run-rustfix
+// edition:2024
+
+fn cross(CrossArguments { a, b, c, d }: CrossArguments) -> f64 { a * b - c * d }
+
+struct CrossArguments {
+  a: f64,
+  b: f64,
+  c: f64,
+  d: f64,
+}
+
+fn main() {
+    let first = cross(self::CrossArguments { a: 2.0, b: 3.0, c: 4.0, d: 5.0 });
+    let second = cross(self::CrossArguments { a: 4.0, b: 5.0, c: 2.0, d: 3.0 });
+    ::std::assert!(::core /* separator */ ::matches!(first, -14.0));
+    assert_eq!(second, 14.0);
+}

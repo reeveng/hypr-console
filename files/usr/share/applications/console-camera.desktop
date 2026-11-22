@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Camera
+Comment=Preview connected cameras and take photos
+Exec=/usr/local/bin/console-camera
+Icon=camera-photo
+Terminal=false
+Categories=Graphics;Photography;

@@ -23,63 +23,81 @@ use console_core_never::Never;
 
 #[derive(Debug)]
 pub enum PlatformError {
-    BadArgument(String),
-    Get(PathBuf, ErrorKind),
-    Set(Unwritten),
-    Remove(Ungone),
+  BadArgument(String),
+  Get(PathBuf, ErrorKind),
+  Set(Unwritten),
+  Remove(Ungone),
 }
 
 impl fmt::Display for PlatformError {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PlatformError::BadArgument(key) => write!(to, "{key:?} is not a key: a key is one file name"),
-            PlatformError::Get(at, kind) => write!(to, "{}: reading it: {kind}", at.display()),
-            PlatformError::Set(fault) => write!(to, "{fault}"),
-            PlatformError::Remove(fault) => write!(to, "{fault}"),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      PlatformError::BadArgument(key) => {
+        write!(to, "{key:?} is not a key: a key is one file name")
+      }
+      PlatformError::Get(at, kind) => write!(to, "{}: reading it: {kind}", at.display()),
+      PlatformError::Set(fault) => write!(to, "{fault}"),
+      PlatformError::Remove(fault) => write!(to, "{fault}"),
     }
+  }
 }
 
 impl std::error::Error for PlatformError {}
 
+struct Key<'a>(&'a OsStr);
+
+impl<'a> Key<'a> {
+  fn parse(key: &'a str) -> Result<Self, PlatformError> {
+    match ::core::primitive::bool::then_some(Path::new(key).file_name() == Some(OsStr::new(key)), ()) {
+      ::core::option::Option::Some(()) => Ok(Key(OsStr::new(key))),
+      ::core::option::Option::None => Err(PlatformError::BadArgument(key.to_string())),
+    }
+  }
+}
+
+impl AsRef<Path> for Key<'_> {
+  fn as_ref(&self) -> &Path {
+    Path::new(self.0)
+  }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyValueStore {
-    directory: PathBuf,
+  directory: PathBuf,
 }
 
 impl KeyValueStore {
-    pub fn file_system(directory: PathBuf) -> Result<Self, Never> {
-        Ok(KeyValueStore { directory })
+  pub fn file_system(directory: PathBuf) -> Result<Self, Never> {
+    Ok(KeyValueStore { directory })
+  }
+
+  pub fn get(&self, key: &str) -> Result<Option<Vec<u8>>, PlatformError> {
+    let at = self.at(key)?;
+
+    match std::fs::read(&at) {
+      Ok(bytes) => Ok(Some(bytes)),
+      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => Ok(None),
+        ::core::option::Option::None => Err(PlatformError::Get(at, fault.kind())),
+      },
     }
+  }
 
-    pub fn get(&self, key: &str) -> Result<Option<Vec<u8>>, PlatformError> {
-        let at = self.at(key)?;
+  pub fn set(&self, key: &str, bytes: &[u8]) -> Result<(), PlatformError> {
+    let at = self.at(key)?;
 
-        match std::fs::read(&at) {
-            Ok(bytes) => Ok(Some(bytes)),
-            Err(fault) => match fault.kind() == ErrorKind::NotFound {
-                true => Ok(None),
-                false => Err(PlatformError::Get(at, fault.kind())),
-            },
-        }
-    }
+    whole_with_folders(&at, bytes).map_err(PlatformError::Set)
+  }
 
-    pub fn set(&self, key: &str, bytes: &[u8]) -> Result<(), PlatformError> {
-        let at = self.at(key)?;
+  pub fn remove(&self, key: &str) -> Result<(), PlatformError> {
+    let at = self.at(key)?;
 
-        whole_with_folders(&at, bytes).map_err(PlatformError::Set)
-    }
+    gone(&at).map_err(PlatformError::Remove)
+  }
 
-    pub fn remove(&self, key: &str) -> Result<(), PlatformError> {
-        let at = self.at(key)?;
+  fn at(&self, key: &str) -> Result<PathBuf, PlatformError> {
+    let checked = Key::parse(key)?;
 
-        gone(&at).map_err(PlatformError::Remove)
-    }
-
-    fn at(&self, key: &str) -> Result<PathBuf, PlatformError> {
-        match Path::new(key).file_name() == Some(OsStr::new(key)) {
-            true => Ok(self.directory.join(key)),
-            false => Err(PlatformError::BadArgument(key.to_string())),
-        }
-    }
+    Ok(self.directory.join(checked))
+  }
 }

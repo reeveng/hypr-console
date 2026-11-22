@@ -1,0 +1,93 @@
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/fixes.rs:6:5
+   |
+LL |       'walk: while let Some(entry) = iter.next() {
+   |       ^-----------------------------------------
+   |       |
+   |  _____help: iterate until this iterator returns no more items: `'walk: for entry in &mut *iter`
+   | |
+LL | |         if entry < 0 {
+LL | |             break 'walk;
+...  |
+LL | |     }
+   | |_____^
+   |
+   = note: `#[deny(explicit053_no_while)]` on by default
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/fixes.rs:18:5
+   |
+LL | /     while current < end {
+LL | |         visits += 1;
+LL | |         current += 1;
+LL | |     }
+   | |_____^
+   |
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL ~     for _ in (::core::ops::Range { start: current, end }) {
+LL |         visits += 1;
+LL ~         current = (::core::num::Wrapping(current) + ::core::num::Wrapping(1)).0;
+   |
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/fixes.rs:27:5
+   |
+LL | /     'walk: while position < end {
+LL | |         if position == 2 {
+LL | |             break 'walk;
+...  |
+LL | |     }
+   | |_____^
+   |
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL ~     'walk: for _ in (::core::ops::Range { start: position, end }) {
+LL |         if position == 2 {
+LL |             break 'walk;
+LL |         }
+LL ~         position = (::core::num::Wrapping(position) + ::core::num::Wrapping(1)).0;
+   |
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/fixes.rs:37:5
+   |
+LL | /     while position < core::cmp::min(u16::saturating_add(width, 2), limit) {
+LL | |         position = position.wrapping_add(1);
+LL | |     }
+   | |_____^
+   |
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL -     while position < core::cmp::min(u16::saturating_add(width, 2), limit) {
+LL +     for _ in (::core::ops::Range { start: position, end: core::cmp::min(u16::saturating_add(width, 2), limit) }) {
+   |
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/fixes.rs:46:5
+   |
+LL | /     while position > (Wrapping(floor) - Wrapping(delta)).0 {
+LL | |         position = position.saturating_sub(1);
+LL | |     }
+   | |_____^
+   |
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL -     while position > (Wrapping(floor) - Wrapping(delta)).0 {
+LL +     for _ in (::core::ops::Range { start: (Wrapping(floor) - Wrapping(delta)).0, end: position }).rev() {
+   |
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/fixes.rs:59:9
+   |
+LL |           while let Some(item) = self.items.next() {
+   |           ^---------------------------------------
+   |           |
+   |  _________help: iterate until this iterator returns no more items: `for item in &mut self.items`
+   | |
+LL | |             self.total += item;
+LL | |         }
+   | |_________^
+
+error: aborting due to 6 previous errors
+

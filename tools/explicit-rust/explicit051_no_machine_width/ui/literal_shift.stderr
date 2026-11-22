@@ -1,0 +1,27 @@
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/literal_shift.rs:16:5
+   |
+LL |     usize::wrapping_shl(0x1, { order.push(1); distance })
+   |     ^^^^^
+   |
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+help: use the conversion that names this machine-width boundary
+   |
+LL -     usize::wrapping_shl(0x1, { order.push(1); distance })
+LL +     (match ::console_core_number_conversion::index::<::core::primitive::u16>(0x1) { ::core::result::Result::Ok(native_shift_input_) => native_shift_input_ }).wrapping_shl({ order.push(1); distance })
+   |
+
+error: `isize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/literal_shift.rs:20:5
+   |
+LL |     isize::wrapping_shr(6, distance)
+   |     ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     isize::wrapping_shr(6, distance)
+LL +     (match ::console_core_number_conversion::wrapped_offset::<::core::primitive::i16>(6) { ::core::result::Result::Ok(native_shift_input_) => native_shift_input_ }).wrapping_shr(distance)
+   |
+
+error: aborting due to 2 previous errors
+

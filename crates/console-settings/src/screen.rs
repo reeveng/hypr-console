@@ -48,21 +48,21 @@ pub const ONE_STEP: i64 = 92;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Kind {
-    Raw,
-    Platform,
-    Firmware,
-    Unsaid,
+  Raw,
+  Platform,
+  Firmware,
+  Unsaid,
 }
 
 impl Kind {
-    pub fn parse(said: &str) -> Result<Self, Never> {
-        Ok(match said.trim() {
-            "raw" => Kind::Raw,
-            "platform" => Kind::Platform,
-            "firmware" => Kind::Firmware,
-            _not_a_kind_a_backlight_says => Kind::Unsaid,
-        })
-    }
+  pub fn parse(said: &str) -> Result<Self, Never> {
+    Ok(match said.trim() {
+      "raw" => Kind::Raw,
+      "platform" => Kind::Platform,
+      "firmware" => Kind::Firmware,
+      _not_a_kind_a_backlight_says => Kind::Unsaid,
+    })
+  }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,14 +70,14 @@ pub struct Top(pub i64);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Panel {
-    pub at: PathBuf,
-    pub top: i64,
+  pub at: PathBuf,
+  pub top: i64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Way {
-    Up,
-    Down,
+  Up,
+  Down,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,311 +85,352 @@ pub struct Was(pub i64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Moved {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 impl Panel {
-    pub fn of(at: PathBuf, top: Top) -> Result<Self, Never> {
-        let Top(top) = top;
+  pub fn of(at: PathBuf, top: Top) -> Result<Self, Never> {
+    let Top(top_2) = top;
 
-        Ok(Panel { at, top: top.max(1) })
+    Ok(Panel {
+      at,
+      top: top_2.max(1),
+    })
+  }
+
+  pub fn part(&self, thousandths: i64) -> Result<i64, Never> {
+    Ok(self.top.saturating_mul(thousandths).saturating_div(PARTS))
+  }
+
+  pub fn ceiling(&self) -> Result<i64, Never> {
+    self.part(BRIGHTEST)
+  }
+
+  pub fn floor(&self) -> Result<i64, Never> {
+    self.part(DARKEST)
+  }
+
+  pub fn step(&self) -> Result<i64, Never> {
+    self.part(ONE_STEP)
+  }
+
+  pub fn dimmed(&self) -> Result<i64, Never> {
+    self.floor()
+  }
+
+  pub fn brightness(&self) -> Result<PathBuf, Never> {
+    Ok(self.at.join("brightness"))
+  }
+
+  pub fn step_from(&self, now: i64, way: Way) -> Result<i64, Never> {
+    let Ok(step) = self.step();
+    let Ok(ceiling) = self.ceiling();
+    let Ok(floor) = self.floor();
+
+    let next = match way {
+      Way::Up => now.saturating_add(step),
+      Way::Down => now.saturating_sub(step),
+    };
+
+    Ok(next.clamp(floor, ceiling))
+  }
+
+  pub fn as_parts(&self, now: i64) -> Result<i64, Never> {
+    Ok(now.saturating_mul(PARTS).saturating_div(self.top.max(1)))
+  }
+
+  pub fn as_points(&self, now: i64) -> Result<i64, Never> {
+    let Ok(ceiling) = self.ceiling();
+    let Ok(floor) = self.floor();
+
+    Ok(
+      now
+        .saturating_sub(floor)
+        .saturating_mul(100)
+        .saturating_div(ceiling.saturating_sub(floor).max(1))
+        .clamp(0, 100),
+    )
+  }
+
+  pub fn undimming(&self, now: i64, was: Was) -> Result<Option<i64>, Never> {
+    let Ok(dimmed) = self.dimmed();
+
+    match ::core::primitive::bool::then_some(now == dimmed, ()) {
+      ::core::option::Option::Some(()) => Ok(Some(was.0)),
+      ::core::option::Option::None => Ok(None),
     }
+  }
 
-    pub fn part(&self, thousandths: i64) -> Result<i64, Never> {
-        Ok(self.top.saturating_mul(thousandths).saturating_div(PARTS))
+  pub fn now(&self) -> Result<Option<i64>, Never> {
+    let Ok(at) = self.brightness();
+
+    let said = match std::fs::read_to_string(at) {
+      Ok(said) => said,
+      Err(_the_panel_is_not_readable) => return Ok(None),
+    };
+
+    let Ok(now) = whole(&said);
+
+    Ok(now)
+  }
+
+  pub fn set(&self, to: i64) -> Result<Moved, Never> {
+    let Ok(at) = self.brightness();
+
+    #[cfg_attr(
+      dylint_lib = "explicit040_no_torn_write",
+      allow(
+        explicit040_no_torn_write,
+        reason = "the backlight is a kernel knob rather than a file: there is nothing beside it to write and nothing to rename over, and what it holds is whatever was last written to it"
+      )
+    )]
+    match std::fs::write(at, format!("{to}\n")) {
+      Ok(()) => Ok(Moved::Yes),
+      Err(_the_panel_would_not_take_it) => Ok(Moved::No),
     }
-
-    pub fn ceiling(&self) -> Result<i64, Never> {
-        self.part(BRIGHTEST)
-    }
-
-    pub fn floor(&self) -> Result<i64, Never> {
-        self.part(DARKEST)
-    }
-
-    pub fn step(&self) -> Result<i64, Never> {
-        self.part(ONE_STEP)
-    }
-
-    pub fn dimmed(&self) -> Result<i64, Never> {
-        self.floor()
-    }
-
-    pub fn brightness(&self) -> Result<PathBuf, Never> {
-        Ok(self.at.join("brightness"))
-    }
-
-    pub fn step_from(&self, now: i64, way: Way) -> Result<i64, Never> {
-        let Ok(step) = self.step();
-        let Ok(ceiling) = self.ceiling();
-        let Ok(floor) = self.floor();
-
-        let next = match way {
-            Way::Up => now.saturating_add(step),
-            Way::Down => now.saturating_sub(step),
-        };
-
-        Ok(next.clamp(floor, ceiling))
-    }
-
-    pub fn as_parts(&self, now: i64) -> Result<i64, Never> {
-        Ok(now.saturating_mul(PARTS).saturating_div(self.top.max(1)))
-    }
-
-    pub fn as_points(&self, now: i64) -> Result<i64, Never> {
-        let Ok(ceiling) = self.ceiling();
-        let Ok(floor) = self.floor();
-
-        Ok(now
-            .saturating_sub(floor)
-            .saturating_mul(100)
-            .saturating_div(ceiling.saturating_sub(floor).max(1))
-            .clamp(0, 100))
-    }
-
-    pub fn undimming(&self, now: i64, was: Was) -> Result<Option<i64>, Never> {
-        let Ok(dimmed) = self.dimmed();
-
-        match now == dimmed {
-            true => Ok(Some(was.0)),
-            false => Ok(None),
-        }
-    }
-
-    pub fn now(&self) -> Result<Option<i64>, Never> {
-        let Ok(at) = self.brightness();
-
-        let said = match std::fs::read_to_string(at) {
-            Ok(said) => said,
-            Err(_the_panel_is_not_readable) => return Ok(None),
-        };
-
-        let Ok(now) = whole(&said);
-
-        Ok(now)
-    }
-
-    pub fn set(&self, to: i64) -> Result<Moved, Never> {
-        let Ok(at) = self.brightness();
-
-        #[cfg_attr(
-            dylint_lib = "explicit040_no_torn_write",
-            allow(
-                explicit040_no_torn_write,
-                reason = "the backlight is a kernel knob rather than a file: there is nothing beside it to write and nothing to rename over, and what it holds is whatever was last written to it"
-            )
-        )]
-        match std::fs::write(at, format!("{to}\n")) {
-            Ok(()) => Ok(Moved::Yes),
-            Err(_the_panel_would_not_take_it) => Ok(Moved::No),
-        }
-    }
+  }
 }
 
 pub fn whole(said: &str) -> Result<Option<i64>, Never> {
-    Ok(match said.trim().parse::<i64>() {
-        Ok(whole) => Some(whole),
-        Err(_a_backlight_that_said_something_else) => None,
-    })
+  Ok(match said.trim().parse::<i64>() {
+    Ok(whole) => Some(whole),
+    Err(_a_backlight_that_said_something_else) => None,
+  })
 }
 
 pub fn read(at: &Path) -> Result<Option<Panel>, Never> {
-    let said = match std::fs::read_to_string(at.join("max_brightness")) {
-        Ok(said) => said,
-        Err(_not_a_backlight) => return Ok(None),
-    };
+  let said = match std::fs::read_to_string(at.join("max_brightness")) {
+    Ok(said) => said,
+    Err(_not_a_backlight) => return Ok(None),
+  };
 
-    let Ok(top) = whole(&said);
+  let Ok(top) = whole(&said);
 
-    let top = match top {
-        Some(top) => top,
-        None => return Ok(None),
-    };
+  let top_3 = match top {
+    Some(top_2) => top_2,
+    None => return Ok(None),
+  };
 
-    let Ok(panel) = Panel::of(at.to_path_buf(), Top(top));
+  let Ok(panel) = Panel::of(at.to_path_buf(), Top(top_3));
 
-    Ok(Some(panel))
+  Ok(Some(panel))
 }
 
 pub fn kind_of(at: &Path) -> Result<Kind, Never> {
-    let said = match std::fs::read_to_string(at.join("type")) {
-        Ok(said) => said,
-        Err(_it_will_not_say) => return Ok(Kind::Unsaid),
-    };
+  let said = match std::fs::read_to_string(at.join("type")) {
+    Ok(said) => said,
+    Err(_it_will_not_say) => return Ok(Kind::Unsaid),
+  };
 
-    Kind::parse(&said)
+  Kind::parse(&said)
 }
 
 pub fn find_panel(under: &Path) -> Result<Option<Panel>, Never> {
-    let held = match std::fs::read_dir(under) {
-        Ok(held) => held,
-        Err(_no_backlight_on_this_machine) => return Ok(None),
-    };
+  let held = match std::fs::read_dir(under) {
+    Ok(held) => held,
+    Err(_no_backlight_on_this_machine) => return Ok(None),
+  };
 
-    let mut every: Vec<(Kind, OsString, Panel)> = Vec::new();
+  let mut every: Vec<(Kind, OsString, Panel)> = Vec::new();
 
-    for one in held.flatten() {
-        let at = one.path();
-        let Ok(read) = read(&at);
+  for one in held.flatten() {
+    let at = one.path();
+    let Ok(read) = read(&at);
 
-        match read {
-            Some(panel) => {
-                let Ok(kind) = kind_of(&at);
+    match read {
+      Some(panel) => {
+        let Ok(kind) = kind_of(&at);
 
-                every.push((kind, one.file_name(), panel));
-            }
-            None => {},
-        }
+        every.push((kind, one.file_name(), panel));
+      }
+      None => {}
     }
+  }
 
-    every.sort_by(|(kind, name, _), (other, named, _)| kind.cmp(other).then(name.cmp(named)));
+  every.sort_by(|(kind, name, _), (other, named, _)| kind.cmp(other).then(name.cmp(named)));
 
-    Ok(every.into_iter().next().map(|(_kind, _name, panel)| panel))
+  Ok(every.into_iter().next().map(|(_kind, _name, panel)| panel))
 }
 
 pub fn here() -> Result<Option<Panel>, Never> {
-    find_panel(Path::new(UNDER))
+  find_panel(Path::new(UNDER))
 }
 
 pub fn brightness_label(points: i64) -> Result<String, Never> {
-    Ok(format!("Brightness {points}%"))
+  Ok(format!("Brightness {points}%"))
 }
 
 pub fn remembered() -> Result<Option<PathBuf>, Never> {
-    let run = console_core_places::application_runtime()?;
+  let run = console_core_places::application_runtime()?;
 
-    Ok(run.map(|run| run.join("dim")))
+  Ok(run.map(|run_2| run_2.join("dim")))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn panel(top: i64) -> Result<Panel, Never> {
-        Panel::of(PathBuf::from("/sys/class/backlight/someones"), Top(top))
-    }
+  fn panel(top: i64) -> Result<Panel, Never> {
+    Panel::of(PathBuf::from("/sys/class/backlight/someones"), Top(top))
+  }
 
-    fn this_device() -> Result<Panel, Never> {
-        panel(65535)
-    }
+  fn this_device() -> Result<Panel, Never> {
+    panel(65535)
+  }
 
-    #[test]
-    fn the_numbers_on_this_device_are_where_they_always_were() {
-        let Ok(panel) = this_device();
+  #[test]
+  fn the_numbers_on_this_device_are_where_they_always_were() {
+    let Ok(panel) = this_device();
 
-        assert_eq!(panel.ceiling(), Ok(64027), "64000 was the number written out by hand");
-        assert_eq!(panel.floor(), Ok(3211), "3200");
-        assert_eq!(panel.step(), Ok(6029), "6000");
-    }
+    assert_eq!(
+      panel.ceiling(),
+      Ok(64027),
+      "64000 was the number written out by hand"
+    );
+    assert_eq!(panel.floor(), Ok(3211), "3200");
+    assert_eq!(panel.step(), Ok(6029), "6000");
+  }
 
-    #[test]
-    fn a_panel_that_counts_to_255_is_a_panel_this_can_dim() {
-        let Ok(panel) = panel(255);
+  #[test]
+  fn a_panel_that_counts_to_255_is_a_panel_this_can_dim() {
+    let Ok(panel) = panel(255);
 
-        assert_eq!(panel.ceiling(), Ok(249));
-        assert_eq!(panel.floor(), Ok(12));
-        assert_eq!(panel.step(), Ok(23));
-        assert_eq!(panel.step_from(249, Way::Down), Ok(226), "a step off full is a step");
-        assert_eq!(panel.as_points(130), Ok(49), "half way up, in points of a hundred");
-    }
+    assert_eq!(panel.ceiling(), Ok(249));
+    assert_eq!(panel.floor(), Ok(12));
+    assert_eq!(panel.step(), Ok(23));
+    assert_eq!(
+      panel.step_from(249, Way::Down),
+      Ok(226),
+      "a step off full is a step"
+    );
+    assert_eq!(
+      panel.as_points(130),
+      Ok(49),
+      "half way up, in points of a hundred"
+    );
+  }
 
-    #[test]
-    fn a_press_moves_it_one_step() {
-        let Ok(panel) = this_device();
+  #[test]
+  fn a_press_moves_it_one_step() {
+    let Ok(panel) = this_device();
 
-        assert_eq!(panel.step_from(20000, Way::Up), Ok(26029));
-        assert_eq!(panel.step_from(20000, Way::Down), Ok(13971));
-    }
+    assert_eq!(panel.step_from(20000, Way::Up), Ok(26029));
+    assert_eq!(panel.step_from(20000, Way::Down), Ok(13971));
+  }
 
-    #[test]
-    fn it_never_goes_past_the_brightest_that_still_lights() {
-        let Ok(panel) = this_device();
-        let Ok(top) = panel.ceiling();
+  #[test]
+  fn it_never_goes_past_the_brightest_that_still_lights() {
+    let Ok(panel) = this_device();
+    let Ok(top) = panel.ceiling();
 
-        assert_eq!(panel.step_from(top, Way::Up), Ok(top));
-        assert_eq!(panel.step_from(top.saturating_sub(1), Way::Up), Ok(top));
-        assert!(top < panel.top, "full is what turns the light off on this panel");
-    }
+    assert_eq!(panel.step_from(top, Way::Up), Ok(top));
+    assert_eq!(panel.step_from(top.saturating_sub(1), Way::Up), Ok(top));
+    assert!(
+      top < panel.top,
+      "full is what turns the light off on this panel"
+    );
+  }
 
-    #[test]
-    fn it_never_goes_down_to_a_screen_no_one_can_read() {
-        let Ok(panel) = this_device();
-        let Ok(bottom) = panel.floor();
+  #[test]
+  fn it_never_goes_down_to_a_screen_no_one_can_read() {
+    let Ok(panel) = this_device();
+    let Ok(bottom) = panel.floor();
 
-        assert_eq!(panel.step_from(bottom, Way::Down), Ok(bottom));
-        assert_eq!(panel.step_from(bottom.saturating_add(1), Way::Down), Ok(bottom));
-    }
+    assert_eq!(panel.step_from(bottom, Way::Down), Ok(bottom));
+    assert_eq!(
+      panel.step_from(bottom.saturating_add(1), Way::Down),
+      Ok(bottom)
+    );
+  }
 
-    #[test]
-    fn the_bar_is_full_at_the_brightest_this_screen_goes() {
-        let Ok(panel) = this_device();
-        let Ok(top) = panel.ceiling();
-        let Ok(bottom) = panel.floor();
+  #[test]
+  fn the_bar_is_full_at_the_brightest_this_screen_goes() {
+    let Ok(panel) = this_device();
+    let Ok(top) = panel.ceiling();
+    let Ok(bottom) = panel.floor();
 
-        assert_eq!(panel.as_points(top), Ok(100));
-        assert_eq!(panel.as_points(bottom), Ok(0));
-        assert_eq!(panel.as_points(top.saturating_add(bottom).saturating_div(2)), Ok(50));
-    }
+    assert_eq!(panel.as_points(top), Ok(100));
+    assert_eq!(panel.as_points(bottom), Ok(0));
+    assert_eq!(
+      panel.as_points(top.saturating_add(bottom).saturating_div(2)),
+      Ok(50)
+    );
+  }
 
-    #[test]
-    fn a_reading_from_outside_the_range_is_still_a_bar_that_can_be_drawn() {
-        let Ok(panel) = this_device();
+  #[test]
+  fn a_reading_from_outside_the_range_is_still_a_bar_that_can_be_drawn() {
+    let Ok(panel) = this_device();
 
-        assert_eq!(panel.as_points(65535), Ok(100));
-        assert_eq!(panel.as_points(0), Ok(0));
-    }
+    assert_eq!(panel.as_points(65535), Ok(100));
+    assert_eq!(panel.as_points(0), Ok(0));
+  }
 
-    #[test]
-    fn a_screen_that_was_dimmed_comes_back_where_it_was() {
-        let Ok(panel) = this_device();
-        let Ok(dimmed) = panel.dimmed();
+  #[test]
+  fn a_screen_that_was_dimmed_comes_back_where_it_was() {
+    let Ok(panel) = this_device();
+    let Ok(dimmed) = panel.dimmed();
 
-        assert_eq!(panel.undimming(dimmed, Was(40000)), Ok(Some(40000)));
-    }
+    assert_eq!(panel.undimming(dimmed, Was(40000)), Ok(Some(40000)));
+  }
 
-    #[test]
-    fn a_screen_someone_moved_while_it_was_dim_is_left_where_they_put_it() {
-        let Ok(panel) = this_device();
-        let Ok(dimmed) = panel.dimmed();
+  #[test]
+  fn a_screen_someone_moved_while_it_was_dim_is_left_where_they_put_it() {
+    let Ok(panel) = this_device();
+    let Ok(dimmed) = panel.dimmed();
 
-        assert_eq!(panel.undimming(40000, Was(20000)), Ok(None));
-        assert_eq!(panel.undimming(dimmed.saturating_add(1), Was(20000)), Ok(None));
-    }
+    assert_eq!(panel.undimming(40000, Was(20000)), Ok(None));
+    assert_eq!(
+      panel.undimming(dimmed.saturating_add(1), Was(20000)),
+      Ok(None)
+    );
+  }
 
-    #[test]
-    fn dimmed_is_still_a_screen_that_can_be_read() {
-        let Ok(panel) = this_device();
+  #[test]
+  fn dimmed_is_still_a_screen_that_can_be_read() {
+    let Ok(panel) = this_device();
 
-        assert_eq!(panel.dimmed(), panel.floor());
-        assert!(panel.floor().is_ok_and(|floor| floor > 0), "dimmed is off, and off is the step after");
-    }
+    assert_eq!(panel.dimmed(), panel.floor());
+    assert!(
+      panel.floor().is_ok_and(|floor| floor > 0),
+      "dimmed is off, and off is the step after"
+    );
+  }
 
-    #[test]
-    fn the_notification_says_the_level_it_has_reached() {
-        let Ok(panel) = this_device();
-        let Ok(top) = panel.ceiling();
-        let Ok(bottom) = panel.floor();
-        let Ok(full) = panel.as_points(top);
-        let Ok(none) = panel.as_points(bottom);
+  #[test]
+  fn the_notification_says_the_level_it_has_reached() {
+    let Ok(panel) = this_device();
+    let Ok(top) = panel.ceiling();
+    let Ok(bottom) = panel.floor();
+    let Ok(full) = panel.as_points(top);
+    let Ok(none) = panel.as_points(bottom);
 
-        assert_eq!(brightness_label(full), Ok("Brightness 100%".to_string()));
-        assert_eq!(brightness_label(none), Ok("Brightness 0%".to_string()));
-    }
+    assert_eq!(brightness_label(full), Ok("Brightness 100%".to_string()));
+    assert_eq!(brightness_label(none), Ok("Brightness 0%".to_string()));
+  }
 
-    #[test]
-    fn the_drivers_own_control_is_the_one_taken_when_there_are_several() {
-        assert_eq!(Kind::parse("raw"), Ok(Kind::Raw));
-        assert_eq!(Kind::parse("platform\n"), Ok(Kind::Platform));
-        assert_eq!(Kind::parse("firmware"), Ok(Kind::Firmware));
-        assert_eq!(Kind::parse("something else"), Ok(Kind::Unsaid));
-        assert!(Kind::Raw < Kind::Platform, "raw is what a compositor reaches for");
-        assert!(Kind::Platform < Kind::Firmware);
-        assert!(Kind::Firmware < Kind::Unsaid, "a backlight that will not say comes last");
-    }
+  #[test]
+  fn the_drivers_own_control_is_the_one_taken_when_there_are_several() {
+    assert_eq!(Kind::parse("raw"), Ok(Kind::Raw));
+    assert_eq!(Kind::parse("platform\n"), Ok(Kind::Platform));
+    assert_eq!(Kind::parse("firmware"), Ok(Kind::Firmware));
+    assert_eq!(Kind::parse("something else"), Ok(Kind::Unsaid));
+    assert!(
+      Kind::Raw < Kind::Platform,
+      "raw is what a compositor reaches for"
+    );
+    assert!(Kind::Platform < Kind::Firmware);
+    assert!(
+      Kind::Firmware < Kind::Unsaid,
+      "a backlight that will not say comes last"
+    );
+  }
 
-    #[test]
-    fn a_machine_with_no_backlight_says_so_rather_than_naming_a_path_nothing_is_at() {
-        assert_eq!(find_panel(Path::new("/sys/class/backlight/nothing-is-here")), Ok(None));
-    }
+  #[test]
+  fn a_machine_with_no_backlight_says_so_rather_than_naming_a_path_nothing_is_at() {
+    assert_eq!(
+      find_panel(Path::new("/sys/class/backlight/nothing-is-here")),
+      Ok(None)
+    );
+  }
 }

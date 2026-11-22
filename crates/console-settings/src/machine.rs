@@ -12,24 +12,27 @@ use console_core_words::Words;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum MachineSetting {
-    #[words(word = "language", about = "make the language NAME CHARSET unless the machine has it, then use it")]
-    Language,
-    #[words(word = "hour", about = "keep the hour in ZONE")]
-    Hour,
-    #[words(word = "name", about = "answer to NAME on a network")]
-    Name,
+  #[words(
+    word = "language",
+    about = "make the language NAME CHARSET unless the machine has it, then use it"
+  )]
+  Language,
+  #[words(word = "hour", about = "keep the hour in ZONE")]
+  Hour,
+  #[words(word = "name", about = "answer to NAME on a network")]
+  Name,
 }
 
 impl Subcommand for MachineSetting {
-    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
-        Ok(MachineSetting::VARIANTS.iter().copied())
-    }
+  fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+    Ok(MachineSetting::VARIANTS.iter().copied())
+  }
 
-    fn spelling(self) -> Result<&'static str, Never> {
-        self.word()
-    }
+  fn spelling(self) -> Result<&'static str, Never> {
+    self.word()
+  }
 
-    fn about(self) -> Result<&'static str, Never> {
-        MachineSetting::about(self)
-    }
+  fn about(self) -> Result<&'static str, Never> {
+    MachineSetting::about(self)
+  }
 }

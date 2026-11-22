@@ -1,0 +1,129 @@
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:14:16
+   |
+LL |     assert_eq!(Custom.unwrap(), 1);
+   |                ^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+   = note: `#[deny(explicit004_no_panic)]` on by default
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:15:16
+   |
+LL |     assert_eq!(value().unwrap(), value().unwrap());
+   |                ^^^^^^^^^^^^^^^^
+   |
+help: report failed reads where they are evaluated
+   |
+LL ~ fn unrelated_or_effectful() -> ::core::result::Result<(), &'static str> {
+LL |     assert_eq!(Custom.unwrap(), 1);
+LL ~     assert_eq!(match value() { ::core::option::Option::Some(read_value) => read_value, ::core::option::Option::None => return ::core::result::Result::Err(::core::concat!(::core::file!(), ":", ::core::line!(), ": expected Some, found None")) }, match value() { ::core::option::Option::Some(read_value) => read_value, ::core::option::Option::None => return ::core::result::Result::Err(::core::concat!(::core::file!(), ":", ::core::line!(), ": expected Some, found None")) });
+LL ~     assert_eq!(match value() { ::core::option::Option::Some(read_value) => read_value, ::core::option::Option::None => return ::core::result::Result::Err(::core::concat!(::core::file!(), ":", ::core::line!(), ": expected Some, found None")) }, { println!("expected"); 1 });
+LL ~     assert_eq!(match value() { ::core::option::Option::Some(read_value) => read_value, ::core::option::Option::None => return ::core::result::Result::Err(::core::concat!(::core::file!(), ":", ::core::line!(), ": expected Some, found None")) }, 1, "{}", { println!("message"); 2 });
+LL |     let test = || { assert_eq!(value().unwrap(), 1); };
+LL |     test();
+LL +     ::core::result::Result::Ok(())
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:15:34
+   |
+LL |     assert_eq!(value().unwrap(), value().unwrap());
+   |                                  ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:16:16
+   |
+LL |     assert_eq!(value().unwrap(), { println!("expected"); 1 });
+   |                ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:17:16
+   |
+LL |     assert_eq!(value().unwrap(), 1, "{}", { println!("message"); 2 });
+   |                ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:18:32
+   |
+LL |     let test = || { assert_eq!(value().unwrap(), 1); };
+   |                                ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:25:16
+   |
+LL |     assert_eq!(Option::<u8>::None.unwrap(), 1);
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:31:16
+   |
+LL |     assert_eq!(value().unwrap(), 1);
+   |                ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:36:16
+   |
+LL |     assert_eq!(value().unwrap(), 1);
+   |                ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:42:16
+   |
+LL |     assert_eq!(value().unwrap(), 1);
+   |                ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:48:16
+   |
+LL |     assert_eq!(fallible().unwrap(), 1);
+   |                ^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:60:16
+   |
+LL |     assert_eq!(reader.borrow().read().unwrap(), 1);
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: report failed reads where they are evaluated
+   |
+LL ~     assert_eq!(match reader.borrow().read() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }, 1);
+LL ~     assert_eq!({ println!("before"); 1 }, match fallible() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) });
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:61:43
+   |
+LL |     assert_eq!({ println!("before"); 1 }, fallible().unwrap());
+   |                                           ^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success_review.rs:71:16
+   |
+LL |     assert_eq!(read.unwrap(), 1);
+   |                ^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: aborting due to 14 previous errors
+

@@ -31,12 +31,12 @@
 use crate::sweeping::{Migration, Moment, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1789954335),
-    says: "standing down the startup check and sweeping the crash reporter under their old names",
-    steps: &[
-        Step::DisableGlobally("console-well.timer"),
-        Step::Attic("/etc/systemd/user/console-well.timer"),
-        Step::Attic("/etc/systemd/user/console-well.service"),
-        Step::Attic("/usr/local/bin/console-fell"),
-    ],
+  moment: Moment(1789954335),
+  says: "standing down the startup check and sweeping the crash reporter under their old names",
+  steps: &[
+    Step::DisableGlobally("console-well.timer"),
+    Step::Attic("/etc/systemd/user/console-well.timer"),
+    Step::Attic("/etc/systemd/user/console-well.service"),
+    Step::Attic("/usr/local/bin/console-fell"),
+  ],
 };

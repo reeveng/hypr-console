@@ -37,146 +37,165 @@ const TERMINATED: i32 = 15;
 
 #[derive(Debug)]
 enum Unrun {
-    Folder(Unmade),
-    Myself(io::Error),
-    Child(io::Error),
-    Socket(io::Error),
-    HungUp,
-    DrewNothing,
+  Folder(Unmade),
+  Myself(io::Error),
+  Child(io::Error),
+  Socket(io::Error),
+  HungUp,
+  DrewNothing,
 }
 
 impl fmt::Display for Unrun {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Unrun::Folder(fault) => write!(to, "no directory to listen in: {fault}"),
-            Unrun::Myself(fault) => write!(to, "this test could not find itself: {fault}"),
-            Unrun::Child(fault) => write!(to, "the child would not run: {fault}"),
-            Unrun::Socket(fault) => write!(to, "the host could not listen: {fault}"),
-            Unrun::HungUp => write!(to, "the host did not finish hanging up"),
-            Unrun::DrewNothing => write!(to, "a host that hung up left a panel that does not draw itself"),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Unrun::Folder(fault) => write!(to, "no directory to listen in: {fault}"),
+      Unrun::Myself(fault) => write!(to, "this test could not find itself: {fault}"),
+      Unrun::Child(fault) => write!(to, "the child would not run: {fault}"),
+      Unrun::Socket(fault) => write!(to, "the host could not listen: {fault}"),
+      Unrun::HungUp => write!(to, "the host did not finish hanging up"),
+      Unrun::DrewNothing => write!(
+        to,
+        "a host that hung up left a panel that does not draw itself"
+      ),
     }
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Verdict {
-    Stopped,
-    Survived,
+  Stopped,
+  Survived,
 }
 
 const NAME: &str = "a_panel_that_draws_itself_after_standing_in_stops_when_asked";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Listing {
-    Run,
-    Every,
-    Ignored,
+  Run,
+  Every,
+  Ignored,
 }
 
 fn listing(asked: &[String]) -> Result<Listing, Never> {
-    let list = asked.iter().any(|word| word == "--list");
-    let ignored = asked.iter().any(|word| word == "--ignored");
+  let list = asked.iter().any(|word| word == "--list");
+  let ignored = asked.iter().any(|word| word == "--ignored");
 
-    Ok(match (list, ignored) {
-        (true, true) => Listing::Ignored,
-        (true, false) => Listing::Every,
-        (false, true | false) => Listing::Run,
-    })
+  Ok(match (list, ignored) {
+    (true, true) => Listing::Ignored,
+    (true, false) => Listing::Every,
+    (false, true | false) => Listing::Run,
+  })
 }
 
 fn main() -> ExitCode {
-    let every: Vec<String> = std::env::args().skip(1).collect();
+  let every: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(asked_for) = listing(&every);
+  let Ok(asked_for) = listing(&every);
 
-    match asked_for {
-        Listing::Every => {
-            println!("{NAME}: test");
+  match asked_for {
+    Listing::Every => {
+      println!("{NAME}: test");
 
-            return ExitCode::SUCCESS;
-        },
-        Listing::Ignored => return ExitCode::SUCCESS,
-        Listing::Run => {},
+      return ExitCode::SUCCESS;
     }
+    Listing::Ignored => return ExitCode::SUCCESS,
+    Listing::Run => {}
+  }
 
-    let mut asked = every.into_iter();
+  let mut asked = every.into_iter();
 
-    let ran = match (asked.next(), asked.next()) {
-        (Some(flag), Some(at)) => match flag == CHILD {
-            true => stands_in_and_is_stopped(Path::new(&at)),
-            false => asks_a_child(),
-        },
-        (Some(_), None) | (None, _) => asks_a_child(),
-    };
+  let ran = match (asked.next(), asked.next()) {
+    (Some(flag), Some(at)) => match ::core::primitive::bool::then_some(flag == CHILD, ()) {
+      ::core::option::Option::Some(()) => stands_in_and_is_stopped(Path::new(&at)),
+      ::core::option::Option::None => asks_a_child(),
+    },
+    (Some(_), None) | (None, _) => asks_a_child(),
+  };
 
-    match ran {
-        Ok(Verdict::Stopped) => {
-            println!("test {NAME} ... ok");
+  match ran {
+    Ok(Verdict::Stopped) => {
+      println!("test {NAME} ... ok");
 
-            ExitCode::SUCCESS
-        },
-        Ok(Verdict::Survived) => {
-            eprintln!(
-                "a panel that fell back to drawing itself was sent SIGTERM and did not stop; \
+      ExitCode::SUCCESS
+    }
+    Ok(Verdict::Survived) => {
+      eprintln!(
+        "a panel that fell back to drawing itself was sent SIGTERM and did not stop; \
                  the hand-off's handler was still answering the signal"
-            );
+      );
 
-            ExitCode::FAILURE
-        },
-        Err(fault) => {
-            eprintln!("the_stand_in_stops: {fault}");
-
-            ExitCode::FAILURE
-        },
+      ExitCode::FAILURE
     }
+    Err(fault) => {
+      eprintln!("the_stand_in_stops: {fault}");
+
+      ExitCode::FAILURE
+    }
+  }
 }
 
 fn asks_a_child() -> Result<Verdict, Unrun> {
-    let folder = console_core_temporary_directories::fresh("panel-stand-in-stops").map_err(Unrun::Folder)?;
-    let me = std::env::current_exe().map_err(Unrun::Myself)?;
+  let folder =
+    console_core_temporary_directories::fresh("panel-stand-in-stops").map_err(Unrun::Folder)?;
+  let me = std::env::current_exe().map_err(Unrun::Myself)?;
 
-    let done = Command::new(me)
-        .arg(CHILD)
-        .arg(folder.join("host"))
-        .status()
-        .map_err(Unrun::Child)?;
+  let done = Command::new(me)
+    .arg(CHILD)
+    .arg(folder.join("host"))
+    .status()
+    .map_err(Unrun::Child)?;
 
-    verdict(done)
+  verdict(done)
 }
 
 fn verdict(done: ExitStatus) -> Result<Verdict, Unrun> {
-    Ok(match done.signal() {
-        Some(TERMINATED) => Verdict::Stopped,
-        Some(_) | None => Verdict::Survived,
-    })
+  Ok(match done.signal() {
+    Some(TERMINATED) => Verdict::Stopped,
+    Some(_) | None => Verdict::Survived,
+  })
 }
 
 fn stands_in_and_is_stopped(at: &Path) -> Result<Verdict, Unrun> {
-    let listening = UnixListener::bind(at).map_err(Unrun::Socket)?;
+  let listening = UnixListener::bind(at).map_err(Unrun::Socket)?;
 
-    let hanging_up = std::thread::spawn(move || {
-        match listening.accept() {
-            Ok((asking, _from)) => {
-                let mut line = String::new();
-                let _read = BufReader::new(&asking).read_line(&mut line);
+  let (reported, done) = std::sync::mpsc::sync_channel(1);
+  let hanging_up = std::thread::spawn(move || {
+    let report = match listening.accept() {
+      Ok((asking, _from)) => {
+        let mut line = String::new();
+        let received = BufReader::new(&asking).read_line(&mut line).map(|_| ());
+        drop(asking);
 
-                drop(asking);
-            },
-            Err(_nobody_asked) => {},
-        }
-    });
+        received.map_err(Unrun::Socket)
+      }
+      Err(fault) => Err(Unrun::Socket(fault)),
+    };
+    let _child_may_have_already_reported_failure = reported.try_send(report);
+  });
+  let drawn = handoff::stood_in_at(at, "launcher", &[]);
+  let read = done
+    .recv_timeout(std::time::Duration::from_secs(5))
+    .map_err(|_overdue| Unrun::HungUp)?;
+  read?;
 
-    let drawn = handoff::stood_in_at(at, "launcher", &[]);
+  #[cfg_attr(
+    dylint_lib = "explicit057_no_unbounded_wait",
+    expect(
+      explicit057_no_unbounded_wait,
+      reason = "the worker has sent its final outcome and has no remaining work; joining ensures the child is single-threaded for the signal assertion"
+    )
+  )]
+  let joined = hanging_up.join();
+  joined.map_err(|_panicked| Unrun::HungUp)?;
 
-    hanging_up.join().map_err(|_panicked| Unrun::HungUp)?;
+  match drawn {
+    Ok(DrawnBy::Here) => {}
+    Ok(DrawnBy::ByTheHost) => return Err(Unrun::DrewNothing),
+    Err(never) => match never {},
+  }
 
-    match drawn {
-        Ok(DrawnBy::Here) => {},
-        Ok(DrawnBy::ByTheHost) => return Err(Unrun::DrewNothing),
-        Err(never) => match never {},
-    }
+  let _sent =
+    rustix::process::kill_process(rustix::process::getpid(), rustix::process::Signal::TERM);
 
-    let _sent = rustix::process::kill_process(rustix::process::getpid(), rustix::process::Signal::TERM);
-
-    Ok(Verdict::Survived)
+  Ok(Verdict::Survived)
 }

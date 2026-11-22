@@ -13,7 +13,6 @@
 //! `console-input-keyboard.service` now, so the flags the device types with are
 //! the flags this stage types with, and neither is written down twice.
 
-
 use console_core_geometry::Size;
 use console_core_ini_files::{Key, Under, field};
 use console_core_never::Never;
@@ -23,31 +22,26 @@ use console_screen::Screen;
 pub const UNIT: &str = "files/etc/systemd/user/console-input-keyboard.service";
 
 pub fn started_by(unit: &str) -> Result<Option<String>, Never> {
-    let started = field(unit, Under("Service"), Key("ExecStart"))?;
+  let started = field(unit, Under("Service"), Key("ExecStart"))?;
 
-    Ok(started.filter(|command| command.starts_with('/')).map(str::to_string))
+  Ok(
+    started
+      .filter(|command| command.starts_with('/'))
+      .map(str::to_string),
+  )
 }
 
 pub const MARK: &str = "@keyboard@";
-pub const GROUND: &str = "@ground@";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wallpaper {
-    Started,
-    LeftOut,
+  Started,
+  LeftOut,
 }
 
-pub fn session_start(keyboard: &str, wallpaper: Wallpaper) -> Result<String, Never> {
-    let ground = match wallpaper {
-        Wallpaper::Started => THE_GROUND,
-        Wallpaper::LeftOut => "",
-    };
-
-    Ok(SESSION_START.replace(MARK, keyboard).replace(GROUND, ground))
+pub fn session_start(keyboard: &str) -> Result<String, Never> {
+  Ok(SESSION_START.replace(MARK, keyboard))
 }
-
-const THE_GROUND: &str = r#"[ -x "$(command -v awww-daemon)" ] && { awww-daemon & sleep 1; \
-  . /usr/local/lib/console/palette.sh 2>/dev/null; awww clear "${night:-000000}"; }"#;
 
 const SESSION_START: &str = r#"#!/bin/sh
 # The staged stand-in for session-start. On the device this hands the
@@ -100,21 +94,6 @@ done
 # reaches for it again for as long as they want an answer.
 [ -x "$(command -v console-events)" ] && console-events &
 [ -x "$(command -v console-bar)" ] && console-bar &
-# The ground, which is what the device shows before console-wallpaper has chosen a
-# picture and all this stage ever shows, because it presses none. The color is
-# sourced rather than written here: palette.sh exists to be read by shells, and
-# a hex typed into this string would be a color nothing checks.
-#
-# A desktop opened by hand starts none of it. The daemon cannot outlive the
-# compositor it drew on and it does not end when that one goes: it panics on
-# the socket that closed under it, which is a core file and a crash
-# notification for every window someone shut. The sessions console-desktop
-# ends itself tell the daemon to go first, and this is the one the compositor's
-# own exit ends, where there is no moment left to say it in -- a shutdown
-# handler in the configuration was tried, and it runs after the clients are already
-# gone. What Hyprland fills the screen with instead is the device's own night,
-# which is the color this would have painted.
-@ground@
 # The keyboard, started the way the device's unit starts it, because this is
 # that unit's own ExecStart with its paths pointed into the stage. The path
 # matters as much as the flags do: `console_input_keyboard::remote` finds the keyboard beside
@@ -127,51 +106,83 @@ keyboard="@keyboard@"
 exit 0
 "#;
 
-fn monitor(output: &str, mode: Size<u32>, screen: &Screen, scale: f64) -> Result<String, Never> {
-    let Size { width: wide, height: tall } = mode;
-    let Ok(transform) = screen.transform.number();
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the compositor's output scale is a dimensionless ratio of device pixels to logical pixels"
+  )
+)]
+#[derive(Debug, Clone, Copy)]
+pub struct Scale(pub f64);
 
-    Ok(format!(
-        "hl.monitor({{\n    \
+fn monitor(output: &str, mode: Size<u32>, screen: &Screen, Scale(scale): Scale) -> Result<String, Never> {
+  let Size {
+    width: wide,
+    height: tall,
+  } = mode;
+  let Ok(transform) = screen.transform.number();
+
+  Ok(format!(
+    "hl.monitor({{\n    \
          output    = \"{output}\",\n    \
          mode      = \"{wide}x{tall}@{}\",\n    \
          position  = \"auto\",\n    \
          scale     = {scale},\n    \
          transform = {transform},\n\
          }})",
-        screen.refresh
-    ))
+    screen.refresh
+  ))
 }
 
-pub fn in_a_window(screen: &Screen, scale: f64) -> Result<String, Never> {
-    let (wide, tall) = (screen.mode.width, screen.mode.height);
-    let shown = |size: u32| {
-        let Ok(shown) = whole_u32(f64::from(size) * scale / screen.scale);
+pub fn in_a_window(screen: &Screen, scale: Scale) -> Result<String, Never> {
+  let (wide, tall) = (screen.mode.width, screen.mode.height);
+  let shown = |size: u32| {
+    let Ok(shown) = whole_u32(f64::from(size) * scale.0 / screen.scale);
 
-        shown
-    };
+    shown
+  };
 
-    monitor("WAYLAND-1", Size { width: shown(wide), height: shown(tall) }, screen, scale)
+  monitor(
+    "WAYLAND-1",
+    Size {
+      width: shown(wide),
+      height: shown(tall),
+    },
+    screen,
+    scale,
+  )
 }
 
 pub fn headless(screen: &Screen) -> Result<String, Never> {
-    let (wide, tall) = (screen.mode.width, screen.mode.height);
-    let mode = Size { width: wide, height: tall };
-    let Ok(first) = monitor("HEADLESS-1", mode, screen, screen.scale);
-    let Ok(second) = monitor("HEADLESS-2", mode, screen, screen.scale);
-    let Ok(window) = monitor("WAYLAND-1", Size { width: 320, height: 200 }, screen, 1.0);
+  let (wide, tall) = (screen.mode.width, screen.mode.height);
+  let mode = Size {
+    width: wide,
+    height: tall,
+  };
+  let Ok(first) = monitor("HEADLESS-1", mode, screen, Scale(screen.scale));
+  let Ok(second) = monitor("HEADLESS-2", mode, screen, Scale(screen.scale));
+  let Ok(window) = monitor(
+    "WAYLAND-1",
+    Size {
+      width: 320,
+      height: 200,
+    },
+    screen,
+    Scale(1.0),
+  );
 
-    Ok(format!("{first}\n{second}\n{window}"))
+  Ok(format!("{first}\n{second}\n{window}"))
 }
 
 pub fn made_headless(screen: &Screen) -> Result<String, Never> {
-    let (wide, tall) = (screen.mode.width, screen.mode.height);
-    let Ok(transform) = screen.transform.number();
+  let (wide, tall) = (screen.mode.width, screen.mode.height);
+  let Ok(transform) = screen.transform.number();
 
-    Ok(format!(
-        r#"hl.monitor({{ output = "HEADLESS-1", mode = "{wide}x{tall}@{}", position = "auto", scale = {}, transform = {transform} }})"#,
-        screen.refresh, screen.scale
-    ))
+  Ok(format!(
+    r#"hl.monitor({{ output = "HEADLESS-1", mode = "{wide}x{tall}@{}", position = "auto", scale = {}, transform = {transform} }})"#,
+    screen.refresh, screen.scale
+  ))
 }
 
 const THE_COLOR_NOTHING_IS: &str = "\
@@ -190,20 +201,23 @@ const THE_DEVICES_OWN: &str = "\
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Names<'a> {
-    pub screen: &'a str,
-    pub device: &'a str,
+  pub screen: &'a str,
+  pub device: &'a str,
 }
 
 pub fn configuration(said: Names<'_>, wallpaper: Wallpaper) -> Result<String, Never> {
-    let Names { screen: screen_said, device: device_configuration } = said;
+  let Names {
+    screen: screen_said,
+    device: device_configuration,
+  } = said;
 
-    let ground = match wallpaper {
-        Wallpaper::Started => THE_COLOR_NOTHING_IS,
-        Wallpaper::LeftOut => THE_DEVICES_OWN,
-    };
+  let ground = match wallpaper {
+    Wallpaper::Started => THE_COLOR_NOTHING_IS,
+    Wallpaper::LeftOut => THE_DEVICES_OWN,
+  };
 
-    Ok(format!(
-        "\
+  Ok(format!(
+    "\
 -- The device's compositor configuration, with its screen swapped for this one.
 --
 -- Nothing else is changed. The window rules, the bindings, the look and the
@@ -224,74 +238,76 @@ hl.monitor({{ output = \"eDP-1\", disabled = true }})
 -- start-hyprland, which is otherwise in every picture taken here.
 hl.config({{ misc = {{ disable_watchdog_warning = true }} }})
 "
-    ))
+  ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const GO: Screen = Screen {
-        mode: console_core_geometry::Size { width: 2560, height: 1600 },
-        refresh: 144,
-        scale: 2.5,
-        transform: console_screen::Transform::Degrees90,
-    };
+  const GO: Screen = Screen {
+    mode: console_core_geometry::Size {
+      width: 2560,
+      height: 1600,
+    },
+    refresh: 144,
+    scale: 2.5,
+    transform: console_screen::Transform::Degrees90,
+  };
 
-    #[test]
-    fn a_picture_is_taken_at_the_devices_own_pixels() {
-        let Ok(said) = headless(&GO);
+  #[test]
+  fn a_picture_is_taken_at_the_devices_own_pixels() {
+    let Ok(said) = headless(&GO);
 
-        assert!(said.contains("2560x1600@144"), "{said}");
-        assert!(said.contains("HEADLESS-1") && said.contains("HEADLESS-2"));
-    }
+    assert!(said.contains("2560x1600@144"), "{said}");
+    assert!(said.contains("HEADLESS-1") && said.contains("HEADLESS-2"));
+  }
 
-    #[test]
-    fn a_window_too_large_for_this_screen_gives_up_pixels_and_not_layout() {
-        let Ok(said) = in_a_window(&GO, 1.25);
+  #[test]
+  fn a_window_too_large_for_this_screen_gives_up_pixels_and_not_layout() {
+    let Ok(said) = in_a_window(&GO, Scale(1.25));
 
-        assert!(said.contains("1280x800@144"), "{said}");
-        assert!(said.contains("scale     = 1.25"), "{said}");
-    }
+    assert!(said.contains("1280x800@144"), "{said}");
+    assert!(said.contains("scale     = 1.25"), "{said}");
+  }
 
-    #[test]
-    fn the_nested_config_reads_the_devices_own() {
-        let Ok(said) = configuration(
-            Names { screen: "-- a screen", device: "/somewhere/hyprland.lua" },
-            Wallpaper::Started,
-        );
+  #[test]
+  fn the_nested_config_reads_the_devices_own() {
+    let Ok(said) = configuration(
+      Names {
+        screen: "-- a screen",
+        device: "/somewhere/hyprland.lua",
+      },
+      Wallpaper::Started,
+    );
 
-        assert!(said.contains(r#"dofile("/somewhere/hyprland.lua")"#));
-        assert!(
-            said.contains("rgb(ff00ff)"),
-            "the background has to be a color nothing is"
-        );
-    }
+    assert!(said.contains(r#"dofile("/somewhere/hyprland.lua")"#));
+    assert!(
+      said.contains("rgb(ff00ff)"),
+      "the background has to be a color nothing is"
+    );
+  }
 
-    #[test]
-    fn a_session_nothing_is_left_to_stop_starts_no_wallpaper() {
-        let Ok(started) = session_start("/k", Wallpaper::Started);
+  #[test]
+  fn the_delayed_session_script_cannot_start_a_wallpaper_during_teardown() {
+    let Ok(alone) = session_start("/k");
 
-        assert!(
-            started.contains("awww-daemon"),
-            "the session that stops the daemon does not start it: {started}"
-        );
+    assert!(
+      !alone.contains("awww"),
+      "a daemon whose only way out is a core file is started here: {alone}"
+    );
 
-        let Ok(alone) = session_start("/k", Wallpaper::LeftOut);
+    let Ok(said) = configuration(
+      Names {
+        screen: "-- a screen",
+        device: "/somewhere/hyprland.lua",
+      },
+      Wallpaper::LeftOut,
+    );
 
-        assert!(
-            !alone.contains("awww"),
-            "a daemon whose only way out is a core file is started here: {alone}"
-        );
-
-        let Ok(said) = configuration(
-            Names { screen: "-- a screen", device: "/somewhere/hyprland.lua" },
-            Wallpaper::LeftOut,
-        );
-
-        assert!(
-            !said.contains("ff00ff"),
-            "nothing paints this ground, so a color nothing is is all anyone would see: {said}"
-        );
-    }
+    assert!(
+      !said.contains("ff00ff"),
+      "nothing paints this ground, so a color nothing is is all anyone would see: {said}"
+    );
+  }
 }

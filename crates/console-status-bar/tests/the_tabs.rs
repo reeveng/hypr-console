@@ -8,37 +8,47 @@
 //! things in two orders is a thumb that has to be told which one it is looking
 //! at.
 
-use console_settings::rows::tabs;
 use console_core_never::Never;
+use console_settings::rows::tabs;
 use console_status_bar::state::ALONG;
 
 fn tab_names() -> Result<Vec<String>, Never> {
-    Ok(ALONG
-        .into_iter()
-        .map(|item| {
-            let Ok(tab) = item.tab();
+  Ok(
+    ALONG
+      .into_iter()
+      .map(|item| {
+        let Ok(tab) = item.tab();
 
-            String::from(tab)
-        })
-        .collect())
+        String::from(tab)
+      })
+      .collect(),
+  )
 }
 
 #[test]
 fn every_tab_the_bar_asks_for_exists() {
-    let Ok(tabs) = tabs();
-    let Ok(names) = tab_names();
+  let Ok(tabs) = tabs();
+  let Ok(names) = tab_names();
 
-    for tab in names {
-        assert!(tabs.contains(&tab), "the bar opens the {tab} tab, which does not exist");
-    }
+  for tab in names {
+    assert!(
+      tabs.contains(&tab),
+      "the bar opens the {tab} tab, which does not exist"
+    );
+  }
 }
 
 #[test]
 fn the_tabs_the_bar_opens_stand_in_the_order_the_bar_draws_them() {
-    let Ok(along_the_bar) = tab_names();
-    let Ok(tabs) = tabs();
-    let along_the_tabs: Vec<String> =
-        tabs.into_iter().filter(|tab| along_the_bar.contains(tab)).collect();
+  let Ok(along_the_bar) = tab_names();
+  let Ok(tabs) = tabs();
+  let along_the_tabs: Vec<String> = tabs
+    .into_iter()
+    .filter(|tab| along_the_bar.contains(tab))
+    .collect();
 
-    assert_eq!(along_the_bar, along_the_tabs, "the bar and the tabs are in two orders");
+  assert_eq!(
+    along_the_bar, along_the_tabs,
+    "the bar and the tabs are in two orders"
+  );
 }

@@ -24,66 +24,66 @@ const AUTOLOGIN: Under<'static> = Under("Autologin");
 const SESSION: Key<'static> = Key("Session");
 
 pub fn parse_session(said: Option<&str>) -> Result<String, Never> {
-    let named = match said {
-        Some(said) => {
-            let Ok(named) = field(said, AUTOLOGIN, SESSION);
+  let named = match said {
+    Some(said_2) => {
+      let Ok(named) = field(said_2, AUTOLOGIN, SESSION);
 
-            named
-        }
-        None => None,
-    };
+      named
+    }
+    None => None,
+  };
 
-    Ok(match named.map(str::trim) {
-        Some("") | None => APPLICATION.to_string(),
-        Some(named) => match named.ends_with(".desktop") {
-            true => named.to_string(),
-            false => format!("{named}.desktop"),
-        },
-    })
+  Ok(match named.map(str::trim) {
+    Some("") | None => APPLICATION.to_string(),
+    Some(named_2) => match ::core::primitive::bool::then_some(named_2.ends_with(".desktop"), ()) {
+      ::core::option::Option::Some(()) => named_2.to_string(),
+      ::core::option::Option::None => format!("{named}.desktop", named = named_2),
+    },
+  })
 }
 
 pub fn command(entry: &str) -> Result<Option<Vec<String>>, Never> {
-    let Ok(read) = DesktopEntry::read(entry);
+  let Ok(read) = DesktopEntry::read(entry);
 
-    match read.command {
-        Some(command) => words::split(command),
-        None => Ok(None),
-    }
+  match read.command {
+    Some(command) => words::split(command),
+    None => Ok(None),
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_machine_that_never_chose_starts_this_desktop() {
-        let Ok(none) = parse_session(None);
-        let Ok(empty) = parse_session(Some("[Autologin]\nSession=\n"));
+  #[test]
+  fn a_machine_that_never_chose_starts_this_desktop() {
+    let Ok(none) = parse_session(None);
+    let Ok(empty) = parse_session(Some("[Autologin]\nSession=\n"));
 
-        assert_eq!(none, APPLICATION);
-        assert_eq!(empty, APPLICATION);
-    }
+    assert_eq!(none, APPLICATION);
+    assert_eq!(empty, APPLICATION);
+  }
 
-    #[test]
-    fn game_mode_is_the_session_the_switch_wrote() {
-        let Ok(named) = parse_session(Some("[Autologin]\nSession=gamescope-session-steam\n"));
+  #[test]
+  fn game_mode_is_the_session_the_switch_wrote() {
+    let Ok(named) = parse_session(Some("[Autologin]\nSession=gamescope-session-steam\n"));
 
-        assert_eq!(named, "gamescope-session-steam.desktop");
-    }
+    assert_eq!(named, "gamescope-session-steam.desktop");
+  }
 
-    #[test]
-    fn a_session_runs_its_entrys_command() {
-        let entry = "[Desktop Entry]\nType=Application\nName=Console\nExec=/usr/bin/start-hyprland -- --config /home/a/hyprland.lua\n";
-        let Ok(command) = command(entry);
+  #[test]
+  fn a_session_runs_its_entrys_command() {
+    let entry = "[Desktop Entry]\nType=Application\nName=Console\nExec=/usr/bin/start-hyprland -- --config /home/a/hyprland.lua\n";
+    let Ok(command) = command(entry);
 
-        assert_eq!(
-            command,
-            Some(vec![
-                "/usr/bin/start-hyprland".to_string(),
-                "--".to_string(),
-                "--config".to_string(),
-                "/home/a/hyprland.lua".to_string(),
-            ])
-        );
-    }
+    assert_eq!(
+      command,
+      Some(vec![
+        "/usr/bin/start-hyprland".to_string(),
+        "--".to_string(),
+        "--config".to_string(),
+        "/home/a/hyprland.lua".to_string(),
+      ])
+    );
+  }
 }

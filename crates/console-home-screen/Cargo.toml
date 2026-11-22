@@ -42,5 +42,8 @@ console-program-lifetime.workspace = true
 console-status-bar.workspace = true
 rustix.workspace = true
 
+[dev-dependencies]
+console-repository.workspace = true
+
 [lints]
 workspace = true

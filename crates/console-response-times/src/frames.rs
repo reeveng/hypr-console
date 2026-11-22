@@ -43,239 +43,276 @@ pub struct Painting(Option<Duration>);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Committed {
-    painted: Duration,
-    at: Duration,
+  painted: Duration,
+  at: Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Buffer {
-    Released,
-    Acquired,
+  Released,
+  Acquired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Presented {
-    pub clock: u32,
-    pub at: Duration,
-    pub refresh: Duration,
+  pub clock: u32,
+  pub at: Duration,
+  pub refresh: Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Timed {
-    pub painted: Duration,
-    pub composited: Duration,
-    pub refresh: Duration,
+  pub painted: Duration,
+  pub composited: Duration,
+  pub refresh: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Frames {
-    who: String,
-    since: Option<Duration>,
-    frames: u64,
-    late: u64,
-    discarded: u64,
-    held: u64,
-    slowest_paint: Duration,
-    slowest: Duration,
+  who: String,
+  since: Option<Duration>,
+  frames: u64,
+  late: u64,
+  discarded: u64,
+  held: u64,
+  slowest_paint: Duration,
+  slowest: Duration,
 }
 
 impl Frames {
-    pub fn shown(who: &str) -> Result<Frames, Never> {
-        let Ok(since) = monotonic_now();
+  pub fn shown(who: &str) -> Result<Frames, Never> {
+    let Ok(since) = monotonic_now();
 
-        Ok(Frames {
-            who: who.to_string(),
-            since,
-            frames: 0,
-            late: 0,
-            discarded: 0,
-            held: 0,
-            slowest_paint: Duration::ZERO,
-            slowest: Duration::ZERO,
-        })
-    }
-
-    pub fn painting(&self) -> Result<Painting, Never> {
-        let Ok(now) = monotonic_now();
-
-        Ok(Painting(now))
-    }
-
-    pub fn committed(&mut self, painting: Painting, buffer: Buffer) -> Result<Option<Committed>, Never> {
-        self.frames = self.frames.saturating_add(1);
-
-        match buffer {
-            Buffer::Acquired => self.held = self.held.saturating_add(1),
-            Buffer::Released => {},
-        }
-
-        let Ok(now) = monotonic_now();
-
-        Ok(match (painting.0, now) {
-            (Some(began), Some(at)) => {
-                let painted = at.saturating_sub(began);
-
-                self.slowest_paint = self.slowest_paint.max(painted);
-
-                Some(Committed { painted, at })
-            }
-            (None, _) | (_, None) => None,
-        })
-    }
-
-    pub fn discarded(&mut self) -> Result<(), Never> {
-        self.discarded = self.discarded.saturating_add(1);
-
-        Ok(())
-    }
-
-    pub fn presented(&mut self, committed: Committed, presented: Presented) -> Result<(), Never> {
-        match presented.clock == MONOTONIC {
-            true => {},
-            false => return Ok(()),
-        }
-
-        let timed = Timed {
-            painted: committed.painted,
-            composited: presented.at.saturating_sub(committed.at),
-            refresh: presented.refresh,
-        };
-        let took = timed.painted.saturating_add(timed.composited);
-
-        self.slowest = self.slowest.max(took);
-
-        let Ok(missed) = missed(timed);
-
-        match missed {
-            0 => Ok(()),
-            _ => {
-                self.late = self.late.saturating_add(1);
-
-                late(&self.who, timed, missed)
-            }
-        }
-    }
-
-    pub fn finish(self) -> Result<(), Never> {
-        let Ok(now) = monotonic_now();
-
-        let up = match (self.since, now) {
-            (Some(since), Some(now)) => now.saturating_sub(since),
-            (None, _) | (_, None) => Duration::ZERO,
-        };
-        let Ok(slowest_paint) = microseconds(self.slowest_paint);
-        let Ok(slowest) = microseconds(self.slowest);
-
-        written_down(Record {
-            who: self.who,
-            what: "shown".to_string(),
-            waited: up,
-            marks: Vec::new(),
-            notes: vec![
-                ("frames".to_string(), Value::Count(self.frames)),
-                ("late".to_string(), Value::Count(self.late)),
-                ("discarded".to_string(), Value::Count(self.discarded)),
-                ("held".to_string(), Value::Count(self.held)),
-                ("slowest_paint_microseconds".to_string(), Value::Count(slowest_paint)),
-                ("slowest_microseconds".to_string(), Value::Count(slowest)),
-            ],
-        })
-    }
-}
-
-fn late(who: &str, timed: Timed, missed: u64) -> Result<(), Never> {
-    let Ok(refresh) = microseconds(timed.refresh);
-
-    written_down(Record {
-        who: who.to_string(),
-        what: "frame".to_string(),
-        waited: timed.painted.saturating_add(timed.composited),
-        marks: vec![("painting".to_string(), timed.painted), ("compositing".to_string(), timed.composited)],
-        notes: vec![
-            ("missed".to_string(), Value::Count(missed)),
-            ("refresh_microseconds".to_string(), Value::Count(refresh)),
-        ],
+    Ok(Frames {
+      who: who.to_string(),
+      since,
+      frames: 0,
+      late: 0,
+      discarded: 0,
+      held: 0,
+      slowest_paint: Duration::ZERO,
+      slowest: Duration::ZERO,
     })
-}
+  }
 
-fn microseconds(took: Duration) -> Result<u64, Never> {
-    fitted::<u128, u64>(took.as_micros())
-}
+  pub fn painting(&self) -> Result<Painting, Never> {
+    let Ok(now) = monotonic_now();
 
-pub fn missed(timed: Timed) -> Result<u64, Never> {
-    let refresh = match timed.refresh.is_zero() {
-        true => FELT,
-        false => timed.refresh,
+    Ok(Painting(now))
+  }
+
+  pub fn late_frames(&self) -> Result<u64, Never> {
+    Ok(self.late)
+  }
+
+  pub fn committed(
+    &mut self,
+    painting: Painting,
+    buffer: Buffer,
+  ) -> Result<Option<Committed>, Never> {
+    self.frames = self.frames.saturating_add(1);
+
+    match buffer {
+      Buffer::Acquired => self.held = self.held.saturating_add(1),
+      Buffer::Released => {}
+    }
+
+    let Ok(now) = monotonic_now();
+
+    Ok(match (painting.0, now) {
+      (Some(began), Some(at)) => {
+        let painted = at.saturating_sub(began);
+
+        self.slowest_paint = self.slowest_paint.max(painted);
+
+        Some(Committed { painted, at })
+      }
+      (None, _) | (_, None) => None,
+    })
+  }
+
+  pub fn discarded(&mut self) -> Result<(), Never> {
+    self.discarded = self.discarded.saturating_add(1);
+
+    Ok(())
+  }
+
+  pub fn presented(&mut self, committed: Committed, presented: Presented) -> Result<(), Never> {
+    match ::core::primitive::bool::then_some(presented.clock == MONOTONIC, ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => return Ok(()),
+    }
+
+    let timed = Timed {
+      painted: committed.painted,
+      composited: presented.at.saturating_sub(committed.at),
+      refresh: presented.refresh,
     };
     let took = timed.painted.saturating_add(timed.composited);
 
-    let refreshes = match took.as_nanos().checked_div(refresh.as_nanos()) {
-        Some(refreshes) => refreshes,
-        None => 0,
-    };
+    self.slowest = self.slowest.max(took);
 
-    fitted::<u128, u64>(refreshes.saturating_sub(1))
+    let Ok(missed) = missed(timed);
+
+    match missed {
+      0 => Ok(()),
+      _ => {
+        self.late = self.late.saturating_add(1);
+
+        late(&self.who, timed, missed)
+      }
+    }
+  }
+
+  pub fn finish(self) -> Result<(), Never> {
+    let Ok(now) = monotonic_now();
+
+    let up = match (self.since, now) {
+      (Some(since), Some(now_2)) => now_2.saturating_sub(since),
+      (None, _) | (_, None) => Duration::ZERO,
+    };
+    let Ok(slowest_paint) = microseconds(self.slowest_paint);
+    let Ok(slowest) = microseconds(self.slowest);
+
+    written_down(Record {
+      who: self.who,
+      what: "shown".to_string(),
+      waited: up,
+      marks: Vec::new(),
+      notes: vec![
+        ("frames".to_string(), Value::Count(self.frames)),
+        ("late".to_string(), Value::Count(self.late)),
+        ("discarded".to_string(), Value::Count(self.discarded)),
+        ("held".to_string(), Value::Count(self.held)),
+        (
+          "slowest_paint_microseconds".to_string(),
+          Value::Count(slowest_paint),
+        ),
+        ("slowest_microseconds".to_string(), Value::Count(slowest)),
+      ],
+    })
+  }
+}
+
+fn late(who: &str, timed: Timed, missed: u64) -> Result<(), Never> {
+  let Ok(refresh) = microseconds(timed.refresh);
+
+  written_down(Record {
+    who: who.to_string(),
+    what: "frame".to_string(),
+    waited: timed.painted.saturating_add(timed.composited),
+    marks: vec![
+      ("painting".to_string(), timed.painted),
+      ("compositing".to_string(), timed.composited),
+    ],
+    notes: vec![
+      ("missed".to_string(), Value::Count(missed)),
+      ("refresh_microseconds".to_string(), Value::Count(refresh)),
+    ],
+  })
+}
+
+fn microseconds(took: Duration) -> Result<u64, Never> {
+  fitted::<u128, u64>(took.as_micros())
+}
+
+pub fn missed(timed: Timed) -> Result<u64, Never> {
+  let refresh = match ::core::primitive::bool::then_some(timed.refresh.is_zero(), ()) {
+    ::core::option::Option::Some(()) => FELT,
+    ::core::option::Option::None => timed.refresh,
+  };
+  let took = timed.painted.saturating_add(timed.composited);
+
+  let refreshes = match took.as_nanos().checked_div(refresh.as_nanos()) {
+    Some(refreshes) => refreshes,
+    None => 0,
+  };
+
+  fitted::<u128, u64>(refreshes.saturating_sub(1))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const AT_144: Duration = Duration::from_nanos(6_944_444);
+  const AT_144: Duration = Duration::from_nanos(6_944_444);
 
-    #[test]
-    #[cfg_attr(dylint_lib = "explicit011_no_as_cast", allow(explicit011_no_as_cast, reason = "the kernel's number for the clock is the enum's discriminant, and `as` is the only way rustix lets it be read"))]
-    fn the_monotonic_clock_is_the_number_the_kernel_gives_it() {
-        assert_eq!(i64::from(MONOTONIC), rustix::time::ClockId::Monotonic as i64);
-    }
+  #[test]
+  #[cfg_attr(
+    dylint_lib = "explicit011_no_as_cast",
+    allow(
+      explicit011_no_as_cast,
+      reason = "the kernel's number for the clock is the enum's discriminant, and `as` is the only way rustix lets it be read"
+    )
+  )]
+  fn the_monotonic_clock_is_the_number_the_kernel_gives_it() {
+    assert_eq!(
+      i64::from(MONOTONIC),
+      rustix::time::ClockId::Monotonic as i64
+    );
+  }
 
-    fn timed((painted, composited): (u64, u64)) -> Result<Timed, Never> {
-        Ok(Timed { painted: Duration::from_micros(painted), composited: Duration::from_micros(composited), refresh: AT_144 })
-    }
+  fn timed((painted, composited): (u64, u64)) -> Result<Timed, Never> {
+    Ok(Timed {
+      painted: Duration::from_micros(painted),
+      composited: Duration::from_micros(composited),
+      refresh: AT_144,
+    })
+  }
 
-    #[test]
-    fn a_frame_shown_at_the_next_refresh_missed_nothing() {
-        let Ok(frame) = timed((2_000, 6_000));
+  #[test]
+  fn a_frame_shown_at_the_next_refresh_missed_nothing() {
+    let Ok(frame) = timed((2_000, 6_000));
 
-        assert_eq!(missed(frame), Ok(0));
-    }
+    assert_eq!(missed(frame), Ok(0));
+  }
 
-    #[test]
-    fn a_frame_that_waited_a_whole_refresh_for_its_slot_still_missed_nothing() {
-        let Ok(frame) = timed((1_000, 12_000));
+  #[test]
+  fn a_frame_that_waited_a_whole_refresh_for_its_slot_still_missed_nothing() {
+    let Ok(frame) = timed((1_000, 12_000));
 
-        assert_eq!(missed(frame), Ok(0));
-    }
+    assert_eq!(missed(frame), Ok(0));
+  }
 
-    #[test]
-    fn a_paint_longer_than_a_refresh_is_a_refresh_missed() {
-        let Ok(frame) = timed((12_000, 3_000));
+  #[test]
+  fn a_paint_longer_than_a_refresh_is_a_refresh_missed() {
+    let Ok(frame) = timed((12_000, 3_000));
 
-        assert_eq!(missed(frame), Ok(1));
-    }
+    assert_eq!(missed(frame), Ok(1));
+  }
 
-    #[test]
-    fn a_frame_three_refreshes_late_says_so() {
-        let Ok(frame) = timed((25_000, 3_000));
+  #[test]
+  fn a_frame_three_refreshes_late_says_so() {
+    let Ok(frame) = timed((25_000, 3_000));
 
-        assert_eq!(missed(frame), Ok(3));
-    }
+    assert_eq!(missed(frame), Ok(3));
+  }
 
-    #[test]
-    fn a_screen_that_will_not_say_its_refresh_is_measured_against_what_a_person_feels() {
-        let Ok(frame) = timed((20_000, 14_000));
-        let unsaid = Timed { refresh: Duration::ZERO, ..frame };
+  #[test]
+  fn a_screen_that_will_not_say_its_refresh_is_measured_against_what_a_person_feels() {
+    let Ok(frame) = timed((20_000, 14_000));
+    let unsaid = Timed {
+      refresh: Duration::ZERO,
+      ..frame
+    };
 
-        assert_eq!(missed(unsaid), Ok(1));
-    }
+    assert_eq!(missed(unsaid), Ok(1));
+  }
 
-    #[test]
-    fn a_frame_timed_on_a_clock_nobody_here_reads_is_counted_and_not_timed() {
-        let Ok(mut frames) = Frames::shown("a-panel");
-        let committed = Committed { painted: Duration::from_millis(40), at: Duration::from_secs(5) };
-        let elsewhere = Presented { clock: 0, at: Duration::from_secs(9), refresh: AT_144 };
+  #[test]
+  fn a_frame_timed_on_a_clock_nobody_here_reads_is_counted_and_not_timed() {
+    let Ok(mut frames) = Frames::shown("a-panel");
+    let committed = Committed {
+      painted: Duration::from_millis(40),
+      at: Duration::from_secs(5),
+    };
+    let elsewhere = Presented {
+      clock: 0,
+      at: Duration::from_secs(9),
+      refresh: AT_144,
+    };
 
-        assert_eq!(frames.presented(committed, elsewhere), Ok(()));
-        assert_eq!((frames.late, frames.slowest), (0, Duration::ZERO));
-    }
+    assert_eq!(frames.presented(committed, elsewhere), Ok(()));
+    assert_eq!((frames.late, frames.slowest), (0, Duration::ZERO));
+  }
 }

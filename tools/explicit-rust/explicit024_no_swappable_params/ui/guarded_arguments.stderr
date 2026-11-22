@@ -1,0 +1,36 @@
+error: a second parameter of type `usize`: the compiler takes these two in either order and says nothing
+  --> $DIR/guarded_arguments.rs:13:92
+   |
+LL |     fn predict<const BIAS: usize>(dst: &mut Vec<usize>, base: usize, stride: isize, width: usize, height: usize) {
+   |                                                                                            ^^^^^
+   |
+   = note: `#[deny(explicit024_no_swappable_params)]` on by default
+help: name the arguments at every call to this private function
+   |
+LL ~     fn predict<const BIAS: usize>(dst: &mut Vec<usize>, PredictArguments { base, stride, width, height }: PredictArguments) {
+LL |         write_sample!(dst, base + stride.unsigned_abs() + width * height + BIAS);
+LL ~     }
+LL + 
+LL +     #[cfg(any(target_pointer_width="32",target_pointer_width="64"))]
+LL +     struct PredictArguments {
+LL +         base: usize,
+LL +         stride: isize,
+LL +         width: usize,
+LL +         height: usize,
+LL +     }
+LL |
+...
+LL |         let mut order = Vec::new();
+LL ~         let mut once = || predict::<3>(&mut calls, self::PredictArguments { base: { order.push(1); 2 }, stride: { order.push(2); -5 }, width: { order.push(3); 7 }, height: { order.push(4); 11 } });
+   |
+
+error: a second parameter of type `usize`: the compiler takes these two in either order and says nothing
+  --> $DIR/guarded_arguments.rs:13:107
+   |
+LL |     fn predict<const BIAS: usize>(dst: &mut Vec<usize>, base: usize, stride: isize, width: usize, height: usize) {
+   |                                                                                                           ^^^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: aborting due to 2 previous errors
+

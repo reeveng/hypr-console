@@ -1,66 +1,66 @@
 //! The settings panel: it opens, it draws, and it lets go.
 //!
-//! Putting a panel away at once is asked of a panel somebody has looked at,
-//! so each put-away waits half a second after the opening is written down.
-//! That is the one wait here with a number in it, and it is a person's pace
-//! rather than a guess about the machine: sent the moment the opening line
-//! lands, the put-away is sometimes lost and the drawing runs past a frame,
-//! which is a different question and is in the backlog. The stage used to pause
-//! between every press for everybody; it presses straight on now, so a check
-//! that means a person's pause says so where it means it.
+//! Putting a panel away at once waits for its request to be accepted and its
+//! frame to be presented. Those milestones belong to this opening alone; a
+//! timing line or an old frame cannot satisfy them. Closing follows directly
+//! after Drawn, and Gone confirms the host finished releasing the panel.
 
 use console_core_geometry::Point;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
 use console_core_never::Never;
+use console_panel::completion::{ENVIRONMENT, Progress};
 use console_response_times::FELT;
 
-use console_test_stages::checking::{Body, Check, CheckResult, empty, happened, more_than, not_empty, same, expect_ready};
+use console_test_stages::checking::{
+  Body, Check, CheckResult, empty, expect_ready, happened, more_than, not_empty, same,
+};
 use console_test_stages::desktop::Desktop;
-use console_test_stages::here::{InputHandling, Here, TURNS};
 use console_test_stages::device::{Device, PATIENCE, Ready};
+use console_test_stages::here::{Here, InputHandling, TURNS};
 use console_test_stages::palette::palette;
 
 use crate::picker::{Expected, opens};
 
 pub const PANEL: Check = Check {
-    name: "080-the-panel",
-    about: "Legion right opens the settings panel.",
-    feature: "panel",
-    since: "2026-08-28",
-    bodies: &[Body::Here(here), Body::Device(there)],
+  name: "080-the-panel",
+  about: "Legion right opens the settings panel.",
+  feature: "panel",
+  since: "2026-08-28",
+  bodies: &[Body::Here(here), Body::Device(there)],
 };
 
 pub const DRAWS: Check = Check {
-    name: "160-the-panel-draws",
-    about: "The settings panel opens, and draws itself.",
-    feature: "panel",
-    since: "2026-08-28",
-    bodies: &[Body::Desktop(draws)],
+  name: "160-the-panel-draws",
+  about: "The settings panel opens, and draws itself.",
+  feature: "panel",
+  since: "2026-08-28",
+  bodies: &[Body::Desktop(draws)],
 };
 
 pub const WITH_THE_KEYBOARD: Check = Check {
-    name: "180-out-of-a-panel-with-the-keyboard-up",
-    about: "B closes a panel with the keyboard over it, and leaves the pad usable.",
-    feature: "panel",
-    since: "2026-08-28",
-    bodies: &[Body::Here(without_a_screen), Body::Device(with_the_keyboard)],
+  name: "180-out-of-a-panel-with-the-keyboard-up",
+  about: "B closes a panel with the keyboard over it, and leaves the pad usable.",
+  feature: "panel",
+  since: "2026-08-28",
+  bodies: &[
+    Body::Here(without_a_screen),
+    Body::Device(with_the_keyboard),
+  ],
 };
 
 pub const PUT_AWAY_AT_ONCE: Check = Check {
-    name: "185-a-panel-is-put-away-at-once",
-    about: "A panel the host is holding is gone within a frame of being put away, and every opening is written down.",
-    feature: "panel",
-    since: "2026-09-24",
-    bodies: &[Body::Desktop(put_away_at_once)],
+  name: "185-a-panel-is-put-away-at-once",
+  about: "A panel the host is holding is gone within a frame of being put away, and every opening is written down.",
+  feature: "panel",
+  since: "2026-09-24",
+  bodies: &[Body::Desktop(put_away_at_once)],
 };
 
 const OPENED_AND_PUT_AWAY: u32 = 6;
 
 const HOSTED: &str = "settings-panel";
-
-const LOOKED_AT: &str = "sleep 0.5";
 
 const OVER_A_PANEL: &str = r#"{"eDP-1":{"levels":{
     "0":[{"namespace":"awww-daemon","h":1600}],
@@ -77,43 +77,45 @@ const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
     "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
 fn without_a_screen(stage: &mut Here) -> CheckResult {
-    stage.set_layers(THE_PANEL_ALONE)?;
+  stage.set_layers(THE_PANEL_ALONE)?;
 
-    let Ok(alone) = stage.input_handling();
+  let Ok(alone) = stage.input_handling();
 
-    same(&alone, &InputHandling::Enabled, || {
-        "a panel up and the daemon has stood down, so no button on it does anything".to_string()
-    })?;
+  same(&alone, &InputHandling::Enabled, || {
+    "a panel up and the daemon has stood down, so no button on it does anything".to_string()
+  })?;
 
-    stage.set_layers(OVER_A_PANEL)?;
-    stage.press("legion-right")?;
-    stage.press("b")?;
+  stage.set_layers(OVER_A_PANEL)?;
+  stage.press("legion-right")?;
+  stage.press("b")?;
 
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(under) = stage.commands();
+  let Ok(()) = stage.settle(TURNS);
+  let Ok(under) = stage.commands();
 
-    empty(under, || format!("the daemon acted under the keyboard: {under:?}"))?;
+  empty(under, || {
+    format!("the daemon acted under the keyboard: {under:?}")
+  })?;
 
-    stage.set_layers(NOTHING_UP)?;
+  stage.set_layers(NOTHING_UP)?;
 
-    let Ok(after) = stage.input_handling();
+  let Ok(after) = stage.input_handling();
 
-    same(&after, &InputHandling::Enabled, || {
-        "the keyboard went and the daemon is still standing down".to_string()
-    })?;
+  same(&after, &InputHandling::Enabled, || {
+    "the keyboard went and the daemon is still standing down".to_string()
+  })?;
 
-    let Ok(commands) = stage.commands();
-    let Ok(before) = console_core_number_conversion::fitted::<_, u32>(commands.len());
+  let Ok(commands) = stage.commands();
+  let Ok(before) = console_core_number_conversion::fitted::<_, u32>(commands.len());
 
-    stage.press("legion-right")?;
+  stage.press("legion-right")?;
 
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(again) = stage.commands();
-    let Ok(after) = console_core_number_conversion::fitted::<_, u32>(again.len());
+  let Ok(()) = stage.settle(TURNS);
+  let Ok(again) = stage.commands();
+  let Ok(after_2) = console_core_number_conversion::fitted::<_, u32>(again.len());
 
-    more_than(after, before, || {
-        "the keyboard went and the daemon never started acting again".to_string()
-    })
+  more_than(after_2, before, || {
+    "the keyboard went and the daemon never started acting again".to_string()
+  })
 }
 
 pub const ACROSS: f64 = 200.0;
@@ -121,174 +123,202 @@ pub const DOWN: std::ops::Range<i32> = 150..520;
 pub const EVERY: u32 = 6;
 
 pub fn drew(stage: &mut Desktop) -> CheckResult {
-    let Ok(wanted) = palette();
-    let mut down: BTreeSet<String> = BTreeSet::new();
+  let Ok(wanted) = palette();
+  let mut down: BTreeSet<String> = BTreeSet::new();
 
-    let Ok(every) = console_core_number_conversion::index(EVERY);
+  let Ok(every) = console_core_number_conversion::index(EVERY);
 
-    for y in DOWN.step_by(every) {
-        let said = stage.color(Point { x: ACROSS, y: f64::from(y) })?;
-
-        let _ = down.insert(said);
-    }
-
-    let any_of = |names: &[&str]| {
-        let any = names
-            .iter()
-            .any(|name| wanted.get(*name).is_some_and(|color| down.contains(color)));
-
-        match any {
-            true => Ready::Yes,
-            false => Ready::NotYet,
-        }
-    };
-
-    expect_ready(any_of(&["panel", "ground"]), || {
-        format!("nothing of the panel is on the screen where it should be: {down:?}")
+  for y in DOWN.step_by(every.max(1)) {
+    let said = stage.color(Point {
+      x: ACROSS,
+      y: f64::from(y),
     })?;
 
-    expect_ready(any_of(&["pink"]), || {
-        format!("the panel drew but nothing on it is highlighted: {down:?}")
-    })
+    let _ = down.insert(said);
+  }
+
+  let any_of = |names: &[&str]| {
+    let any = names
+      .iter()
+      .any(|name| wanted.get(*name).is_some_and(|color| down.contains(color)));
+
+    match ::core::primitive::bool::then_some(any, ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    }
+  };
+
+  expect_ready(any_of(&["panel", "ground"]), || {
+    format!("nothing of the panel is on the screen where it should be: {down:?}")
+  })?;
+
+  expect_ready(any_of(&["pink"]), || {
+    format!("the panel drew but nothing on it is highlighted: {down:?}")
+  })
 }
 
 fn here(stage: &mut Here) -> CheckResult {
-    stage.press("legion-right")?;
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(ran) = stage.names();
+  stage.press("legion-right")?;
+  let Ok(()) = stage.settle(TURNS);
+  let Ok(ran) = stage.names();
 
-    same(&ran, &["settings-panel"], || format!("it ran {ran:?}"))
+  same(&ran, &["settings-panel"], || format!("it ran {ran:?}"))
 }
 
 fn there(stage: &mut Device) -> CheckResult {
-    opens(stage, "legion-right", Expected("panel"))
+  opens(stage, "legion-right", Expected("panel"))
 }
 
 fn put_away_at_once(stage: &mut Desktop) -> CheckResult {
-    stage.inside("console-panels & host=$!; trap 'kill $host' EXIT TERM")?;
+  stage.inside("console-panels & host=$!; trap 'kill $host' EXIT TERM")?;
 
-    let Ok(listening) = host_listening();
+  let Ok(listening) = host_listening();
 
-    stage.inside(&listening)?;
+  stage.inside(&listening)?;
 
-    for opened in 1..=OPENED_AND_PUT_AWAY {
-        stage.inside(&format!("({HOSTED} Sound &)"))?;
-        let Ok(drawn) = waiting_for("opening", opened);
+  for _opened in 1..=OPENED_AND_PUT_AWAY {
+    stage
+      .inside("completion=$(mktemp \"$XDG_RUNTIME_DIR/panel-completion.XXXXXX\") || exit 1")?;
+    stage.inside(&format!("({ENVIRONMENT}=\"$completion\" {HOSTED} Sound &)"))?;
 
-        stage.inside(&drawn)?;
-        stage.inside(LOOKED_AT)?;
-        stage.inside("console-put-away")?;
+    for progress in [Progress::Accepted, Progress::Visible] {
+      let Ok(waiting) = waiting_for_completion(progress);
 
-        let Ok(closed) = waiting_for("closing", opened);
-
-        stage.inside(&closed)?;
+      stage.inside(&waiting)?;
     }
 
-    stage.inside("kill $host; wait $host")?;
-    stage.keeping_timings()?;
+    stage.inside("console-put-away")?;
 
-    let timings = stage.timings()?;
-    let about = |what: &str| {
-        timings.iter().filter(|entry| entry.who == HOSTED && entry.what == what).collect::<Vec<_>>()
-    };
-    let closings = about("closing");
-    let Ok(many) = console_core_number_conversion::fitted::<_, u32>(closings.len());
+    let Ok(closed) = waiting_for_completion(Progress::Gone);
 
-    same(&many, &OPENED_AND_PUT_AWAY, || {
-        format!("put away {OPENED_AND_PUT_AWAY} times and the host closed {many}")
-    })?;
+    stage.inside(&closed)?;
+    stage.inside("rm -f \"$completion\"")?;
+  }
 
-    let stopping: Vec<Duration> = closings
-        .iter()
-        .flat_map(|closing| closing.marks.iter())
-        .filter(|(name, _)| name == "drawing")
-        .map(|(_, took)| *took)
-        .collect();
-    let felt: Vec<&Duration> = stopping.iter().filter(|took| **took > FELT).collect();
+  stage.inside("kill $host; wait $host")?;
+  stage.keeping_timings()?;
 
-    empty(&felt, || {
-        format!("the drawing went on after the panel was put away, for longer than a frame: {stopping:?}")
-    })?;
+  let timings = stage.timings()?;
+  let about = |what: &str| {
+    timings
+      .iter()
+      .filter(|entry| entry.who == HOSTED && entry.what == what)
+      .collect::<Vec<_>>()
+  };
+  let closings = about("closing");
+  let Ok(many) = console_core_number_conversion::fitted::<_, u32>(closings.len());
 
-    let openings = about("opening");
-    let Ok(written) = console_core_number_conversion::fitted::<_, u32>(openings.len());
+  same(&many, &OPENED_AND_PUT_AWAY, || {
+    format!("put away {OPENED_AND_PUT_AWAY} times and the host closed {many}")
+  })?;
 
-    same(&written, &OPENED_AND_PUT_AWAY, || {
-        format!("opened {OPENED_AND_PUT_AWAY} times and {written} openings were written down")
-    })
+  let stopping: Vec<Duration> = closings
+    .iter()
+    .flat_map(|closing| closing.marks.iter())
+    .filter(|(name, _)| name == "drawing")
+    .map(|(_, took)| *took)
+    .collect();
+  let felt: Vec<&Duration> = stopping.iter().filter(|took| **took > FELT).collect();
+
+  empty(&felt, || {
+    format!(
+      "the drawing went on after the panel was put away, for longer than a frame: {stopping:?}"
+    )
+  })?;
+
+  let openings = about("opening");
+  let Ok(written) = console_core_number_conversion::fitted::<_, u32>(openings.len());
+
+  same(&written, &OPENED_AND_PUT_AWAY, || {
+    format!("opened {OPENED_AND_PUT_AWAY} times and {written} openings were written down")
+  })
 }
 
 fn host_listening() -> Result<String, Never> {
-    let socket = console_panel::handoff::SOCKET;
-    let ours = console_core_places::APPLICATION;
+  let socket = console_panel::handoff::SOCKET;
+  let ours = console_core_places::APPLICATION;
 
-    Ok(format!(
-        "for _ in $(seq 200); do \
+  Ok(format!(
+    "for _ in $(seq 200); do \
            [ -S \"$XDG_RUNTIME_DIR/{ours}/{socket}\" ] && break; \
            sleep 0.05; \
-         done"
-    ))
+         done; \
+         [ -S \"$XDG_RUNTIME_DIR/{ours}/{socket}\" ] || exit 1"
+  ))
 }
 
-fn waiting_for(what: &str, times: u32) -> Result<String, Never> {
-    Ok(format!(
-        "for _ in $(seq 200); do \
-           [ \"$(grep -c '\"what\":\"{what}\"' \"$XDG_STATE_HOME/console/waited.jsonl\" 2>/dev/null)\" -ge {times} ] && break; \
+fn waiting_for_completion(progress: Progress) -> Result<String, Never> {
+  let Ok(word) = progress.word();
+  let Ok(failed) = Progress::Failed.word();
+  let Ok(gone) = Progress::Gone.word();
+
+  Ok(format!(
+    "for _ in $(seq 200); do \
+           grep -qx '{word}' \"$completion\" && break; \
+           grep -qx '{failed}' \"$completion\" && exit 1; \
+           grep -qx '{gone}' \"$completion\" && exit 1; \
            sleep 0.05; \
-         done"
-    ))
+         done; \
+         grep -qx '{word}' \"$completion\" || exit 1"
+  ))
 }
 
 fn draws(stage: &mut Desktop) -> CheckResult {
-    stage.open("settings-panel Sound")?;
-    drew(stage)
+  stage.open("settings-panel Sound")?;
+  drew(stage)
 }
 
 fn with_the_keyboard(stage: &mut Device) -> CheckResult {
-    let Ok(()) = stage.press("legion-right");
-    let Ok(drawn) = stage.wait_for_menu(PATIENCE);
+  let Ok(()) = stage.press("legion-right");
+  let Ok(drawn) = stage.wait_for_menu(PATIENCE);
 
-    happened(drawn, || "the panel did not draw".to_string())?;
+  happened(drawn, || "the panel did not draw".to_string())?;
 
-    let Ok(()) = stage.press("x");
-    let Ok(over) = stage.until(Device::keyboard, PATIENCE);
+  let Ok(()) = stage.press("x");
+  let Ok(over) = stage.until(Device::keyboard, PATIENCE);
 
-    happened(over, || "the keyboard did not come up over the panel".to_string())?;
+  happened(over, || {
+    "the keyboard did not come up over the panel".to_string()
+  })?;
 
-    let Ok(up) = stage.menus();
+  let Ok(up) = stage.menus();
 
-    not_empty(&up, || "the keyboard came up and the panel went".to_string())?;
+  not_empty(&up, || {
+    "the keyboard came up and the panel went".to_string()
+  })?;
 
-    let Ok(()) = stage.press("b");
-    let Ok(closed) = stage.wait_for_close(PATIENCE);
+  let Ok(()) = stage.press("b");
+  let Ok(closed) = stage.wait_for_close(PATIENCE);
 
-    happened(closed, || "B did not close the panel".to_string())?;
+  happened(closed, || "B did not close the panel".to_string())?;
 
-    let Ok(()) = stage.press("x");
-    let Ok(went) = stage.until(
-        |seen| {
-            let Ok(up) = seen.keyboard();
+  let Ok(()) = stage.press("x");
+  let Ok(went) = stage.until(
+    |seen| {
+      let Ok(up_2) = seen.keyboard();
 
-            up.flipped()
-        },
-        PATIENCE,
-    );
+      up_2.flipped()
+    },
+    PATIENCE,
+  );
 
-    happened(went, || "the keyboard would not go away".to_string())?;
+  happened(went, || "the keyboard would not go away".to_string())?;
 
-    let Ok(held) = stage.profile();
+  let Ok(held) = stage.profile();
 
-    same(&held, crate::picker::WORN, || {
-        format!("the keyboard went and the pad was left wearing {held}")
-    })?;
+  same(&held, crate::picker::WORN, || {
+    format!("the keyboard went and the pad was left wearing {held}")
+  })?;
 
-    let Ok(()) = stage.press("legion-right");
-    let Ok(again) = stage.wait_for_menu(PATIENCE);
+  let Ok(()) = stage.press("legion-right");
+  let Ok(again) = stage.wait_for_menu(PATIENCE);
 
-    happened(again, || "the settings button stopped drawing anything".to_string())?;
+  happened(again, || {
+    "the settings button stopped drawing anything".to_string()
+  })?;
 
-    let Ok(()) = stage.press("b");
-    let Ok(gone) = stage.wait_for_close(PATIENCE);
+  let Ok(()) = stage.press("b");
+  let Ok(gone) = stage.wait_for_close(PATIENCE);
 
-    happened(gone, || "the panel would not close again".to_string())
+  happened(gone, || "the panel would not close again".to_string())
 }

@@ -21,9 +21,9 @@
 //! ```
 //!
 //! `waited` is what a thumb waited, and the stretches after it are where that
-//! went, in the order they happened. Every number at the top of a line is
-//! milliseconds, so anything reading this can add the whole of it up without
-//! being told which fields are time. What the wait was *about* -- how many rows
+//! went, in the order they happened. The wait and its phases are milliseconds.
+//! The journal also records epoch seconds, uptime seconds, and the load average.
+//! What the wait was *about* -- how many rows
 //! were drawn, which door it came out of -- is under `with`, where it cannot be
 //! mistaken for a stretch of the wait.
 //!
@@ -92,13 +92,13 @@ use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use console_core_never::Never;
+use console_core_number_conversion::{fitted, index};
 use rustix::param::clock_ticks_per_second;
-use rustix::time::{clock_gettime, clock_gettime_dynamic, ClockId, DynamicClockId};
+use rustix::time::{ClockId, DynamicClockId, clock_gettime, clock_gettime_dynamic};
 
 const NOT_SAID: f64 = 0.0;
 
 const LOADAVG: &str = "/proc/loadavg";
-
 
 pub use writing::flush;
 
@@ -111,722 +111,808 @@ pub const FELT: Duration = Duration::from_millis(16);
 pub const STALE: Duration = Duration::from_secs(10);
 
 #[cfg_attr(
-    dylint_lib = "explicit026_env_read_once",
-    allow(
-        explicit026_env_read_once,
-        reason = "CONSOLE_PRESSED and CONSOLE_FROM are stamped by this crate and read by this crate, and the two consts above are the only spelling of either"
-    )
+  dylint_lib = "explicit026_env_read_once",
+  allow(
+    explicit026_env_read_once,
+    reason = "CONSOLE_PRESSED and CONSOLE_FROM are stamped by this crate and read by this crate, and the two consts above are the only spelling of either"
+  )
 )]
 fn env_var(name: &str) -> Result<Option<String>, Never> {
-    match std::env::var(name) {
-        Ok(said) => Ok(Some(said)),
-        Err(std::env::VarError::NotPresent) => Ok(None),
-        Err(fault) => {
-            eprintln!("console-response-times: {name}: {fault}");
+  match std::env::var(name) {
+    Ok(said) => Ok(Some(said)),
+    Err(std::env::VarError::NotPresent) => Ok(None),
+    Err(fault) => {
+      eprintln!("console-response-times: {name}: {fault}");
 
-            Ok(None)
-        }
+      Ok(None)
     }
+  }
 }
 
 pub fn where_() -> Result<Option<PathBuf>, Never> {
-    let ours = console_core_places::Base::State.ours()?;
+  let ours = console_core_places::Base::State.ours()?;
 
-    Ok(ours.map(|ours| ours.join("waited.jsonl")))
+  Ok(ours.map(|ours_2| ours_2.join("waited.jsonl")))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Wait<'a> {
-    pub who: &'a str,
-    pub what: &'a str,
+  pub who: &'a str,
+  pub what: &'a str,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Note<'a> {
-    pub name: &'a str,
-    pub said: &'a str,
+  pub name: &'a str,
+  pub said: &'a str,
 }
 
 pub struct Waiting {
-    who: String,
-    what: String,
-    started: Instant,
-    last: Instant,
-    marks: Vec<(String, Duration)>,
-    notes: Vec<(String, line::Value)>,
-    before: Duration,
+  who: String,
+  what: String,
+  started: Instant,
+  last: Instant,
+  marks: Vec<(String, Duration)>,
+  notes: Vec<(String, line::Value)>,
+  before: Duration,
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit039_no_reading_the_clock",
-    allow(
-        explicit039_no_reading_the_clock,
-        reason = "this is the stopwatch: the reading is the measurement rather than a decision made from it, and handing the instant in would put the clock in every panel that asks how long it took"
-    )
+  dylint_lib = "explicit039_no_reading_the_clock",
+  allow(
+    explicit039_no_reading_the_clock,
+    reason = "this is the stopwatch: the reading is the measurement rather than a decision made from it, and handing the instant in would put the clock in every panel that asks how long it took"
+  )
 )]
 impl Waiting {
-    pub fn on(wait: Wait<'_>) -> Result<Self, Never> {
-        let now = Instant::now();
+  pub fn on(wait: Wait<'_>) -> Result<Self, Never> {
+    let now = Instant::now();
 
-        let Ok(since) = since_exec();
-        let Ok(stamped) = since_press();
+    let Ok(since) = since_exec();
+    let Ok(stamped) = since_press();
 
-        let exec = match since {
-            Some(exec) => exec,
-            None => Duration::ZERO,
-        };
-        let press = stamped.map(|waited| waited.saturating_sub(exec));
-        let mut marks = Vec::new();
-        let mut before = exec;
+    let exec = match since {
+      Some(exec) => exec,
+      None => Duration::ZERO,
+    };
+    let press = stamped.map(|waited| waited.saturating_sub(exec));
+    let mut marks = Vec::new();
+    let mut before = exec;
 
-        match press {
-            Some(press) => {
-                marks.push(("press".to_string(), press));
-                before = before.saturating_add(press);
-            }
-            None => {}
-        }
-
-        marks.push(("exec".to_string(), exec));
-        let mut notes = Vec::new();
-
-        let Ok(came) = came_from();
-
-        match came {
-            Some(from) => notes.push(("from".to_string(), line::Value::Word(from))),
-            None => {}
-        }
-
-        Ok(Waiting {
-            who: wait.who.to_string(),
-            what: wait.what.to_string(),
-            started: now,
-            last: now,
-            marks,
-            notes,
-            before,
-        })
+    match press {
+      Some(press_2) => {
+        marks.push(("press".to_string(), press_2));
+        before = before.saturating_add(press_2);
+      }
+      None => {}
     }
 
-    pub fn start(
-        wait: Wait<'_>,
-        pressed: Option<&str>,
-        from: &str,
-        exec: Duration,
-    ) -> Result<Self, Never> {
-        let now = Instant::now();
+    marks.push(("exec".to_string(), exec));
+    let mut notes = Vec::new();
 
-        let stamped = match pressed {
-            Some(raw) => {
-                let Ok(waited) = waited_since(raw);
+    let Ok(came) = came_from();
 
-                waited
-            }
-            None => None,
-        };
-
-        let press = stamped.map(|waited| waited.saturating_sub(exec));
-        let mut marks = Vec::new();
-        let mut before = exec;
-
-        match press {
-            Some(press) => {
-                marks.push(("press".to_string(), press));
-                before = before.saturating_add(press);
-            }
-            None => {}
-        }
-
-        marks.push(("exec".to_string(), exec));
-        let mut notes = Vec::new();
-
-        match from.is_empty() {
-            true => {}
-            false => notes.push(("from".to_string(), line::Value::Word(from.to_string()))),
-        }
-
-        Ok(Waiting {
-            who: wait.who.to_string(),
-            what: wait.what.to_string(),
-            started: now,
-            last: now,
-            marks,
-            notes,
-            before,
-        })
+    match came {
+      Some(from) => notes.push(("from".to_string(), line::Value::Word(from))),
+      None => {}
     }
 
-    pub fn here(wait: Wait<'_>) -> Result<Self, Never> {
-        let now = Instant::now();
+    Ok(Waiting {
+      who: wait.who.to_string(),
+      what: wait.what.to_string(),
+      started: now,
+      last: now,
+      marks,
+      notes,
+      before,
+    })
+  }
 
-        Ok(Waiting {
-            who: wait.who.to_string(),
-            what: wait.what.to_string(),
-            started: now,
-            last: now,
-            marks: Vec::new(),
-            notes: Vec::new(),
-            before: Duration::ZERO,
-        })
+  pub fn start(
+    wait: Wait<'_>,
+    pressed: Option<&str>,
+    from: &str,
+    exec: Duration,
+  ) -> Result<Self, Never> {
+    let now = Instant::now();
+
+    let stamped = match pressed {
+      Some(raw) => {
+        let Ok(waited) = waited_since(raw);
+
+        waited
+      }
+      None => None,
+    };
+
+    let press = stamped.map(|waited| waited.saturating_sub(exec));
+    let mut marks = Vec::new();
+    let mut before = exec;
+
+    match press {
+      Some(press_2) => {
+        marks.push(("press".to_string(), press_2));
+        before = before.saturating_add(press_2);
+      }
+      None => {}
     }
 
-    pub fn mark(&mut self, doing: &str) -> Result<(), Never> {
-        let now = Instant::now();
-        self.marks.push((doing.to_string(), now.saturating_duration_since(self.last)));
-        self.last = now;
+    marks.push(("exec".to_string(), exec));
+    let mut notes = Vec::new();
 
-        Ok(())
+    match ::core::primitive::bool::then_some(from.is_empty(), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => notes.push(("from".to_string(), line::Value::Word(from.to_string()))),
     }
 
-    pub fn taking(&mut self, doing: &str, took: Duration) -> Result<(), Never> {
-        let exec = self.marks.iter_mut().find(|(name, _)| name == "exec");
+    Ok(Waiting {
+      who: wait.who.to_string(),
+      what: wait.what.to_string(),
+      started: now,
+      last: now,
+      marks,
+      notes,
+      before,
+    })
+  }
 
-        match exec {
-            Some((_, was)) => *was = was.saturating_sub(took),
-            None => self.before += took,
-        }
+  pub fn here(wait: Wait<'_>) -> Result<Self, Never> {
+    let now = Instant::now();
 
-        self.marks.insert(
-            self.marks.iter().position(|(name, _)| name == "exec").map_or(0, |at| at.saturating_add(1)),
-            (doing.to_string(), took),
-        );
+    Ok(Waiting {
+      who: wait.who.to_string(),
+      what: wait.what.to_string(),
+      started: now,
+      last: now,
+      marks: Vec::new(),
+      notes: Vec::new(),
+      before: Duration::ZERO,
+    })
+  }
 
-        Ok(())
+  pub fn mark(&mut self, doing: &str) -> Result<(), Never> {
+    let now = Instant::now();
+    self
+      .marks
+      .push((doing.to_string(), now.saturating_duration_since(self.last)));
+    self.last = now;
+
+    Ok(())
+  }
+
+  pub fn taking(&mut self, doing: &str, took: Duration) -> Result<(), Never> {
+    let insertion = match self
+      .marks
+      .iter_mut()
+      .enumerate()
+      .find(|(_, (name, _))| name == "exec")
+    {
+      Some((at, (_, was))) => {
+        *was = was.saturating_sub(took);
+        let Ok(place) = fitted::<_, u64>(at);
+
+        place.saturating_add(1)
+      }
+      None => {
+        self.before = self.before.saturating_add(took);
+
+        0
+      }
+    };
+    let Ok(at) = index(insertion);
+    self.marks.push((doing.to_string(), took));
+
+    match self.marks.get_mut(at..) {
+      Some(tail @ [_, ..]) => tail.rotate_right(1),
+      Some([]) | None => {}
     }
 
-    pub fn counted(&mut self, name: &str, many: u64) -> Result<(), Never> {
-        self.notes.push((name.to_string(), line::Value::Count(many)));
+    Ok(())
+  }
 
-        Ok(())
+  pub fn counted(&mut self, name: &str, many: u64) -> Result<(), Never> {
+    self
+      .notes
+      .push((name.to_string(), line::Value::Count(many)));
+
+    Ok(())
+  }
+
+  pub fn add_note(&mut self, note: Note<'_>) -> Result<(), Never> {
+    self.notes.push((
+      note.name.to_string(),
+      line::Value::Word(note.said.to_string()),
+    ));
+
+    Ok(())
+  }
+
+  pub fn so_far(&self) -> Result<Duration, Never> {
+    Ok(self.before.saturating_add(self.started.elapsed()))
+  }
+
+  pub fn done_if_felt(self) -> Result<(), Never> {
+    let Ok(so_far) = self.so_far();
+
+    match ::core::primitive::bool::then_some(so_far >= FELT, ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(()) = self.finish();
+      }
+      ::core::option::Option::None => {}
     }
 
-    pub fn add_note(&mut self, note: Note<'_>) -> Result<(), Never> {
-        self.notes.push((note.name.to_string(), line::Value::Word(note.said.to_string())));
+    Ok(())
+  }
 
-        Ok(())
-    }
+  pub fn finish(self) -> Result<(), Never> {
+    let Ok(waited) = self.so_far();
 
-    pub fn so_far(&self) -> Result<Duration, Never> {
-        Ok(self.before + self.started.elapsed())
-    }
-
-    pub fn done_if_felt(self) -> Result<(), Never> {
-        let Ok(so_far) = self.so_far();
-
-        match so_far >= FELT {
-            true => {
-                let Ok(()) = self.finish();
-            }
-            false => {}
-        }
-
-        Ok(())
-    }
-
-    pub fn finish(self) -> Result<(), Never> {
-        let waited = self.before + self.started.elapsed();
-
-        written_down(Record { who: self.who, what: self.what, waited, marks: self.marks, notes: self.notes })
-    }
+    written_down(Record {
+      who: self.who,
+      what: self.what,
+      waited,
+      marks: self.marks,
+      notes: self.notes,
+    })
+  }
 }
 
 pub(crate) struct Record {
-    pub who: String,
-    pub what: String,
-    pub waited: Duration,
-    pub marks: Vec<(String, Duration)>,
-    pub notes: Vec<(String, line::Value)>,
+  pub who: String,
+  pub what: String,
+  pub waited: Duration,
+  pub marks: Vec<(String, Duration)>,
+  pub notes: Vec<(String, line::Value)>,
 }
 
 pub(crate) fn written_down(kept: Record) -> Result<(), Never> {
-    let load = match load() {
-        Ok(load) => load,
-        Err(fault) => {
-            eprintln!("console-response-times: {fault}");
-            0.0
-        }
-    };
+  let load = match load() {
+    Ok(load) => load,
+    Err(fault) => {
+      eprintln!("console-response-times: {fault}");
+      0.0
+    }
+  };
 
-    let Ok(at) = unix_now();
-    let Ok(up) = uptime();
+  let Ok(at) = unix_now();
+  let Ok(up) = uptime();
 
-    let entry = line::Entry {
-        at,
-        up: match up {
-            Some(up) => up.as_secs_f64(),
-            None => NOT_SAID,
-        },
-        load,
-        who: kept.who,
-        what: kept.what,
-        waited: kept.waited,
-        marks: kept.marks,
-        notes: kept.notes,
-    };
+  let entry = line::Entry {
+    at,
+    up: line::UptimeSeconds(match up {
+      Some(up_2) => up_2.as_secs_f64(),
+      None => NOT_SAID,
+    }),
+    load: line::LoadAverage(load),
+    who: kept.who,
+    what: kept.what,
+    waited: kept.waited,
+    marks: kept.marks,
+    notes: kept.notes,
+  };
 
-    let Ok(said) = line::serialize(&entry);
-    let Ok(()) = writing::line(&said);
+  let Ok(said) = line::serialize(&entry);
+  let Ok(()) = writing::line(&said);
 
-    Ok(())
+  Ok(())
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit039_no_reading_the_clock",
-    allow(
-        explicit039_no_reading_the_clock,
-        reason = "the wall clock is what `at` on a written line means -- when this happened, so a week of them can be read in order -- and no instant handed in would say that"
-    )
+  dylint_lib = "explicit039_no_reading_the_clock",
+  allow(
+    explicit039_no_reading_the_clock,
+    reason = "the wall clock is what `at` on a written line means -- when this happened, so a week of them can be read in order -- and no instant handed in would say that"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit077_no_ambient_randomness",
+  allow(
+    explicit077_no_ambient_randomness,
+    reason = "the wall clock is what `at` on a written line means, and it is read once here at the edge rather than taken from a caller"
+  )
 )]
 fn unix_now() -> Result<u64, Never> {
-    Ok(SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs()))
+  Ok(
+    SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .map_or(0, |since| since.as_secs()),
+  )
 }
 
 pub fn uptime() -> Result<Option<Duration>, Never> {
-    let said = match std::fs::read_to_string("/proc/uptime") {
-        Ok(said) => said,
-        Err(_unreadable) => return Ok(None),
-    };
+  let said = match std::fs::read_to_string("/proc/uptime") {
+    Ok(said) => said,
+    Err(_unreadable) => return Ok(None),
+  };
 
-    let first = match said.split_whitespace().next() {
-        Some(first) => first,
-        None => return Ok(None),
-    };
+  let first = match said.split_whitespace().next() {
+    Some(first) => first,
+    None => return Ok(None),
+  };
 
-    let seconds: f64 = match first.parse() {
-        Ok(seconds) => seconds,
-        Err(_not_a_number) => return Ok(None),
-    };
+  let seconds: f64 = match first.parse() {
+    Ok(seconds) => seconds,
+    Err(_not_a_number) => return Ok(None),
+  };
 
-    Ok(Some(Duration::from_secs_f64(seconds)))
+  Ok(Some(Duration::from_secs_f64(seconds)))
 }
 
 #[derive(Debug)]
 pub enum Unloaded {
-    Read(std::io::Error),
-    Empty,
-    NotANumber(String, std::num::ParseFloatError),
+  Read(std::io::Error),
+  Empty,
+  NotANumber(String, std::num::ParseFloatError),
 }
 
 impl fmt::Display for Unloaded {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Unloaded::Read(fault) => write!(to, "{LOADAVG}: {fault}"),
-            Unloaded::Empty => write!(to, "{LOADAVG}: it said nothing at all"),
-            Unloaded::NotANumber(first, fault) => write!(to, "{LOADAVG}: {first:?}: {fault}"),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Unloaded::Read(fault) => write!(to, "{LOADAVG}: {fault}"),
+      Unloaded::Empty => write!(to, "{LOADAVG}: it said nothing at all"),
+      Unloaded::NotANumber(first, fault) => write!(to, "{LOADAVG}: {first:?}: {fault}"),
     }
+  }
 }
 
 impl std::error::Error for Unloaded {}
 
 pub fn load() -> Result<f64, Unloaded> {
-    let said = std::fs::read_to_string(LOADAVG).map_err(Unloaded::Read)?;
+  let said = std::fs::read_to_string(LOADAVG).map_err(Unloaded::Read)?;
 
-    let first = match said.split_whitespace().next() {
-        Some(first) => first,
-        None => return Err(Unloaded::Empty),
-    };
+  let first = match said.split_whitespace().next() {
+    Some(first) => first,
+    None => return Err(Unloaded::Empty),
+  };
 
-    first
-        .parse()
-        .map_err(|fault| Unloaded::NotANumber(first.to_string(), fault))
+  first
+    .parse()
+    .map_err(|fault| Unloaded::NotANumber(first.to_string(), fault))
 }
 
 pub fn since_exec() -> Result<Option<Duration>, Never> {
-    let said = match std::fs::read_to_string("/proc/self/stat") {
-        Ok(said) => said,
-        Err(_unreadable) => return Ok(None),
-    };
+  let said = match std::fs::read_to_string("/proc/self/stat") {
+    Ok(said) => said,
+    Err(_unreadable) => return Ok(None),
+  };
 
-    let Ok(began_at) = started_at(&said);
+  let Ok(began_at) = started_at(&said);
 
-    let started = match began_at {
-        Some(started) => started,
-        None => return Ok(None),
-    };
+  let started = match began_at {
+    Some(started) => started,
+    None => return Ok(None),
+  };
 
-    let ticks = clock_ticks_per_second();
+  let ticks = clock_ticks_per_second();
 
-    match ticks == 0 {
-        true => return Ok(None),
-        false => {}
+  match ::core::primitive::bool::then_some(ticks == 0, ()) {
+    ::core::option::Option::Some(()) => return Ok(None),
+    ::core::option::Option::None => {}
+  }
+
+  let ticks_f = match i32::try_from(ticks) {
+    Ok(ticks_2) => f64::from(ticks_2),
+    Err(fault) => {
+      eprintln!("console-response-times: the clock ticks {ticks} times a second: {fault}");
+
+      return Ok(None);
     }
+  };
 
-    let ticks_f = match i32::try_from(ticks) {
-        Ok(ticks) => f64::from(ticks),
-        Err(fault) => {
-            eprintln!("console-response-times: the clock ticks {ticks} times a second: {fault}");
+  let began = Duration::from_secs_f64(started / ticks_f);
 
-            return Ok(None);
-        }
-    };
+  let Ok(boot) = since_boot();
 
-    let began = Duration::from_secs_f64(started / ticks_f);
+  let up = match boot {
+    Some(up) => up,
+    None => return Ok(None),
+  };
 
-    let Ok(boot) = since_boot();
-
-    let up = match boot {
-        Some(up) => up,
-        None => return Ok(None),
-    };
-
-    Ok(up.checked_sub(began))
+  Ok(up.checked_sub(began))
 }
 
 fn since_boot() -> Result<Option<Duration>, Never> {
-    match clock_gettime_dynamic(DynamicClockId::Boottime) {
-        Ok(when) => lasted(when, "boot"),
-        Err(_no_boot_clock) => Ok(None),
-    }
+  match clock_gettime_dynamic(DynamicClockId::Boottime) {
+    Ok(when) => lasted(when, "boot"),
+    Err(_no_boot_clock) => Ok(None),
+  }
 }
 
 fn lasted(when: rustix::time::Timespec, clock: &str) -> Result<Option<Duration>, Never> {
-    Ok(match (u64::try_from(when.tv_sec), u32::try_from(when.tv_nsec)) {
-        (Ok(seconds), Ok(nanoseconds)) => Some(Duration::new(seconds, nanoseconds)),
-        (Err(_out_of_range), _) | (_, Err(_out_of_range)) => {
-            eprintln!("console-response-times: the {clock} clock said {}s {}ns", when.tv_sec, when.tv_nsec);
+  Ok(
+    match (u64::try_from(when.tv_sec), u32::try_from(when.tv_nsec)) {
+      (Ok(seconds), Ok(nanoseconds)) => Some(Duration::new(seconds, nanoseconds)),
+      (Err(_out_of_range), _) | (_, Err(_out_of_range)) => {
+        eprintln!(
+          "console-response-times: the {clock} clock said {}s {}ns",
+          when.tv_sec, when.tv_nsec
+        );
 
-            None
-        }
-    })
+        None
+      }
+    },
+  )
 }
 
 pub fn started_at(stat: &str) -> Result<Option<f64>, Never> {
-    let (_taken, after) = match stat.rsplit_once(')') {
-        Some((_taken, after)) => (_taken, after),
-        None => return Ok(None),
-    };
+  let (_taken, after) = match stat.rsplit_once(')') {
+    Some((_taken, after)) => (_taken, after),
+    None => return Ok(None),
+  };
 
-    let field = match after.split_whitespace().nth(19) {
-        Some(field) => field,
-        None => return Ok(None),
-    };
+  let field = match after.split_whitespace().nth(19) {
+    Some(field) => field,
+    None => return Ok(None),
+  };
 
-    match field.parse() {
-        Ok(started) => Ok(Some(started)),
-        Err(fault) => {
-            eprintln!("console-response-times: /proc/self/stat: field 22 is {field:?}: {fault}");
+  match field.parse() {
+    Ok(started) => Ok(Some(started)),
+    Err(fault) => {
+      eprintln!("console-response-times: /proc/self/stat: field 22 is {field:?}: {fault}");
 
-            Ok(None)
-        }
+      Ok(None)
     }
+  }
 }
 
 fn since_press() -> Result<Option<Duration>, Never> {
-    let Ok(said) = env_var(PRESSED);
+  let Ok(said) = env_var(PRESSED);
 
-    let raw = match said {
-        Some(raw) => raw,
-        None => return Ok(None),
-    };
+  let raw = match said {
+    Some(raw) => raw,
+    None => return Ok(None),
+  };
 
-    waited_since(&raw)
+  waited_since(&raw)
 }
 
 pub fn press_said() -> Result<Option<String>, Never> {
-    let Ok(said) = env_var(PRESSED);
+  let Ok(said) = env_var(PRESSED);
 
-    Ok(said.filter(|said| !said.trim().is_empty()))
+  Ok(said.filter(|said_2| !said_2.trim().is_empty()))
 }
 
 pub fn from_said() -> Result<String, Never> {
-    let Ok(came) = came_from();
+  let Ok(came) = came_from();
 
-    Ok(match came {
-        Some(came) => came,
-        None => String::new(),
-    })
+  Ok(match came {
+    Some(came_2) => came_2,
+    None => String::new(),
+  })
 }
 
 pub fn waited_since(raw: &str) -> Result<Option<Duration>, Never> {
-    let stamped: u64 = match raw.trim().parse() {
-        Ok(stamped) => stamped,
-        Err(_not_a_number) => return Ok(None),
-    };
+  let stamped: u64 = match raw.trim().parse() {
+    Ok(stamped) => stamped,
+    Err(_not_a_number) => return Ok(None),
+  };
 
-    let Ok(clock) = monotonic_now();
+  let Ok(clock) = monotonic_now();
 
-    let now = match clock {
-        Some(now) => now,
-        None => return Ok(None),
-    };
+  let now = match clock {
+    Some(now) => now,
+    None => return Ok(None),
+  };
 
-    let waited = match now.checked_sub(Duration::from_nanos(stamped)) {
-        Some(waited) => waited,
-        None => return Ok(None),
-    };
+  let waited = match now.checked_sub(Duration::from_nanos(stamped)) {
+    Some(waited) => waited,
+    None => return Ok(None),
+  };
 
-    fresh(waited)
+  fresh(waited)
 }
 
 pub fn fresh(waited: Duration) -> Result<Option<Duration>, Never> {
-    Ok(match waited > STALE {
-        true => None,
-        false => Some(waited),
-    })
+  Ok(match ::core::primitive::bool::then_some(waited > STALE, ()) {
+    ::core::option::Option::Some(()) => None,
+    ::core::option::Option::None => Some(waited),
+  })
 }
 
 fn came_from() -> Result<Option<String>, Never> {
-    let Ok(said) = env_var(FROM);
+  let Ok(said) = env_var(FROM);
 
-    Ok(said.filter(|said| !said.is_empty()))
+  Ok(said.filter(|said_2| !said_2.is_empty()))
 }
 
 pub fn monotonic_now() -> Result<Option<Duration>, Never> {
-    lasted(clock_gettime(ClockId::Monotonic), "monotonic")
+  lasted(clock_gettime(ClockId::Monotonic), "monotonic")
 }
 
 pub fn press_stamp() -> Result<Option<(&'static str, String)>, Never> {
-    let Ok(clock) = monotonic_now();
+  let Ok(clock) = monotonic_now();
 
-    let now = match clock {
-        Some(now) => now,
-        None => return Ok(None),
-    };
+  let now = match clock {
+    Some(now) => now,
+    None => return Ok(None),
+  };
 
-    Ok(Some((PRESSED, now.as_nanos().to_string())))
+  Ok(Some((PRESSED, now.as_nanos().to_string())))
 }
 
 pub fn this_program() -> Result<Option<String>, Never> {
-    let argv0 = match std::env::args().next() {
-        Some(argv0) => argv0,
-        None => return Ok(None),
-    };
+  let argv0 = match std::env::args_os().next() {
+    Some(argv0) => argv0,
+    None => return Ok(None),
+  };
 
-    let at = PathBuf::from(argv0);
+  let at = PathBuf::from(argv0);
 
-    let name = match at.file_name() {
-        Some(name) => name,
-        None => return Ok(None),
-    };
-
-    Ok(Some(name.to_string_lossy().to_string()))
+  Ok(
+    at.file_name()
+      .and_then(std::ffi::OsStr::to_str)
+      .map(str::to_string),
+  )
 }
 
 pub fn pressed_here(starting: &mut Command) -> Result<(), Never> {
-    let Ok(told) = this_program();
+  let Ok(told) = this_program();
 
-    let named = match told {
-        Some(named) => named,
-        None => String::new(),
-    };
+  let named = match told {
+    Some(named) => named,
+    None => String::new(),
+  };
 
-    let Ok(()) = pressed(starting, &named);
+  let Ok(()) = pressed(starting, &named);
 
-    Ok(())
+  Ok(())
 }
 
 pub fn pressed(starting: &mut Command, from: &str) -> Result<(), Never> {
-    match from.is_empty() {
-        true => {
-            let _ = starting.env_remove(FROM);
-        }
-        false => {
-            let _ = starting.env(FROM, from);
-        }
+  match ::core::primitive::bool::then_some(from.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {
+      let _ = starting.env_remove(FROM);
     }
-
-    let Ok(stamp) = press_stamp();
-
-    match stamp {
-        Some((name, stamped)) => {
-            let _ = starting.env(name, stamped);
-        }
-        None => {
-            let _ = starting.env_remove(PRESSED);
-        }
+    ::core::option::Option::None => {
+      let _ = starting.env(FROM, from);
     }
+  }
 
-    Ok(())
+  let Ok(stamp) = press_stamp();
+
+  match stamp {
+    Some((name, stamped)) => {
+      let _ = starting.env(name, stamped);
+    }
+    None => {
+      let _ = starting.env_remove(PRESSED);
+    }
+  }
+
+  Ok(())
 }
 
 pub fn not_a_press(starting: &mut Command) -> Result<(), Never> {
-    let _ = starting.env_remove(PRESSED);
-    let _ = starting.env_remove(FROM);
+  let _ = starting.env_remove(PRESSED);
+  let _ = starting.env_remove(FROM);
 
-    Ok(())
+  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use console_core_external_programs::Program;
+  use console_core_external_programs::Program;
 
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    #[test]
-    fn when_a_process_began_is_read_past_a_name_with_spaces_in_it() {
-        let fields: Vec<String> = (3..=22).map(|field| field.to_string()).collect();
-        let stat = format!("1234 (a (odd) name) {}", fields.join(" "));
-        assert_eq!(started_at(&stat), Ok(Some(22.0)));
-    }
+  #[test]
+  fn when_a_process_began_is_read_past_a_name_with_spaces_in_it() {
+    let fields: Vec<String> = (3..=22).map(|field| field.to_string()).collect();
+    let stat = format!("1234 (a (odd) name) {}", fields.join(" "));
+    assert_eq!(started_at(&stat), Ok(Some(22.0)));
+  }
 
-    #[test]
-    fn a_line_that_is_not_a_stat_says_nothing() {
-        assert_eq!(started_at(""), Ok(None));
-        assert_eq!(started_at("1234 (launcher) S 4 5"), Ok(None));
-    }
+  #[test]
+  fn a_line_that_is_not_a_stat_says_nothing() {
+    assert_eq!(started_at(""), Ok(None));
+    assert_eq!(started_at("1234 (launcher) S 4 5"), Ok(None));
+  }
 
-    #[test]
-    fn the_machine_says_how_long_it_has_been_up_and_how_old_this_is() {
-        let Ok(up) = uptime();
-        let Ok(exec) = since_exec();
-        let Ok(now) = monotonic_now();
+  #[test]
+  fn the_machine_says_how_long_it_has_been_up_and_how_old_this_is() {
+    let Ok(up) = uptime();
+    let Ok(exec) = since_exec();
+    let Ok(now) = monotonic_now();
 
-        assert!(up.is_some_and(|up| up > Duration::ZERO));
-        assert!(exec.is_some());
-        assert!(now.is_some());
-    }
+    assert!(up.is_some_and(|elapsed| elapsed > Duration::ZERO));
+    assert!(exec.is_some());
+    assert!(now.is_some());
+  }
 
-    #[test]
-    fn a_stamp_older_than_any_opening_is_not_a_press_at_all() {
-        assert_eq!(fresh(STALE.saturating_add(Duration::from_secs(1))), Ok(None));
-        assert_eq!(fresh(Duration::from_millis(40)), Ok(Some(Duration::from_millis(40))));
-        assert_eq!(fresh(STALE), Ok(Some(STALE)), "the window itself is still inside it");
-    }
+  #[test]
+  fn a_stamp_older_than_any_opening_is_not_a_press_at_all() {
+    assert_eq!(
+      fresh(STALE.saturating_add(Duration::from_secs(1))),
+      Ok(None)
+    );
+    assert_eq!(
+      fresh(Duration::from_millis(40)),
+      Ok(Some(Duration::from_millis(40)))
+    );
+    assert_eq!(
+      fresh(STALE),
+      Ok(Some(STALE)),
+      "the window itself is still inside it"
+    );
+  }
 
-    #[test]
-    #[cfg_attr(
-        dylint_lib = "explicit026_env_read_once",
-        allow(
-            explicit026_env_read_once,
-            reason = "this only asks anything of a test run nobody pressed for, and whether somebody did is said in the environment the run was started with"
-        )
-    )]
-    fn an_opening_that_nothing_stamped_says_nothing_about_a_press() {
-        match std::env::var(PRESSED) {
-            Ok(_) => {}
-            Err(_nobody_pressed) => {
-                let Ok(waiting) = Waiting::on(Wait { who: "a test", what: "opening" });
+  #[test]
+  #[cfg_attr(
+    dylint_lib = "explicit026_env_read_once",
+    allow(
+      explicit026_env_read_once,
+      reason = "this only asks anything of a test run nobody pressed for, and whether somebody did is said in the environment the run was started with"
+    )
+  )]
+  fn an_opening_that_nothing_stamped_says_nothing_about_a_press() {
+    match std::env::var(PRESSED) {
+      Ok(_) => {}
+      Err(_nobody_pressed) => {
+        let Ok(waiting) = Waiting::on(Wait {
+          who: "a test",
+          what: "opening",
+        });
 
-                let named: Vec<&str> =
-                    waiting.marks.iter().map(|(name, _)| name.as_str()).collect();
-                assert!(!named.contains(&"press"), "a press no one made was written down as zero");
-                assert!(named.contains(&"exec"), "how long the process took to exist is knowable");
-            }
-        }
-    }
-
-    fn handed(starting: &Command) -> Result<Vec<(String, Option<String>)>, Never> {
-        Ok(starting
-            .get_envs()
-            .map(|(name, said)| {
-                (
-                    name.to_string_lossy().to_string(),
-                    said.map(|said| said.to_string_lossy().to_string()),
-                )
-            })
-            .collect())
-    }
-
-    #[test]
-    fn a_start_that_is_a_press_hands_on_the_moment_and_where_it_came_from() -> Result<(), Box<dyn Error>> {
-        let Ok(mut starting) = Program::True.command();
-        let Ok(()) = pressed(&mut starting, "pad");
-        let Ok(handed) = handed(&starting);
-        let from = handed.iter().find(|(name, _)| name == FROM).and_then(|(_, said)| said.clone());
-        let stamp =
-            handed.iter().find(|(name, _)| name == PRESSED).and_then(|(_, said)| said.clone());
-        let stamp = stamp.ok_or("no stamp was handed on")?;
-        let _nanoseconds: u64 = stamp.parse()?;
-
-        assert_eq!(from.as_deref(), Some("pad"));
-        Ok(())
-    }
-
-    #[test]
-    fn a_start_that_is_not_a_press_takes_both_marks_off_whatever_it_starts() {
-        let Ok(mut starting) = Program::True.command();
-        let Ok(()) = pressed(&mut starting, "pad");
-        let Ok(()) = not_a_press(&mut starting);
-        let Ok(handed) = handed(&starting);
-
-        for name in [PRESSED, FROM] {
-            let said = handed.iter().find(|(had, _)| had == name);
-            assert_eq!(
-                said.map(|(_, said)| said.clone()),
-                Some(None),
-                "{name} was carried on to something no one pressed"
-            );
-        }
-    }
-
-    #[test]
-    fn a_press_stamp_reads_back_as_a_moment_that_has_already_gone() -> Result<(), Box<dyn Error>> {
-        let Ok(stamp) = press_stamp();
-        let (word, stamped) = stamp.ok_or("this machine has no monotonic clock")?;
-
-        assert_eq!(word, PRESSED);
-
-        let then: u128 = stamped.parse()?;
-        let Ok(clock) = monotonic_now();
-        let clock = clock.ok_or("this machine has no monotonic clock")?;
-        let now = clock.as_nanos();
-
-        assert!(now >= then, "the clock went backwards between two reads");
-        Ok(())
-    }
-
-    #[test]
-    fn a_stretch_that_was_already_inside_the_exec_is_moved_out_of_it() {
-        let now = Instant::now();
-        let mut waiting = Waiting {
-            who: "a test".to_string(),
-            what: "opening".to_string(),
-            started: now,
-            last: now,
-            marks: vec![
-                ("press".to_string(), Duration::from_millis(10)),
-                ("exec".to_string(), Duration::from_millis(100)),
-            ],
-            notes: Vec::new(),
-            before: Duration::from_millis(110),
-        };
-        let whole = waiting.before;
-
-        let Ok(()) = waiting.taking("screen", Duration::from_millis(20));
-
-        let named: Vec<&str> = waiting.marks.iter().map(|(name, _)| name.as_str()).collect();
-        assert_eq!(named, ["press", "exec", "screen"]);
-        assert_eq!(waiting.before, whole, "the total changed");
-        assert_eq!(
-            waiting.marks.iter().map(|(_, took)| *took).sum::<Duration>(),
-            whole,
-            "the stretches stopped adding up to the total"
+        let named: Vec<&str> = waiting
+          .marks
+          .iter()
+          .map(|(name, _)| name.as_str())
+          .collect();
+        assert!(
+          !named.contains(&"press"),
+          "a press no one made was written down as zero"
         );
+        assert!(
+          named.contains(&"exec"),
+          "how long the process took to exist is knowable"
+        );
+      }
+    }
+  }
+
+  fn handed(starting: &Command) -> Result<Vec<(String, Option<String>)>, Never> {
+    Ok(
+      starting
+        .get_envs()
+        .filter_map(|(name, said)| {
+          let key = name.to_str()?;
+          let text = said.and_then(std::ffi::OsStr::to_str).map(str::to_string);
+
+          Some((key.to_string(), text))
+        })
+        .collect(),
+    )
+  }
+
+  #[test]
+  fn a_start_that_is_a_press_hands_on_the_moment_and_where_it_came_from()
+  -> Result<(), Box<dyn Error>> {
+    let Ok(mut starting) = Program::True.command();
+    let Ok(()) = pressed(&mut starting, "pad");
+    let Ok(handed) = handed(&starting);
+    let from = handed
+      .iter()
+      .find(|(name, _)| name == FROM)
+      .and_then(|(_, said)| said.clone());
+    let stamp = handed
+      .iter()
+      .find(|(name, _)| name == PRESSED)
+      .and_then(|(_, said)| said.clone());
+    let stamp_2 = stamp.ok_or("no stamp was handed on")?;
+    let _nanoseconds: u64 = stamp_2.parse()?;
+
+    assert_eq!(from.as_deref(), Some("pad"));
+    Ok(())
+  }
+
+  #[test]
+  fn a_start_that_is_not_a_press_takes_both_marks_off_whatever_it_starts() {
+    let Ok(mut starting) = Program::True.command();
+    let Ok(()) = pressed(&mut starting, "pad");
+    let Ok(()) = not_a_press(&mut starting);
+    let Ok(handed) = handed(&starting);
+
+    for name in [PRESSED, FROM] {
+      let said = handed.iter().find(|(had, _)| had == name);
+      assert_eq!(
+        said.map(|(_, said_2)| said_2.clone()),
+        Some(None),
+        "{name} was carried on to something no one pressed"
+      );
+    }
+  }
+
+  #[test]
+  fn a_press_stamp_reads_back_as_a_moment_that_has_already_gone() -> Result<(), Box<dyn Error>> {
+    let Ok(stamp) = press_stamp();
+    let (word, stamped) = stamp.ok_or("this machine has no monotonic clock")?;
+
+    assert_eq!(word, PRESSED);
+
+    let then: u128 = stamped.parse()?;
+    let Ok(reading) = monotonic_now();
+    let clock = reading.ok_or("this machine has no monotonic clock")?;
+    let now = clock.as_nanos();
+
+    assert!(now >= then, "the clock went backwards between two reads");
+    Ok(())
+  }
+
+  #[test]
+  fn a_stretch_that_was_already_inside_the_exec_is_moved_out_of_it() {
+    let now = Instant::now();
+    let mut waiting = Waiting {
+      who: "a test".to_string(),
+      what: "opening".to_string(),
+      started: now,
+      last: now,
+      marks: vec![
+        ("press".to_string(), Duration::from_millis(10)),
+        ("exec".to_string(), Duration::from_millis(100)),
+      ],
+      notes: Vec::new(),
+      before: Duration::from_millis(110),
+    };
+    let whole = waiting.before;
+
+    let Ok(()) = waiting.taking("screen", Duration::from_millis(20));
+
+    let named: Vec<&str> = waiting
+      .marks
+      .iter()
+      .map(|(name, _)| name.as_str())
+      .collect();
+    assert_eq!(named, ["press", "exec", "screen"]);
+    assert_eq!(waiting.before, whole, "the total changed");
+    assert_eq!(
+      waiting
+        .marks
+        .iter()
+        .map(|(_, took)| *took)
+        .sum::<Duration>(),
+      whole,
+      "the stretches stopped adding up to the total"
+    );
+  }
+
+  #[test]
+  fn a_stretch_before_a_waiting_that_counts_nothing_before_it_is_added() {
+    let Ok(mut waiting) = Waiting::here(Wait {
+      who: "a test",
+      what: "opening",
+    });
+
+    let Ok(()) = waiting.taking("looking", Duration::from_millis(5));
+
+    assert_eq!(waiting.before, Duration::from_millis(5));
+  }
+
+  #[test]
+  fn a_waiting_that_is_dropped_writes_nothing() -> Result<(), Box<dyn Error>> {
+    let Ok(store) = where_();
+    let store_2 = store.ok_or("no home to keep the times under")?;
+
+    let before = match store_2.metadata() {
+      Ok(about) => about.len(),
+      Err(_nothing_written_yet) => 0,
+    };
+
+    {
+      let Ok(mut waiting) = Waiting::here(Wait {
+        who: "a test",
+        what: "nothing",
+      });
+
+      let Ok(()) = waiting.mark("thinking about it");
     }
 
-    #[test]
-    fn a_stretch_before_a_waiting_that_counts_nothing_before_it_is_added() {
-        let Ok(mut waiting) = Waiting::here(Wait { who: "a test", what: "opening" });
+    let after = match store_2.metadata() {
+      Ok(about) => about.len(),
+      Err(_nothing_written_yet) => 0,
+    };
 
-        let Ok(()) = waiting.taking("looking", Duration::from_millis(5));
-
-        assert_eq!(waiting.before, Duration::from_millis(5));
-    }
-
-    #[test]
-    fn a_waiting_that_is_dropped_writes_nothing() -> Result<(), Box<dyn Error>> {
-        let Ok(store) = where_();
-        let store = store.ok_or("no home to keep the times under")?;
-
-        let before = match store.metadata() {
-            Ok(about) => about.len(),
-            Err(_nothing_written_yet) => 0,
-        };
-
-        {
-            let Ok(mut waiting) = Waiting::here(Wait { who: "a test", what: "nothing" });
-
-            let Ok(()) = waiting.mark("thinking about it");
-        }
-
-        let after = match store.metadata() {
-            Ok(about) => about.len(),
-            Err(_nothing_written_yet) => 0,
-        };
-
-        assert_eq!(before, after, "a dropped waiting wrote a line");
-        Ok(())
-    }
+    assert_eq!(before, after, "a dropped waiting wrote a line");
+    Ok(())
+  }
 }

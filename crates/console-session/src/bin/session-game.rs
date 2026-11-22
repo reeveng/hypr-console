@@ -8,38 +8,38 @@ use console_core_never::Never;
 use console_session::{GAME_TARGET, Session, here, radio, run};
 
 fn main() {
-    let Ok(here) = here(GAME_TARGET);
+  let Ok(here) = here(GAME_TARGET);
 
-    match here {
-        Session::Game => {}
-        Session::Desktop => {
-            let Ok(()) = remember_session();
-            let Ok(()) = run(Session::Desktop, Session::Game);
-        }
+  match here {
+    Session::Game => {}
+    Session::Desktop => {
+      let Ok(()) = remember_session();
+      let Ok(()) = run(Session::Desktop, Session::Game);
     }
+  }
 }
 
 fn remember_session() -> Result<(), Never> {
-    let Ok(runtime) = console_core_places::application_runtime();
+  let Ok(runtime) = console_core_places::application_runtime();
 
-    let runtime = match runtime {
-        Some(runtime) => runtime,
-        None => return Ok(()),
-    };
+  let runtime_3 = match runtime {
+    Some(runtime_2) => runtime_2,
+    None => return Ok(()),
+  };
 
-    let asked = match radio::query_radio() {
-        Ok(asked) => asked,
-        Err(fault) => {
-            eprintln!("session-game: {fault}");
+  let asked = match radio::query_radio() {
+    Ok(asked) => asked,
+    Err(fault) => {
+      eprintln!("session-game: {fault}");
 
-            return Ok(());
-        }
-    };
-
-    match radio::remember(&runtime, asked) {
-        Ok(()) => {},
-        Err(fault) => eprintln!("session-game: {fault}"),
+      return Ok(());
     }
+  };
 
-    Ok(())
+  match radio::remember(&runtime_3, asked) {
+    Ok(()) => {}
+    Err(fault) => eprintln!("session-game: {fault}"),
+  }
+
+  Ok(())
 }

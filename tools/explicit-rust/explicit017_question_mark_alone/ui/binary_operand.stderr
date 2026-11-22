@@ -1,0 +1,16 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/binary_operand.rs:10:14
+   |
+LL |         1 => read(value)? * 100,
+   |              ^^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `({ let checked_value = read(value)?; checked_value })`
+   |
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/binary_operand.rs:11:14
+   |
+LL |         2 => read(value)? * 10,
+   |              ^^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `({ let checked_value_2 = read(value)?; checked_value_2 })`
+
+error: aborting due to 2 previous errors
+

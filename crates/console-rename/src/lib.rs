@@ -46,117 +46,125 @@ pub const UNSAID: &str = "WHY THIS CANNOT BE LEFT ON THE DEVICE IS NOT WRITTEN Y
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Moved {
-    pub from: PathBuf,
-    pub to: PathBuf,
+  pub from: PathBuf,
+  pub to: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Continues {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 pub fn continues(after: Option<char>) -> Result<Continues, Never> {
-    Ok(match after {
-        None => Continues::No,
-        Some(held) => match held.is_alphanumeric() || held == '-' || held == '_' {
-            true => Continues::Yes,
-            false => Continues::No,
-        },
-    })
+  Ok(match after {
+    None => Continues::No,
+    Some(held) => match ::core::primitive::bool::then_some(held.is_alphanumeric() || held == '-' || held == '_', ()) {
+      ::core::option::Option::Some(()) => Continues::Yes,
+      ::core::option::Option::None => Continues::No,
+    },
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Renaming<'a> {
-    pub old: &'a str,
-    pub new: &'a str,
+  pub old: &'a str,
+  pub new: &'a str,
 }
 
 pub fn swept(said: &str, renaming: Renaming<'_>) -> Result<String, Never> {
-    let Renaming { old, new } = renaming;
-    let written = console_core_iteration::iterate((String::new(), said), |(mut out, rest)| {
-        Ok(match rest.split_once(old) {
-            Some((before, after)) => {
-                let Ok(continues) = continues(after.chars().next());
+  let Renaming { old, new } = renaming;
+  let written = console_core_iteration::iterate((String::new(), said), |(mut out, rest)| {
+    Ok(match rest.split_once(old) {
+      Some((before, after)) => {
+        let Ok(continues) = continues(after.chars().next());
 
-                out.push_str(before);
+        out.push_str(before);
 
-                match continues {
-                    Continues::Yes => out.push_str(old),
-                    Continues::No => out.push_str(new),
-                }
+        match continues {
+          Continues::Yes => out.push_str(old),
+          Continues::No => out.push_str(new),
+        }
 
-                Step::Again((out, after))
-            }
-            None => {
-                out.push_str(rest);
+        Step::Again((out, after))
+      }
+      None => {
+        out.push_str(rest);
 
-                Step::Halt(out)
-            }
-        })
-    });
-
-    Ok(match written {
-        Ok(out) => out,
-        Err(_endless) => said.to_string(),
+        Step::Halt(out)
+      }
     })
+  });
+
+  Ok(match written {
+    Ok(out) => out,
+    Err(_endless) => said.to_string(),
+  })
 }
 
 pub fn spellings(renaming: Renaming<'_>) -> Result<Vec<(String, String)>, Never> {
-    let Renaming { old, new } = renaming;
-    let under = old.replace('-', "_");
-    let mut held = vec![(old.to_string(), new.to_string())];
+  let Renaming { old, new } = renaming;
+  let under = old.replace('-', "_");
+  let mut held = vec![(old.to_string(), new.to_string())];
 
-    match under == old {
-        true => {},
-        false => held.push((under, new.replace('-', "_"))),
-    }
+  match ::core::primitive::bool::then_some(under == old, ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => held.push((under, new.replace('-', "_"))),
+  }
 
-    Ok(held)
+  Ok(held)
 }
 
 pub fn through(said: &str, renaming: Renaming<'_>) -> Result<String, Never> {
-    let Ok(spellings) = spellings(renaming);
-    let mut held = said.to_string();
+  let Ok(spellings) = spellings(renaming);
+  let mut held = said.to_string();
 
-    for (old, new) in spellings {
-        let Ok(swept) = swept(&held, Renaming { old: &old, new: &new });
+  for (old, new) in spellings {
+    let Ok(swept) = swept(
+      &held,
+      Renaming {
+        old: &old,
+        new: &new,
+      },
+    );
 
-        held = swept;
-    }
+    held = swept;
+  }
 
-    Ok(held)
+  Ok(held)
 }
 
 pub fn renamed_path(at: &Path, renaming: Renaming<'_>) -> Result<Option<PathBuf>, Never> {
-    let name = match at.file_name().and_then(|name| name.to_str()) {
-        Some(name) => name,
-        None => return Ok(None),
-    };
+  let name = match at.file_name().and_then(|name| name.to_str()) {
+    Some(name) => name,
+    None => return Ok(None),
+  };
 
-    let Ok(swept) = through(name, renaming);
+  let Ok(swept) = through(name, renaming);
 
-    Ok(match swept == name {
-        true => None,
-        false => Some(at.with_file_name(swept)),
-    })
+  Ok(match ::core::primitive::bool::then_some(swept == name, ()) {
+    ::core::option::Option::Some(()) => None,
+    ::core::option::Option::None => Some(at.with_file_name(swept)),
+  })
 }
 
 pub fn installed(root: &Path, at: &Path) -> Result<Option<String>, Never> {
-    let under = root.join("files");
+  let under = root.join("files");
 
-    Ok(match at.strip_prefix(&under) {
-        Ok(rest) => Some(format!("/{}", rest.display())),
-        Err(_it_is_not_installed_anywhere) => None,
-    })
+  Ok(match at.strip_prefix(&under) {
+    Ok(rest) => Some(format!("/{}", rest.display())),
+    Err(_it_is_not_installed_anywhere) => None,
+  })
 }
 
 pub fn stub(sweeping: &[String], when: u64) -> Result<String, Never> {
-    let attic: String =
-        sweeping.iter().map(|path| format!("        Step::Attic(\"{path}\"),\n")).collect();
+  let attic: String = sweeping
+    .iter()
+    .map(|path| format!("        Step::Attic(\"{path}\"),\n"))
+    .collect();
 
-    Ok(format!(
-        "//! {UNSAID}\n\
+  Ok(format!(
+    "//! {UNSAID}\n\
          //!\n\
          //! A path below left the manifest under one name and arrived under another.\n\
          //! An apply installs what it is told and removes nothing, so both are on\n\
@@ -173,78 +181,100 @@ pub fn stub(sweeping: &[String], when: u64) -> Result<String, Never> {
          {attic}\
          \x20   ],\n\
          }};\n"
-    ))
+  ))
 }
 
 pub fn written_at(root: &Path, when: u64) -> Result<PathBuf, Never> {
-    Ok(root.join(CRATE).join(DIRECTORY).join(format!("{PREFIX}{when}.rs")))
+  #[cfg_attr(
+    dylint_lib = "explicit086_no_climbing_join",
+    expect(
+      explicit086_no_climbing_join,
+      reason = "the migration filename consists of the fixed prefix, a decimal u64 timestamp, and the .rs suffix"
+    )
+  )]
+  let path = root
+    .join(CRATE)
+    .join(DIRECTORY)
+    .join(format!("{PREFIX}{when}.rs"));
+
+  Ok(path)
 }
 
 #[cfg(test)]
 mod tests {
-    const MUSIC: Renaming<'static> =
-        Renaming { old: "console-music", new: "console-music" };
+  const MUSIC: Renaming<'static> = Renaming {
+    old: "console-music",
+    new: "console-music",
+  };
 
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_name_inside_a_longer_name_is_left_alone() {
-        let Ok(said) = swept("console-music-player", MUSIC);
+  #[test]
+  fn a_name_inside_a_longer_name_is_left_alone() {
+    let Ok(said) = swept("console-music-player", MUSIC);
 
-        assert_eq!(said, "console-music-player");
-    }
+    assert_eq!(said, "console-music-player");
+  }
 
-    #[test]
-    fn a_name_that_ends_is_swept_however_it_ends() {
-        let Ok(file) = swept("console-music.desktop", MUSIC);
-        let Ok(path) = swept("crates/console-music/src", MUSIC);
-        let Ok(quoted) = swept("\"console-music\"", MUSIC);
-        let Ok(ends) = swept("uses console-music", MUSIC);
+  #[test]
+  fn a_name_that_ends_is_swept_however_it_ends() {
+    let Ok(file) = swept("console-music.desktop", MUSIC);
+    let Ok(path) = swept("crates/console-music/src", MUSIC);
+    let Ok(quoted) = swept("\"console-music\"", MUSIC);
+    let Ok(ends) = swept("uses console-music", MUSIC);
 
-        assert_eq!(file, "console-music.desktop");
-        assert_eq!(path, "crates/console-music/src");
-        assert_eq!(quoted, "\"console-music\"");
-        assert_eq!(ends, "uses console-music");
-    }
+    assert_eq!(file, "console-music.desktop");
+    assert_eq!(path, "crates/console-music/src");
+    assert_eq!(quoted, "\"console-music\"");
+    assert_eq!(ends, "uses console-music");
+  }
 
-    #[test]
-    fn both_spellings_of_a_name_move_together() {
-        let Ok(said) = through("use console_music::player; // console-music", MUSIC);
+  #[test]
+  fn both_spellings_of_a_name_move_together() {
+    let Ok(said) = through("use console_music::player; // console-music", MUSIC);
 
-        assert_eq!(said, "use console_music::player; // console-music");
-    }
+    assert_eq!(said, "use console_music::player; // console-music");
+  }
 
-    #[test]
-    fn the_underscore_spelling_of_a_longer_name_is_left_alone_too() {
-        let Ok(said) = through("console_music_player", MUSIC);
+  #[test]
+  fn the_underscore_spelling_of_a_longer_name_is_left_alone_too() {
+    let Ok(said) = through("console_music_player", MUSIC);
 
-        assert_eq!(said, "console_music_player");
-    }
+    assert_eq!(said, "console_music_player");
+  }
 
-    #[test]
-    fn a_name_with_no_underscore_spelling_is_swept_once() {
-        let Ok(spellings) = spellings(Renaming { old: "kew", new: "music-player" });
+  #[test]
+  fn a_name_with_no_underscore_spelling_is_swept_once() {
+    let Ok(spellings) = spellings(Renaming {
+      old: "kew",
+      new: "music-player",
+    });
 
-        assert_eq!(spellings.len(), 1);
-    }
+    assert_eq!(spellings.len(), 1);
+  }
 
-    #[test]
-    fn a_file_under_files_says_where_it_lands_on_the_device() {
-        let root = Path::new("/tree");
-        let Ok(said) =
-            installed(root, Path::new("/tree/files/usr/share/applications/a.desktop"));
-        let Ok(elsewhere) = installed(root, Path::new("/tree/crates/a/src/lib.rs"));
+  #[test]
+  fn a_file_under_files_says_where_it_lands_on_the_device() {
+    let root = Path::new("/tree");
+    let Ok(said) = installed(
+      root,
+      Path::new("/tree/files/usr/share/applications/a.desktop"),
+    );
+    let Ok(elsewhere) = installed(root, Path::new("/tree/crates/a/src/lib.rs"));
 
-        assert_eq!(said.as_deref(), Some("/usr/share/applications/a.desktop"));
-        assert_eq!(elsewhere, None);
-    }
+    assert_eq!(said.as_deref(), Some("/usr/share/applications/a.desktop"));
+    assert_eq!(elsewhere, None);
+  }
 
-    #[test]
-    fn a_stub_claims_every_path_it_moved_and_says_the_reason_is_missing() {
-        let Ok(said) = stub(&["/usr/share/applications/a.desktop".to_string()], 1790300000);
+  #[test]
+  fn a_stub_claims_every_path_it_moved_and_says_the_reason_is_missing() {
+    let Ok(said) = stub(
+      &["/usr/share/applications/a.desktop".to_string()],
+      1790300000,
+    );
 
-        assert!(said.contains("Step::Attic(\"/usr/share/applications/a.desktop\")"));
-        assert!(said.contains("moment: Moment(1790300000)"));
-        assert!(said.contains(UNSAID));
-    }
+    assert!(said.contains("Step::Attic(\"/usr/share/applications/a.desktop\")"));
+    assert!(said.contains("moment: Moment(1790300000)"));
+    assert!(said.contains(UNSAID));
+  }
 }

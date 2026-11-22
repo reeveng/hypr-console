@@ -57,7 +57,7 @@
 //!
 //! A drawing is not on the list at all. SVG was the one thing ffmpeg does not
 //! read, and librsvg drew it as `rsvg-convert` until the renderer moved into
-//! `forks/`; `console-pictures` now draws one in its own process, so no
+//! the tree; `console-pictures` now draws one in its own process, so no
 //! package stands behind it.
 //!
 //! libvips was considered and is not being used. It is a processing library
@@ -74,84 +74,147 @@ use console_core_never::Never;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Decoder {
-    pub mime: &'static str,
-    pub package: &'static str,
-    pub because: &'static str,
+  pub mime: &'static str,
+  pub package: &'static str,
+  pub because: &'static str,
 }
 
 const READS_IT: &str = "one decoder for the whole list, already here for films";
 
-const A_PHONE_WRITES_IT: &str = "read by dav1d and hevc inside ffmpeg, rather than by an optional dependency";
+const A_PHONE_WRITES_IT: &str =
+  "read by dav1d and hevc inside ffmpeg, rather than by an optional dependency";
 
 const A_DEMUXER: &str = "the container, opened by the same program that decodes what is in it";
 
 pub const DECODERS: [Decoder; 14] = [
-    Decoder { mime: "image/png", package: "ffmpeg", because: READS_IT },
-    Decoder { mime: "image/jpeg", package: "ffmpeg", because: READS_IT },
-    Decoder { mime: "image/webp", package: "ffmpeg", because: READS_IT },
-    Decoder { mime: "image/gif", package: "ffmpeg", because: READS_IT },
-    Decoder { mime: "image/tiff", package: "ffmpeg", because: READS_IT },
-    Decoder { mime: "image/avif", package: "ffmpeg", because: A_PHONE_WRITES_IT },
-    Decoder { mime: "image/heif", package: "ffmpeg", because: A_PHONE_WRITES_IT },
-    Decoder { mime: "video/mp4", package: "ffmpeg", because: A_DEMUXER },
-    Decoder { mime: "video/matroska", package: "ffmpeg", because: A_DEMUXER },
-    Decoder { mime: "video/x-matroska", package: "ffmpeg", because: A_DEMUXER },
-    Decoder { mime: "video/webm", package: "ffmpeg", because: A_DEMUXER },
-    Decoder { mime: "video/quicktime", package: "ffmpeg", because: A_DEMUXER },
-    Decoder { mime: "video/vnd.avi", package: "ffmpeg", because: A_DEMUXER },
-    Decoder { mime: "video/ogg", package: "ffmpeg", because: A_DEMUXER },
+  Decoder {
+    mime: "image/png",
+    package: "ffmpeg",
+    because: READS_IT,
+  },
+  Decoder {
+    mime: "image/jpeg",
+    package: "ffmpeg",
+    because: READS_IT,
+  },
+  Decoder {
+    mime: "image/webp",
+    package: "ffmpeg",
+    because: READS_IT,
+  },
+  Decoder {
+    mime: "image/gif",
+    package: "ffmpeg",
+    because: READS_IT,
+  },
+  Decoder {
+    mime: "image/tiff",
+    package: "ffmpeg",
+    because: READS_IT,
+  },
+  Decoder {
+    mime: "image/avif",
+    package: "ffmpeg",
+    because: A_PHONE_WRITES_IT,
+  },
+  Decoder {
+    mime: "image/heif",
+    package: "ffmpeg",
+    because: A_PHONE_WRITES_IT,
+  },
+  Decoder {
+    mime: "video/mp4",
+    package: "ffmpeg",
+    because: A_DEMUXER,
+  },
+  Decoder {
+    mime: "video/matroska",
+    package: "ffmpeg",
+    because: A_DEMUXER,
+  },
+  Decoder {
+    mime: "video/x-matroska",
+    package: "ffmpeg",
+    because: A_DEMUXER,
+  },
+  Decoder {
+    mime: "video/webm",
+    package: "ffmpeg",
+    because: A_DEMUXER,
+  },
+  Decoder {
+    mime: "video/quicktime",
+    package: "ffmpeg",
+    because: A_DEMUXER,
+  },
+  Decoder {
+    mime: "video/vnd.avi",
+    package: "ffmpeg",
+    because: A_DEMUXER,
+  },
+  Decoder {
+    mime: "video/ogg",
+    package: "ffmpeg",
+    because: A_DEMUXER,
+  },
 ];
 
 pub fn packages() -> Result<Vec<&'static str>, Never> {
-    let mut every: Vec<&'static str> = DECODERS.iter().map(|one| one.package).collect();
-    every.sort_unstable();
-    every.dedup();
+  let mut every: Vec<&'static str> = DECODERS.iter().map(|one| one.package).collect();
+  every.sort_unstable();
+  every.dedup();
 
-    Ok(every)
+  Ok(every)
 }
 
 pub fn decoder(mime: &str) -> Result<Option<&'static Decoder>, Never> {
-    Ok(DECODERS.iter().find(|one| one.mime == mime))
+  Ok(DECODERS.iter().find(|one| one.mime == mime))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn every_claimed_type_says_what_decodes_it() {
-        for one in DECODERS {
-            assert!(!one.package.is_empty(), "{}", one.mime);
-            assert!(!one.because.is_empty(), "{} says no reason", one.mime);
-        }
+  #[test]
+  fn every_claimed_type_says_what_decodes_it() {
+    for one in DECODERS {
+      assert!(!one.package.is_empty(), "{}", one.mime);
+      assert!(!one.because.is_empty(), "{} says no reason", one.mime);
     }
+  }
 
-    #[test]
-    fn the_two_a_phone_writes_are_not_left_to_luck() {
-        assert_eq!(decoder("image/avif").map(|one| one.map(|one| one.package)), Ok(Some("ffmpeg")));
-        assert_eq!(decoder("image/heif").map(|one| one.map(|one| one.package)), Ok(Some("ffmpeg")));
-    }
+  #[test]
+  fn the_two_a_phone_writes_are_not_left_to_luck() {
+    assert_eq!(
+      decoder("image/avif").map(|one| one.map(|one_3| one_3.package)),
+      Ok(Some("ffmpeg"))
+    );
+    assert_eq!(
+      decoder("image/heif").map(|one| one.map(|one_2| one_2.package)),
+      Ok(Some("ffmpeg"))
+    );
+  }
 
-    #[test]
-    fn the_packages_are_a_list_with_no_repeats_in_it() {
-        let Ok(every) = packages();
-        let mut sorted = every.clone();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(every, sorted);
-        assert!(every.contains(&"ffmpeg"));
-    }
+  #[test]
+  fn the_packages_are_a_list_with_no_repeats_in_it() {
+    let Ok(every) = packages();
+    let mut sorted = every.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(every, sorted);
+    assert!(every.contains(&"ffmpeg"));
+  }
 
-    #[test]
-    fn a_drawing_needs_no_package_because_it_is_drawn_here() {
-        let Ok(every) = packages();
+  #[test]
+  fn a_drawing_needs_no_package_because_it_is_drawn_here() {
+    let Ok(every) = packages();
 
-        assert!(!every.contains(&"librsvg"), "{every:?}");
-    }
+    assert!(!every.contains(&"librsvg"), "{every:?}");
+  }
 
-    #[test]
-    fn a_type_nothing_here_names_has_no_decoder() {
-        assert_eq!(decoder("audio/mpeg"), Ok(None));
-        assert_eq!(decoder("image/jxl"), Ok(None));
-    }
+  #[test]
+  fn a_type_nothing_here_names_has_no_decoder() {
+    assert_eq!(decoder("audio/mpeg"), Ok(None));
+    assert_eq!(decoder("image/jxl"), Ok(None));
+  }
 }

@@ -25,193 +25,220 @@ use std::process::ExitCode;
 const NAMES: [&str; 2] = ["OLD", "NEW"];
 
 const COMMAND: Command = Command {
-    name: "console-rename",
-    about: "change the name OLD to NEW everywhere this tree writes it",
-    flags: &[],
-    operands: Operands::Named(&NAMES),
+  name: "console-rename",
+  about: "change the name OLD to NEW everywhere this tree writes it",
+  flags: &[],
+  operands: Operands::Named(&NAMES),
 };
 
 fn names(said: &[String]) -> Result<(String, String), ValidationError> {
-    let line = console_core_arguments::read(&COMMAND, said)?;
-    let [old, new] = line.exactly(NAMES)?;
-    let blank = NAMES.iter().zip([old, new]).find(|(_, name)| name.trim().is_empty());
+  let line = console_core_arguments::read(&COMMAND, said)?;
+  let [old, new] = line.exactly(NAMES)?;
+  let blank = NAMES
+    .iter()
+    .zip([old, new])
+    .find(|(_, name)| name.trim().is_empty());
 
-    match blank {
-        None => Ok((old.clone(), new.clone())),
-        Some((of, name)) => {
-            let Ok(refusal) = line.refusal(Reason::InvalidValue { of, value: name.clone() });
+  match blank {
+    None => Ok((old.clone(), new.clone())),
+    Some((of, name)) => {
+      let Ok(refusal) = line.refusal(Reason::InvalidValue {
+        of,
+        value: name.clone(),
+      });
 
-            Err(refusal)
-        },
+      Err(refusal)
     }
+  }
 }
 
 fn main() -> ExitCode {
-    let said: Vec<String> = std::env::args().skip(1).collect();
-    let (old, new) = match names(&said) {
-        Ok(names) => names,
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
+  let said: Vec<String> = std::env::args().skip(1).collect();
+  let (old, new) = match names(&said) {
+    Ok(names) => names,
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
 
-            return ExitCode::from(code);
-        },
-    };
-
-    let root = match console_repository::root() {
-        Ok(root) => root,
-        Err(said) => {
-            eprintln!("console-rename: {said}");
-
-            return ExitCode::FAILURE;
-        },
-    };
-
-    let files: Vec<PathBuf> = match tracked(&root) {
-        Ok(names) => names.iter().map(|name| root.join(name)).collect(),
-        Err(fault) => {
-            eprintln!("console-rename: {fault}, so nothing was renamed");
-
-            return ExitCode::FAILURE;
-        },
-    };
-
-    let renaming = Renaming { old: &old, new: &new };
-    let Ok(written) = sweep(&files, renaming);
-    let Ok(moved) = move_files(&root, &files, renaming);
-    let Ok(sweeping) = claims(&root, &moved);
-
-    println!("{written} files say the new name");
-
-    for held in &moved {
-        println!("moved {} to {}", held.from.display(), held.to.display());
+      return ExitCode::from(code);
     }
+  };
 
-    match sweeping.is_empty() {
-        true => {},
-        false => {
-            let Ok(()) = wrote(&root, &sweeping);
-        },
+  let root = match console_repository::root() {
+    Ok(root) => root,
+    Err(fault) => {
+      eprintln!("console-rename: {fault}");
+
+      return ExitCode::FAILURE;
     }
+  };
 
-    ExitCode::SUCCESS
+  let files: Vec<PathBuf> = match tracked(&root) {
+    Ok(names) => {
+      #[cfg_attr(
+        dylint_lib = "explicit086_no_climbing_join",
+        expect(
+          explicit086_no_climbing_join,
+          reason = "tracked checks each path component before returning paths relative to the checkout root"
+        )
+      )]
+      let paths = names.iter().map(|name| root.join(name)).collect();
+
+      paths
+    }
+    Err(fault) => {
+      eprintln!("console-rename: {fault}, so nothing was renamed");
+
+      return ExitCode::FAILURE;
+    }
+  };
+
+  let renaming = Renaming {
+    old: &old,
+    new: &new,
+  };
+  let Ok(written) = sweep(&files, renaming);
+  let Ok(moved) = move_files(&root, &files, renaming);
+  let Ok(sweeping) = claims(&root, &moved);
+
+  println!("{written} files say the new name");
+
+  for held in &moved {
+    println!("moved {} to {}", held.from.display(), held.to.display());
+  }
+
+  match ::core::primitive::bool::then_some(sweeping.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      let Ok(()) = wrote(&root, &sweeping);
+    }
+  }
+
+  ExitCode::SUCCESS
 }
 
 fn sweep(files: &[PathBuf], renaming: Renaming<'_>) -> Result<u32, Never> {
-    let mut written: u32 = 0;
+  let mut written: u32 = 0;
 
-    for at in files {
-        let said = match std::fs::read_to_string(at) {
-            Ok(said) => said,
-            Err(_it_is_not_text_or_it_is_gone) => continue,
-        };
+  for at in files {
+    let said = match std::fs::read_to_string(at) {
+      Ok(said) => said,
+      Err(_it_is_not_text_or_it_is_gone) => continue,
+    };
 
-        let Ok(swept) = through(&said, renaming);
+    let Ok(swept) = through(&said, renaming);
 
-        match swept == said {
-            true => continue,
-            false => {},
-        }
-
-        match console_core_atomic_writes::whole(at, swept.as_bytes()) {
-            Ok(()) => written = written.saturating_add(1),
-            Err(fault) => eprintln!("console-rename: {}: {fault}", at.display()),
-        }
+    match ::core::primitive::bool::then_some(swept == said, ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
     }
 
-    Ok(written)
+    match console_core_atomic_writes::whole(at, swept.as_bytes()) {
+      Ok(()) => written = written.saturating_add(1),
+      Err(fault) => eprintln!("console-rename: {}: {fault}", at.display()),
+    }
+  }
+
+  Ok(written)
 }
 
-fn move_files(root: &Path, files: &[PathBuf], renaming: Renaming<'_>) -> Result<Vec<Moved>, Never> {
-    let mut moved = Vec::new();
-    let mut done: BTreeSet<PathBuf> = BTreeSet::new();
+fn move_files(
+  root: &Path,
+  files: &[PathBuf],
+  renaming: Renaming<'_>,
+) -> Result<Vec<Moved>, Never> {
+  let mut moved = Vec::new();
+  let mut done: BTreeSet<PathBuf> = BTreeSet::new();
 
-    for at in files {
-        'over_ancestors: for held in at.ancestors() {
-            let Ok(landing) = renamed_path(held, renaming);
+  for at in files {
+    'over_ancestors: for held in at.ancestors() {
+      let Ok(landing) = renamed_path(held, renaming);
 
-            let landing = match landing {
-                Some(landing) => landing,
-                None => continue 'over_ancestors,
-            };
+      let landing_3 = match landing {
+        Some(landing_2) => landing_2,
+        None => continue 'over_ancestors,
+      };
 
-            match done.insert(held.to_path_buf()) {
-                true => {},
-                false => continue 'over_ancestors,
-            }
+      match ::core::primitive::bool::then_some(done.insert(held.to_path_buf()), ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => continue 'over_ancestors,
+      }
 
-            let Ok(went) = git_mv(root, held, &landing);
+      let Ok(went) = git_mv(root, held, &landing_3);
 
-            match went {
-                Went::Yes => moved.push(Moved { from: held.to_path_buf(), to: landing }),
-                Went::No => {},
-            }
-        }
+      match went {
+        Went::Yes => moved.push(Moved {
+          from: held.to_path_buf(),
+          to: landing_3,
+        }),
+        Went::No => {}
+      }
     }
+  }
 
-    Ok(moved)
+  Ok(moved)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Went {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 fn git_mv(root: &Path, from: &Path, to: &Path) -> Result<Went, Never> {
-    let Ok(mut asking) = Program::Git.command();
+  let Ok(mut asking) = Program::Git.command();
 
-    asking.arg("-C").arg(root).arg("mv").arg(from).arg(to);
+  asking.arg("-C").arg(root).arg("mv").arg(from).arg(to);
 
-    match asking.status() {
-        Ok(done) => Ok(match done.success() {
-            true => Went::Yes,
-            false => Went::No,
-        }),
-        Err(fault) => {
-            eprintln!("console-rename: moving {}: {fault}", from.display());
+  match asking.status() {
+    Ok(done) => Ok(match ::core::primitive::bool::then_some(done.success(), ()) {
+      ::core::option::Option::Some(()) => Went::Yes,
+      ::core::option::Option::None => Went::No,
+    }),
+    Err(fault) => {
+      eprintln!("console-rename: moving {}: {fault}", from.display());
 
-            Ok(Went::No)
-        },
+      Ok(Went::No)
     }
+  }
 }
 
 fn claims(root: &Path, moved: &[Moved]) -> Result<Vec<String>, Never> {
-    let mut claims = Vec::new();
+  let mut claims = Vec::new();
 
-    for held in moved {
-        let Ok(was) = installed(root, &held.from);
+  for held in moved {
+    let Ok(was) = installed(root, &held.from);
 
-        match was {
-            Some(was) => claims.push(was),
-            None => {},
-        }
+    match was {
+      Some(was_2) => claims.push(was_2),
+      None => {}
     }
+  }
 
-    Ok(claims)
+  Ok(claims)
 }
 
 fn wrote(root: &Path, sweeping: &[String]) -> Result<(), Never> {
-    let when = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(since) => since.as_secs(),
-        Err(_the_clock_is_before_the_epoch) => 0,
-    };
+  let when = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+    Ok(since) => since.as_secs(),
+    Err(_the_clock_is_before_the_epoch) => 0,
+  };
 
-    let Ok(at) = written_at(root, when);
-    let Ok(said) = stub(sweeping, when);
+  let Ok(at) = written_at(root, when);
+  let Ok(said) = stub(sweeping, when);
 
-    match console_core_atomic_writes::whole(&at, said.as_bytes()) {
-        Ok(()) => {
-            println!(
-                "wrote {} -- the reason in it is yours to write, and it runs once history.rs lists it",
-                at.display()
-            );
+  match console_core_atomic_writes::whole(&at, said.as_bytes()) {
+    Ok(()) => {
+      println!(
+        "wrote {} -- the reason in it is yours to write, and it runs once history.rs lists it",
+        at.display()
+      );
 
-            Ok(())
-        },
-        Err(fault) => {
-            eprintln!("console-rename: {}: {fault}", at.display());
-
-            Ok(())
-        },
+      Ok(())
     }
+    Err(fault) => {
+      eprintln!("console-rename: {}: {fault}", at.display());
+
+      Ok(())
+    }
+  }
 }

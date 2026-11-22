@@ -12,28 +12,38 @@
 //! program has to be on the machine before it will run, `desktop.conf` is what
 //! puts it there, and for a year three of these were on the device only
 //! because something else had dragged them in. So every [`Origin::Package`]
-//! below is crossed against `[packages]` by a test, and a program that comes
-//! with base Arch or only with a machine that develops this says which it is
-//! rather than being absent from the list for a reason no one wrote down.
+//! below is checked against `[packages]` by a test. The other origins cover
+//! base Arch, development tools, and the handheld's preinstalled session tools.
 //!
 //! What the enum cannot reach is a program named inside another program's
 //! arguments: `sh -c`, and the word after `stdbuf`. Those are written with
 //! [`Program::name`], which is why it is public -- the program is still a
 //! variant, it is simply spelled into an argument rather than run directly.
 
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
 use std::process::Command;
 
 use console_core_never::Never;
 
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+pub use unix::{Installed, installed};
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Origin {
-    Package(&'static str),
-    Arch,
-    Developing,
+  Package(&'static str),
+  Arch,
+  Developing,
+  Handheld,
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit080_macro_budget",
+  expect(
+    explicit080_macro_budget,
+    reason = "one table generates Program, EVERY and the exhaustive name and origin matches, so adding a program cannot leave any of those four inventories out of sync"
+  )
+)]
 macro_rules! programs {
     ($($variant:ident, $name:literal, $origin:expr;)*) => {
         #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -62,12 +72,13 @@ macro_rules! programs {
 programs! {
     Alacritty, "alacritty", Origin::Package("alacritty");
     Awww, "awww", Origin::Package("awww");
-    Bluetoothctl, "bluetoothctl", Origin::Package("bluez-utils");
+    AwwwDaemon, "awww-daemon", Origin::Package("awww");
     Bootctl, "bootctl", Origin::Arch;
     Busctl, "busctl", Origin::Arch;
     Cal, "cal", Origin::Arch;
     Cargo, "cargo", Origin::Package("rust");
     Cat, "cat", Origin::Arch;
+    Chromium, "chromium", Origin::Package("chromium");
     Cmake, "cmake", Origin::Package("cmake");
     Cp, "cp", Origin::Arch;
     Curl, "curl", Origin::Package("curl");
@@ -104,23 +115,30 @@ programs! {
     NotifySend, "notify-send", Origin::Package("libnotify");
     Pacman, "pacman", Origin::Arch;
     Pactl, "pactl", Origin::Package("libpulse");
+    Pgrep, "pgrep", Origin::Arch;
+    Pkexec, "pkexec", Origin::Handheld;
     Pkill, "pkill", Origin::Arch;
     Powerprofilesctl, "powerprofilesctl", Origin::Package("power-profiles-daemon");
     Ps, "ps", Origin::Arch;
     PwCat, "pw-cat", Origin::Package("pipewire-audio");
     PwRecord, "pw-record", Origin::Package("pipewire-audio");
+    QemuX86_64, "qemu-system-x86_64", Origin::Developing;
     Rm, "rm", Origin::Arch;
     Runuser, "runuser", Origin::Arch;
     Rustup, "rustup", Origin::Developing;
     Scp, "scp", Origin::Developing;
     SevenZip, "7z", Origin::Package("7zip");
     Sh, "sh", Origin::Arch;
+    Sleep, "sleep", Origin::Arch;
     Ss, "ss", Origin::Arch;
     Snapper, "snapper", Origin::Package("snapper");
     Ssh, "ssh", Origin::Developing;
     Stdbuf, "stdbuf", Origin::Arch;
-    Su, "su", Origin::Arch;
+    Steam, "steam", Origin::Handheld;
+    SteamSetSession, "/usr/lib/steamos/steam-set-session", Origin::Handheld;
+    StockSessionSelect, "/usr/bin/steamos-session-select", Origin::Handheld;
     Sudo, "sudo", Origin::Package("sudo");
+    Syncthing, "syncthing", Origin::Package("syncthing");
     Systemctl, "systemctl", Origin::Arch;
     Tesseract, "tesseract", Origin::Package("tesseract");
     SystemdInhibit, "systemd-inhibit", Origin::Arch;
@@ -139,197 +157,192 @@ programs! {
 }
 
 impl Program {
-    pub fn command(self) -> Result<Command, Never> {
-        let Ok(name) = self.name();
+  pub fn command(self) -> Result<Command, Never> {
+    let Ok(name) = self.name();
 
-        Ok(Command::new(name))
-    }
+    Ok(Command::new(name))
+  }
 
-    pub fn arguments(self, rest: &[&str]) -> Result<Vec<String>, Never> {
-        let Ok(name) = self.name();
+  pub fn arguments(self, rest: &[&str]) -> Result<Vec<String>, Never> {
+    let Ok(name) = self.name();
 
-        Ok(std::iter::once(name.to_string())
-            .chain(rest.iter().map(|word| (*word).to_string()))
-            .collect())
-    }
+    Ok(
+      std::iter::once(name.to_string())
+        .chain(rest.iter().map(|word| (*word).to_string()))
+        .collect(),
+    )
+  }
 
-    pub fn words(self, rest: Vec<String>) -> Result<Vec<String>, Never> {
-        let Ok(name) = self.name();
+  pub fn words(self, rest: Vec<String>) -> Result<Vec<String>, Never> {
+    let Ok(name) = self.name();
 
-        Ok(std::iter::once(name.to_string()).chain(rest).collect())
-    }
+    Ok(std::iter::once(name.to_string()).chain(rest).collect())
+  }
 }
 
 #[derive(Debug)]
 pub enum Unprinted {
-    Absent,
-    Unran(String, std::io::Error),
+  Absent,
+  Unran(String, std::io::Error),
+  NotText(String, std::string::FromUtf8Error),
 }
 
 impl std::fmt::Display for Unprinted {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unprinted::Absent => write!(to, "there was no program to run"),
-            Unprinted::Unran(program, fault) => write!(to, "{program} would not run: {fault}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unprinted::Absent => write!(to, "there was no program to run"),
+      Unprinted::Unran(program, fault) => write!(to, "{program} would not run: {fault}"),
+      Unprinted::NotText(program, fault) => {
+        write!(to, "{program} printed invalid UTF-8: {fault}")
+      }
     }
+  }
 }
 
 impl std::error::Error for Unprinted {}
 
 pub fn capture_output<Word: AsRef<str>>(arguments: &[Word]) -> Result<String, Unprinted> {
-    let (program, rest) = match arguments.split_first() {
-        Some((program, rest)) => (program, rest),
-        None => return Err(Unprinted::Absent),
-    };
+  let (program, rest) = match arguments.split_first() {
+    Some((program, rest)) => (program, rest),
+    None => return Err(Unprinted::Absent),
+  };
 
-    let program = program.as_ref();
+  let name = program.as_ref();
 
-    match Command::new(program).args(rest.iter().map(AsRef::as_ref)).output() {
-        Ok(done) => Ok(String::from_utf8_lossy(&done.stdout).to_string()),
-        Err(fault) => Err(Unprinted::Unran(program.to_string(), fault)),
+  match Command::new(name)
+    .args(rest.iter().map(AsRef::as_ref))
+    .output()
+  {
+    Ok(done) => {
+      String::from_utf8(done.stdout).map_err(|fault| Unprinted::NotText(name.to_string(), fault))
     }
+    Err(fault) => Err(Unprinted::Unran(name.to_string(), fault)),
+  }
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit026_env_read_once",
-    allow(
-        explicit026_env_read_once,
-        reason = "PATH is where the machine looks for a program, and a program this desktop did not write is what this crate is a list of. Four crates walked it to ask whether a program was installed and each said something different when it was unset, which is why `installed` is here beside it"
-    )
+  dylint_lib = "explicit026_env_read_once",
+  allow(
+    explicit026_env_read_once,
+    reason = "PATH is where the machine looks for a program, and a program this desktop did not write is what this crate is a list of. Four crates walked it to ask whether a program was installed and each said something different when it was unset, which is why `installed` is here beside it"
+  )
 )]
 pub fn path() -> Result<Option<String>, Never> {
-    Ok(match std::env::var("PATH") {
-        Ok(said) => match said.is_empty() {
-            true => None,
-            false => Some(said),
-        },
-        Err(_unset) => None,
-    })
+  Ok(match std::env::var("PATH") {
+    Ok(said) => match said.as_str() {
+      "" => None,
+      _nonempty => Some(said),
+    },
+    Err(_unset) => None,
+  })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Installed {
-    Yes,
-    No,
-}
+#[cfg(all(test, unix))]
+mod tests {
+  use super::*;
 
-pub fn installed(program: &str) -> Result<Installed, Never> {
-    let Ok(path) = path();
+  type Failure = Box<dyn std::error::Error>;
 
-    match (program.contains('/'), path) {
-        (true, _) => runnable(Path::new(program)),
-        (false, None) => Ok(Installed::No),
-        (false, Some(path)) => {
-            let found = path.split(':').filter(|at| !at.is_empty()).any(|at| {
-                let Ok(runnable) = runnable(&Path::new(at).join(program));
+  #[test]
+  fn what_a_program_printed_is_handed_back_and_one_that_cannot_run_says_so() -> Result<(), Failure>
+  {
+    let said = capture_output(&["sh", "-c", "printf said"])?;
 
-                runnable == Installed::Yes
-            });
+    assert_eq!(said, "said");
+    assert!(matches!(
+      capture_output::<&str>(&[]),
+      Err(Unprinted::Absent)
+    ));
+    assert!(matches!(
+      capture_output(&["definitely-not-a-program-anybody-installed"]),
+      Err(Unprinted::Unran(..))
+    ));
 
-            Ok(match found {
-                true => Installed::Yes,
-                false => Installed::No,
-            })
-        }
-    }
-}
+    Ok(())
+  }
 
-const RUNNABLE: u32 = 0o111;
-
-fn runnable(at: &Path) -> Result<Installed, Never> {
-    let about = match std::fs::metadata(at) {
-        Ok(about) => about,
-        Err(_nothing_there) => return Ok(Installed::No),
+  #[test]
+  fn output_that_is_not_utf8_is_reported_without_replacing_its_bytes() {
+    let Ok(arguments) = Program::Sh.arguments(&["-c", "printf '\\377'"]);
+    let printed = capture_output(&arguments);
+    let bytes = match &printed {
+      Err(Unprinted::NotText(_, fault)) => Some(fault.as_bytes()),
+      Ok(_) | Err(Unprinted::Absent | Unprinted::Unran(..)) => None,
     };
 
-    Ok(match (about.is_file(), about.permissions().mode() & RUNNABLE) {
-        (false, _) => Installed::No,
-        (true, 0) => Installed::No,
-        (true, _someone_can_run_it) => Installed::Yes,
-    })
-}
+    assert_eq!(bytes, Some([0xff].as_slice()), "{printed:?}");
+  }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+  #[test]
+  fn a_program_on_the_path_is_installed() {
+    assert_eq!(installed("sh"), Ok(Installed::Yes));
+    assert_eq!(
+      installed("definitely-not-a-program-anybody-installed"),
+      Ok(Installed::No)
+    );
+    assert_eq!(installed(""), Ok(Installed::No));
+  }
 
-    type Failure = Box<dyn std::error::Error>;
+  #[test]
+  fn a_program_named_by_where_it_is_is_looked_for_there() {
+    assert_eq!(installed("/bin/sh"), Ok(Installed::Yes));
+    assert_eq!(installed("/definitely/not/here"), Ok(Installed::No));
+  }
 
-    #[test]
-    fn what_a_program_printed_is_handed_back_and_one_that_cannot_run_says_so() -> Result<(), Failure> {
-        let said = capture_output(&["sh", "-c", "printf said"])?;
+  #[test]
+  fn a_folder_on_the_path_is_not_a_program() {
+    assert_eq!(installed("/"), Ok(Installed::No));
+    assert_eq!(installed("/usr/bin/"), Ok(Installed::No));
+  }
 
-        assert_eq!(said, "said");
-        assert!(matches!(capture_output::<&str>(&[]), Err(Unprinted::Absent)));
-        assert!(matches!(capture_output(&["definitely-not-a-program-anybody-installed"]), Err(Unprinted::Unran(..))));
+  #[test]
+  fn a_file_nobody_can_run_is_not_a_program() -> Result<(), Failure> {
+    let folder = console_core_temporary_directories::fresh("installed")?;
+    let at = folder.join("unrunnable");
 
-        Ok(())
-    }
+    console_core_atomic_writes::whole(&at, b"")?;
 
-    #[test]
-    fn a_program_on_the_path_is_installed() {
-        assert_eq!(installed("sh"), Ok(Installed::Yes));
-        assert_eq!(installed("definitely-not-a-program-anybody-installed"), Ok(Installed::No));
-        assert_eq!(installed(""), Ok(Installed::No));
-    }
+    let spelled = at
+      .to_str()
+      .ok_or(std::io::Error::from(std::io::ErrorKind::InvalidData))?;
 
-    #[test]
-    fn a_program_named_by_where_it_is_is_looked_for_there() {
-        assert_eq!(installed("/bin/sh"), Ok(Installed::Yes));
-        assert_eq!(installed("/definitely/not/here"), Ok(Installed::No));
-    }
+    assert_eq!(installed(spelled), Ok(Installed::No));
 
-    #[test]
-    fn a_folder_on_the_path_is_not_a_program() {
-        assert_eq!(installed("/"), Ok(Installed::No));
-        assert_eq!(installed("/usr/bin/"), Ok(Installed::No));
-    }
+    std::fs::remove_dir_all(&folder)?;
 
-    #[test]
-    fn a_file_nobody_can_run_is_not_a_program() -> Result<(), Failure> {
-        let folder = console_core_temporary_directories::fresh("installed")?;
-        let at = folder.join("unrunnable");
+    Ok(())
+  }
 
-        console_core_atomic_writes::whole(&at, b"")?;
+  #[test]
+  fn no_two_programs_answer_to_the_same_name() {
+    let mut names: Vec<&str> = EVERY
+      .iter()
+      .map(|program| {
+        let Ok(name) = program.name();
 
-        assert_eq!(installed(&at.to_string_lossy()), Ok(Installed::No));
+        name
+      })
+      .collect();
+    names.sort_unstable();
+    let mut once = names.clone();
+    once.dedup();
 
-        std::fs::remove_dir_all(&folder)?;
+    assert_eq!(once, names, "two variants share a name");
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn the_argv_starts_with_the_program() {
+    let Ok(arguments) = Program::Hyprctl.arguments(&["monitors", "-j"]);
 
-    #[test]
-    fn no_two_programs_answer_to_the_same_name() {
-        let mut names: Vec<&str> = EVERY
-            .iter()
-            .map(|program| {
-                let Ok(name) = program.name();
+    assert_eq!(arguments, ["hyprctl", "monitors", "-j"]);
+  }
 
-                name
-            })
-            .collect();
-        names.sort_unstable();
-        let mut once = names.clone();
-        once.dedup();
+  #[test]
+  fn owned_words_are_carried_the_same_way() {
+    let told = vec!["trash".to_string(), "--".to_string()];
 
-        assert_eq!(once, names, "two variants share a name");
-    }
+    let Ok(words) = Program::Gio.words(told);
 
-    #[test]
-    fn the_argv_starts_with_the_program() {
-        let Ok(arguments) = Program::Hyprctl.arguments(&["monitors", "-j"]);
-
-        assert_eq!(arguments, ["hyprctl", "monitors", "-j"]);
-    }
-
-    #[test]
-    fn owned_words_are_carried_the_same_way() {
-        let told = vec!["trash".to_string(), "--".to_string()];
-
-        let Ok(words) = Program::Gio.words(told);
-
-        assert_eq!(words, ["gio", "trash", "--"]);
-    }
+    assert_eq!(words, ["gio", "trash", "--"]);
+  }
 }

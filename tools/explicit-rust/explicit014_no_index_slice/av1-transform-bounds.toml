@@ -1,0 +1,9 @@
+explicit014_fix_functions = [
+    "console_core_video_decoding_av1::src::itx_1d::rav1d_inv_wht4_1d_c",
+    "console_core_video_decoding_av1::src::recon::read_coef_tree",
+    "console_core_video_decoding_av1::src::recon::rav1d_read_coef_blocks",
+    "console_core_video_decoding_av1::src::recon::rav1d_recon_b_intra",
+]
+
+[explicit014_bounds_errors]
+"console_core_video_decoding_av1::src::error::Rav1dError" = "EINVAL"

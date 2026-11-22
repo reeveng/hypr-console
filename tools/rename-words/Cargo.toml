@@ -2,6 +2,7 @@
 name = "rename-words"
 version = "0.1.0"
 edition = "2024"
+license = "AGPL-3.0-or-later"
 publish = false
 description = "Renames the words vocabulary.conf retired, one definition at a time"
 

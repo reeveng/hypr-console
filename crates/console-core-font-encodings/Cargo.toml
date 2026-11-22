@@ -1,0 +1,17 @@
+[package]
+name = "console-core-font-encodings"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Maps single-byte font character codes to glyph names."
+
+[dependencies]
+console-core-never.workspace = true
+console-core-perfect-hash.workspace = true
+
+[dev-dependencies]
+console-core-glyph-names.workspace = true
+
+[lints]
+workspace = true

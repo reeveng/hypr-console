@@ -57,712 +57,767 @@ pub use console_draw_surface::KeyboardFocus;
 const SAID_NOTHING: &str = "";
 
 fn word_in(held: &serde_json::Value, key: &str) -> Result<String, Never> {
-    Ok(match held.get(key).and_then(|held| held.as_str()) {
-        Some(said) => said.to_string(),
-        None => SAID_NOTHING.to_string(),
-    })
+  Ok(match held.get(key).and_then(|held_2| held_2.as_str()) {
+    Some(said) => said.to_string(),
+    None => SAID_NOTHING.to_string(),
+  })
 }
 
 fn words_listed(held: &serde_json::Value, key: &str) -> Result<Vec<String>, Never> {
-    Ok(match held.get(key).and_then(|held| held.as_array()) {
-        Some(every) => every.iter().filter_map(|held| held.as_str()).map(str::to_string).collect(),
-        None => Vec::new(),
-    })
+  Ok(match held.get(key).and_then(|held_2| held_2.as_array()) {
+    Some(every) => every
+      .iter()
+      .filter_map(|held_3| held_3.as_str())
+      .map(str::to_string)
+      .collect(),
+    None => Vec::new(),
+  })
 }
 
 fn words_said(words: &[String]) -> Result<String, Never> {
-    let every: Vec<String> = words
-        .iter()
-        .map(|word| {
-            let Ok(word) = json_string(word);
+  let every: Vec<String> = words
+    .iter()
+    .map(|word| {
+      let Ok(word_2) = json_string(word);
 
-            word
-        })
-        .collect();
+      word_2
+    })
+    .collect();
 
-    Ok(format!("[{}]", every.join(",")))
+  Ok(format!("[{}]", every.join(",")))
 }
 
-fn spots_in(held: &serde_json::Value) -> Result<Vec<Spot>, Never> {
-    let every = match held.get("spots").and_then(|held| held.as_array()) {
-        Some(every) => every,
-        None => return Ok(Vec::new()),
-    };
+fn spots_in(held: Option<&serde_json::Value>) -> Result<Vec<Spot>, Never> {
+  let every = match held.and_then(serde_json::Value::as_array) {
+    Some(every) => every,
+    None => return Ok(Vec::new()),
+  };
 
-    Ok(every
-        .iter()
-        .filter_map(|held| {
-            let Ok(spot) = spot_of(held);
+  Ok(
+    every
+      .iter()
+      .filter_map(|held_3| {
+        let Ok(spot) = spot_of(held_3);
 
-            spot
-        })
-        .collect())
+        spot
+      })
+      .collect(),
+  )
 }
-
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spot {
-    pub name: String,
-    pub at: (i32, i32),
-    pub big: (i32, i32),
-    pub scrolls: Scrolls,
+  pub name: String,
+  pub at: (i32, i32),
+  pub big: (i32, i32),
+  pub scrolls: Scrolls,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scrolls {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 impl Spot {
-    pub fn middle(&self) -> Result<(i32, i32), Never> {
-        Ok((
-            self.at.0.saturating_add(self.big.0.saturating_div(2)),
-            self.at.1.saturating_add(self.big.1.saturating_div(2)),
-        ))
-    }
+  pub fn middle(&self) -> Result<(i32, i32), Never> {
+    Ok((
+      self.at.0.saturating_add(self.big.0.saturating_div(2)),
+      self.at.1.saturating_add(self.big.1.saturating_div(2)),
+    ))
+  }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reachable {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 pub fn reachable(spot: &Spot, room: (i32, i32)) -> Result<Reachable, Never> {
-    let right = spot.at.0.saturating_add(spot.big.0);
-    let bottom = spot.at.1.saturating_add(spot.big.1);
+  let right = spot.at.0.saturating_add(spot.big.0);
+  let bottom = spot.at.1.saturating_add(spot.big.1);
 
-    let across = spot.big.0 > 0 && spot.at.0 >= 0 && right <= room.0;
+  let across = spot.big.0 > 0 && spot.at.0 >= 0 && right <= room.0;
 
-    let down = match spot.scrolls {
-        Scrolls::Yes => spot.big.1 > 0,
-        Scrolls::No => spot.big.1 > 0 && spot.at.1 >= 0 && bottom <= room.1,
-    };
+  let down = match spot.scrolls {
+    Scrolls::Yes => spot.big.1 > 0,
+    Scrolls::No => spot.big.1 > 0 && spot.at.1 >= 0 && bottom <= room.1,
+  };
 
-    Ok(match across && down {
-        true => Reachable::Yes,
-        false => Reachable::No,
-    })
+  Ok(match ::core::primitive::bool::then_some(across && down, ()) {
+    ::core::option::Option::Some(()) => Reachable::Yes,
+    ::core::option::Option::None => Reachable::No,
+  })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Offers {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Bare {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Heading {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Standing {
-    On,
-    Beside,
-    No,
+  On,
+  Beside,
+  No,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line {
-    pub at: u32,
-    pub says: String,
-    pub aside: String,
-    pub offers: Offers,
-    pub bare: Bare,
-    pub heading: Heading,
-    pub standing: Standing,
-    pub spots: Vec<Spot>,
-    pub cells: Vec<String>,
-    pub drew: Vec<String>,
+  pub at: u32,
+  pub says: String,
+  pub aside: String,
+  pub offers: Offers,
+  pub bare: Bare,
+  pub heading: Heading,
+  pub standing: Standing,
+  pub spots: Vec<Spot>,
+  pub cells: Vec<String>,
+  pub drew: Vec<String>,
 }
 
 impl Line {
-    pub fn spot(&self, name: &str) -> Result<Option<&Spot>, Never> {
-        Ok(self.spots.iter().find(|spot| spot.name == name))
-    }
+  pub fn spot(&self, name: &str) -> Result<Option<&Spot>, Never> {
+    Ok(self.spots.iter().find(|spot| spot.name == name))
+  }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Output {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Description {
-    pub panel: String,
-    pub tab: String,
-    pub out: Output,
-    pub room: (i32, i32),
-    pub lines: Vec<Line>,
-    pub spots: Vec<Spot>,
-    pub presses: u64,
-    pub keyboard: KeyboardFocus,
+  pub panel: String,
+  pub tab: String,
+  pub out: Output,
+  pub room: (i32, i32),
+  pub lines: Vec<Line>,
+  pub spots: Vec<Spot>,
+  pub presses: u64,
+  pub keyboard: KeyboardFocus,
 }
 
 impl Description {
-    pub fn every_spot(&self) -> Result<Vec<&Spot>, Never> {
-        Ok(self.spots.iter().chain(self.lines.iter().flat_map(|line| line.spots.iter())).collect())
-    }
+  pub fn every_spot(&self) -> Result<Vec<&Spot>, Never> {
+    Ok(
+      self
+        .spots
+        .iter()
+        .chain(self.lines.iter().flat_map(|line| line.spots.iter()))
+        .collect(),
+    )
+  }
 
-    pub fn spot(&self, name: &str) -> Result<Option<&Spot>, Never> {
-        let Ok(every) = self.every_spot();
+  pub fn spot(&self, name: &str) -> Result<Option<&Spot>, Never> {
+    let Ok(every) = self.every_spot();
 
-        Ok(every.into_iter().find(|spot| spot.name == name))
-    }
+    Ok(every.into_iter().find(|spot| spot.name == name))
+  }
 
-    pub fn line_saying(&self, said: &str) -> Result<Option<&Line>, Never> {
-        Ok(self.lines.iter().find(|line| line.says == said))
-    }
+  pub fn line_saying(&self, said: &str) -> Result<Option<&Line>, Never> {
+    Ok(self.lines.iter().find(|line| line.says == said))
+  }
 }
 
 pub const OFFERED: [&str; 7] = ["tab", "shut", "more", "step", "else", "press", "answer"];
 
 #[cfg_attr(
-    dylint_lib = "explicit026_env_read_once",
-    allow(
-        explicit026_env_read_once,
-        reason = "CONSOLE_PANEL_TELLS is how a panel is told where to say what it did, and a panel is what this crate is"
-    )
+  dylint_lib = "explicit026_env_read_once",
+  allow(
+    explicit026_env_read_once,
+    reason = "CONSOLE_PANEL_TELLS is how a panel is told where to say what it did, and a panel is what this crate is"
+  )
 )]
 pub fn where_to() -> Result<Option<String>, Never> {
-    Ok(match std::env::var("CONSOLE_PANEL_TELLS") {
-        Ok(said) => match said.is_empty() {
-            true => None,
-            false => Some(said),
-        },
-        Err(std::env::VarError::NotPresent) => None,
-        Err(fault) => {
-            eprintln!("console-panel: CONSOLE_PANEL_TELLS: {fault}");
+  Ok(match std::env::var("CONSOLE_PANEL_TELLS") {
+    Ok(said) => match ::core::primitive::bool::then_some(said.is_empty(), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(said),
+    },
+    Err(std::env::VarError::NotPresent) => None,
+    Err(fault) => {
+      console_core_logging::warn!("console-panel: CONSOLE_PANEL_TELLS: {fault}");
 
-            None
-        }
-    })
+      None
+    }
+  })
 }
 
 pub fn wrote(told: &Description, where_to: Option<&str>) -> Result<(), Never> {
-    let where_to = match where_to {
-        Some(where_to) => where_to,
-        None => return Ok(()),
-    };
+  let destination = match where_to {
+    Some(path) => path,
+    None => return Ok(()),
+  };
 
-    let Ok(said) = serialize(told);
-    let line = format!("{said}\n");
+  let Ok(said) = serialize(told);
+  let line = format!("{said}\n");
 
-    #[cfg_attr(
-        dylint_lib = "explicit040_no_torn_write",
-        allow(
-            explicit040_no_torn_write,
-            reason = "what a panel says about itself, appended a line at a time for whoever is watching the file; losing the last line costs a reading of a screen and a rename over it would take away every line before it"
-        )
-    )]
-    match std::fs::OpenOptions::new().create(true).append(true).open(where_to) {
-        Ok(mut file) => match std::io::Write::write_all(&mut file, line.as_bytes()) {
-            Ok(()) => {},
-            Err(fault) => eprintln!("console-panel: {where_to}: {fault}"),
-        },
-        Err(fault) => eprintln!("console-panel: {where_to}: {fault}"),
-    }
+  #[cfg_attr(
+    dylint_lib = "explicit040_no_torn_write",
+    allow(
+      explicit040_no_torn_write,
+      reason = "what a panel says about itself, appended a line at a time for whoever is watching the file; losing the last line costs a reading of a screen and a rename over it would take away every line before it"
+    )
+  )]
+  match std::fs::OpenOptions::new()
+    .create(true)
+    .append(true)
+    .open(destination)
+  {
+    Ok(mut file) => match std::io::Write::write_all(&mut file, line.as_bytes()) {
+      Ok(()) => {}
+      Err(fault) => console_core_logging::warn!("console-panel: {destination}: {fault}"),
+    },
+    Err(fault) => console_core_logging::warn!("console-panel: {destination}: {fault}"),
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn json_string(said: &str) -> Result<String, Never> {
-    Ok(serde_json::Value::String(said.to_string()).to_string())
+  Ok(serde_json::Value::String(said.to_string()).to_string())
 }
 
 fn spots_said(spots: &[Spot]) -> Result<String, Never> {
-    let every: Vec<String> = spots
-        .iter()
-        .map(|spot| {
-            let Ok(name) = json_string(&spot.name);
+  let every: Vec<String> = spots
+    .iter()
+    .map(|spot| {
+      let Ok(name) = json_string(&spot.name);
 
-            format!(
-                "{{\"name\":{},\"at\":[{},{}],\"big\":[{},{}],\"scrolls\":{}}}",
-                name,
-                spot.at.0,
-                spot.at.1,
-                spot.big.0,
-                spot.big.1,
-                match spot.scrolls {
-                    Scrolls::Yes => "true",
-                    Scrolls::No => "false",
-                }
-            )
-        })
-        .collect();
+      format!(
+        "{{\"name\":{},\"at\":[{},{}],\"big\":[{},{}],\"scrolls\":{}}}",
+        name,
+        spot.at.0,
+        spot.at.1,
+        spot.big.0,
+        spot.big.1,
+        match spot.scrolls {
+          Scrolls::Yes => "true",
+          Scrolls::No => "false",
+        }
+      )
+    })
+    .collect();
 
-    Ok(format!("[{}]", every.join(",")))
+  Ok(format!("[{}]", every.join(",")))
 }
 
 pub fn serialize(told: &Description) -> Result<String, Never> {
-    let mut out = String::new();
-    let lines: Vec<String> = told
-        .lines
-        .iter()
-        .map(|line| {
-            let Ok(says) = json_string(&line.says);
-            let Ok(aside) = json_string(&line.aside);
-            let Ok(spots) = spots_said(&line.spots);
-            let Ok(cells) = words_said(&line.cells);
-            let Ok(drew) = words_said(&line.drew);
+  let mut out = String::new();
+  let lines: Vec<String> = told
+    .lines
+    .iter()
+    .map(|line| {
+      let Ok(says) = json_string(&line.says);
+      let Ok(aside) = json_string(&line.aside);
+      let Ok(spots) = spots_said(&line.spots);
+      let Ok(cells) = words_said(&line.cells);
+      let Ok(drew) = words_said(&line.drew);
 
-            format!(
-                "{{\"at\":{},\"says\":{},\"aside\":{},\"offers\":{},\"bare\":{},\
+      format!(
+        "{{\"at\":{},\"says\":{},\"aside\":{},\"offers\":{},\"bare\":{},\
                  \"heading\":{},\"standing\":{},\"spots\":{},\"cells\":{},\"drew\":{}}}",
-                line.at,
-                says,
-                aside,
-                match line.offers {
-                    Offers::Yes => "true",
-                    Offers::No => "false",
-                },
-                match line.bare {
-                    Bare::Yes => "true",
-                    Bare::No => "false",
-                },
-                match line.heading {
-                    Heading::Yes => "true",
-                    Heading::No => "false",
-                },
-                match line.standing {
-                    Standing::On => "\"on\"",
-                    Standing::Beside => "\"beside\"",
-                    Standing::No => "\"no\"",
-                },
-                spots,
-                cells,
-                drew
-            )
-        })
-        .collect();
-    let Ok(panel) = json_string(&told.panel);
-    let Ok(tab) = json_string(&told.tab);
-    let Ok(spots) = spots_said(&told.spots);
-
-    let _ = write!(
-        out,
-        "{{\"panel\":{},\"tab\":{},\"out\":{},\"room\":[{},{}],\"presses\":{},\"keyboard\":{},\"spots\":{},\"lines\":[{}]}}",
-        panel,
-        tab,
-        match told.out {
-            Output::Yes => "true",
-            Output::No => "false",
+        line.at,
+        says,
+        aside,
+        match line.offers {
+          Offers::Yes => "true",
+          Offers::No => "false",
         },
-        told.room.0,
-        told.room.1,
-        told.presses,
-        match told.keyboard {
-            KeyboardFocus::Here => "true",
-            KeyboardFocus::Elsewhere => "false",
+        match line.bare {
+          Bare::Yes => "true",
+          Bare::No => "false",
+        },
+        match line.heading {
+          Heading::Yes => "true",
+          Heading::No => "false",
+        },
+        match line.standing {
+          Standing::On => "\"on\"",
+          Standing::Beside => "\"beside\"",
+          Standing::No => "\"no\"",
         },
         spots,
-        lines.join(",")
-    );
+        cells,
+        drew
+      )
+    })
+    .collect();
+  let Ok(panel) = json_string(&told.panel);
+  let Ok(tab) = json_string(&told.tab);
+  let Ok(spots) = spots_said(&told.spots);
 
-    Ok(out)
+  let _a_string_accepts_its_formatted_text = write!(
+    out,
+    "{{\"panel\":{},\"tab\":{},\"out\":{},\"room\":[{},{}],\"presses\":{},\"keyboard\":{},\"spots\":{},\"lines\":[{}]}}",
+    panel,
+    tab,
+    match told.out {
+      Output::Yes => "true",
+      Output::No => "false",
+    },
+    told.room.0,
+    told.room.1,
+    told.presses,
+    match told.keyboard {
+      KeyboardFocus::Here => "true",
+      KeyboardFocus::Elsewhere => "false",
+    },
+    spots,
+    lines.join(",")
+  );
+
+  Ok(out)
 }
 
 fn number(held: Option<&serde_json::Value>) -> Result<Option<i32>, Never> {
-    let held = match held {
-        Some(held) => held,
-        None => return Ok(None),
-    };
+  let held_3 = match held {
+    Some(held_2) => held_2,
+    None => return Ok(None),
+  };
 
-    let whole = match held.as_i64() {
-        Some(whole) => whole,
-        None => return Ok(None),
-    };
+  let whole = match held_3.as_i64() {
+    Some(whole) => whole,
+    None => return Ok(None),
+  };
 
-    let Ok(whole) = fitted::<i64, i32>(whole);
+  let Ok(whole_2) = fitted::<i64, i32>(whole);
 
-    Ok(Some(whole))
+  Ok(Some(whole_2))
 }
 
-fn pair(held: &serde_json::Value, called: &str) -> Result<Option<(i32, i32)>, Never> {
-    let named = match held.get(called) {
-        Some(named) => named,
-        None => return Ok(None),
-    };
+fn pair(held: Option<&serde_json::Value>) -> Result<Option<(i32, i32)>, Never> {
+  let named = match held {
+    Some(named) => named,
+    None => return Ok(None),
+  };
 
-    let every = match named.as_array() {
-        Some(every) => every,
-        None => return Ok(None),
-    };
+  let every = match named.as_array() {
+    Some(every) => every,
+    None => return Ok(None),
+  };
 
-    let across = match number(every.first()) {
-        Ok(Some(across)) => across,
-        Ok(None) | Err(_) => return Ok(None),
-    };
+  let across = match number(every.first()) {
+    Ok(Some(across)) => across,
+    Ok(None) | Err(_) => return Ok(None),
+  };
 
-    let down = match number(every.get(1)) {
-        Ok(Some(down)) => down,
-        Ok(None) | Err(_) => return Ok(None),
-    };
+  let down = match number(every.get(1)) {
+    Ok(Some(down)) => down,
+    Ok(None) | Err(_) => return Ok(None),
+  };
 
-    Ok(Some((across, down)))
+  Ok(Some((across, down)))
 }
 
 fn spot_of(held: &serde_json::Value) -> Result<Option<Spot>, Never> {
-    let named = match held.get("name") {
-        Some(named) => named,
-        None => return Ok(None),
-    };
+  let named = match held.get("name") {
+    Some(named) => named,
+    None => return Ok(None),
+  };
 
-    let name = match named.as_str() {
-        Some(name) => name,
-        None => return Ok(None),
-    };
+  let name = match named.as_str() {
+    Some(name) => name,
+    None => return Ok(None),
+  };
 
-    let at = match pair(held, "at") {
-        Ok(Some(at)) => at,
-        Ok(None) | Err(_) => return Ok(None),
-    };
+  let at = match pair(held.get("at")) {
+    Ok(Some(at)) => at,
+    Ok(None) | Err(_) => return Ok(None),
+  };
 
-    let big = match pair(held, "big") {
-        Ok(Some(big)) => big,
-        Ok(None) | Err(_) => return Ok(None),
-    };
+  let big = match pair(held.get("big")) {
+    Ok(Some(big)) => big,
+    Ok(None) | Err(_) => return Ok(None),
+  };
 
-    Ok(Some(Spot {
-        name: name.to_string(),
-        at,
-        big,
-        scrolls: match held.get("scrolls").and_then(serde_json::Value::as_bool) {
-            Some(true) => Scrolls::Yes,
-            Some(false) | None => Scrolls::No,
-        },
-    }))
+  Ok(Some(Spot {
+    name: name.to_string(),
+    at,
+    big,
+    scrolls: match held.get("scrolls").and_then(serde_json::Value::as_bool) {
+      Some(true) => Scrolls::Yes,
+      Some(false) | None => Scrolls::No,
+    },
+  }))
 }
 
 #[derive(Debug)]
 pub enum RenderError {
-    Unparsed(serde_json::Error, String),
-    NoRoom,
-    NoLines,
+  Unparsed(serde_json::Error, String),
+  NoRoom,
+  NoLines,
 }
 
 impl std::fmt::Display for RenderError {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RenderError::Unparsed(fault, said) => write!(to, "{fault}: {said}"),
-            RenderError::NoRoom => write!(to, "no room"),
-            RenderError::NoLines => write!(to, "no lines"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      RenderError::Unparsed(fault, said) => write!(to, "{fault}: {said}"),
+      RenderError::NoRoom => write!(to, "no room"),
+      RenderError::NoLines => write!(to, "no lines"),
     }
+  }
 }
 
 impl std::error::Error for RenderError {}
 
-pub fn read(said: &str) -> Result<Description, RenderError> {
-    let held: serde_json::Value = serde_json::from_str(said)
-        .map_err(|fault| RenderError::Unparsed(fault, said.to_string()))?;
-
-    let Ok(room) = pair(&held, "room");
-
-    let room = match room {
-        Some(room) => room,
-        None => return Err(RenderError::NoRoom),
-    };
-
-    let lines = held
-        .get("lines")
-        .and_then(|held| held.as_array())
-        .ok_or(RenderError::NoLines)?;
-
-    Ok(Description {
-        panel: {
-            let Ok(panel) = word_in(&held, "panel");
-
-            panel
-        },
-        tab: {
-            let Ok(tab) = word_in(&held, "tab");
-
-            tab
-        },
-        out: match held.get("out").and_then(|held| held.as_bool()) {
-            Some(true) => Output::Yes,
-            Some(false) | None => Output::No,
-        },
-        room,
-        presses: match held.get("presses").and_then(|held| held.as_u64()) {
-            Some(presses) => presses,
-            None => 0,
-        },
-        keyboard: match held.get("keyboard").and_then(|held| held.as_bool()) {
-            Some(true) => KeyboardFocus::Here,
-            Some(false) | None => KeyboardFocus::Elsewhere,
-        },
-        spots: {
-            let Ok(spots) = spots_in(&held);
-
-            spots
-        },
-        lines: lines
-            .iter()
-            .enumerate()
-            .map(|(at, held)| Line {
-                at: match held.get("at").and_then(|held| held.as_u64()) {
-                    Some(held) => {
-                        let Ok(held) = fitted::<u64, u32>(held);
-
-                        held
-                    },
-                    None => {
-                        let Ok(at) = fitted::<_, u32>(at);
-
-                        at
-                    },
-                },
-                says: {
-                    let Ok(says) = word_in(held, "says");
-
-                    says
-                },
-                aside: {
-                    let Ok(aside) = word_in(held, "aside");
-
-                    aside
-                },
-                offers: match held.get("offers").and_then(|held| held.as_bool()) {
-                    Some(true) => Offers::Yes,
-                    Some(false) | None => Offers::No,
-                },
-                bare: match held.get("bare").and_then(|held| held.as_bool()) {
-                    Some(true) => Bare::Yes,
-                    Some(false) | None => Bare::No,
-                },
-                heading: match held.get("heading").and_then(|held| held.as_bool()) {
-                    Some(true) => Heading::Yes,
-                    Some(false) | None => Heading::No,
-                },
-                standing: match held.get("standing").and_then(|held| held.as_str()) {
-                    Some("on") => Standing::On,
-                    Some("beside") => Standing::Beside,
-                    Some(_) | None => Standing::No,
-                },
-                spots: {
-                    let Ok(spots) = spots_in(held);
-
-                    spots
-                },
-                cells: {
-                    let Ok(cells) = words_listed(held, "cells");
-
-                    cells
-                },
-                drew: {
-                    let Ok(drew) = words_listed(held, "drew");
-
-                    drew
-                },
-            })
-            .collect(),
-    })
+#[derive(Default, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct PanelReport {
+  panel: ReportField<String>,
+  tab: ReportField<String>,
+  out: ReportField<bool>,
+  room: serde_json::Value,
+  presses: ReportField<u64>,
+  keyboard: ReportField<bool>,
+  spots: serde_json::Value,
+  lines: ReportField<Vec<serde_json::Value>>,
 }
 
+#[derive(Default)]
+struct ReportField<T>(Option<T>);
+
+impl<'de, T: serde::de::DeserializeOwned> serde::Deserialize<'de> for ReportField<T> {
+  fn deserialize<D: serde::Deserializer<'de>>(decoder: D) -> Result<Self, D::Error> {
+    let value = <serde_json::Value as serde::Deserialize>::deserialize(decoder)?;
+
+    Ok(Self(match serde_json::from_value(value) {
+      Ok(parsed) => Some(parsed),
+      Err(_an_absent_or_unreadable_optional_field_uses_its_default) => None,
+    }))
+  }
+}
+
+pub fn read(said: &str) -> Result<Description, RenderError> {
+  let held: PanelReport =
+    serde_json::from_str(said).map_err(|fault| RenderError::Unparsed(fault, said.to_string()))?;
+
+  let Ok(room) = pair(Some(&held.room));
+  let room_2 = room.ok_or(RenderError::NoRoom)?;
+  let lines = held.lines.0.ok_or(RenderError::NoLines)?;
+  let Ok(spots) = spots_in(Some(&held.spots));
+
+  Ok(Description {
+    panel: match held.panel.0 {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => ::std::string::String::new(),
+    },
+    tab: match held.tab.0 {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => ::std::string::String::new(),
+    },
+    out: match held.out.0 {
+      Some(true) => Output::Yes,
+      Some(false) | None => Output::No,
+    },
+    room: room_2,
+    presses: match held.presses.0 {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => 0,
+    },
+    keyboard: match held.keyboard.0 {
+      Some(true) => KeyboardFocus::Here,
+      Some(false) | None => KeyboardFocus::Elsewhere,
+    },
+    spots,
+    lines: lines
+      .iter()
+      .enumerate()
+      .map(|(at, held_6)| Line {
+        at: match held_6.get("at").and_then(|held_7| held_7.as_u64()) {
+          Some(held_8) => {
+            let Ok(held_9) = fitted::<u64, u32>(held_8);
+
+            held_9
+          }
+          None => {
+            let Ok(at_2) = fitted::<_, u32>(at);
+
+            at_2
+          }
+        },
+        says: {
+          let Ok(says) = word_in(held_6, "says");
+
+          says
+        },
+        aside: {
+          let Ok(aside) = word_in(held_6, "aside");
+
+          aside
+        },
+        offers: match held_6.get("offers").and_then(|held_10| held_10.as_bool()) {
+          Some(true) => Offers::Yes,
+          Some(false) | None => Offers::No,
+        },
+        bare: match held_6.get("bare").and_then(|held_11| held_11.as_bool()) {
+          Some(true) => Bare::Yes,
+          Some(false) | None => Bare::No,
+        },
+        heading: match held_6.get("heading").and_then(|held_12| held_12.as_bool()) {
+          Some(true) => Heading::Yes,
+          Some(false) | None => Heading::No,
+        },
+        standing: match held_6.get("standing").and_then(|held_13| held_13.as_str()) {
+          Some("on") => Standing::On,
+          Some("beside") => Standing::Beside,
+          Some(_) | None => Standing::No,
+        },
+        spots: {
+          let Ok(spots_2) = spots_in(held_6.get("spots"));
+
+          spots_2
+        },
+        cells: {
+          let Ok(cells) = words_listed(held_6, "cells");
+
+          cells
+        },
+        drew: {
+          let Ok(drew) = words_listed(held_6, "drew");
+
+          drew
+        },
+      })
+      .collect(),
+  })
+}
 
 pub fn every(said: &str) -> Result<Vec<Description>, RenderError> {
-    said.lines().filter(|line| !line.trim().is_empty()).map(read).collect()
+  said
+    .lines()
+    .filter(|line| !line.trim().is_empty())
+    .map(read)
+    .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    fn spot(name: &str, at: (i32, i32), big: (i32, i32)) -> Result<Spot, Never> {
-        Ok(Spot { name: name.to_string(), at, big, scrolls: Scrolls::No })
+  fn spot(name: &str, at: (i32, i32), big: (i32, i32)) -> Result<Spot, Never> {
+    Ok(Spot {
+      name: name.to_string(),
+      at,
+      big,
+      scrolls: Scrolls::No,
+    })
+  }
+
+  fn scrolling(name: &str, at: (i32, i32), big: (i32, i32)) -> Result<Spot, Never> {
+    Ok(Spot {
+      name: name.to_string(),
+      at,
+      big,
+      scrolls: Scrolls::Yes,
+    })
+  }
+
+  fn sample() -> Result<Description, Never> {
+    let Ok(shut) = spot("shut", (954, 14), (56, 44));
+    let Ok(beside) = spot("else", (900, 300), (40, 30));
+
+    Ok(Description {
+      panel: "viewer-panel".to_string(),
+      tab: "Looking".to_string(),
+      out: Output::No,
+      room: (1024, 640),
+      presses: 3,
+      keyboard: KeyboardFocus::Here,
+      spots: vec![shut],
+      lines: vec![
+        Line {
+          at: 0,
+          says: String::new(),
+          aside: String::new(),
+          offers: Offers::Yes,
+          bare: Bare::Yes,
+          heading: Heading::No,
+          standing: Standing::No,
+          spots: Vec::new(),
+          cells: Vec::new(),
+          drew: Vec::new(),
+        },
+        Line {
+          at: 1,
+          says: "beach.jpg".to_string(),
+          aside: "2 of 7".to_string(),
+          offers: Offers::Yes,
+          bare: Bare::No,
+          heading: Heading::No,
+          standing: Standing::Beside,
+          spots: vec![beside],
+          cells: vec!["1".to_string(), "2".to_string()],
+          drew: vec!["beach.jpg".to_string(), "2 of 7".to_string()],
+        },
+      ],
+    })
+  }
+
+  #[test]
+  fn what_was_drawn_survives_the_trip_through_a_file() -> Result<(), Failure> {
+    let Ok(told) = sample();
+    let Ok(said) = serialize(&told);
+    let read = read(&said)?;
+
+    assert_eq!(read, told);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_run_is_read_back_as_the_draws_it_was() -> Result<(), Failure> {
+    let Ok(told) = sample();
+    let Ok(said) = serialize(&told);
+    let run = format!("{said}\n{said}\n");
+    let every = every(&run)?;
+
+    assert_eq!(every.len(), 2);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_line_that_is_not_this_files_own_is_said_rather_than_skipped() {
+    assert!(matches!(
+      every("{\"panel\":\"x\"}"),
+      Err(RenderError::NoRoom)
+    ));
+    assert!(matches!(
+      read("not json at all"),
+      Err(RenderError::Unparsed(..))
+    ));
+  }
+
+  #[test]
+  fn a_mark_is_found_by_the_name_it_is_drawn_under() -> Result<(), Failure> {
+    let Ok(told) = sample();
+    let Ok(shut) = told.spot("shut");
+    let shut_2 = shut.ok_or("the way out is not drawn")?;
+
+    let Ok(middle) = shut_2.middle();
+    let Ok(line) = told.line_saying("beach.jpg");
+    let line_2 = line.ok_or("the row is not drawn")?;
+
+    let Ok(worn) = line_2.spot("else");
+
+    assert_eq!(middle, (982, 36));
+    assert!(worn.is_some());
+    assert_eq!(told.spot("nothing-is-called-this"), Ok(None));
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_mark_inside_the_screen_can_be_reached_and_one_hanging_off_it_cannot() {
+    let room = (1024, 640);
+
+    let Ok(mark) = spot("shut", (954, 14), (56, 44));
+
+    assert_eq!(reachable(&mark, room), Ok(Reachable::Yes));
+
+    let Ok(mark_2) = spot("shut", (0, 0), (1024, 640));
+
+    assert_eq!(reachable(&mark_2, room), Ok(Reachable::Yes));
+  }
+
+  #[test]
+  fn the_fault_this_was_written_for_is_one_this_can_see() {
+    let room = (1024, 640);
+
+    let Ok(mark) = spot("shut", (982, 14), (56, 44));
+
+    assert_eq!(reachable(&mark, room), Ok(Reachable::No));
+
+    let Ok(mark_2) = spot("shut", (-4, 14), (56, 44));
+
+    assert_eq!(reachable(&mark_2, room), Ok(Reachable::No));
+
+    let Ok(mark_3) = spot("shut", (900, 620), (56, 44));
+
+    assert_eq!(reachable(&mark_3, room), Ok(Reachable::No));
+  }
+
+  #[test]
+  fn a_mark_the_thumb_can_scroll_to_is_a_mark_a_hand_can_reach() {
+    let room = (1024, 640);
+
+    let Ok(mark) = scrolling("else", (865, 4805), (44, 29));
+
+    assert_eq!(reachable(&mark, room), Ok(Reachable::Yes));
+
+    let Ok(mark_2) = spot("else", (865, 4805), (44, 29));
+
+    assert_eq!(reachable(&mark_2, room), Ok(Reachable::No));
+  }
+
+  #[test]
+  fn scrolling_does_not_excuse_a_mark_off_the_side() {
+    let room = (1024, 640);
+
+    let Ok(mark) = scrolling("else", (1000, 300), (44, 29));
+
+    assert_eq!(reachable(&mark, room), Ok(Reachable::No));
+
+    let Ok(mark_2) = scrolling("else", (-4, 300), (44, 29));
+
+    assert_eq!(reachable(&mark_2, room), Ok(Reachable::No));
+  }
+
+  #[test]
+  fn a_mark_with_no_size_is_a_mark_nothing_can_land_on() {
+    let Ok(mark) = spot("else", (10, 10), (0, 30));
+
+    assert_eq!(reachable(&mark, (1024, 640)), Ok(Reachable::No));
+
+    let Ok(mark_2) = spot("else", (10, 10), (40, 0));
+
+    assert_eq!(reachable(&mark_2, (1024, 640)), Ok(Reachable::No));
+  }
+
+  #[test]
+  fn a_row_that_offers_something_and_wears_nothing_is_the_fault_being_looked_for() {
+    let Ok(told) = sample();
+
+    for line in &told.lines {
+      let Ok(worn) = line.spot("else");
+
+      let answered = worn.is_some() || line.bare == Bare::Yes;
+
+      assert!(
+        answered,
+        "row {} offers something a finger cannot reach",
+        line.at
+      );
     }
+  }
 
-    fn scrolling(name: &str, at: (i32, i32), big: (i32, i32)) -> Result<Spot, Never> {
-        Ok(Spot { name: name.to_string(), at, big, scrolls: Scrolls::Yes })
+  #[test]
+  fn every_part_a_hand_is_offered_is_one_the_walk_looks_for() {
+    for name in ["tab", "shut", "more", "step", "else", "press", "answer"] {
+      assert!(
+        OFFERED.contains(&name),
+        "{name} is drawn to be pressed and never looked for"
+      );
     }
-
-    fn sample() -> Result<Description, Never> {
-        let Ok(shut) = spot("shut", (954, 14), (56, 44));
-        let Ok(beside) = spot("else", (900, 300), (40, 30));
-
-        Ok(Description {
-            panel: "viewer-panel".to_string(),
-            tab: "Looking".to_string(),
-            out: Output::No,
-            room: (1024, 640),
-            presses: 3,
-            keyboard: KeyboardFocus::Here,
-            spots: vec![shut],
-            lines: vec![
-                Line {
-                    at: 0,
-                    says: String::new(),
-                    aside: String::new(),
-                    offers: Offers::Yes,
-                    bare: Bare::Yes,
-                    heading: Heading::No,
-                    standing: Standing::No,
-                    spots: Vec::new(),
-                    cells: Vec::new(),
-                    drew: Vec::new(),
-                },
-                Line {
-                    at: 1,
-                    says: "beach.jpg".to_string(),
-                    aside: "2 of 7".to_string(),
-                    offers: Offers::Yes,
-                    bare: Bare::No,
-                    heading: Heading::No,
-                    standing: Standing::Beside,
-                    spots: vec![beside],
-                    cells: vec!["1".to_string(), "2".to_string()],
-                    drew: vec!["beach.jpg".to_string(), "2 of 7".to_string()],
-                },
-            ],
-        })
-    }
-
-    #[test]
-    fn what_was_drawn_survives_the_trip_through_a_file() -> Result<(), Failure> {
-        let Ok(told) = sample();
-        let Ok(said) = serialize(&told);
-        let read = read(&said)?;
-
-        assert_eq!(read, told);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_run_is_read_back_as_the_draws_it_was() -> Result<(), Failure> {
-        let Ok(told) = sample();
-        let Ok(said) = serialize(&told);
-        let run = format!("{said}\n{said}\n");
-        let every = every(&run)?;
-
-        assert_eq!(every.len(), 2);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_line_that_is_not_this_files_own_is_said_rather_than_skipped() {
-        assert!(matches!(every("{\"panel\":\"x\"}"), Err(RenderError::NoRoom)));
-        assert!(matches!(read("not json at all"), Err(RenderError::Unparsed(..))));
-    }
-
-    #[test]
-    fn a_mark_is_found_by_the_name_it_is_drawn_under() -> Result<(), Failure> {
-        let Ok(told) = sample();
-        let Ok(shut) = told.spot("shut");
-        let shut = shut.ok_or("the way out is not drawn")?;
-
-        let Ok(middle) = shut.middle();
-        let Ok(line) = told.line_saying("beach.jpg");
-        let line = line.ok_or("the row is not drawn")?;
-
-        let Ok(worn) = line.spot("else");
-
-        assert_eq!(middle, (982, 36));
-        assert!(worn.is_some());
-        assert_eq!(told.spot("nothing-is-called-this"), Ok(None));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_mark_inside_the_screen_can_be_reached_and_one_hanging_off_it_cannot() {
-        let room = (1024, 640);
-
-        let Ok(mark) = spot("shut", (954, 14), (56, 44));
-
-        assert_eq!(reachable(&mark, room), Ok(Reachable::Yes));
-
-        let Ok(mark) = spot("shut", (0, 0), (1024, 640));
-
-        assert_eq!(reachable(&mark, room), Ok(Reachable::Yes));
-    }
-
-    #[test]
-    fn the_fault_this_was_written_for_is_one_this_can_see() {
-        let room = (1024, 640);
-
-        let Ok(mark) = spot("shut", (982, 14), (56, 44));
-
-        assert_eq!(reachable(&mark, room), Ok(Reachable::No));
-
-        let Ok(mark) = spot("shut", (-4, 14), (56, 44));
-
-        assert_eq!(reachable(&mark, room), Ok(Reachable::No));
-
-        let Ok(mark) = spot("shut", (900, 620), (56, 44));
-
-        assert_eq!(reachable(&mark, room), Ok(Reachable::No));
-    }
-
-    #[test]
-    fn a_mark_the_thumb_can_scroll_to_is_a_mark_a_hand_can_reach() {
-        let room = (1024, 640);
-
-        let Ok(mark) = scrolling("else", (865, 4805), (44, 29));
-
-        assert_eq!(reachable(&mark, room), Ok(Reachable::Yes));
-
-        let Ok(mark) = spot("else", (865, 4805), (44, 29));
-
-        assert_eq!(reachable(&mark, room), Ok(Reachable::No));
-    }
-
-    #[test]
-    fn scrolling_does_not_excuse_a_mark_off_the_side() {
-        let room = (1024, 640);
-
-        let Ok(mark) = scrolling("else", (1000, 300), (44, 29));
-
-        assert_eq!(reachable(&mark, room), Ok(Reachable::No));
-
-        let Ok(mark) = scrolling("else", (-4, 300), (44, 29));
-
-        assert_eq!(reachable(&mark, room), Ok(Reachable::No));
-    }
-
-    #[test]
-    fn a_mark_with_no_size_is_a_mark_nothing_can_land_on() {
-        let Ok(mark) = spot("else", (10, 10), (0, 30));
-
-        assert_eq!(reachable(&mark, (1024, 640)), Ok(Reachable::No));
-
-        let Ok(mark) = spot("else", (10, 10), (40, 0));
-
-        assert_eq!(reachable(&mark, (1024, 640)), Ok(Reachable::No));
-    }
-
-    #[test]
-    fn a_row_that_offers_something_and_wears_nothing_is_the_fault_being_looked_for() {
-        let Ok(told) = sample();
-
-        for line in &told.lines {
-            let Ok(worn) = line.spot("else");
-
-            let answered = worn.is_some() || line.bare == Bare::Yes;
-
-            assert!(answered, "row {} offers something a finger cannot reach", line.at);
-        }
-    }
-
-    #[test]
-    fn every_part_a_hand_is_offered_is_one_the_walk_looks_for() {
-        for name in ["tab", "shut", "more", "step", "else", "press", "answer"] {
-            assert!(OFFERED.contains(&name), "{name} is drawn to be pressed and never looked for");
-        }
-    }
+  }
 }

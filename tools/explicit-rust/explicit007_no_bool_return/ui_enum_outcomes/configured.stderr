@@ -1,0 +1,27 @@
+error: boolean return value is forbidden
+  --> $DIR/configured.rs:10:30
+   |
+LL |     fn classify(byte: u8) -> bool {
+   |                              ^^^^
+   |
+   = note: `#[deny(explicit007_no_bool_return)]` on by default
+help: return the configured enum and update every direct call
+   |
+LL ~     fn classify(byte: u8) -> self::ByteClass {
+LL |         // Both values have the same classification.
+LL ~         match ::core::primitive::bool::then_some(::core::matches!(byte, 0 | 27), ()) {
+LL +             ::core::option::Option::Some(()) => self::ByteClass::Control,
+LL +             ::core::option::Option::None => self::ByteClass::Data,
+LL +         }
+LL |     }
+LL |
+LL |     pub fn count(bytes: &[u8]) -> usize {
+LL ~         bytes.iter().filter(|&&byte| ::core::matches!(classify(byte), self::ByteClass::Control)).count()
+LL |     }
+LL |
+LL |     pub fn answer(byte: u8) -> usize {
+LL ~         usize::from(!::core::matches!(classify(byte), self::ByteClass::Control))
+   |
+
+error: aborting due to 1 previous error
+

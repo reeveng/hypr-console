@@ -1,3 +1,5 @@
+// edition:2024
+// run-rustfix
 // UI test for EXPLICIT010 — a number must not change width quietly.
 
 // BAD EXPLICIT010 — `into()` reads as the same number and is a wider one.
@@ -16,4 +18,7 @@ fn a_string(text: &str) -> String {
     text.into()
 }
 
-fn main() {}
+fn main() {
+    assert_eq!(widens(255), says_both(255));
+    assert_eq!(a_string("rust"), "rust");
+}

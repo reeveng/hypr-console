@@ -30,35 +30,38 @@ use console_input_gamepad::profile::Profile;
 use console_input_gamepad::router::{self, every_profile};
 
 fn profiles() -> Result<BTreeMap<String, Profile>, Box<dyn Error>> {
-    let root = console_repository::root()?;
-    let profiles = every_profile(&root)?;
+  let root = console_repository::root()?;
+  let profiles = every_profile(&root)?;
 
-    Ok(profiles)
+  Ok(profiles)
 }
 
 #[test]
 fn there_is_a_profile_for_each_thing_the_pad_can_be_wearing() -> Result<(), Box<dyn Error>> {
-    let profiles = profiles()?;
-    let named: BTreeSet<String> = profiles.into_keys().collect();
+  let profiles = profiles()?;
+  let named: BTreeSet<String> = profiles.into_keys().collect();
 
-    assert_eq!(named, BTreeSet::from(["game", router::NAME].map(String::from)));
+  assert_eq!(
+    named,
+    BTreeSet::from(["game", router::NAME].map(String::from))
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn every_profile_publishes_all_three_devices() -> Result<(), Box<dyn Error>> {
-    let profiles = profiles()?;
+  let profiles = profiles()?;
 
-    for (name, profile) in profiles {
-        for device in ["mouse", "keyboard", "xbox-elite"] {
-            assert_eq!(
-                profile.publishes(device),
-                Ok(Has::Yes),
-                "{name} does not publish the {device}"
-            );
-        }
+  for (name, profile) in profiles {
+    for device in ["mouse", "keyboard", "xbox-elite"] {
+      assert_eq!(
+        profile.publishes(device),
+        Ok(Has::Yes),
+        "{name} does not publish the {device}"
+      );
     }
+  }
 
-    Ok(())
+  Ok(())
 }

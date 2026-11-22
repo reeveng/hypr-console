@@ -22,16 +22,16 @@
 use crate::sweeping::{Migration, Moment, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1788696995),
-    says: "stopping and disabling the pair the rename replaced, and sweeping what the manifest stopped naming",
-    steps: &[
-        Step::Disable("console-controller.service"),
-        Step::Disable("console-keyboard.service"),
-        Step::Attic("/etc/systemd/user/console-controller.service"),
-        Step::Attic("/etc/systemd/user/console-controller.service.d/opening.conf"),
-        Step::Attic("/etc/systemd/user/console-controller.service.d"),
-        Step::Attic("/etc/systemd/user/console-keyboard.service"),
-        Step::Attic("/usr/share/applications/console-download.desktop"),
-        Step::Attic("/usr/share/applications/console-viewer.desktop"),
-    ],
+  moment: Moment(1788696995),
+  says: "stopping and disabling the pair the rename replaced, and sweeping what the manifest stopped naming",
+  steps: &[
+    Step::Disable("console-controller.service"),
+    Step::Disable("console-keyboard.service"),
+    Step::Attic("/etc/systemd/user/console-controller.service"),
+    Step::Attic("/etc/systemd/user/console-controller.service.d/opening.conf"),
+    Step::Attic("/etc/systemd/user/console-controller.service.d"),
+    Step::Attic("/etc/systemd/user/console-keyboard.service"),
+    Step::Attic("/usr/share/applications/console-download.desktop"),
+    Step::Attic("/usr/share/applications/console-viewer.desktop"),
+  ],
 };

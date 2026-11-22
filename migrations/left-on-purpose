@@ -12,8 +12,8 @@
 
 # --- The rename, swept once by tools/console-migrate on 2026-08-29 -------------
 #
-# docs/rename.md section 3 is the whole of it, and step 6 is the sweep: every
-# `legion-*` name the manifest had installed was moved to
+# Section 3 of the rename.md note in Orbit is the whole of it, and step 6 is
+# the sweep: every `legion-*` name the manifest had installed was moved to
 # /var/tmp/console-migration-20260829-234115, which is still on the device. That
 # attic is the evidence, and the device has been read since: no legion-named
 # binary, unit, udev rule, sudoers file or profile survives on it. A migration

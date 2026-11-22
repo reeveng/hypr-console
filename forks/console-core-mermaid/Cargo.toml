@@ -1,217 +1,476 @@
-[workspace]
-resolver = "2"
-members = [
-    "crates/merman",
-    "crates/merman-analysis",
-    "crates/merman-editor-core",
-    "crates/merman-fixture-render-context",
-    "crates/merman-theme-authoring-fixtures",
-    "crates/merman-theme-contract",
-    "crates/merman-theme-acceptance",
-    "crates/merman-core",
-    "crates/merman-model",
-    "crates/merman-markup",
-    "crates/merman-doc",
-    "crates/merman-ascii",
-    "crates/merman-ascii-test-contracts",
-    "crates/merman-bindings-core",
-    "crates/merman-android-jni",
-    "crates/merman-cli",
-    "crates/merman-lsp",
-    "crates/merman-ffi",
-    "crates/merman-elk-layered",
-    "crates/merman-layout-elk",
-    "crates/merman-rustdoc",
-    "crates/merman-render",
-    "crates/merman-unicode-linebreak",
-    "crates/merman-export",
-    "crates/merman-typst-plugin",
-    "crates/merman-uniffi",
-    "crates/merman-wasm",
-    "crates/merman-wasi",
-    "crates/dugong",
-    "crates/dugong-graphlib",
-    "crates/manatee",
-    "crates/roughr",
-    "crates/xtask",
-    "distribution/tree-sitter-mermaid",
-]
-exclude = [
-    "repo-ref/dear-imgui-rs",
-    "repo-ref/mermaid-rs-renderer",
-]
-
-[workspace.package]
+[package]
+name = "console-core-mermaid"
 version = "0.10.0-alpha.2"
 edition = "2024"
 authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/Latias94/merman"
+license = "AGPL-3.0-or-later"
 homepage = "https://github.com/Latias94/merman"
+repository = "https://github.com/Latias94/merman"
 rust-version = "1.95"
+description = "Parity-focused, headless Rust implementation of Mermaid for parsing, layout, and rendering."
+documentation = "https://docs.rs/merman"
+readme = "../README.md"
+keywords = ["mermaid", "diagrams", "svg", "parser", "headless"]
+categories = ["parser-implementations", "visualization"]
+exclude = [
+    "src/theme_acceptance.rs",
+    "tests/mindmap_br_variants_031.rs",
+    "tests/resvg_safe_fixture_smoke.rs",
+    "tests/zed_mermaid_issue_fixtures.rs",
+    "tests/zed_pr_57644_corpus.rs",
+]
 
-[workspace.metadata.merman-release]
-independent-packages = ["roughr-merman", "tree-sitter-mermaid"]
+[package.metadata.docs.rs]
+features = [
+    "all-diagrams",
+    "svg",
+    "png",
+    "jpeg",
+    "pdf",
+    "layout-cytoscape",
+    "layout-elk",
+    "math",
+    "system-clock",
+    "system-timezone",
+    "system-random",
+    "system-timing",
+]
 
-[workspace.dependencies]
-atomic-write-file = { version = "0.3.1", default-features = false }
-base64 = "0.23.1"
-data-url = { package = "console-core-data-urls", path = "../console-core-data-urls" }
-brotli = "9.1.1"
-clap_mangen = "0.3.3"
-ctrlc = "3.5.2"
+[package.metadata.merman]
+artifact-profile-required = true
+
+[features]
+# Diagram selection is independent of output formats and optional layout engines.
+all-diagrams = [
+    "diagram-agentflow",
+    "diagram-architecture",
+    "diagram-block",
+    "diagram-c4",
+    "diagram-class",
+    "diagram-cynefin",
+    "diagram-er",
+    "diagram-event-modeling",
+    "diagram-flowchart",
+    "diagram-gantt",
+    "diagram-git-graph",
+    "diagram-info",
+    "diagram-ishikawa",
+    "diagram-journey",
+    "diagram-kanban",
+    "diagram-mindmap",
+    "diagram-packet",
+    "diagram-pie",
+    "diagram-quadrant-chart",
+    "diagram-radar",
+    "diagram-railroad",
+    "diagram-requirement",
+    "diagram-sankey",
+    "diagram-sequence",
+    "diagram-state",
+    "diagram-swimlane",
+    "diagram-timeline",
+    "diagram-tree-view",
+    "diagram-treemap",
+    "diagram-usecase",
+    "diagram-venn",
+    "diagram-wardley",
+    "diagram-xychart",
+    "diagram-zenuml",
+]
+diagram-architecture = [
+    "merman-model/diagram-architecture",
+    "merman-core/diagram-architecture",
+    "merman-render?/diagram-architecture",
+]
+diagram-block = [
+    "merman-model/diagram-block",
+    "merman-core/diagram-block",
+    "merman-render?/diagram-block",
+]
+diagram-c4 = [
+    "merman-model/diagram-c4",
+    "merman-core/diagram-c4",
+    "merman-render?/diagram-c4",
+]
+diagram-class = [
+    "merman-model/diagram-class",
+    "merman-core/diagram-class",
+    "merman-render?/diagram-class",
+]
+diagram-cynefin = [
+    "merman-model/diagram-cynefin",
+    "merman-core/diagram-cynefin",
+    "merman-render?/diagram-cynefin",
+]
+diagram-er = [
+    "merman-model/diagram-er",
+    "merman-core/diagram-er",
+    "merman-render?/diagram-er",
+]
+diagram-event-modeling = [
+    "merman-model/diagram-event-modeling",
+    "merman-core/diagram-event-modeling",
+    "merman-render?/diagram-event-modeling",
+]
+diagram-agentflow = [
+    "merman-model/diagram-agentflow",
+    "merman-core/diagram-agentflow",
+    "merman-render?/diagram-agentflow",
+]
+diagram-usecase = [
+    "merman-model/diagram-usecase",
+    "merman-core/diagram-usecase",
+    "merman-render?/diagram-usecase",
+]
+diagram-flowchart = [
+    "merman-model/diagram-flowchart",
+    "merman-core/diagram-flowchart",
+    "merman-render?/diagram-flowchart",
+]
+diagram-gantt = [
+    "merman-model/diagram-gantt",
+    "merman-core/diagram-gantt",
+    "merman-render?/diagram-gantt",
+]
+diagram-git-graph = [
+    "merman-model/diagram-git-graph",
+    "merman-core/diagram-git-graph",
+    "merman-render?/diagram-git-graph",
+]
+diagram-info = [
+    "merman-model/diagram-info",
+    "merman-core/diagram-info",
+    "merman-render?/diagram-info",
+]
+diagram-ishikawa = [
+    "merman-model/diagram-ishikawa",
+    "merman-core/diagram-ishikawa",
+    "merman-render?/diagram-ishikawa",
+]
+diagram-journey = [
+    "merman-model/diagram-journey",
+    "merman-core/diagram-journey",
+    "merman-render?/diagram-journey",
+]
+diagram-kanban = [
+    "merman-model/diagram-kanban",
+    "merman-core/diagram-kanban",
+    "merman-render?/diagram-kanban",
+]
+diagram-mindmap = [
+    "merman-model/diagram-mindmap",
+    "merman-core/diagram-mindmap",
+    "merman-render?/diagram-mindmap",
+]
+diagram-packet = [
+    "merman-model/diagram-packet",
+    "merman-core/diagram-packet",
+    "merman-render?/diagram-packet",
+]
+diagram-pie = [
+    "merman-model/diagram-pie",
+    "merman-core/diagram-pie",
+    "merman-render?/diagram-pie",
+]
+diagram-quadrant-chart = [
+    "merman-model/diagram-quadrant-chart",
+    "merman-core/diagram-quadrant-chart",
+    "merman-render?/diagram-quadrant-chart",
+]
+diagram-radar = [
+    "merman-model/diagram-radar",
+    "merman-core/diagram-radar",
+    "merman-render?/diagram-radar",
+]
+diagram-railroad = [
+    "merman-model/diagram-railroad",
+    "merman-core/diagram-railroad",
+    "merman-render?/diagram-railroad",
+]
+diagram-requirement = [
+    "merman-model/diagram-requirement",
+    "merman-core/diagram-requirement",
+    "merman-render?/diagram-requirement",
+]
+diagram-sankey = [
+    "merman-model/diagram-sankey",
+    "merman-core/diagram-sankey",
+    "merman-render?/diagram-sankey",
+]
+diagram-sequence = [
+    "merman-model/diagram-sequence",
+    "merman-core/diagram-sequence",
+    "merman-render?/diagram-sequence",
+]
+diagram-state = [
+    "merman-model/diagram-state",
+    "merman-core/diagram-state",
+    "merman-render?/diagram-state",
+]
+diagram-swimlane = [
+    "merman-model/diagram-swimlane",
+    "merman-core/diagram-swimlane",
+    "merman-render?/diagram-swimlane",
+]
+diagram-timeline = [
+    "merman-model/diagram-timeline",
+    "merman-core/diagram-timeline",
+    "merman-render?/diagram-timeline",
+]
+diagram-tree-view = [
+    "merman-model/diagram-tree-view",
+    "merman-core/diagram-tree-view",
+    "merman-render?/diagram-tree-view",
+]
+diagram-treemap = [
+    "merman-model/diagram-treemap",
+    "merman-core/diagram-treemap",
+    "merman-render?/diagram-treemap",
+]
+diagram-venn = [
+    "merman-model/diagram-venn",
+    "merman-core/diagram-venn",
+    "merman-render?/diagram-venn",
+]
+diagram-wardley = [
+    "merman-model/diagram-wardley",
+    "merman-core/diagram-wardley",
+    "merman-render?/diagram-wardley",
+]
+diagram-xychart = [
+    "merman-model/diagram-xychart",
+    "merman-core/diagram-xychart",
+    "merman-render?/diagram-xychart",
+]
+diagram-zenuml = [
+    "merman-model/diagram-zenuml",
+    "merman-core/diagram-zenuml",
+    "merman-render?/diagram-zenuml",
+]
+default = ["all-diagrams", "svg", "layout-cytoscape", "layout-elk"]
+system-clock = ["merman-model/system-clock", "merman-core/system-clock", "merman-render?/system-clock"]
+system-timezone = ["merman-model/system-timezone", "merman-core/system-timezone", "merman-render?/system-timezone"]
+system-random = ["merman-model/system-random", "merman-core/system-random", "merman-render?/system-random"]
+system-timing = ["merman-model/system-timing", "merman-core/system-timing", "merman-render?/system-timing"]
+presentation = ["merman-core/presentation", "dep:merman-markup"]
+compat-json = ["presentation", "merman-core/compat-json"]
+editor-facts = ["merman-core/editor-facts"]
+svg = ["presentation", "dep:merman-render", "dep:merman-theme-contract"]
+native-fonts = ["svg", "dep:merman-export", "merman-export/native-fonts"]
+system-fonts = ["native-fonts", "merman-export/system-fonts"]
+experimental-system-font-query = ["system-fonts", "merman-export/experimental-system-font-query"]
+layout-cytoscape = ["svg", "merman-render/layout-cytoscape"]
+layout-elk = ["svg", "merman-render/layout-elk"]
+math = ["svg", "merman-render/math"]
+# Convenience output/layout bundles; mathematical labels require explicit `math`.
+complete-svg = ["svg", "layout-cytoscape"]
+complete-svg-elk = ["complete-svg", "layout-elk"]
+png = ["svg", "dep:merman-export", "merman-export/png"]
+jpeg = ["svg", "dep:merman-export", "merman-export/jpeg"]
+pdf = ["svg", "dep:merman-export", "merman-export/pdf"]
+[dependencies]
+merman-model = { package = "console-core-mermaid-model", path = "../console-core-mermaid-model", version = "=0.10.0-alpha.2", default-features = false, features = ["terminal-text"] }
+merman-markup = { package = "console-core-mermaid-markup", path = "../console-core-mermaid-markup", version = "=0.10.0-alpha.2", default-features = false, optional = true, features = ["color"] }
+merman-core = { package = "console-core-mermaid-syntax", path = "../console-core-mermaid-syntax", version = "=0.10.0-alpha.2", default-features = false }
+merman-export = { package = "console-core-mermaid-export", path = "../console-core-mermaid-export", version = "=0.10.0-alpha.2", default-features = false, optional = true }
+merman-render = { package = "console-core-mermaid-renderer", path = "../console-core-mermaid-renderer", version = "=0.10.0-alpha.2", default-features = false, optional = true }
+merman-theme-contract = { package = "console-core-mermaid-theme-contract", path = "../console-core-mermaid-theme-contract", version = "=0.10.0-alpha.2", optional = true }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+
+[dev-dependencies]
 data-encoding = "2.11.1"
-euclid = "0.22.14"
-flate2 = "1.1.10"
-fontique = { version = "0.12.0", default-features = false, features = ["system"] }
-fs2 = "0.4.3"
-htmlize = { version = "1.1.0", features = ["unescape"] }
-html5ever = "0.40.1"
-indexmap = "2.14.2"
-lalrpop = "0.23.2"
-lalrpop-util = { version = "0.23.2", default-features = false }
-libc = "0.2.191"
-# Pin numerical kernels so deterministic geometry changes are reviewed explicitly.
-libm = { version = "=0.2.16", default-features = false }
-pulldown-cmark = { version = "0.13.6", default-features = false }
-ratex-font = "0.1.15"
-ratex-layout = "0.1.15"
-ratex-parser = "0.1.15"
-ratex-svg = { version = "0.1.15", default-features = false }
-ratex-types = "0.1.15"
-regex = "1.13.1"
-reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "default-tls"] }
-rayon = "1.12.0"
-roxmltree = { package = "console-core-extensible-markup", path = "../console-core-extensible-markup" }
-quick-xml = "0.42.0"
-ropey = { version = "1.6.1", default-features = false, features = ["cr_lines", "simd"] }
-rustc-hash = "2.1.3"
+base64 = "0.23.1"
+criterion = "=0.8.2"
+png = "0.18.1"
+roxmltree = { package = "console-core-extensible-markup", path = "../../crates/console-core-extensible-markup" }
 rustybuzz = "0.20.1"
-unicode-script = "0.5.9"
-ryu-js = "1.0.3"
-roughr = { package = "console-core-mermaid-sketches", path = "crates/roughr", version = "0.12.6", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-same-file = "1.0.6"
-rustix = { version = "1.1.6", default-features = false, features = ["fs", "std"] }
-sha2 = "0.11.1"
-similar = { version = "3.2.1", default-features = false, features = ["std", "text"] }
-tokio = { version = "1.54.1", default-features = false }
-granit-parser = { version = "2.1.0", default-features = false, features = ["error_messages"] }
-serde-saphyr = { version = "2.1.1", default-features = false }
-toml = { version = "1.2.0", default-features = false, features = ["std", "serde", "parse"] }
-serde_json_canonicalizer = "0.4.1"
-json5 = "1.3.7"
-jsonschema = { version = "0.60.2", default-features = false }
-kurbo = "0.13.1"
-js-sys = "0.3.107"
-thiserror = "2.0.21"
-tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt"] }
-uniffi = { version = "0.32.2", default-features = false }
-futures = { version = "0.3.34", default-features = false }
-ttf-parser = { version = "0.25.1", default-features = false, features = ["std", "variable-fonts"] }
-hashbrown = { version = "0.17.1", default-features = false, features = ["equivalent"] }
-hickory-resolver = { version = "0.26.3", default-features = false, features = ["tokio", "system-config"] }
-url = "2.5.8"
-cssparser = { version = "0.38.0", default-features = false, features = ["fast_match_byte"] }
-jiff = { version = "0.2.39", default-features = false }
-clap = { version = "4.6.7", features = ["derive"] }
-clap_complete = "4.6.11"
-console_error_panic_hook = "0.1.7"
-image = { version = "0.25.10", default-features = false, features = ["jpeg"] }
-png = "0.18.1"
-proc-macro-crate = "3.5.0"
-proc-macro2 = "1.0.107"
-quote = "1.0.47"
-getrandom = { version = "0.4.3", default-features = false }
-resvg = { package = "console-core-scalable-vector-graphics-rasterizer", path = "../console-core-scalable-vector-graphics-rasterizer", default-features = false }
-serde-wasm-bindgen = "0.6.5"
-syn = { version = "3.0.9", features = ["full", "parsing"] }
-usvg = { package = "console-core-scalable-vector-graphics", path = "../console-core-scalable-vector-graphics", default-features = false }
-svgtypes = { package = "console-core-scalable-vector-graphics-values", path = "../console-core-scalable-vector-graphics-values" }
-tiny-skia = { package = "console-core-path-rasterizer", path = "../console-core-path-rasterizer" }
-krilla = { version = "0.8.2", default-features = false }
-krilla-svg = { version = "0.8.1", default-features = false }
-unicode-width = { version = "0.2.3", default-features = false }
-unicode-linebreak = { package = "console-core-mermaid-line-breaks", path = "crates/merman-unicode-linebreak", version = "=0.10.0-alpha.2" }
-unicode-segmentation = { version = "1.13.3", default-features = false }
-unicode-general-category = "1.1.0"
-unicode-normalization = "0.1.26"
-unicase = "2.10.0"
-wasm-bindgen = "0.2.130"
-web-time = "1.1.0"
-wasm-minimal-protocol = "0.2.1"
-# Preserve Wasmi's automatic fallback to loop dispatch for unoptimized host builds.
-wasmi = { version = "2.0.0", default-features = false, features = ["auto-dispatch", "simd", "stable", "validate"] }
-windows-sys = { version = "0.61.2", default-features = false }
-# The crate requires one transport runtime even when consumers only construct its LSP service.
-tower-lsp-server = { version = "0.23.0", default-features = false, features = ["runtime-tokio"] }
+console-core-checksums = { path = "../../crates/console-core-checksums" }
+usvg = { package = "console-core-scalable-vector-graphics", path = "../../crates/console-core-scalable-vector-graphics", default-features = false, features = ["system-fonts", "text"] }
 
-# Workspace crates (publishable). Keeping versions explicit makes `cargo publish` work without
-# duplicating version requirements across crates.
-merman = { package = "console-core-mermaid", path = "crates/merman", version = "=0.10.0-alpha.2", default-features = false }
-merman-analysis = { package = "console-core-mermaid-analysis", path = "crates/merman-analysis", version = "=0.10.0-alpha.2", default-features = false }
-merman-ascii = { package = "console-core-mermaid-text", path = "crates/merman-ascii", version = "=0.10.0-alpha.2", default-features = false }
-merman-bindings-core = { package = "console-core-mermaid-bindings", path = "crates/merman-bindings-core", version = "=0.10.0-alpha.2", default-features = false }
-merman-core = { package = "console-core-mermaid-syntax", path = "crates/merman-core", version = "=0.10.0-alpha.2", default-features = false }
-merman-model = { package = "console-core-mermaid-model", path = "crates/merman-model", version = "=0.10.0-alpha.2", default-features = false }
-merman-markup = { package = "console-core-mermaid-markup", path = "crates/merman-markup", version = "=0.10.0-alpha.2", default-features = false }
-merman-doc = { package = "console-core-mermaid-documents", path = "crates/merman-doc", version = "=0.10.0-alpha.2", default-features = false }
-merman-editor-core = { package = "console-core-mermaid-editing", path = "crates/merman-editor-core", version = "=0.10.0-alpha.2", default-features = false }
-merman-elk-layered = { package = "console-core-mermaid-elk-layered", path = "crates/merman-elk-layered", version = "=0.10.0-alpha.2", default-features = false }
-merman-layout-elk = { package = "console-core-mermaid-layout-elk", path = "crates/merman-layout-elk", version = "=0.10.0-alpha.2" }
-merman-ffi = { package = "console-core-mermaid-ffi", path = "crates/merman-ffi", version = "=0.10.0-alpha.2" }
-merman-rustdoc = { package = "console-core-mermaid-rustdoc", path = "crates/merman-rustdoc", version = "=0.10.0-alpha.2" }
-merman-render = { package = "console-core-mermaid-renderer", path = "crates/merman-render", version = "=0.10.0-alpha.2", default-features = false }
-merman-export = { package = "console-core-mermaid-export", path = "crates/merman-export", version = "=0.10.0-alpha.2", default-features = false }
-merman-typst-plugin = { package = "console-core-mermaid-typst-plugin", path = "crates/merman-typst-plugin", version = "=0.10.0-alpha.2" }
-merman-uniffi = { package = "console-core-mermaid-uniffi", path = "crates/merman-uniffi", version = "=0.10.0-alpha.2" }
-merman-wasm = { package = "console-core-mermaid-wasm", path = "crates/merman-wasm", version = "=0.10.0-alpha.2" }
-merman-wasi = { package = "console-core-mermaid-wasi", path = "crates/merman-wasi", version = "=0.10.0-alpha.2", default-features = false }
-merman-cli = { package = "console-core-mermaid-cli", path = "crates/merman-cli", version = "=0.10.0-alpha.2" }
-dugong = { package = "console-core-mermaid-dagre", path = "crates/dugong", version = "=0.10.0-alpha.2" }
-dugong-graphlib = { package = "console-core-mermaid-graph", path = "crates/dugong-graphlib", version = "=0.10.0-alpha.2" }
-manatee = { package = "console-core-mermaid-cytoscape", path = "crates/manatee", version = "=0.10.0-alpha.2" }
-merman-theme-contract = { package = "console-core-mermaid-theme-contract", path = "crates/merman-theme-contract", version = "=0.10.0-alpha.2" }
+[[test]]
+name = "prepared_render"
+required-features = ["svg"]
 
-# The profile that 'dist' will build with
-[profile.dist]
-inherits = "release"
-lto = "thin"
+[[test]]
+name = "prepared_source"
+required-features = ["svg", "compat-json"]
 
-[profile.native-sdk]
-inherits = "release"
-opt-level = 3
-lto = "thin"
-codegen-units = 1
-debug = false
-strip = "debuginfo"
-panic = "unwind"
-incremental = false
-debug-assertions = false
-overflow-checks = false
-rpath = false
+[[test]]
+name = "deep_lifecycle"
+required-features = ["compat-json"]
 
-[profile.native-distribution]
-inherits = "release"
-opt-level = "s"
-lto = true
-codegen-units = 1
-debug = false
-strip = "symbols"
-panic = "unwind"
-incremental = false
-debug-assertions = false
-overflow-checks = false
-rpath = false
+[[test]]
+name = "bounded_lifecycle"
+required-features = ["compat-json"]
 
-[profile.native-distribution.build-override]
-strip = "none"
+[[test]]
+name = "pipeline_bench_fixtures"
+required-features = ["compat-json"]
 
-[profile.wasm-size]
-inherits = "release"
-opt-level = "z"
-lto = true
-codegen-units = 1
-panic = "abort"
+[[test]]
+name = "render_operation"
+required-features = ["svg", "compat-json"]
+
+[[test]]
+name = "theme_composed_effects"
+required-features = ["svg", "png", "pdf", "layout-cytoscape"]
+
+[[test]]
+name = "theme_authoring"
+required-features = ["svg"]
+
+[[test]]
+name = "runtime_determinism"
+required-features = [
+    "svg",
+    "system-clock",
+    "system-timezone",
+    "system-random",
+    "system-timing",
+]
+
+[[test]]
+name = "mermaid_11_16_corpus"
+required-features = ["layout-elk"]
+
+[[bench]]
+name = "pipeline"
+harness = false
+required-features = ["svg", "compat-json", "editor-facts"]
+
+[[bench]]
+name = "native_export"
+harness = false
+required-features = ["png", "pdf"]
+
+[[bench]]
+name = "native_memory"
+harness = false
+required-features = ["svg"]
+
+[[bench]]
+name = "parse_memory"
+harness = false
+required-features = ["all-diagrams", "compat-json", "editor-facts"]
+
+[[bench]]
+name = "flowchart_svg_label_memory"
+harness = false
+required-features = ["svg", "compat-json"]
+
+[[bench]]
+name = "sequence_message_memory"
+harness = false
+required-features = ["svg", "compat-json"]
+
+[[bench]]
+name = "elk_hierarchy_memory"
+harness = false
+required-features = ["layout-elk"]
+
+[[bench]]
+name = "flowchart_stress"
+harness = false
+required-features = ["svg", "compat-json"]
+
+[[bench]]
+name = "architecture_stress"
+harness = false
+required-features = ["layout-cytoscape"]
+
+[[bench]]
+name = "architecture_layout_stress"
+harness = false
+required-features = ["layout-cytoscape"]
+
+[[bench]]
+name = "mindmap_layout_stress"
+harness = false
+required-features = ["layout-cytoscape"]
+
+[[bench]]
+name = "text_measure_stress"
+harness = false
+required-features = ["svg"]
+
+[[bench]]
+name = "native_font_measurement"
+harness = false
+required-features = ["native-fonts", "diagram-flowchart"]
+
+[[example]]
+name = "render_svg"
+required-features = ["svg"]
+
+[[example]]
+name = "redraw_prepared"
+required-features = ["svg"]
+
+[[example]]
+name = "render_svg_monospace"
+required-features = ["svg"]
+
+[[example]]
+name = "embed_multiple_svgs"
+required-features = ["svg"]
+
+[[example]]
+name = "render_many"
+required-features = ["svg"]
+
+[[example]]
+name = "render_cancellable"
+required-features = ["svg"]
+
+[[example]]
+name = "render_png"
+required-features = ["png"]
+
+[[example]]
+name = "inspect_semantics"
+required-features = ["diagram-flowchart"]
+
+[[example]]
+name = "inspect_layout"
+required-features = ["svg"]
+
+[[example]]
+name = "configure_mermaid"
+required-features = ["svg"]
+
+[[example]]
+name = "deterministic_gantt"
+required-features = ["compat-json", "diagram-gantt"]
+
+[[example]]
+name = "theme_preset"
+required-features = ["svg"]
+
+[[example]]
+name = "custom_diagram_theme"
+required-features = ["svg"]
+
+[[example]]
+name = "custom_svg_pipeline"
+required-features = ["svg"]
+
+[[example]]
+name = "profile_render"
+required-features = ["svg"]
+
+[[example]]
+name = "icon_registry_calibration"
+required-features = ["svg"]
+
+[[example]]
+name = "layout_work_calibration"
+required-features = ["svg", "compat-json", "layout-cytoscape", "layout-elk", "math"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(merman_internal_theme_acceptance)'] }
+
+[lib]
+name = "merman"

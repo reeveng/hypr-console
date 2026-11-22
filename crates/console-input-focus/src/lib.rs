@@ -48,5 +48,5 @@
 pub mod devices;
 pub mod said;
 
-pub use devices::{CONTROLLER, Claim, Received, ClaimError, Spans, DeviceKind};
-pub use said::{InputEvent, Direction, translate};
+pub use devices::{CONTROLLER, Claim, ClaimError, DeviceKind, Received, Spans};
+pub use said::{Direction, InputEvent, translate};

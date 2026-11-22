@@ -1,0 +1,70 @@
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds.rs:6:6
+   |
+LL |     (row / ctb, row % ctb)
+   |      ^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::usize::wrapping_div(row, ctb)`
+   |
+   = note: `#[deny(explicit015_no_bare_arithmetic)]` on by default
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds.rs:6:17
+   |
+LL |     (row / ctb, row % ctb)
+   |                 ^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::usize::wrapping_rem(row, ctb)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds.rs:10:5
+   |
+LL |     position / u32::wrapping_shl(1, log)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_div(position, u32::wrapping_shl(1, log))`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds.rs:14:6
+   |
+LL |     (16 - items.leading_zeros(), u32::BITS - u32::leading_zeros(records))
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_sub(16, items.leading_zeros())`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds.rs:14:34
+   |
+LL |     (16 - items.leading_zeros(), u32::BITS - u32::leading_zeros(records))
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_sub(u32::BITS, u32::leading_zeros(records))`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds.rs:18:5
+   |
+LL |     8 - byte.count_ones()
+   |     ^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_sub(8, byte.count_ones())`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds.rs:22:19
+   |
+LL |     let payload = u32::wrapping_shl(high & 0x3FF, 10) + (low & 0x3FF);
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_add(u32::wrapping_shl(high & 0x3FF, 10), low & 0x3FF)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds.rs:23:5
+   |
+LL |     payload + 0x10000
+   |     ^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_add(payload, 0x10000)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds.rs:27:5
+   |
+LL |     byte.wrapping_shr(4) + 240
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u8::wrapping_add(byte.wrapping_shr(4), 240)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds.rs:33:6
+   |
+LL |     (block_size >> sx, x << sy)
+   |      ^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::i32::wrapping_shr(block_size, <::core::primitive::u32 as ::core::convert::From<::core::primitive::bool>>::from(sx != 0))`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds.rs:33:24
+   |
+LL |     (block_size >> sx, x << sy)
+   |                        ^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::usize::wrapping_shl(x, <::core::primitive::u32 as ::core::convert::From<::core::primitive::bool>>::from(sy != 0))`
+
+error: aborting due to 11 previous errors
+

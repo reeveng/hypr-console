@@ -70,423 +70,500 @@ const ERASE: &str = "\u{1b}[K";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Watched {
-    Screen,
-    Not,
+  Screen,
+  Not,
+}
+
+impl From<bool> for Watched {
+  fn from(terminal: bool) -> Self {
+    match bool::then_some(terminal, ()) {
+      Some(()) => Self::Screen,
+      None => Self::Not,
+    }
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ending {
-    Stays,
-    Again,
+  Stays,
+  Again,
 }
 
 pub fn detect_terminal() -> Result<Watched, Never> {
-    Ok(match std::io::stderr().is_terminal() {
-        true => Watched::Screen,
-        false => Watched::Not,
-    })
+  Ok(Watched::from(std::io::stderr().is_terminal()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Escaping {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 pub fn plain(line: &str) -> Result<String, Never> {
-    let mut said = String::new();
-    let mut escaping = Escaping::No;
+  let mut said = String::new();
+  let mut escaping = Escaping::No;
 
-    for one in line.chars() {
-        match (escaping, one) {
-            (Escaping::No, '\u{1b}') => escaping = Escaping::Yes,
-            (Escaping::No, one) => said.push(one),
-            (Escaping::Yes, one) => {
-                escaping = match one.is_ascii_alphabetic() {
-                    true => Escaping::No,
-                    false => Escaping::Yes,
-                };
-            }
-        }
+  for one in line.chars() {
+    match (escaping, one) {
+      (Escaping::No, '\u{1b}') => escaping = Escaping::Yes,
+      (Escaping::No, one_2) => said.push(one_2),
+      (Escaping::Yes, 'a'..='z' | 'A'..='Z') => escaping = Escaping::No,
+      (Escaping::Yes, _inside_escape) => {}
     }
+  }
 
-    Ok(said)
+  Ok(said)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Progress {
-    pub done: u32,
-    pub many: u32,
+  pub done: u32,
+  pub many: u32,
 }
 
 pub fn fraction(far: Progress) -> Result<f64, Never> {
-    Ok(match far.many {
-        0 => 0.0,
-        many => f64::from(far.done) / f64::from(many),
-    })
+  Ok(match far.many {
+    0 => 0.0,
+    many => f64::from(far.done) / f64::from(many),
+  })
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "part is a dimensionless fraction of the whole; percent converts it to the integer scale used by the bar"
+  )
+)]
 pub fn percent(part: f64) -> Result<u16, Never> {
-    let Ok(percent) = toward_zero_u16(part.clamp(0.0, 1.0) * f64::from(WHOLE));
+  let Ok(percent) = toward_zero_u16(part.clamp(0.0, 1.0) * f64::from(WHOLE));
 
-    Ok(percent.min(WHOLE))
+  Ok(percent.min(WHOLE))
 }
 
 pub fn format_count(far: Progress) -> Result<String, Never> {
-    let Progress { done, many } = far;
+  let Progress { done, many } = far;
 
-    Ok(format!("({done:>wide$}/{many})", wide = many.to_string().len()))
+  Ok(format!(
+    "({done:>wide$}/{many})",
+    wide = many.to_string().len()
+  ))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Now<'a>(pub &'a str);
 
 pub fn caption(doing: &str, now: Now<'_>) -> Result<String, Never> {
-    Ok(match now.0.is_empty() {
-        true => doing.to_string(),
-        false => format!("{doing} {}", now.0),
-    })
+  Ok(match now.0 {
+    "" => doing.to_string(),
+    detail => format!("{doing} {detail}"),
+  })
 }
 
 pub fn room(many: u32) -> Result<u32, Never> {
-    let Ok(widest) = format_count(Progress { done: many, many });
-    let Ok(widest) = conversion::fitted::<_, u32>(widest.chars().count());
+  let Ok(widest) = format_count(Progress { done: many, many });
+  let Ok(widest_2) = conversion::fitted::<_, u32>(widest.chars().count());
 
-    Ok(ROOM
-        .saturating_sub(widest)
-        .saturating_sub(CELLS)
-        .saturating_sub(AROUND))
+  Ok(
+    ROOM
+      .saturating_sub(widest_2)
+      .saturating_sub(CELLS)
+      .saturating_sub(AROUND),
+  )
 }
 
 pub fn truncate(said: &str, room: u32) -> Result<String, Never> {
-    let Ok(long) = conversion::fitted::<_, u32>(said.chars().count());
-    let over = long.saturating_sub(room);
+  let Ok(long) = conversion::fitted::<_, u32>(said.chars().count());
+  let over = long.saturating_sub(room);
 
-    Ok(match over {
-        0 => said.to_string(),
-        over => {
-            let Ok(past) = index(over.saturating_add(1));
-            let tail: String = said.chars().skip(past).collect();
+  Ok(match over {
+    0 => said.to_string(),
+    over_2 => {
+      let Ok(past) = index(over_2.saturating_add(1));
+      let tail: String = said.chars().skip(past).collect();
 
-            format!("…{tail}")
-        }
-    })
+      format!("…{tail}")
+    }
+  })
 }
 
 pub fn line(far: Progress, said: &str, into: u16) -> Result<String, Never> {
-    let Ok(counted) = format_count(far);
-    let Ok(room) = room(far.many);
-    let Ok(said) = truncate(said, room);
-    let full = match std::num::NonZeroU32::new(u32::from(WHOLE)) {
-        Some(whole) => u32::from(into.min(WHOLE)).saturating_mul(CELLS) / whole,
-        None => NONE_OF_IT,
-    };
-    let empty = CELLS.saturating_sub(full);
-    let Ok(room) = index(room);
-    let Ok(full) = index(full);
-    let Ok(empty) = index(empty);
+  let Ok(counted) = format_count(far);
+  let Ok(caption_width) = room(far.many);
+  let Ok(caption) = truncate(said, caption_width);
+  let full = match std::num::NonZeroU32::new(u32::from(WHOLE)) {
+    Some(whole) => u32::from(into.min(WHOLE)).saturating_mul(CELLS) / whole,
+    None => NONE_OF_IT,
+  };
+  let empty = CELLS.saturating_sub(full);
+  let Ok(padding) = index(caption_width);
+  let Ok(filled_cells) = index(full);
+  let Ok(empty_cells) = index(empty);
 
-    Ok(format!(
-        "{counted} {said:<room$} [{}{}] {:>3}%",
-        "#".repeat(full),
-        "-".repeat(empty),
-        into.min(WHOLE)
-    ))
+  Ok(format!(
+    "{counted} {caption:<padding$} [{}{}] {:>3}%",
+    "#".repeat(filled_cells),
+    "-".repeat(empty_cells),
+    into.min(WHOLE)
+  ))
+}
+
+fn write_output(out: &mut impl Write, line: std::fmt::Arguments<'_>) -> Result<(), Never> {
+  let written = out.write_fmt(line);
+  #[cfg_attr(
+    dylint_lib = "explicit060_no_reasonless_discard",
+    expect(
+      explicit060_no_reasonless_discard,
+      reason = "the progress display is advisory; a closed output stream must not abort a running system apply or device test"
+    )
+  )]
+  let _ = match written {
+    Ok(()) => out.flush(),
+    Err(fault) => Err(fault),
+  };
+
+  Ok(())
 }
 
 #[derive(Debug)]
 pub struct Bar {
-    watched: Watched,
-    at: u32,
-    many: u32,
-    into: u16,
-    doing: String,
-    now: String,
+  watched: Watched,
+  at: u32,
+  many: u32,
+  into: u16,
+  doing: String,
+  now: String,
 }
 
 impl Bar {
-    pub fn of(many: u32) -> Result<Self, Never> {
-        let Ok(watched) = detect_terminal();
+  pub fn of(many: u32) -> Result<Self, Never> {
+    let Ok(watched) = detect_terminal();
 
-        Ok(Bar {
-            watched,
-            at: 0,
-            many,
-            into: 0,
-            doing: String::new(),
-            now: String::new(),
-        })
+    Ok(Bar {
+      watched,
+      at: 0,
+      many,
+      into: 0,
+      doing: String::new(),
+      now: String::new(),
+    })
+  }
+
+  pub fn without_terminal(many: u32) -> Result<Self, Never> {
+    Ok(Bar {
+      watched: Watched::Not,
+      at: 0,
+      many,
+      into: 0,
+      doing: String::new(),
+      now: String::new(),
+    })
+  }
+
+  pub fn many(&mut self, many: u32) -> Result<(), Never> {
+    self.many = many;
+
+    Ok(())
+  }
+
+  pub fn on(&mut self, doing: &str) -> Result<(), Never> {
+    self.at = self.at.saturating_add(1);
+    self.into = 0;
+    self.doing = doing.to_string();
+    self.now = String::new();
+
+    self.redraw()
+  }
+
+  pub fn onto(&mut self, doing: &str, into: u16) -> Result<(), Never> {
+    self.at = self.at.saturating_add(1);
+    self.into = into.min(WHOLE);
+    self.doing = doing.to_string();
+    self.now = String::new();
+
+    self.redraw()
+  }
+
+  pub fn set_progress(&mut self, into: u16, now: &str) -> Result<(), Never> {
+    self.into = self.into.max(into.min(WHOLE));
+    self.now = now.to_string();
+
+    self.redraw()
+  }
+
+  pub fn full(&mut self) -> Result<(), Never> {
+    self.into = WHOLE;
+    self.now = String::new();
+
+    self.draw(Ending::Stays)
+  }
+
+  pub fn stays(&mut self, doing: &str) -> Result<(), Never> {
+    self.doing = doing.to_string();
+    self.into = WHOLE;
+    self.now = String::new();
+
+    self.draw(Ending::Stays)
+  }
+
+  pub fn say(&self, line: &str) -> Result<(), Never> {
+    let Ok(()) = self.wiped();
+
+    let Ok(()) = write_output(&mut std::io::stdout().lock(), format_args!("{line}\n"));
+
+    self.redraw()
+  }
+
+  pub fn wiped(&self) -> Result<(), Never> {
+    match self.watched {
+      Watched::Screen => write_output(&mut std::io::stderr().lock(), format_args!("\r{ERASE}")),
+      Watched::Not => Ok(()),
     }
+  }
 
-    pub fn without_terminal(many: u32) -> Result<Self, Never> {
-        Ok(Bar {
-            watched: Watched::Not,
-            at: 0,
-            many,
-            into: 0,
-            doing: String::new(),
-            now: String::new(),
-        })
+  pub fn line(&self) -> Result<String, Never> {
+    let Ok(said) = caption(&self.doing, Now(&self.now));
+
+    line(
+      Progress {
+        done: self.at,
+        many: self.many,
+      },
+      &said,
+      self.into,
+    )
+  }
+
+  fn redraw(&self) -> Result<(), Never> {
+    match self.watched {
+      Watched::Screen => self.draw(Ending::Again),
+      Watched::Not => Ok(()),
     }
+  }
 
-    pub fn many(&mut self, many: u32) -> Result<(), Never> {
-        self.many = many;
+  fn draw(&self, ending: Ending) -> Result<(), Never> {
+    let Ok(drawn) = self.line();
+    let mut out = std::io::stderr().lock();
 
-        Ok(())
-    }
-
-    pub fn on(&mut self, doing: &str) -> Result<(), Never> {
-        self.at = self.at.saturating_add(1);
-        self.into = 0;
-        self.doing = doing.to_string();
-        self.now = String::new();
-
-        self.redraw()
-    }
-
-    pub fn onto(&mut self, doing: &str, into: u16) -> Result<(), Never> {
-        self.at = self.at.saturating_add(1);
-        self.into = into.min(WHOLE);
-        self.doing = doing.to_string();
-        self.now = String::new();
-
-        self.redraw()
-    }
-
-    pub fn set_progress(&mut self, into: u16, now: &str) -> Result<(), Never> {
-        self.into = self.into.max(into.min(WHOLE));
-        self.now = now.to_string();
-
-        self.redraw()
-    }
-
-    pub fn full(&mut self) -> Result<(), Never> {
-        self.into = WHOLE;
-        self.now = String::new();
-
-        self.draw(Ending::Stays)
-    }
-
-    pub fn stays(&mut self, doing: &str) -> Result<(), Never> {
-        self.doing = doing.to_string();
-        self.into = WHOLE;
-        self.now = String::new();
-
-        self.draw(Ending::Stays)
-    }
-
-    pub fn say(&self, line: &str) -> Result<(), Never> {
-        let Ok(()) = self.wiped();
-
-        let mut out = std::io::stdout();
-        let _ = writeln!(out, "{line}");
-        let _ = out.flush();
-
-        self.redraw()
-    }
-
-    pub fn wiped(&self) -> Result<(), Never> {
-        let mut out = std::io::stderr();
-        let _ = match self.watched {
-            Watched::Screen => write!(out, "\r{ERASE}"),
-            Watched::Not => Ok(()),
-        };
-        let _ = out.flush();
-
-        Ok(())
-    }
-
-    pub fn line(&self) -> Result<String, Never> {
+    match (self.watched, ending) {
+      (Watched::Screen, Ending::Stays) => {
+        write_output(&mut out, format_args!("\r{ERASE}{drawn}\n"))
+      }
+      (Watched::Screen, Ending::Again) => {
+        write_output(&mut out, format_args!("\r{ERASE}{drawn}"))
+      }
+      (Watched::Not, Ending::Stays) => {
         let Ok(said) = caption(&self.doing, Now(&self.now));
+        let Ok(counted) = format_count(Progress {
+          done: self.at,
+          many: self.many,
+        });
 
-        line(Progress { done: self.at, many: self.many }, &said, self.into)
+        write_output(&mut out, format_args!("  {counted} {said}\n"))
+      }
+      (Watched::Not, Ending::Again) => Ok(()),
     }
-
-    fn redraw(&self) -> Result<(), Never> {
-        match self.watched {
-            Watched::Screen => self.draw(Ending::Again),
-            Watched::Not => Ok(()),
-        }
-    }
-
-    fn draw(&self, ending: Ending) -> Result<(), Never> {
-        let Ok(drawn) = self.line();
-        let mut out = std::io::stderr();
-        let _ = match (self.watched, ending) {
-            (Watched::Screen, Ending::Stays) => writeln!(out, "\r{ERASE}{drawn}"),
-            (Watched::Screen, Ending::Again) => write!(out, "\r{ERASE}{drawn}"),
-            (Watched::Not, Ending::Stays) => {
-                let Ok(said) = caption(&self.doing, Now(&self.now));
-                let Ok(counted) = format_count(Progress { done: self.at, many: self.many });
-
-                writeln!(out, "  {counted} {said}")
-            }
-            (Watched::Not, Ending::Again) => Ok(()),
-        };
-        let _ = out.flush();
-
-        Ok(())
-    }
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::num::TryFromIntError;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
+  use std::num::TryFromIntError;
 
-    fn columns(said: &str) -> Result<u32, TryFromIntError> {
-        u32::try_from(said.chars().count())
+  fn columns(said: &str) -> Result<u32, TryFromIntError> {
+    u32::try_from(said.chars().count())
+  }
+
+  #[test]
+  fn the_counter_is_padded_to_the_width_of_its_total_so_it_does_not_jitter() {
+    assert_eq!(
+      format_count(Progress { done: 1, many: 14 }),
+      Ok("( 1/14)".to_string())
+    );
+    assert_eq!(
+      format_count(Progress { done: 14, many: 14 }),
+      Ok("(14/14)".to_string())
+    );
+    assert_eq!(
+      format_count(Progress { done: 3, many: 9 }),
+      Ok("(3/9)".to_string())
+    );
+    assert_eq!(
+      format_count(Progress { done: 7, many: 120 }),
+      Ok("(  7/120)".to_string())
+    );
+  }
+
+  #[test]
+  fn a_line_is_the_counter_the_name_the_bar_and_the_number() {
+    let Ok(said) = line(
+      Progress { done: 2, many: 14 },
+      "installing console-fonts",
+      50,
+    );
+
+    assert!(
+      said.starts_with("( 2/14) installing console-fonts"),
+      "{said}"
+    );
+    assert!(said.contains(&"#".repeat(11)), "{said}");
+    assert!(
+      said.contains(" ["),
+      "the bar is not set off from the name: {said}"
+    );
+    assert!(said.ends_with("]  50%"), "{said}");
+  }
+
+  #[test]
+  fn every_line_fits_a_terminal_eighty_wide() -> Result<(), Box<dyn Error>> {
+    for (at, many, into) in [
+      (1_u32, 9_u32, 0_u16),
+      (14, 14, 100),
+      (120, 120, 7),
+      (7, 1000, 50),
+    ] {
+      let Ok(said) = caption(
+        "keeping the release",
+        Now("home/@user@/.config/console/palette.css"),
+      );
+      let Ok(drawn) = line(Progress { done: at, many }, &said, into);
+      let wide = columns(&drawn)?;
+
+      assert_eq!(wide, ROOM, "{wide} columns rather than {ROOM}: {drawn}");
     }
 
-    #[test]
-    fn the_counter_is_padded_to_the_width_of_its_total_so_it_does_not_jitter() {
-        assert_eq!(format_count(Progress { done: 1, many: 14 }), Ok("( 1/14)".to_string()));
-        assert_eq!(format_count(Progress { done: 14, many: 14 }), Ok("(14/14)".to_string()));
-        assert_eq!(format_count(Progress { done: 3, many: 9 }), Ok("(3/9)".to_string()));
-        assert_eq!(format_count(Progress { done: 7, many: 120 }), Ok("(  7/120)".to_string()));
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_line_is_the_counter_the_name_the_bar_and_the_number() {
-        let Ok(said) = line(Progress { done: 2, many: 14 }, "installing console-fonts", 50);
+  #[test]
+  fn a_short_name_is_padded_so_the_bar_stands_in_the_same_column_all_run() {
+    let Ok(one) = line(Progress { done: 1, many: 14 }, "sweeping", 0);
+    let Ok(other) = line(
+      Progress { done: 2, many: 14 },
+      "installing console-fonts",
+      50,
+    );
 
-        assert!(said.starts_with("( 2/14) installing console-fonts"), "{said}");
-        assert!(said.contains(&"#".repeat(11)), "{said}");
-        assert!(said.contains(" ["), "the bar is not set off from the name: {said}");
-        assert!(said.ends_with("]  50%"), "{said}");
-    }
+    assert_eq!(one.find('['), other.find('['), "{one}\n{other}");
+  }
 
-    #[test]
-    fn every_line_fits_a_terminal_eighty_wide() -> Result<(), Box<dyn Error>> {
-        for (at, many, into) in
-            [(1_u32, 9_u32, 0_u16), (14, 14, 100), (120, 120, 7), (7, 1000, 50)]
-        {
-            let Ok(said) =
-                caption("keeping the release", Now("home/@user@/.config/console/palette.css"));
-            let Ok(drawn) = line(Progress { done: at, many }, &said, into);
-            let wide = columns(&drawn)?;
+  #[test]
+  fn a_name_too_long_for_the_column_keeps_its_tail() -> Result<(), Box<dyn Error>> {
+    let Ok(room) = room(14);
+    let Ok(said) = truncate(
+      "writing files home/@user@/.config/console/a/long/way/palette.css",
+      room,
+    );
 
-            assert_eq!(wide, ROOM, "{wide} columns rather than {ROOM}: {drawn}");
-        }
+    assert!(said.starts_with('…'), "{said}");
+    assert!(said.ends_with("palette.css"), "{said}");
+    let wide = columns(&said)?;
 
-        Ok(())
-    }
+    assert!(wide <= room, "{said}");
 
-    #[test]
-    fn a_short_name_is_padded_so_the_bar_stands_in_the_same_column_all_run() {
-        let Ok(one) = line(Progress { done: 1, many: 14 }, "sweeping", 0);
-        let Ok(other) = line(Progress { done: 2, many: 14 }, "installing console-fonts", 50);
+    Ok(())
+  }
 
-        assert_eq!(one.find('['), other.find('['), "{one}\n{other}");
-    }
+  #[test]
+  fn a_thing_with_nothing_to_say_about_itself_is_named_by_its_own_name() {
+    assert_eq!(caption("sweeping", Now("")), Ok("sweeping".to_string()));
+  }
 
-    #[test]
-    fn a_name_too_long_for_the_column_keeps_its_tail() -> Result<(), Box<dyn Error>> {
-        let Ok(room) = room(14);
-        let Ok(said) = truncate("writing files home/@user@/.config/console/a/long/way/palette.css", room);
+  #[test]
+  fn a_bar_never_runs_backwards_inside_one_item() {
+    let Ok(mut bar) = Bar::without_terminal(3);
+    let Ok(()) = bar.on("building");
+    let Ok(()) = bar.set_progress(40, "console-panel");
+    let Ok(()) = bar.set_progress(10, "console-panel");
+    let Ok(drawn) = bar.line();
 
-        assert!(said.starts_with('…'), "{said}");
-        assert!(said.ends_with("palette.css"), "{said}");
-        let wide = columns(&said)?;
+    assert!(drawn.contains(" 40%"), "{drawn}");
+  }
 
-        assert!(wide <= room, "{said}");
+  #[test]
+  fn the_next_item_starts_the_bar_empty_again() {
+    let Ok(mut bar) = Bar::without_terminal(3);
+    let Ok(()) = bar.on("building");
+    let Ok(()) = bar.set_progress(90, "console-panel");
+    let Ok(()) = bar.on("writing files");
+    let Ok(drawn) = bar.line();
 
-        Ok(())
-    }
+    assert!(drawn.starts_with("(2/3) writing files"), "{drawn}");
+    assert!(drawn.ends_with("]   0%"), "{drawn}");
+  }
 
-    #[test]
-    fn a_thing_with_nothing_to_say_about_itself_is_named_by_its_own_name() {
-        assert_eq!(caption("sweeping", Now("")), Ok("sweeping".to_string()));
-    }
+  #[test]
+  fn an_item_that_carries_the_fill_over_never_draws_an_empty_frame_first() {
+    let Ok(mut bar) = Bar::without_terminal(3);
+    let Ok(()) = bar.on("one");
+    let Ok(()) = bar.set_progress(60, "");
+    let Ok(()) = bar.onto("two", 60);
+    let Ok(drawn) = bar.line();
 
-    #[test]
-    fn a_bar_never_runs_backwards_inside_one_item() {
-        let Ok(mut bar) = Bar::without_terminal(3);
-        let Ok(()) = bar.on("building");
-        let Ok(()) = bar.set_progress(40, "console-panel");
-        let Ok(()) = bar.set_progress(10, "console-panel");
-        let Ok(drawn) = bar.line();
+    assert!(drawn.starts_with("(2/3) two"), "{drawn}");
+    assert!(drawn.ends_with("]  60%"), "{drawn}");
+  }
 
-        assert!(drawn.contains(" 40%"), "{drawn}");
-    }
+  #[test]
+  fn an_item_that_is_finished_is_full() -> Result<(), Box<dyn Error>> {
+    let Ok(mut bar) = Bar::without_terminal(3);
+    let Ok(()) = bar.on("building");
+    let Ok(()) = bar.set_progress(40, "console-panel");
+    let Ok(()) = bar.full();
+    let Ok(drawn) = bar.line();
 
-    #[test]
-    fn the_next_item_starts_the_bar_empty_again() {
-        let Ok(mut bar) = Bar::without_terminal(3);
-        let Ok(()) = bar.on("building");
-        let Ok(()) = bar.set_progress(90, "console-panel");
-        let Ok(()) = bar.on("writing files");
-        let Ok(drawn) = bar.line();
+    assert!(drawn.ends_with("] 100%"), "{drawn}");
+    let filled = columns(&drawn.replace(|one| one != '#', ""))?;
 
-        assert!(drawn.starts_with("(2/3) writing files"), "{drawn}");
-        assert!(drawn.ends_with("]   0%"), "{drawn}");
-    }
+    assert_eq!(filled, CELLS, "{drawn}");
 
-    #[test]
-    fn an_item_that_carries_the_fill_over_never_draws_an_empty_frame_first() {
-        let Ok(mut bar) = Bar::without_terminal(3);
-        let Ok(()) = bar.on("one");
-        let Ok(()) = bar.set_progress(60, "");
-        let Ok(()) = bar.onto("two", 60);
-        let Ok(drawn) = bar.line();
+    Ok(())
+  }
 
-        assert!(drawn.starts_with("(2/3) two"), "{drawn}");
-        assert!(drawn.ends_with("]  60%"), "{drawn}");
-    }
+  #[test]
+  fn a_number_past_the_end_fills_the_bar_and_no_further() -> Result<(), Box<dyn Error>> {
+    let Ok(said) = line(Progress { done: 1, many: 1 }, "done", 400);
 
-    #[test]
-    fn an_item_that_is_finished_is_full() -> Result<(), Box<dyn Error>> {
-        let Ok(mut bar) = Bar::without_terminal(3);
-        let Ok(()) = bar.on("building");
-        let Ok(()) = bar.set_progress(40, "console-panel");
-        let Ok(()) = bar.full();
-        let Ok(drawn) = bar.line();
+    assert!(said.ends_with("] 100%"), "{said}");
+    let filled = columns(&said.replace(|one| one != '#', ""))?;
 
-        assert!(drawn.ends_with("] 100%"), "{drawn}");
-        let filled = columns(&drawn.replace(|one| one != '#', ""))?;
+    assert_eq!(filled, CELLS);
 
-        assert_eq!(filled, CELLS, "{drawn}");
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn the_color_a_program_writes_is_not_part_of_what_it_said() {
+    assert_eq!(
+      plain("\u{1b}[0m\u{1b}[1m\u{1b}[32m   Compiling\u{1b}[0m console-panel v0.1.0"),
+      Ok("   Compiling console-panel v0.1.0".to_string())
+    );
+    assert_eq!(
+      plain("\u{1b}[1;34m::\u{1b}[0m plain"),
+      Ok(":: plain".to_string())
+    );
+    assert_eq!(
+      plain("nothing to strip"),
+      Ok("nothing to strip".to_string())
+    );
+    assert_eq!(plain("\u{1b}[K"), Ok(String::new()));
+  }
 
-    #[test]
-    fn a_number_past_the_end_fills_the_bar_and_no_further() -> Result<(), Box<dyn Error>> {
-        let Ok(said) = line(Progress { done: 1, many: 1 }, "done", 400);
+  #[test]
+  fn nothing_is_divided_by_a_total_of_nothing() {
+    assert_eq!(fraction(Progress { done: 0, many: 0 }), Ok(0.0));
+    assert_eq!(fraction(Progress { done: 1, many: 4 }), Ok(0.25));
+    assert_eq!(fraction(Progress { done: 4, many: 4 }), Ok(1.0));
+  }
 
-        assert!(said.ends_with("] 100%"), "{said}");
-        let filled = columns(&said.replace(|one| one != '#', ""))?;
-
-        assert_eq!(filled, CELLS);
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_color_a_program_writes_is_not_part_of_what_it_said() {
-        assert_eq!(
-            plain("\u{1b}[0m\u{1b}[1m\u{1b}[32m   Compiling\u{1b}[0m console-panel v0.1.0"),
-            Ok("   Compiling console-panel v0.1.0".to_string())
-        );
-        assert_eq!(plain("\u{1b}[1;34m::\u{1b}[0m plain"), Ok(":: plain".to_string()));
-        assert_eq!(plain("nothing to strip"), Ok("nothing to strip".to_string()));
-        assert_eq!(plain("\u{1b}[K"), Ok(String::new()));
-    }
-
-    #[test]
-    fn nothing_is_divided_by_a_total_of_nothing() {
-        assert_eq!(fraction(Progress { done: 0, many: 0 }), Ok(0.0));
-        assert_eq!(fraction(Progress { done: 1, many: 4 }), Ok(0.25));
-        assert_eq!(fraction(Progress { done: 4, many: 4 }), Ok(1.0));
-    }
-
-    #[test]
-    fn a_part_of_a_whole_is_a_number_between_none_of_it_and_all_of_it() {
-        assert_eq!(percent(0.0), Ok(0));
-        assert_eq!(percent(0.5), Ok(50));
-        assert_eq!(percent(1.0), Ok(WHOLE));
-        assert_eq!(percent(-3.0), Ok(0));
-        assert_eq!(percent(9.0), Ok(WHOLE));
-    }
+  #[test]
+  fn a_part_of_a_whole_is_a_number_between_none_of_it_and_all_of_it() {
+    assert_eq!(percent(0.0), Ok(0));
+    assert_eq!(percent(0.5), Ok(50));
+    assert_eq!(percent(1.0), Ok(WHOLE));
+    assert_eq!(percent(-3.0), Ok(0));
+    assert_eq!(percent(9.0), Ok(WHOLE));
+  }
 }

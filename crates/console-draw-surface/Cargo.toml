@@ -14,9 +14,11 @@ name = "surface-spike"
 path = "src/bin/surface-spike.rs"
 
 [dependencies]
+console-core-highlight.workspace = true
 console-core-arguments.workspace = true
 console-core-geometry.workspace = true
 console-screen.workspace = true
+console-core-logging.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-response-times.workspace = true
@@ -25,11 +27,12 @@ rustix.workspace = true
 
 wayland-client = "0.31"
 
-wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
 
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 
-xkbcommon = "0.9"
+console-input-keymaps.workspace = true
+console-input-key-symbols.workspace = true
 
 [lints]
 workspace = true

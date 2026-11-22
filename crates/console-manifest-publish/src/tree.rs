@@ -41,165 +41,177 @@ use console_core_never::Never;
 
 pub const FORKS: [&str; 0] = [];
 
-pub const VENDORED: [&str; 1] = ["crates/console-resume"];
+pub const VENDORED: [&str; 2] = ["crates/console-resume", "crates/console-core-text-layout"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fork {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 pub fn is_fork(name: &str) -> Result<Fork, Never> {
-    among(&FORKS, name)
+  among(&FORKS, name)
 }
 
 fn among(forks: &[&str], name: &str) -> Result<Fork, Never> {
-    let built = forks
-        .iter()
-        .any(|fork| name == fork.trim_start_matches('/') || name.ends_with(fork));
+  let built = forks
+    .iter()
+    .any(|fork| name == fork.trim_start_matches('/') || name.ends_with(fork));
 
-    Ok(match built {
-        true => Fork::Yes,
-        false => Fork::No,
-    })
+  Ok(match ::core::primitive::bool::then_some(built, ()) {
+    ::core::option::Option::Some(()) => Fork::Yes,
+    ::core::option::Option::None => Fork::No,
+  })
 }
 
 pub fn binary_forks(tracked: impl IntoIterator<Item = String>) -> Result<Vec<String>, Never> {
-    binary_forks_in(&FORKS, tracked)
+  binary_forks_in(&FORKS, tracked)
 }
 
 fn binary_forks_in(
-    forks: &[&str],
-    tracked: impl IntoIterator<Item = String>,
+  forks: &[&str],
+  tracked: impl IntoIterator<Item = String>,
 ) -> Result<Vec<String>, Never> {
-    Ok(tracked
-        .into_iter()
-        .filter(|name| {
-            let Ok(fork) = among(forks, name);
+  Ok(
+    tracked
+      .into_iter()
+      .filter(|name| {
+        let Ok(fork) = among(forks, name);
 
-            fork == Fork::No
-        })
-        .collect())
+        fork == Fork::No
+      })
+      .collect(),
+  )
 }
 
 pub fn manifest(held: &str) -> Result<String, Never> {
-    strip_forks(&FORKS, held)
+  strip_forks(&FORKS, held)
 }
 
 fn strip_forks(forks: &[&str], held: &str) -> Result<String, Never> {
-    #[cfg_attr(
-        dylint_lib = "explicit028_no_search_in_a_loop",
-        allow(
-            explicit028_no_search_in_a_loop,
-            reason = "the forks are the paths carried as binaries rather than source, which is a list short enough to read in one screen"
-        )
-    )]
-    let kept: Vec<&str> = held
-        .lines()
-        .filter(|line| !forks.contains(&line.trim()))
-        .collect();
-    Ok(format!("{}\n\n\n{NOT_PUBLISHED}", kept.join("\n").trim_end()))
+  #[cfg_attr(
+    dylint_lib = "explicit028_no_search_in_a_loop",
+    allow(
+      explicit028_no_search_in_a_loop,
+      reason = "the forks are the paths carried as binaries rather than source, which is a list short enough to read in one screen"
+    )
+  )]
+  let kept: Vec<&str> = held
+    .lines()
+    .filter(|line| !forks.contains(&line.trim()))
+    .collect();
+  Ok(format!(
+    "{}\n\n\n{NOT_PUBLISHED}",
+    kept.join("\n").trim_end()
+  ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const ONE: [&str; 1] = ["/usr/local/bin/kew"];
+  const ONE: [&str; 1] = ["/usr/local/bin/kew"];
 
-    #[test]
-    fn a_fork_is_known_by_either_path_it_is_named_at() {
-        let Ok(under_files) = among(&ONE, "files/usr/local/bin/kew");
-        let Ok(installed) = among(&ONE, "usr/local/bin/kew");
-        let Ok(ours) = among(&ONE, "files/usr/local/bin/launcher");
+  #[test]
+  fn a_fork_is_known_by_either_path_it_is_named_at() {
+    let Ok(under_files) = among(&ONE, "files/usr/local/bin/kew");
+    let Ok(installed) = among(&ONE, "usr/local/bin/kew");
+    let Ok(ours) = among(&ONE, "files/usr/local/bin/launcher");
 
-        assert_eq!(under_files, Fork::Yes);
-        assert_eq!(installed, Fork::Yes);
-        assert_eq!(ours, Fork::No);
-    }
+    assert_eq!(under_files, Fork::Yes);
+    assert_eq!(installed, Fork::Yes);
+    assert_eq!(ours, Fork::No);
+  }
 
-    #[test]
-    fn nothing_this_tree_holds_is_someone_elses_build_today() {
-        let Ok(kew) = is_fork("files/usr/local/bin/kew");
-        let Ok(keyboard) = is_fork("files/usr/local/bin/console-keyboard");
+  #[test]
+  fn nothing_this_tree_holds_is_someone_elses_build_today() {
+    let Ok(kew) = is_fork("files/usr/local/bin/kew");
+    let Ok(keyboard) = is_fork("files/usr/local/bin/console-keyboard");
 
-        assert_eq!(kew, Fork::No, "kew is a crate now and the list should be empty");
-        assert_eq!(keyboard, Fork::No);
-    }
+    assert_eq!(
+      kew,
+      Fork::No,
+      "kew is a crate now and the list should be empty"
+    );
+    assert_eq!(keyboard, Fork::No);
+  }
 
-    #[test]
-    fn the_crate_that_talks_to_the_player_is_not_the_player() {
-        let Ok(source) = is_fork("crates/console-music/src/player.rs");
+  #[test]
+  fn the_crate_that_talks_to_the_player_is_not_the_player() {
+    let Ok(source) = is_fork("crates/console-music/src/player.rs");
 
-        assert_eq!(source, Fork::No);
-    }
+    assert_eq!(source, Fork::No);
+  }
 
-    #[test]
-    fn the_keyboard_is_not_a_fork_on_either_half() {
-        let Ok(under_files) = is_fork("files/usr/local/bin/console-keyboard");
-        let Ok(installed) = is_fork("usr/local/bin/console-keyboard");
-        let Ok(source) = is_fork("crates/console-input-keyboard/src/palette.rs");
-        let Ok(manifest) = is_fork("crates/console-input-keyboard/Cargo.toml");
+  #[test]
+  fn the_keyboard_is_not_a_fork_on_either_half() {
+    let Ok(under_files) = is_fork("files/usr/local/bin/console-keyboard");
+    let Ok(installed) = is_fork("usr/local/bin/console-keyboard");
+    let Ok(source) = is_fork("crates/console-input-keyboard/src/palette.rs");
+    let Ok(manifest) = is_fork("crates/console-input-keyboard/Cargo.toml");
 
-        assert_eq!(under_files, Fork::No);
-        assert_eq!(installed, Fork::No);
-        assert_eq!(source, Fork::No);
-        assert_eq!(manifest, Fork::No);
-    }
+    assert_eq!(under_files, Fork::No);
+    assert_eq!(installed, Fork::No);
+    assert_eq!(source, Fork::No);
+    assert_eq!(manifest, Fork::No);
+  }
 
-    #[test]
-    fn a_fork_the_workspace_builds_from_source_is_carried_like_any_other_crate() {
-        let Ok(manifest) = is_fork("crates/console-resume/Cargo.toml");
-        let Ok(source) = is_fork("crates/console-resume/src/session.rs");
-        let Ok(license) = is_fork("crates/console-resume/LICENSE");
+  #[test]
+  fn a_fork_the_workspace_builds_from_source_is_carried_like_any_other_crate() {
+    let Ok(manifest) = is_fork("crates/console-resume/Cargo.toml");
+    let Ok(source) = is_fork("crates/console-resume/src/session.rs");
+    let Ok(license) = is_fork("crates/console-resume/LICENSE");
 
-        assert_eq!(manifest, Fork::No);
-        assert_eq!(source, Fork::No);
-        assert_eq!(
-            license,
-            Fork::No,
-            "the license most of all: a GPL crate published without it is the one thing that \
+    assert_eq!(manifest, Fork::No);
+    assert_eq!(source, Fork::No);
+    assert_eq!(
+      license,
+      Fork::No,
+      "the license most of all: a GPL crate published without it is the one thing that \
              would be someone else's to complain about"
-        );
-    }
+    );
+  }
 
-    #[test]
-    fn the_forks_are_not_carried() {
-        let tracked = [
-            "justfile",
-            "files/usr/local/bin/kew",
-            "crates/console-resume/src/session.rs",
-            "crates/console-input-keyboard/src/palette.rs",
-            "docs/checks.md",
-        ];
-        let Ok(carried) = binary_forks_in(&ONE, tracked.map(String::from));
+  #[test]
+  fn the_forks_are_not_carried() {
+    let tracked = [
+      "justfile",
+      "files/usr/local/bin/kew",
+      "crates/console-resume/src/session.rs",
+      "crates/console-input-keyboard/src/palette.rs",
+      "docs/architecture/map.dot",
+    ];
+    let Ok(carried) = binary_forks_in(&ONE, tracked.map(String::from));
 
-        assert_eq!(
-            carried,
-            [
-                "justfile".to_string(),
-                "crates/console-resume/src/session.rs".to_string(),
-                "crates/console-input-keyboard/src/palette.rs".to_string(),
-                "docs/checks.md".to_string(),
-            ]
-        );
-    }
+    assert_eq!(
+      carried,
+      [
+        "justfile".to_string(),
+        "crates/console-resume/src/session.rs".to_string(),
+        "crates/console-input-keyboard/src/palette.rs".to_string(),
+        "docs/architecture/map.dot".to_string(),
+      ]
+    );
+  }
 
-    #[test]
-    fn the_manifest_drops_the_forks_and_says_where_they_went() {
-        let held = "[files]\n/usr/local/bin/launcher\n/usr/local/bin/kew\n";
-        let Ok(written) = strip_forks(&ONE, held);
-        assert!(!written.contains("[files]\n/usr/local/bin/launcher\n/usr/local/bin/kew"));
-        assert!(written.contains("/usr/local/bin/launcher\n"));
-        assert!(written.contains("[elsewhere]"));
-        assert!(written.contains("/usr/local/bin/kew"));
-    }
+  #[test]
+  fn the_manifest_drops_the_forks_and_says_where_they_went() {
+    let held = "[files]\n/usr/local/bin/launcher\n/usr/local/bin/kew\n";
+    let Ok(written) = strip_forks(&ONE, held);
+    assert!(!written.contains("[files]\n/usr/local/bin/launcher\n/usr/local/bin/kew"));
+    assert!(written.contains("/usr/local/bin/launcher\n"));
+    assert!(written.contains("[elsewhere]"));
+    assert!(written.contains("/usr/local/bin/kew"));
+  }
 
-    #[test]
-    fn a_program_the_copy_builds_for_itself_is_left_where_it_is() {
-        let held = "[build]\nlauncher\nconsole-keyboard\n\n[files]\n/usr/local/bin/launcher\n";
-        let Ok(written) = manifest(held);
-        assert!(written.contains("[build]\nlauncher\nconsole-keyboard"));
-        assert!(!written.contains("not carried"), "nothing here is a fork:\n{written}");
-    }
+  #[test]
+  fn a_program_the_copy_builds_for_itself_is_left_where_it_is() {
+    let held = "[build]\nlauncher\nconsole-keyboard\n\n[files]\n/usr/local/bin/launcher\n";
+    let Ok(written) = manifest(held);
+    assert!(written.contains("[build]\nlauncher\nconsole-keyboard"));
+    assert!(
+      !written.contains("not carried"),
+      "nothing here is a fork:\n{written}"
+    );
+  }
 }

@@ -1,0 +1,61 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/position_loop.rs:12:13
+   |
+LL |             state[match ::console_core_number_conversion::index(saved) { Ok(native) => native }],
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: iterate over the elements selected by this loop
+   |
+LL ~     for [state_lane_0, state_lane_1] in <[_]>::iter_mut(<[_]>::as_chunks_mut::<2>(state).0) {
+LL |         let [left, right] = [
+LL ~             *state_lane_0,
+LL ~             *state_lane_1,
+LL |         ];
+LL ~         *state_lane_0 = right;
+LL ~         *state_lane_1 = left;
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/position_loop.rs:13:13
+   |
+LL | /             state[(match ::console_core_number_conversion::index(saved) {
+LL | |                 Ok(native) => native,
+LL | |             }).wrapping_add(1)],
+   | |_______________________________^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/position_loop.rs:17:9
+   |
+LL |         state[match ::console_core_number_conversion::index(saved) { Ok(native) => native }] = right;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/position_loop.rs:18:9
+   |
+LL | /         state[(match ::console_core_number_conversion::index(saved) {
+LL | |             Ok(native) => native,
+LL | |         }).wrapping_add(1)] = left;
+   | |___________________________^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/position_loop.rs:28:9
+   |
+LL |         state[match ::console_core_number_conversion::index(saved) { Ok(native) => native }] = 42;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for (row, [state_lane_0, _]) in <[_]>::iter_mut(<[_]>::as_chunks_mut::<2>(state).0).enumerate() {
+LL |         let Ok(saved) = ::console_core_number_conversion::fixed_index(usize::wrapping_mul(row, 2));
+LL ~         *state_lane_0 = 42;
+   |
+
+error: aborting due to 5 previous errors
+

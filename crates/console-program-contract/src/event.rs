@@ -29,60 +29,112 @@
 //! missing field: the loop puts one question and waits for it, because a
 //! second one printed under the first is two prompts and one line of input.
 //! Which question was asked is the state the program was in when it asked.
+//!
+//! [`ExitStatus::Interrupt`] is effect's third way for work to end, beside
+//! succeeding and failing: it was stopped from outside, by the program that
+//! started it. Only a fork can be answered with it, and only when the
+//! program's own `Effect::Interrupt` is what ended it -- a command that
+//! finished before the interrupt reached it answers with how it finished, and
+//! one that died of somebody else's signal is a failure, as it always was.
+//!
+//! [`Answer`] carries the error stream beside the output, because the error
+//! stream is where a program that failed says why. A loop that lets it through
+//! to a terminal has nothing to put there; a panel has no terminal, and a reply
+//! saying a network was not joined is only worth reading with nmcli's reason in
+//! it. For forked work, [`Answer::job`] carries the key of the fork that
+//! produced the reply.
 
 use std::path::PathBuf;
 
-use crate::effect::Command;
+use console_core_never::Never;
+
+use crate::effect::{Command, Job};
 use crate::subscription::Timer;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event<E> {
-    Opened,
-    Modified(Change),
-    Tick(Timer, Elapsed),
-    Replied(Answer),
-    Chosen(Choice),
-    Stopping,
-    Custom(E),
+  Opened,
+  Modified(Change),
+  Tick(Timer, Elapsed),
+  Replied(Answer),
+  Written(WriteAnswer),
+  Chosen(Choice),
+  Stopping,
+  Custom(E),
 }
 
 pub type Elapsed = std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
-    pub event_group: EventGroup,
-    pub text: String,
+  pub event_group: EventGroup,
+  pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EventGroup {
-    Compositor,
-    Sound,
-    Network,
-    Wifi,
-    Bluetooth,
-    Battery,
-    Notifications,
-    Units,
-    Player,
-    Path(PathBuf),
+  Compositor,
+  Sound,
+  Network,
+  Wifi,
+  Bluetooth,
+  Battery,
+  Notifications,
+  Units,
+  Player,
+  Path(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Answer {
-    pub command: Command,
-    pub output: String,
-    pub status: ExitStatus,
+  pub job: Option<Job>,
+  pub command: Command,
+  pub output: String,
+  pub error_output: String,
+  pub status: ExitStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteAnswer {
+  pub path: PathBuf,
+  pub result: Result<(), WriteFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteFailure {
+  pub stage: WriteStage,
+  pub detail: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteStage {
+  Create,
+  Fill,
+  SyncFile,
+  Replace,
+  PreserveMetadata,
+  SyncDirectory,
+  Cleanup,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Choice {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExitStatus {
-    Success,
-    Failure(Option<i32>),
+  Success,
+  Failure(Option<i32>),
+  Interrupt,
+}
+
+impl ExitStatus {
+  pub fn after_interrupting(self) -> Result<ExitStatus, Never> {
+    Ok(match self {
+      ExitStatus::Success => ExitStatus::Success,
+      ExitStatus::Failure(_) | ExitStatus::Interrupt => ExitStatus::Interrupt,
+    })
+  }
 }

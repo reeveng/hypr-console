@@ -1,0 +1,49 @@
+// run-rustfix
+// edition:2024
+#[allow(explicit051_no_machine_width)]
+type Position = usize;
+
+#[allow(explicit051_no_machine_width)]
+type Offset = isize;
+
+fn advance(at: Position) -> Position { at.wrapping_add(1) }
+fn wrapped() -> (Position, u8) { (!0, 7) }
+
+fn cast_mask(at: Position, end: Position, bias: Offset) -> Position {
+    let _sign = at.cast_signed();
+    for _step in 0..end {
+        return (_step.cast_signed() + bias).cast_unsigned();
+    }
+    _sign.wrapping_neg().cast_unsigned()
+}
+
+fn inferred() -> (Position, Position, Position) {
+    let _length = [1_u8, 2].len();
+    let _position = _length;
+    let mut _written: Position = 2;
+    _written = _written.wrapping_add(3);
+    let _from_block = ({ let (_offset, _) = wrapped(); _offset }).wrapping_add(1);
+    (_written, _from_block, _position.wrapping_mul(3))
+}
+
+fn main() {
+    assert_eq!(advance(!0), 0);
+    assert_eq!([1_u8, 2].len().wrapping_mul(3), 6);
+    assert_eq!(inferred(), (5, 0, 6));
+    assert_eq!(cast_mask(!0, 2, 5), 5);
+    assert_eq!(cast_mask(!0, 0, 5), 1);
+    assert_eq!(read_index(&View(Fields { before: 1, index: 3 })), 3);
+}
+
+struct Fields { before: u8, index: Position }
+struct View(Fields);
+
+impl std::ops::Deref for View {
+    type Target = Fields;
+    fn deref(&self) -> &Fields { &self.0 }
+}
+
+fn read_index(view: &View) -> Offset {
+    let _before = view.before;
+    view.index.cast_signed()
+}

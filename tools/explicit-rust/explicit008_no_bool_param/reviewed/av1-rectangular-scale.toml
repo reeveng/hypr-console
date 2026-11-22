@@ -1,0 +1,38 @@
+# Run in an x86_64 build with all features and targets, including the test harness.
+# The six included parts contain the reviewed declaration and call sites.
+[[explicit008_enum_families]]
+module = "console_core_video_decoding_av1::src::safe_simd::itx"
+enum = "crate::src::safe_simd::itx::RectangularScale"
+when_true = "Apply"
+when_false = "Skip"
+reviewed_archmage = true
+reviewed_macros = [
+    "console_core_video_decoding_av1::src::safe_simd::itx::impl_16x16_transform_simd_row_adst_col",
+    "console_core_video_decoding_av1::src::safe_simd::itx::impl_16x16_transform_simd_row_dct_col",
+]
+target = "x86_64-unknown-linux-gnu"
+sources = [
+    "console-core-video-decoding-av1/include/safe_simd/itx/part02_col_1d_avx512_pmaddwd.rs",
+    "console-core-video-decoding-av1/include/safe_simd/itx/part03_adst16_and_small_rect.rs",
+    "console-core-video-decoding-av1/include/safe_simd/itx/part04_rect_idtx_aspect.rs",
+    "console-core-video-decoding-av1/include/safe_simd/itx/part05_tests.rs",
+    "console-core-video-decoding-av1/include/safe_simd/itx/part06_adst_flipadst_vh.rs",
+    "console-core-video-decoding-av1/include/safe_simd/itx/part10_dispatch.rs",
+]
+
+[explicit008_enum_families.members]
+dc_only_compute = "rect2"
+row_dct16_8bpc_block = "apply_rect2"
+row_dct32_8bpc_block = "apply_rect2"
+row_dct8_8bpc_block = "apply_rect2"
+simd_row_adst16_8bpc_8rows = "apply_rect2"
+simd_row_adst8_8bpc_8rows = "apply_rect2"
+simd_row_dct16_8bpc_16rows = "apply_rect2"
+simd_row_dct16_8bpc_16rows_entry = "apply_rect2"
+simd_row_dct16_8bpc_8rows = "apply_rect2"
+simd_row_dct32_8bpc_16rows = "apply_rect2"
+simd_row_dct32_8bpc_16rows_entry = "apply_rect2"
+simd_row_dct32_8bpc_8rows = "apply_rect2"
+simd_row_dct8_8bpc_16rows = "apply_rect2"
+simd_row_dct8_8bpc_16rows_entry = "apply_rect2"
+simd_row_dct8_8bpc_8rows = "apply_rect2"

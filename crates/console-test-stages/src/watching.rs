@@ -109,536 +109,713 @@
 //! `quietly`, which wipes before it prints: a `println!` beside the strip is a
 //! line drawn on top of it.
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant};
 
 use console_core_never::Never;
 use console_core_number_conversion::toward_zero_u16;
 use console_how_far::Bar;
-use console_notifications::saying::{Notification, Content};
+use console_notifications::saying::{Content, Notification};
 use console_notifications::updating::{self, Progress};
-use console_waiting::{Schedule, Ready, until};
+use console_waiting::{Ready, Schedule, until, until_some};
 
 use crate::device::{Device, shell_quote};
 use crate::lasting::{Ahead, WHOLE, about, crept, over};
 
 pub fn writing(far: &Progress) -> Result<String, Never> {
-    let Ok(where_at) = updating::at();
-    let Ok(written) = updating::serialize(far);
+  let Ok(where_at) = updating::at();
+  let Ok(written) = updating::serialize(far);
 
-    let at = where_at.display().to_string();
-    let beside = format!("{at}.writing");
-    let Ok(said) = shell_quote(&written);
-    let Ok(holding) = holding_of(&at);
-    let Ok(holding) = shell_quote(&holding);
-    let Ok(writing) = shell_quote(&beside);
-    let Ok(where_) = shell_quote(&at);
+  let at = where_at.display().to_string();
+  let beside = format!("{at}.writing");
+  let Ok(said) = shell_quote(&written);
+  let Ok(holding) = holding_of(&at);
+  let Ok(holding_2) = shell_quote(&holding);
+  let Ok(writing) = shell_quote(&beside);
+  let Ok(where_) = shell_quote(&at);
 
-    Ok(format!("mkdir -p {holding} && printf %s {said} > {writing} && mv {writing} {where_}"))
+  Ok(format!(
+    "mkdir -p {holding} && printf %s {said} > {writing} && mv {writing} {where_}",
+    holding = holding_2
+  ))
 }
 
 pub fn show_progress(device: &mut Device, ahead: &Ahead, doing: &str) -> Result<(), Never> {
-    let Ok(permille) = ahead.far();
-    let Ok(said) = writing(&Progress { permille, label: doing.to_string() });
-    let Ok(_) = device.ssh(&said);
+  let Ok(permille) = ahead.far();
+  let Ok(said) = writing(&Progress {
+    permille,
+    label: doing.to_string(),
+  });
+  let Ok(_) = device.ssh(&said);
 
-    Ok(())
+  Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reached {
-    pub into: u16,
-    pub far: u16,
+  pub into: u16,
+  pub far: u16,
 }
 
 pub fn late(elapsed: Duration, expecting: Duration) -> Result<String, Never> {
-    let Ok(over) = over(elapsed, expecting);
+  let Ok(over) = over(elapsed, expecting);
 
-    let over = match over {
-        Some(over) => over,
-        None => return Ok(String::new()),
-    };
+  let over_3 = match over {
+    Some(over_2) => over_2,
+    None => return Ok(String::new()),
+  };
 
-    let Ok(about) = about(over);
+  let Ok(about) = about(over_3);
 
-    Ok(format!("({about} so far)"))
+  Ok(format!("({about} so far)"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reaching {
-    pub at: u16,
-    pub span: u16,
-    pub elapsed: Duration,
-    pub expecting: Duration,
+  pub at: u16,
+  pub span: u16,
+  pub elapsed: Duration,
+  pub expecting: Duration,
 }
 
 pub fn reached(reaching: Reaching) -> Result<Reached, Never> {
-    let Reaching { at, span, elapsed, expecting } = reaching;
-    let Ok(part) = crept(elapsed, expecting);
-    let Ok(into) = console_how_far::percent(part);
-    let Ok(inside) = toward_zero_u16(f64::from(span) * part);
+  let Reaching {
+    at,
+    span,
+    elapsed,
+    expecting,
+  } = reaching;
+  let Ok(part) = crept(elapsed, expecting);
+  let Ok(into) = console_how_far::percent(part);
+  let Ok(inside) = toward_zero_u16(f64::from(span) * part);
 
-    Ok(Reached { into, far: at.saturating_add(inside).min(WHOLE) })
+  Ok(Reached {
+    into,
+    far: at.saturating_add(inside).min(WHOLE),
+  })
 }
 
 pub fn percent_of(permille: u16) -> Result<u16, Never> {
-    console_how_far::percent(f64::from(permille) / f64::from(WHOLE))
+  console_how_far::percent(f64::from(permille) / f64::from(WHOLE))
 }
 
 pub const BETWEEN: Duration = Duration::from_millis(200);
 
 pub const OUTSIDE: Duration = Duration::from_secs(60 * 60 * 4);
 
+const LOCK_BUDGET: Duration = Duration::from_secs(2);
+const LOCK_RETRY: Duration = Duration::from_millis(10);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ended {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Debug)]
 pub struct Watching {
-    bar: Bar,
-    ahead: Option<Ahead>,
-    doing: String,
-    started: Instant,
-    said: u16,
-    ended: Ended,
+  bar: Bar,
+  ahead: Option<Ahead>,
+  doing: String,
+  started: Instant,
+  said: u16,
+  ended: Ended,
 }
 
-#[cfg_attr(
-    dylint_lib = "explicit039_no_reading_the_clock",
-    allow(
-        explicit039_no_reading_the_clock,
-        reason = "the stopwatch the strip is drawn from: how far a check has crept is how long it has been running, and a reading handed in would be the caller timing the run instead of this"
-    )
-)]
 impl Watching {
-    pub fn of(many: u32) -> Result<Self, Never> {
-        let Ok(bar) = Bar::of(many);
+  #[cfg_attr(
+    all(dylint_lib = "explicit039_no_reading_the_clock", not(test)),
+    expect(
+      explicit039_no_reading_the_clock,
+      reason = "the progress watcher starts its own stopwatch"
+    )
+  )]
+  pub fn of(many: u32) -> Result<Self, Never> {
+    let Ok(bar) = Bar::of(many);
 
-        Ok(Watching {
-            bar,
-            ahead: None,
-            doing: String::new(),
-            started: Instant::now(),
-            said: 0,
-            ended: Ended::No,
-        })
+    Ok(Watching {
+      bar,
+      ahead: None,
+      doing: String::new(),
+      started: Instant::now(),
+      said: 0,
+      ended: Ended::No,
+    })
+  }
+
+  #[cfg_attr(
+    all(dylint_lib = "explicit039_no_reading_the_clock", not(test)),
+    expect(
+      explicit039_no_reading_the_clock,
+      reason = "a new stage resets the progress watcher's stopwatch"
+    )
+  )]
+  pub fn on(&mut self, ahead: &Ahead, doing: &str) -> Result<(), Never> {
+    let Ok(at) = ahead.far();
+
+    self.ahead = Some(ahead.clone());
+    self.started = Instant::now();
+    self.said = at;
+    self.doing = doing.to_string();
+
+    let Ok(along) = ahead.along(Duration::ZERO);
+    let Ok(into) = percent_of(along);
+
+    self.bar.onto(doing, into)
+  }
+
+  pub fn ended(&self) -> Result<Ended, Never> {
+    Ok(self.ended)
+  }
+
+  pub fn redraw(&mut self) -> Result<(), Never> {
+    match self.ended {
+      Ended::Yes => return Ok(()),
+      Ended::No => {}
     }
 
-    pub fn on(&mut self, ahead: &Ahead, doing: &str) -> Result<(), Never> {
-        let Ok(at) = ahead.far();
+    let ahead = match &self.ahead {
+      Some(ahead) => ahead,
+      None => return Ok(()),
+    };
 
-        self.ahead = Some(ahead.clone());
-        self.started = Instant::now();
-        self.said = at;
-        self.doing = doing.to_string();
+    let elapsed = self.started.elapsed();
+    let Ok(along) = ahead.along(elapsed);
+    let Ok(expecting) = ahead.expecting();
+    let Ok(late) = late(elapsed, expecting);
+    let Ok(into) = percent_of(along);
 
-        let Ok(along) = ahead.along(Duration::ZERO);
-        let Ok(into) = percent_of(along);
+    self.bar.set_progress(into, &late)
+  }
 
-        self.bar.onto(doing, into)
+  pub fn tick(&mut self) -> Result<String, Never> {
+    let Ok(()) = self.redraw();
+
+    match self.ended {
+      Ended::Yes => return Ok(String::new()),
+      Ended::No => {}
     }
 
-    pub fn ended(&self) -> Result<Ended, Never> {
-        Ok(self.ended)
+    let ahead = match &self.ahead {
+      Some(ahead) => ahead,
+      None => return Ok(String::new()),
+    };
+
+    let Ok(far) = ahead.along(self.started.elapsed());
+
+    match ::core::primitive::bool::then_some(far == self.said, ()) {
+      ::core::option::Option::Some(()) => return Ok(String::new()),
+      ::core::option::Option::None => {}
     }
 
-    pub fn redraw(&mut self) -> Result<(), Never> {
-        match self.ended {
-            Ended::Yes => return Ok(()),
-            Ended::No => {},
-        }
+    self.said = far;
 
-        let ahead = match &self.ahead {
-            Some(ahead) => ahead,
-            None => return Ok(()),
-        };
+    let Ok(said) = writing(&Progress {
+      permille: far,
+      label: self.doing.clone(),
+    });
 
-        let elapsed = self.started.elapsed();
-        let Ok(along) = ahead.along(elapsed);
-        let Ok(expecting) = ahead.expecting();
-        let Ok(late) = late(elapsed, expecting);
-        let Ok(into) = percent_of(along);
+    Ok(format!("; {said}"))
+  }
 
-        self.bar.set_progress(into, &late)
-    }
+  pub fn quiet(&mut self) -> Result<(), Never> {
+    self.bar.wiped()
+  }
 
-    pub fn tick(&mut self) -> Result<String, Never> {
-        let Ok(()) = self.redraw();
+  pub fn ending(&mut self) -> Result<(), Never> {
+    self.ended = Ended::Yes;
 
-        match self.ended {
-            Ended::Yes => return Ok(String::new()),
-            Ended::No => {},
-        }
-
-        let ahead = match &self.ahead {
-            Some(ahead) => ahead,
-            None => return Ok(String::new()),
-        };
-
-        let Ok(far) = ahead.along(self.started.elapsed());
-
-        match far == self.said {
-            true => return Ok(String::new()),
-            false => {},
-        }
-
-        self.said = far;
-
-        let Ok(said) = writing(&Progress { permille: far, label: self.doing.clone() });
-
-        Ok(format!("; {said}"))
-    }
-
-    pub fn quiet(&mut self) -> Result<(), Never> {
-        self.bar.wiped()
-    }
-
-    pub fn ending(&mut self) -> Result<(), Never> {
-        self.ended = Ended::Yes;
-
-        self.bar.wiped()
-    }
+    self.bar.wiped()
+  }
 }
 
-pub fn lock(watching: &Mutex<Watching>) -> Result<MutexGuard<'_, Watching>, Never> {
-    Ok(match watching.lock() {
-        Ok(held) => held,
-        Err(poisoned) => poisoned.into_inner(),
-    })
+fn try_lock(watching: &Mutex<Watching>) -> Result<Option<MutexGuard<'_, Watching>>, Never> {
+  Ok(match watching.try_lock() {
+    Ok(held) => Some(held),
+    Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+    Err(TryLockError::WouldBlock) => None,
+  })
+}
+
+pub fn lock(watching: &Mutex<Watching>) -> Result<Option<MutexGuard<'_, Watching>>, Never> {
+  let Ok(patience) = Schedule::asking_every(LOCK_BUDGET, LOCK_RETRY);
+
+  until_some(patience, || try_lock(watching))
 }
 
 pub fn on(watching: &Mutex<Watching>, ahead: &Ahead, doing: &str) -> Result<(), Never> {
-    let Ok(mut held) = lock(watching);
+  let Ok(held) = lock(watching);
 
-    held.on(ahead, doing)
+  match held {
+    Some(mut acquired) => acquired.on(ahead, doing),
+    None => Ok(()),
+  }
 }
 
 pub fn quietly(watching: &Mutex<Watching>, work: impl FnOnce()) -> Result<(), Never> {
-    quietly_handed(watching, &mut (), |_nothing| work())
+  quietly_handed(watching, &mut (), |_nothing| work())
 }
 
 pub fn quietly_handed<M>(
-    watching: &Mutex<Watching>,
-    handed: &mut M,
-    work: impl FnOnce(&mut M),
+  watching: &Mutex<Watching>,
+  handed: &mut M,
+  work: impl FnOnce(&mut M),
 ) -> Result<(), Never> {
-    let Ok(mut held) = lock(watching);
-    let Ok(()) = held.quiet();
+  let Ok(held) = lock(watching);
 
-    work(handed);
+  match held {
+    Some(mut acquired) => {
+      let Ok(()) = acquired.quiet();
 
-    Ok(())
+      work(handed);
+    }
+    None => work(handed),
+  }
+
+  Ok(())
 }
 
 pub fn ending(watching: &Mutex<Watching>) -> Result<(), Never> {
-    let Ok(mut held) = lock(watching);
+  let Ok(held) = lock(watching);
 
-    held.ending()
+  match held {
+    Some(mut acquired) => acquired.ending(),
+    None => Ok(()),
+  }
 }
 
-pub fn drawing(watching: Arc<Mutex<Watching>>) -> Result<std::thread::JoinHandle<()>, Never> {
-    Ok(std::thread::spawn(move || {
-        let Ok(patience) = Schedule::asking_every(OUTSIDE, BETWEEN);
-        let Ok(_) = until(patience, || {
-            let Ok(mut held) = lock(&watching);
-            let Ok(ended) = held.ended();
+struct StopOnExit<'watch> {
+  watching: &'watch Mutex<Watching>,
+  stop: &'watch AtomicBool,
+}
 
-            Ok(match ended {
-                Ended::Yes => Ready::Yes,
+impl Drop for StopOnExit<'_> {
+  fn drop(&mut self) {
+    self.stop.store(true, Ordering::SeqCst);
+    let Ok(held) = lock(self.watching);
 
-                Ended::No => {
-                    let Ok(()) = held.redraw();
+    match held {
+      Some(mut acquired) => acquired.ended = Ended::Yes,
+      None => {}
+    }
+  }
+}
 
-                    Ready::NotYet
-                }
-            })
-        });
-    }))
+#[derive(Debug)]
+pub enum DrawingFault {
+  Start(std::io::Error),
+  Panic,
+}
+
+pub fn while_drawing<C, R>(
+  watching: &Mutex<Watching>,
+  context: &mut C,
+  work: impl FnOnce(&mut C) -> R,
+) -> Result<(R, Option<DrawingFault>), Never> {
+  let stop = AtomicBool::new(false);
+  let drawing_stops = &stop;
+
+  Ok(std::thread::scope(move |scope| {
+    let _stop_when_leaving = StopOnExit {
+      watching,
+      stop: drawing_stops,
+    };
+    let worker = std::thread::Builder::new().spawn_scoped(scope, move || {
+      let Ok(()) = draw_until_ended(watching, drawing_stops);
+    });
+    let answer = work(context);
+    let Ok(()) = ending(watching);
+
+    drawing_stops.store(true, Ordering::SeqCst);
+
+    let issue = match worker {
+      Ok(drawing) => {
+        #[cfg_attr(
+          dylint_lib = "explicit057_no_unbounded_wait",
+          expect(
+            explicit057_no_unbounded_wait,
+            reason = "the scoped renderer sees the stop flag on its next bounded poll, including when the progress lock is busy"
+          )
+        )]
+        let joined = drawing.join();
+
+        match joined {
+          Ok(()) => None,
+          Err(_drawing_panicked) => Some(DrawingFault::Panic),
+        }
+      }
+      Err(fault) => Some(DrawingFault::Start(fault)),
+    };
+
+    (answer, issue)
+  }))
+}
+
+fn draw_until_ended(watching: &Mutex<Watching>, stop: &AtomicBool) -> Result<(), Never> {
+  let Ok(patience) = Schedule::asking_every(OUTSIDE, BETWEEN);
+  let Ok(_) = until(patience, || {
+    match bool::then_some(stop.load(Ordering::SeqCst), ()) {
+      Some(()) => return Ok(Ready::Yes),
+      None => {}
+    }
+
+    let Ok(held) = try_lock(watching);
+    let mut progress = match held {
+      Some(acquired) => acquired,
+      None => return Ok(Ready::NotYet),
+    };
+    let Ok(ended) = progress.ended();
+
+    Ok(match ended {
+      Ended::Yes => Ready::Yes,
+      Ended::No => {
+        let Ok(()) = progress.redraw();
+
+        Ready::NotYet
+      }
+    })
+  });
+
+  Ok(())
 }
 
 pub fn done_showing(device: &mut Device) -> Result<(), Never> {
-    let Ok(where_at) = updating::at();
-    let Ok(at) = shell_quote(&where_at.display().to_string());
-    let Ok(_) = device.ssh(&format!("rm -f {at}"));
+  let Ok(where_at) = updating::at();
+  let Ok(at) = shell_quote(&where_at.display().to_string());
+  let Ok(_) = device.ssh(&format!("rm -f {at}"));
 
-    Ok(())
+  Ok(())
 }
 
 fn holding_of(at: &str) -> Result<String, Never> {
-    Ok(match at.rsplit_once('/') {
-        Some((above, _)) => above.to_string(),
-        None => ".".to_string(),
-    })
+  Ok(match at.rsplit_once('/') {
+    Some((above, _)) => above.to_string(),
+    None => ".".to_string(),
+  })
 }
 
 pub fn notify(device: &mut Device, notification: &Notification) -> Result<Option<u32>, Never> {
-    let Ok(said) = notification.arguments();
+  let Ok(said) = notification.arguments();
 
-    let arguments: Vec<String> = said
-        .iter()
-        .map(|word| {
-            let Ok(quoted) = shell_quote(word);
+  let arguments: Vec<String> = said
+    .iter()
+    .map(|word| {
+      let Ok(quoted) = shell_quote(word);
 
-            quoted
-        })
-        .collect();
-    let Ok(said) = device.in_session(&arguments.join(" "));
-
-    Ok(match said.trim().parse::<u32>() {
-        Ok(id) => Some(id),
-        Err(_no_id) => None,
+      quoted
     })
+    .collect();
+  let Ok(said_2) = device.in_session(&arguments.join(" "));
+
+  Ok(match said_2.trim().parse::<u32>() {
+    Ok(id) => Some(id),
+    Err(_no_id) => None,
+  })
 }
 
 pub const STARTING: &str = "Checking the desktop";
 
 pub fn starting(many: u32, ahead: &Ahead) -> Result<Notification, Never> {
-    let Ok(whole) = ahead.whole();
+  let Ok(whole) = ahead.whole();
 
-    let long = match whole {
-        Some(whole) => {
-            let Ok(about) = about(whole);
+  let long = match whole {
+    Some(whole_2) => {
+      let Ok(about) = about(whole_2);
 
-            format!(", about {about}")
-        }
-        None => String::new(),
-    };
+      format!(", about {about}")
+    }
+    None => String::new(),
+  };
 
-    let Ok(notification) = Notification::new(Content {
-        summary: STARTING,
-        body: &format!("{many} checks{long}. Don't touch the controls."),
-    });
+  let Ok(notification) = Notification::new(Content {
+    summary: STARTING,
+    body: &format!("{many} checks{long}. Don't touch the controls."),
+  });
 
-    notification.staying()
+  notification.staying()
 }
 
 pub fn ended(
-    ok: u32,
-    failed: &[String],
-    took: Duration,
-    was: Option<u32>,
+  ok: u32,
+  failed: &[String],
+  took: Duration,
+  was: Option<u32>,
 ) -> Result<Notification, Never> {
-    let notification = match failed.first() {
-        None => {
-            let Ok(about) = about(took);
-            let Ok(notification) = Notification::new(Content {
-                summary: "Checks passed",
-                body: &format!("{ok} of them, in {about}."),
-            });
-            let Ok(notification) = notification.lasting(8000);
+  let notification = match failed.first() {
+    None => {
+      let Ok(about) = about(took);
+      let Ok(notification) = Notification::new(Content {
+        summary: "Checks passed",
+        body: &format!("{ok} of them, in {about}."),
+      });
+      let Ok(notification_2) = notification.lasting(8000);
 
-            notification
-        }
+      notification_2
+    }
 
-        Some(_something) => {
-            let Ok(notification) = Notification::new(Content {
-                summary: "Checks failed",
-                body: &format!("{ok} passed, {} failed: {}.", failed.len(), failed.join(", ")),
-            });
-            let Ok(notification) = notification.urgent();
-            let Ok(notification) = notification.staying();
+    Some(_something) => {
+      let Ok(notification) = Notification::new(Content {
+        summary: "Checks failed",
+        body: &format!(
+          "{ok} passed, {} failed: {}.",
+          failed.len(),
+          failed.join(", ")
+        ),
+      });
+      let Ok(notification_3) = notification.urgent();
+      let Ok(notification_4) = notification_3.staying();
 
-            notification
-        }
-    };
+      notification_4
+    }
+  };
 
-    notification.replacing(was)
+  notification.replacing(was)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::checking::{Body, Check, CheckResult};
+  use super::*;
+  use crate::checking::{Body, Check, CheckResult};
 
-    fn pass(_device: &mut Device) -> CheckResult {
-        Ok(())
-    }
+  fn pass(_device: &mut Device) -> CheckResult {
+    Ok(())
+  }
 
-    #[test]
-    fn the_bar_is_drawn_in_percent_though_the_run_is_counted_in_thousandths() {
-        assert_eq!(percent_of(0), Ok(0));
-        assert_eq!(percent_of(WHOLE.div_euclid(2)), Ok(50));
-        assert_eq!(percent_of(WHOLE.div_euclid(10)), Ok(10));
-        assert_eq!(percent_of(WHOLE), Ok(console_how_far::WHOLE));
-    }
+  #[test]
+  fn the_drawing_worker_ends_when_the_check_returns_a_failure() {
+    let Ok(state) = Watching::of(1);
+    let watching = Mutex::new(state);
+    let mut attempted = 0_u32;
+    let Ok((result, drawing_fault)) = while_drawing(&watching, &mut attempted, |attempts| {
+      *attempts = 1;
 
-    const ANY: Check = Check {
-        name: "",
-        about: "A check.",
-        feature: "nothing",
-        since: "2026-09-06",
-        bodies: &[Body::Device(pass)],
-    };
+      Err::<(), _>("check failed")
+    });
+    let Ok(held) = lock(&watching);
 
-    const ONE: Check = Check { name: "010-one", ..ANY };
-    const TWO: Check = Check { name: "020-two", ..ANY };
+    assert_eq!(result, Err("check failed"));
+    assert_eq!(attempted, 1);
+    assert!(drawing_fault.is_none());
+    assert!(matches!(held, Some(progress) if progress.ended() == Ok(Ended::Yes)));
+  }
 
-    #[test]
-    fn the_card_at_the_start_says_how_long_when_the_machine_has_been_timed() {
-        let Ok(ahead) = Ahead::of(&crate::lasting::Lengths::default(), &[]);
-        let Ok(said) = starting(10, &ahead);
+  #[test]
+  fn the_bar_is_drawn_in_percent_though_the_run_is_counted_in_thousandths() {
+    assert_eq!(percent_of(0), Ok(0));
+    assert_eq!(percent_of(WHOLE.div_euclid(2)), Ok(50));
+    assert_eq!(percent_of(WHOLE.div_euclid(10)), Ok(10));
+    assert_eq!(percent_of(WHOLE), Ok(console_how_far::WHOLE));
+  }
 
-        assert!(!said.body.contains("about"), "a machine no one timed was promised a length");
-    }
+  const ANY: Check = Check {
+    name: "",
+    about: "A check.",
+    feature: "nothing",
+    since: "2026-09-06",
+    bodies: &[Body::Device(pass)],
+  };
 
-    #[test]
-    fn the_card_at_the_end_replaces_the_one_at_the_start() {
-        let Ok(said) = ended(10, &[], Duration::from_secs(120), Some(41));
-        let Ok(arguments) = said.arguments();
+  const ONE: Check = Check {
+    name: "010-one",
+    ..ANY
+  };
+  const TWO: Check = Check {
+    name: "020-two",
+    ..ANY
+  };
 
-        assert_eq!(said.replacing, Some(41));
-        assert!(arguments.iter().any(|word| word == "--replace-id=41"));
-    }
+  #[test]
+  fn the_card_at_the_start_says_how_long_when_the_machine_has_been_timed() {
+    let Ok(ahead) = Ahead::of(&crate::lasting::Lengths::default(), &[]);
+    let Ok(said) = starting(10, &ahead);
 
-    #[test]
-    fn a_run_that_failed_names_what_failed_and_stays_on_the_screen() {
-        let Ok(said) = ended(9, &["120-a-page".to_string()], Duration::from_secs(120), None);
+    assert!(
+      !said.body.contains("about"),
+      "a machine no one timed was promised a length"
+    );
+  }
 
-        assert!(said.body.contains("120-a-page"), "the card does not say what failed");
-        assert_eq!(said.expiry, console_notifications::saying::Expiry::Stays);
-    }
+  #[test]
+  fn the_card_at_the_end_replaces_the_one_at_the_start() {
+    let Ok(said) = ended(10, &[], Duration::from_secs(120), Some(41));
+    let Ok(arguments) = said.arguments();
 
-    #[test]
-    fn the_strip_is_told_after_the_command_rather_than_before_it() {
-        let Ok(mut watching) = Watching::of(2);
-        let Ok(carried) = crate::lasting::reading("010-one 1000\n020-two 1000\n");
-        let Ok(ahead) =
-            Ahead::from(&crate::lasting::Lengths::default(), &carried, &[&ONE, &TWO]);
-        let Ok(()) = watching.on(&ahead, ONE.name);
-        watching.said = u16::MAX;
+    assert_eq!(said.replacing, Some(41));
+    assert!(arguments.iter().any(|word| word == "--replace-id=41"));
+  }
 
-        let Ok(said) = watching.tick();
+  #[test]
+  fn a_run_that_failed_names_what_failed_and_stays_on_the_screen() {
+    let Ok(said) = ended(
+      9,
+      &["120-a-page".to_string()],
+      Duration::from_secs(120),
+      None,
+    );
 
-        assert!(
-            said.starts_with("; "),
-            "the strip is written in front of the press rather than behind it: {said}"
-        );
-    }
+    assert!(
+      said.body.contains("120-a-page"),
+      "the card does not say what failed"
+    );
+    assert_eq!(said.expiry, console_notifications::saying::Expiry::Stays);
+  }
 
-    #[test]
-    fn a_command_sent_after_the_run_has_ended_does_not_draw_the_strip_back() {
-        let Ok(mut watching) = Watching::of(2);
-        let Ok(carried) = crate::lasting::reading("010-one 1000\n020-two 1000\n");
-        let Ok(ahead) =
-            Ahead::from(&crate::lasting::Lengths::default(), &carried, &[&ONE, &TWO]);
-        let Ok(()) = watching.on(&ahead, ONE.name);
-        watching.said = u16::MAX;
-        let Ok(()) = watching.ending();
+  #[test]
+  fn the_strip_is_told_after_the_command_rather_than_before_it() {
+    let Ok(mut watching) = Watching::of(2);
+    let Ok(carried) = crate::lasting::reading("010-one 1000\n020-two 1000\n");
+    let Ok(ahead) = Ahead::from(&crate::lasting::Lengths::default(), &carried, &[&ONE, &TWO]);
+    let Ok(()) = watching.on(&ahead, ONE.name);
+    watching.said = u16::MAX;
 
-        let Ok(said) = watching.tick();
+    let Ok(said) = watching.tick();
 
-        assert_eq!(
-            said, "",
-            "the run had ended and its strip been taken off the device, and the next command \
+    assert!(
+      said.starts_with("; "),
+      "the strip is written in front of the press rather than behind it: {said}"
+    );
+  }
+
+  #[test]
+  fn a_command_sent_after_the_run_has_ended_does_not_draw_the_strip_back() {
+    let Ok(mut watching) = Watching::of(2);
+    let Ok(carried) = crate::lasting::reading("010-one 1000\n020-two 1000\n");
+    let Ok(ahead) = Ahead::from(&crate::lasting::Lengths::default(), &carried, &[&ONE, &TWO]);
+    let Ok(()) = watching.on(&ahead, ONE.name);
+    watching.said = u16::MAX;
+    let Ok(()) = watching.ending();
+
+    let Ok(said) = watching.tick();
+
+    assert_eq!(
+      said, "",
+      "the run had ended and its strip been taken off the device, and the next command \
              written after that put it back"
-        );
-    }
+    );
+  }
 
-    #[test]
-    fn what_is_written_is_the_file_the_strip_reads_and_the_number_it_reads() {
-        let Ok(said) = writing(&Progress { permille: 400, label: "120-a-page".to_string() });
+  #[test]
+  fn what_is_written_is_the_file_the_strip_reads_and_the_number_it_reads() {
+    let Ok(said) = writing(&Progress {
+      permille: 400,
+      label: "120-a-page".to_string(),
+    });
 
-        assert!(said.contains("/run/console/updating"), "{said}");
-        assert!(said.contains("400 120-a-page"), "{said}");
-        assert!(said.ends_with("/run/console/updating'"), "the bar hears the file moved into place, and nothing after it: {said}");
-    }
+    assert!(said.contains("/run/console/updating"), "{said}");
+    assert!(said.contains("400 120-a-page"), "{said}");
+    assert!(
+      said.ends_with("/run/console/updating'"),
+      "the bar hears the file moved into place, and nothing after it: {said}"
+    );
+  }
 
-    #[test]
-    fn the_line_is_drawn_on_a_clock_rather_than_when_the_run_happens_to_speak() {
-        assert!(
-            BETWEEN <= Duration::from_millis(200),
-            "the line is redrawn every {BETWEEN:?}, which reads as steps rather than movement"
-        );
-        assert!(
-            BETWEEN >= Duration::from_millis(50),
-            "the line is redrawn every {BETWEEN:?}, which is a handheld's ssh session woken for \
+  #[test]
+  fn the_line_is_drawn_on_a_clock_rather_than_when_the_run_happens_to_speak() {
+    assert!(
+      BETWEEN <= Duration::from_millis(200),
+      "the line is redrawn every {BETWEEN:?}, which reads as steps rather than movement"
+    );
+    assert!(
+      BETWEEN >= Duration::from_millis(50),
+      "the line is redrawn every {BETWEEN:?}, which is a handheld's ssh session woken for \
              nothing a person could see"
-        );
-    }
+    );
+  }
 
-    #[test]
-    fn a_check_that_has_only_just_started_has_not_moved_the_strip() {
-        assert_eq!(
-            reached(Reaching {
-            at: 20,
-            span: 10,
-            elapsed: Duration::ZERO,
-            expecting: Duration::from_secs(60),
-        }),
-            Ok(Reached { into: 0, far: 20 })
-        );
-    }
+  #[test]
+  fn a_check_that_has_only_just_started_has_not_moved_the_strip() {
+    assert_eq!(
+      reached(Reaching {
+        at: 20,
+        span: 10,
+        elapsed: Duration::ZERO,
+        expecting: Duration::from_secs(60),
+      }),
+      Ok(Reached { into: 0, far: 20 })
+    );
+  }
 
-    #[test]
-    fn a_check_halfway_through_its_estimate_is_halfway_along_its_own_share() {
-        let Ok(reached) = reached(Reaching {
-            at: 20,
-            span: 10,
-            elapsed: Duration::from_secs(30),
-            expecting: Duration::from_secs(60),
-        });
+  #[test]
+  fn a_check_halfway_through_its_estimate_is_halfway_along_its_own_share() {
+    let Ok(reached) = reached(Reaching {
+      at: 20,
+      span: 10,
+      elapsed: Duration::from_secs(30),
+      expecting: Duration::from_secs(60),
+    });
 
-        assert_eq!(reached, Reached { into: 45, far: 24 });
-    }
+    assert_eq!(reached, Reached { into: 45, far: 24 });
+  }
 
-    #[test]
-    fn a_check_running_long_says_how_long_rather_than_only_creeping() {
-        assert_eq!(late(Duration::from_secs(30), Duration::from_secs(60)), Ok(String::new()));
-        assert_eq!(
-            late(Duration::from_secs(180), Duration::from_secs(60)),
-            Ok("(3 minutes so far)".to_string())
-        );
-        assert_eq!(
-            late(Duration::from_secs(180), Duration::ZERO),
-            Ok(String::new()),
-            "a check nothing has ever timed was called late"
-        );
-    }
+  #[test]
+  fn a_check_running_long_says_how_long_rather_than_only_creeping() {
+    assert_eq!(
+      late(Duration::from_secs(30), Duration::from_secs(60)),
+      Ok(String::new())
+    );
+    assert_eq!(
+      late(Duration::from_secs(180), Duration::from_secs(60)),
+      Ok("(3 minutes so far)".to_string())
+    );
+    assert_eq!(
+      late(Duration::from_secs(180), Duration::ZERO),
+      Ok(String::new()),
+      "a check nothing has ever timed was called late"
+    );
+  }
 
-    #[test]
-    fn a_check_stays_inside_its_own_share_however_long_it_runs() {
-        let Ok(reached) = reached(Reaching {
-            at: 20,
-            span: 10,
-            elapsed: Duration::from_secs(6000),
-            expecting: Duration::from_secs(60),
-        });
+  #[test]
+  fn a_check_stays_inside_its_own_share_however_long_it_runs() {
+    let Ok(reached) = reached(Reaching {
+      at: 20,
+      span: 10,
+      elapsed: Duration::from_secs(6000),
+      expecting: Duration::from_secs(60),
+    });
 
-        assert!(reached.far < 30, "it walked into the next check's share: {reached:?}");
-        assert!(reached.far > 28, "it stopped moving well short of its own end: {reached:?}");
-    }
+    assert!(
+      reached.far < 30,
+      "it walked into the next check's share: {reached:?}"
+    );
+    assert!(
+      reached.far > 28,
+      "it stopped moving well short of its own end: {reached:?}"
+    );
+  }
 
-    #[test]
-    fn a_check_nothing_has_ever_timed_leaves_the_strip_where_the_last_one_left_it() {
-        assert_eq!(
-            reached(Reaching {
-            at: 20,
-            span: 10,
-            elapsed: Duration::from_secs(30),
-            expecting: Duration::ZERO,
-        }),
-            Ok(Reached { into: 0, far: 20 }),
-            "a run with nothing to go on invented a number"
-        );
-    }
+  #[test]
+  fn a_check_nothing_has_ever_timed_leaves_the_strip_where_the_last_one_left_it() {
+    assert_eq!(
+      reached(Reaching {
+        at: 20,
+        span: 10,
+        elapsed: Duration::from_secs(30),
+        expecting: Duration::ZERO,
+      }),
+      Ok(Reached { into: 0, far: 20 }),
+      "a run with nothing to go on invented a number"
+    );
+  }
 
-    #[test]
-    fn the_last_check_of_a_run_cannot_carry_the_strip_past_the_end() {
-        let Ok(reached) = reached(Reaching {
-            at: 960,
-            span: 100,
-            elapsed: Duration::from_secs(600),
-            expecting: Duration::from_secs(1),
-        });
+  #[test]
+  fn the_last_check_of_a_run_cannot_carry_the_strip_past_the_end() {
+    let Ok(reached) = reached(Reaching {
+      at: 960,
+      span: 100,
+      elapsed: Duration::from_secs(600),
+      expecting: Duration::from_secs(1),
+    });
 
-        assert_eq!(reached.far, WHOLE);
-    }
+    assert_eq!(reached.far, WHOLE);
+  }
 
-    #[test]
-    fn the_directory_the_strip_is_written_in_is_the_one_holding_it() {
-        assert_eq!(holding_of("/run/console/updating"), Ok("/run/console".to_string()));
-        assert_eq!(holding_of("updating"), Ok(".".to_string()));
-    }
+  #[test]
+  fn the_directory_the_strip_is_written_in_is_the_one_holding_it() {
+    assert_eq!(
+      holding_of("/run/console/updating"),
+      Ok("/run/console".to_string())
+    );
+    assert_eq!(holding_of("updating"), Ok(".".to_string()));
+  }
 }

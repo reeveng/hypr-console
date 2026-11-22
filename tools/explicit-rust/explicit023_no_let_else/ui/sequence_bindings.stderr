@@ -1,0 +1,97 @@
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/sequence_bindings.rs:15:5
+   |
+LL | /     let (Some(left), Some(right)) = values else {
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+   = note: `#[deny(explicit023_no_let_else)]` on by default
+help: name the matching and failed cases
+   |
+LL ~     let (left, right) = match values {
+LL +         (Some(matched_left), Some(matched_right)) => (matched_left, matched_right),
+LL +         (::core::option::Option::None, _)
+LL +         | (_, ::core::option::Option::None) => return 0,
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/sequence_bindings.rs:22:5
+   |
+LL | /     let (Some(_left), Some(right)) = (
+LL | |         present(5),
+LL | |         {
+LL | |             let Ok(value) = checked(8);
+...  |
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     let (_left, right) = {
+LL +         let outcome_left = (
+LL +             present(5),
+LL +             {
+LL +                 let Ok(value) = checked(8);
+LL +                 value
+LL +             },
+LL +         );
+LL + 
+LL +         match outcome_left {
+LL +             (Some(matched_left), Some(matched_right)) => (matched_left, matched_right),
+LL +             (::core::option::Option::None, _)
+LL +             | (_, ::core::option::Option::None) => return 0,
+LL +         }
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/sequence_bindings.rs:35:5
+   |
+LL | /     let [
+LL | |         Some(first),
+LL | |         Some(second),
+LL | |         Some(third),
+LL | |     ] = row.each_ref().map(Option::as_ref) else {
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     let (first, second, third) = {
+LL +         let outcome_first = row.each_ref().map(Option::as_ref);
+LL + 
+LL +         match outcome_first {
+LL +             [
+LL +                 Some(matched_first),
+LL +                 Some(matched_second),
+LL +                 Some(matched_third),
+LL +             ] => (matched_first, matched_second, matched_third),
+LL +             [::core::option::Option::None, _, _]
+LL +             | [_, ::core::option::Option::None, _]
+LL +             | [_, _, ::core::option::Option::None] => return 0,
+LL +         }
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/sequence_bindings.rs:46:5
+   |
+LL | /     let (Some(value),) = value else {
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     let value = match value {
+LL +         (Some(matched_value),) => matched_value,
+LL +         (::core::option::Option::None,) => return 0,
+LL +     };
+   |
+
+error: aborting due to 4 previous errors
+

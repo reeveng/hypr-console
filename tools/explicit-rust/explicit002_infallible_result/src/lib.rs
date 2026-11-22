@@ -3,15 +3,19 @@
 
 extern crate rustc_abi;
 extern crate rustc_hir;
+extern crate rustc_errors;
+extern crate rustc_lexer;
 extern crate rustc_middle;
 extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+mod private_helpers;
+
+use clippy_utils::diagnostics::span_lint_and_then;
 use rustc_abi::ExternAbi;
 use rustc_hir::{FnDecl, FnRetTy, TyKind};
 use rustc_lint::{LateContext, LateLintPass, LintContext};
 
-dylint_linting::declare_late_lint! {
+dylint_linting::impl_late_lint! {
     /// EXPLICIT002: an infallible function still returns `Result<T, Never>`, so
     /// that every call site reads the same and a function that learns how to
     /// fail does not change the shape of its callers.
@@ -41,7 +45,18 @@ dylint_linting::declare_late_lint! {
     /// fails.
     pub EXPLICIT002_INFALLIBLE_RESULT,
     Deny,
-    "an infallible function should still return `Result<T, Never>`"
+    "an infallible function should still return `Result<T, Never>`",
+    Explicit002InfallibleResult {
+        helpers: private_helpers::Helpers::default(),
+        core_infallible: dylint_linting::config_or_default("explicit002_core_infallible"),
+    }
+}
+
+#[derive(Default)]
+pub struct Explicit002InfallibleResult {
+    helpers: private_helpers::Helpers,
+    /// Use the standard empty type in a crate without the workspace Never type.
+    core_infallible: bool,
 }
 
 // A method that implements a trait did not choose its own signature, which is
@@ -110,7 +125,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit002InfallibleResult {
         cx: &LateContext<'tcx>,
         kind: rustc_hir::intravisit::FnKind<'tcx>,
         decl: &'tcx FnDecl<'tcx>,
-        _body: &'tcx rustc_hir::Body<'tcx>,
+        body: &'tcx rustc_hir::Body<'tcx>,
         _span: rustc_span::Span,
         def_id: rustc_hir::def_id::LocalDefId,
     ) {
@@ -140,13 +155,22 @@ impl<'tcx> LateLintPass<'tcx> for Explicit002InfallibleResult {
             FnRetTy::Return(ty) => ty.span,
             FnRetTy::DefaultReturn(sp) => sp,
         };
-        span_lint_and_help(
+        span_lint_and_then(
             cx,
             EXPLICIT002_INFALLIBLE_RESULT,
             span,
             "this function cannot say it succeeded",
-            None,
-            "return `Result<T, Never>` so that every call site reads the same whether or not it can fail",
+            |diag| {
+                if let Some(edits) = self.helpers.edits(cx, def_id, decl, body, self.core_infallible) {
+                    diag.multipart_suggestion(
+                        "return an infallible result and handle its success at every call",
+                        edits,
+                        rustc_errors::Applicability::MachineApplicable,
+                    );
+                } else {
+                    diag.help("return `Result<T, Never>` so that every call site reads the same whether or not it can fail");
+                }
+            },
         );
     }
 }
@@ -154,4 +178,11 @@ impl<'tcx> LateLintPass<'tcx> for Explicit002InfallibleResult {
 #[test]
 fn ui() {
     dylint_testing::ui_test(env!("CARGO_PKG_NAME"), "ui");
+}
+
+#[test]
+fn core_infallible() {
+    dylint_testing::ui::Test::src_base(env!("CARGO_PKG_NAME"), "ui_core_infallible")
+        .dylint_toml("explicit002_core_infallible = true")
+        .run();
 }

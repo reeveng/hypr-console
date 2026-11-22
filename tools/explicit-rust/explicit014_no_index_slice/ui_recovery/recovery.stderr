@@ -1,0 +1,99 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/recovery.rs:15:8
+   |
+LL |     Ok(values[index])
+   |        ^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: return the configured failure if the element or range is absent
+   |
+LL -     Ok(values[index])
+LL +     Ok(*match <[_]>::get(&*values, index) { ::core::option::Option::Some(indexed_value) => indexed_value, ::core::option::Option::None => return ::core::result::Result::Err(crate::Fault::Bounds) })
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/recovery.rs:19:8
+   |
+LL |     Ok(values[indexed_value])
+   |        ^^^^^^^^^^^^^^^^^^^^^
+   |
+help: return the configured failure if the element or range is absent
+   |
+LL -     Ok(values[indexed_value])
+LL +     Ok(*match <[_]>::get(&*values, indexed_value) { ::core::option::Option::Some(indexed_value_2) => indexed_value_2, ::core::option::Option::None => return ::core::result::Result::Err(crate::Fault::Bounds) })
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/recovery.rs:23:5
+   |
+LL |     values[row] = [1, 42];
+   |     ^^^^^^^^^^^
+   |
+help: return the configured failure if the element or range is absent
+   |
+LL -     values[row] = [1, 42];
+LL +     *match <[_]>::get_mut(&mut *values, row) { ::core::option::Option::Some(indexed_value) => indexed_value, ::core::option::Option::None => return ::core::result::Result::Err(crate::Fault::Bounds) } = [1, 42];
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/recovery.rs:28:5
+   |
+LL |     values[..end].copy_from_slice(bytes);
+   |     ^^^^^^^^^^^^^
+   |
+help: return the configured failure if the element or range is absent
+   |
+LL -     values[..end].copy_from_slice(bytes);
+LL +     (*match <[_]>::get_mut(&mut *values, ..end) { ::core::option::Option::Some(indexed_value) => indexed_value, ::core::option::Option::None => return ::core::result::Result::Err(crate::Fault::Bounds) }).copy_from_slice(bytes);
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/recovery.rs:33:9
+   |
+LL |     Ok(&values[start..])
+   |         ^^^^^^^^^^^^^^^
+   |
+help: return the configured failure if the element or range is absent
+   |
+LL -     Ok(&values[start..])
+LL +     Ok(&*match <[_]>::get(&*values, start..) { ::core::option::Option::Some(indexed_value) => indexed_value, ::core::option::Option::None => return ::core::result::Result::Err(crate::Message::Invalid(::core::convert::From::from("index or range outside the buffer"))) })
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/recovery.rs:37:8
+   |
+LL |     Ok(values[index])
+   |        ^^^^^^^^^^^^^
+   |
+help: return the configured failure if the element or range is absent
+   |
+LL -     Ok(values[index])
+LL +     Ok(*match <[_]>::get(&*values, index) { ::core::option::Option::Some(indexed_value) => indexed_value, ::core::option::Option::None => return ::core::result::Result::Err(()) })
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/recovery.rs:41:5
+   |
+LL |     values[{ effects.push(2); index }] += { effects.push(1); 7 };
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: return the configured failure if the element or range is absent
+   |
+LL -     values[{ effects.push(2); index }] += { effects.push(1); 7 };
+LL +     *match <[_]>::get_mut(&mut *values, { effects.push(2); index }) { ::core::option::Option::Some(indexed_value) => indexed_value, ::core::option::Option::None => return ::core::result::Result::Err(crate::Fault::Bounds) } += { effects.push(1); 7 };
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/recovery.rs:50:10
+   |
+LL |     &mut array_place(values)[1]
+   |          ^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: project the fixed array element with an irrefutable borrow pattern
+   |
+LL -     &mut array_place(values)[1]
+LL +     &mut *match &mut *array_place(values) { [_, element, ..] => element }
+   |
+
+error: aborting due to 8 previous errors
+

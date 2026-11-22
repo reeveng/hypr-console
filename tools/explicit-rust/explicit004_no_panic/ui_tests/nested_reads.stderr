@@ -1,0 +1,121 @@
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads.rs:17:41
+   |
+LL |     assert!({ before.push(1); true } && read().unwrap().table().unwrap() > 0);
+   |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit004_no_panic)]` on by default
+help: report failed reads where they are evaluated
+   |
+LL ~     assert!({ before.push(1); true } && (match match read() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }.table() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }) > 0);
+LL ~     assert_ne!(match match read() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }.table() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }, { before.push(2); 6 }, "table mismatch");
+LL ~     debug_assert_eq!(match match read() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }.table() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }.abs(), 5);
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads.rs:17:41
+   |
+LL |     assert!({ before.push(1); true } && read().unwrap().table().unwrap() > 0);
+   |                                         ^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads.rs:18:16
+   |
+LL |     assert_ne!(read().unwrap().table().unwrap(), { before.push(2); 6 }, "table mismatch");
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads.rs:18:16
+   |
+LL |     assert_ne!(read().unwrap().table().unwrap(), { before.push(2); 6 }, "table mismatch");
+   |                ^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads.rs:19:22
+   |
+LL |     debug_assert_eq!(read().unwrap().table().unwrap().abs(), 5);
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads.rs:19:22
+   |
+LL |     debug_assert_eq!(read().unwrap().table().unwrap().abs(), 5);
+   |                      ^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `expect` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads.rs:28:13
+   |
+LL |     assert!(names.next().expect("missing first glyph").starts_with('.'));
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: report failed reads where they are evaluated
+   |
+LL ~ fn optional_glyphs() -> ::core::result::Result<(), &'static str> {
+LL |     let glyphs = [".notdef", "space"];
+LL |     let mut names = glyphs.iter();
+LL ~     assert!(match names.next() { ::core::option::Option::Some(read_value) => read_value, ::core::option::Option::None => return ::core::result::Result::Err("missing first glyph") }.starts_with('.'));
+LL ~     assert_eq!(match names.next() { ::core::option::Option::Some(read_value) => read_value, ::core::option::Option::None => return ::core::result::Result::Err(::core::concat!(::core::file!(), ":", ::core::line!(), ": expected Some, found None")) }.len(), "space".len());
+LL +     ::core::result::Result::Ok(())
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads.rs:29:16
+   |
+LL |     assert_eq!(names.next().unwrap().len(), "space".len());
+   |                ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads.rs:35:13
+   |
+LL |     assert!(std::str::from_utf8(&bytes).unwrap().starts_with('a'));
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: report failed reads where they are evaluated
+   |
+LL ~     assert!(match std::str::from_utf8(&bytes) { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(::core::convert::From::from(read_error)) }.starts_with('a'));
+LL ~     assert_ne!(match std::str::from_utf8(&bytes) { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(::core::convert::From::from({ extern crate alloc as test_report_alloc; test_report_alloc::format!("{}: {:?}", "UTF-8 glyph name", read_error) })) }.len(), 0);
+LL ~     assert_eq!(match bytes.first() { ::core::option::Option::Some(read_value) => read_value, ::core::option::Option::None => return ::core::result::Result::Err(::core::convert::From::from("buffer was empty")) }.count_ones(), 3);
+   |
+
+error: `expect` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads.rs:36:16
+   |
+LL |     assert_ne!(std::str::from_utf8(&bytes).expect("UTF-8 glyph name").len(), 0);
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `expect` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads.rs:37:16
+   |
+LL |     assert_eq!(bytes.first().expect("buffer was empty").count_ones(), 3);
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads.rs:46:16
+   |
+LL |     assert_eq!(reader.borrow().read().unwrap(), {
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: report failed reads where they are evaluated
+   |
+LL -     assert_eq!(reader.borrow().read().unwrap(), {
+LL +     assert_eq!(match reader.borrow().read() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }, {
+   |
+
+error: aborting due to 12 previous errors
+

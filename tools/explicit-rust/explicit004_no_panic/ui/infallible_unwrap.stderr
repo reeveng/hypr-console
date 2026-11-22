@@ -1,0 +1,22 @@
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/infallible_unwrap.rs:7:5
+   |
+LL |     value.unwrap().len()
+   |     ^^^^^^^^^^^^^^ help: extract the success value by matching the uninhabited error: `(match value { ::core::result::Result::Ok(_explicit_value) => _explicit_value, ::core::result::Result::Err(_explicit_error) => match _explicit_error {} })`
+   |
+   = note: `#[deny(explicit004_no_panic)]` on by default
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/infallible_unwrap.rs:14:6
+   |
+LL |     *value.unwrap() += 1;
+   |      ^^^^^^^^^^^^^^ help: extract the success value by matching the uninhabited error: `(match value { ::core::result::Result::Ok(_explicit_value) => _explicit_value, ::core::result::Result::Err(_explicit_error) => match _explicit_error {} })`
+
+error: `expect` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/infallible_unwrap.rs:18:5
+   |
+LL |     value.expect("successful value")
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: extract the success value by matching the uninhabited error: `match value { ::core::result::Result::Ok(_explicit_value) => _explicit_value, ::core::result::Result::Err(_explicit_error) => match _explicit_error {} }`
+
+error: aborting due to 3 previous errors
+

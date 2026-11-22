@@ -58,40 +58,40 @@
 use console_core_external_programs::Program;
 use console_core_geometry::Point;
 use console_core_never::Never;
-use console_notifications::saying::{Notification, Content};
+use console_notifications::saying::{Content, Notification};
 use console_notifications::serving;
 use console_notifications::showing;
-use console_test_stages::checking::{Body, Check, CheckResult, cannot, failed, expect_ready};
+use console_test_stages::checking::{Body, Check, CheckResult, cannot, expect_ready, failed};
 use console_test_stages::desktop::Desktop;
-use console_test_stages::device::{Device, PATIENCE, Ready, Outcome};
+use console_test_stages::device::{Device, Outcome, PATIENCE, Ready};
 use console_test_stages::palette::palette;
 use console_test_stages::watching;
 
-use crate::panel::drew;
 use crate::Unchecked;
+use crate::panel::drew;
 
 pub const DRAWS: Check = Check {
-    name: "220-the-notifications-draw",
-    about: "The notifications panel opens, and draws what the desktop has said.",
-    feature: "notifications",
-    since: "2026-08-30",
-    bodies: &[Body::Desktop(draws)],
+  name: "220-the-notifications-draw",
+  about: "The notifications panel opens, and draws what the desktop has said.",
+  feature: "notifications",
+  since: "2026-08-30",
+  bodies: &[Body::Desktop(draws)],
 };
 
 pub const CARD: Check = Check {
-    name: "221-a-notification-draws-a-card",
-    about: "A notification raised on the bus comes up as a card, top right.",
-    feature: "notifications",
-    since: "2026-09-10",
-    bodies: &[Body::Desktop(card), Body::Device(on_the_device)],
+  name: "221-a-notification-draws-a-card",
+  about: "A notification raised on the bus comes up as a card, top right.",
+  feature: "notifications",
+  since: "2026-09-10",
+  bodies: &[Body::Desktop(card), Body::Device(on_the_device)],
 };
 
 pub const TOUCHED: Check = Check {
-    name: "222-a-card-goes-when-it-is-touched",
-    about: "Touching a notification card takes it off the screen.",
-    feature: "notifications",
-    since: "2026-09-10",
-    bodies: &[Body::Desktop(dismiss_by_touch)],
+  name: "222-a-card-goes-when-it-is-touched",
+  about: "Touching a notification card takes it off the screen.",
+  feature: "notifications",
+  since: "2026-09-10",
+  bodies: &[Body::Desktop(dismiss_by_touch)],
 };
 
 const SUMMARY: &str = "A card on the screen";
@@ -105,195 +105,200 @@ const JOURNAL: u32 = 20;
 const OUT: f64 = 40.0;
 
 fn draws(stage: &mut Desktop) -> CheckResult {
-    stage.open("notifications-panel")?;
-    drew(stage)
+  stage.open("notifications-panel")?;
+  drew(stage)
 }
 
 fn raising() -> Result<String, Never> {
-    let Ok(notify) = Program::NotifySend.name();
-    let where_ = serving::WHERE;
+  let Ok(notify) = Program::NotifySend.name();
+  let where_ = serving::WHERE;
 
-    Ok(format!(
-        "console-notify >/dev/null 2>&1 & while [ ! -f \"${where_}\" ]; do sleep 0.05; done; \
+  Ok(format!(
+    "console-notify >/dev/null 2>&1 & while [ ! -f \"${where_}\" ]; do sleep 0.05; done; \
          {notify} --urgency=critical '{SUMMARY}' '{SAID}'"
-    ))
+  ))
 }
 
 fn inside(stage: &mut Desktop) -> Result<Point<f64>, Unchecked> {
-    let room = stage.logical()?;
-    let Ok(under) = crate::updating::reserved();
+  let room = stage.logical()?;
+  let Ok(under) = crate::updating::reserved();
 
-    Ok(Point {
-        x: f64::from(room.width) - f64::from(showing::IN) - f64::from(showing::PAD),
-        y: under + f64::from(showing::DOWN) + f64::from(showing::PAD),
-    })
+  Ok(Point {
+    x: f64::from(room.width) - f64::from(showing::IN) - f64::from(showing::PAD),
+    y: under + f64::from(showing::DOWN) + f64::from(showing::PAD),
+  })
 }
 
 fn spent(name: &str) -> Result<String, Unchecked> {
-    let Ok(wanted) = palette();
+  let Ok(wanted) = palette();
 
-    wanted.get(name).cloned().ok_or_else(|| Unchecked::NoColor(name.to_string()))
+  wanted
+    .get(name)
+    .cloned()
+    .ok_or_else(|| Unchecked::NoColor(name.to_string()))
 }
 
 fn card(stage: &mut Desktop) -> CheckResult {
-    stage.notifying()?;
+  stage.notifying()?;
 
-    let Ok(raising) = raising();
+  let Ok(raising) = raising();
 
-    stage.open(&raising)?;
+  stage.open(&raising)?;
 
-    let panel = spent("panel")?;
-    let at = inside(stage)?;
-    let beside = Point { x: OUT, y: at.y };
-    let on = stage.color(at)?;
-    let off = stage.color(beside)?;
+  let panel = spent("panel")?;
+  let at = inside(stage)?;
+  let beside = Point { x: OUT, y: at.y };
+  let on = stage.color(at)?;
+  let off = stage.color(beside)?;
 
-    let drawn = match (on == panel, off == panel) {
-        (true, false) => Ready::Yes,
-        (true, true) | (false, true) | (false, false) => Ready::NotYet,
-    };
+  let drawn = match (on == panel, off == panel) {
+    (true, false) => Ready::Yes,
+    (true, true) | (false, true) | (false, false) => Ready::NotYet,
+  };
 
-    expect_ready(drawn, || {
-        format!(
-            "a notification was raised, so {} across and {} down is inside the card and should \
+  expect_ready(drawn, || {
+    format!(
+      "a notification was raised, so {} across and {} down is inside the card and should \
              be its own #{panel}, and {OUT} across on the same row is beside it and should not \
              be. What is there instead: #{on} on the card and #{off} beside it",
-            at.x, at.y
-        )
-    })
+      at.x, at.y
+    )
+  })
 }
 
 const PRESS: i32 = 12;
 
 fn dismiss_by_touch(stage: &mut Desktop) -> CheckResult {
-    stage.notifying()?;
+  stage.notifying()?;
 
-    let Ok(raising) = raising();
+  let Ok(raising) = raising();
 
-    stage.open(&raising)?;
+  stage.open(&raising)?;
 
-    let Ok(across) = console_core_number_conversion::fitted::<i32, u32>(
-        showing::WIDE.saturating_div(2),
-    );
-    let Ok(down) = console_core_number_conversion::fitted::<i32, u32>(PRESS);
+  let Ok(across) =
+    console_core_number_conversion::fitted::<i32, u32>(showing::WIDE.saturating_div(2));
+  let Ok(down) = console_core_number_conversion::fitted::<i32, u32>(PRESS);
 
-    stage.click_in(showing::WHO, (across, down))?;
+  stage.click_in(showing::WHO, (across, down))?;
 
-    let panel = spent("panel")?;
-    let at = inside(stage)?;
-    let after = stage.color(at)?;
+  let panel = spent("panel")?;
+  let at = inside(stage)?;
+  let after = stage.color(at)?;
 
-    let gone = match after == panel {
-        true => Ready::NotYet,
-        false => Ready::Yes,
-    };
+  let gone = match ::core::primitive::bool::then_some(after == panel, ()) {
+    ::core::option::Option::Some(()) => Ready::NotYet,
+    ::core::option::Option::None => Ready::Yes,
+  };
 
-    expect_ready(gone, || {
-        format!(
-            "the card was touched {across} across and {down} down inside its own surface, so \
+  expect_ready(gone, || {
+    format!(
+      "the card was touched {across} across and {down} down inside its own surface, so \
              nothing should be standing at {} across and {} down afterwards. What is there \
              instead is the card's own #{panel}",
-            at.x, at.y
-        )
-    })
+      at.x, at.y
+    )
+  })
 }
 
 fn came_up(stage: &mut Device) -> Result<Ready, Never> {
-    let Ok(where_) = stage.layer(showing::WHO);
+  let Ok(where_) = stage.layer(showing::WHO);
 
-    Ok(match where_ {
-        Some(_) => Ready::Yes,
-        None => Ready::NotYet,
-    })
+  Ok(match where_ {
+    Some(_) => Ready::Yes,
+    None => Ready::NotYet,
+  })
 }
 
 fn closed_state(stage: &mut Device) -> Result<Ready, Never> {
-    let Ok(up) = came_up(stage);
+  let Ok(up) = came_up(stage);
 
-    up.flipped()
+  up.flipped()
 }
 
 fn in_the_corner(box_: (u32, u32, u32, u32)) -> Result<Point<f64>, Never> {
-    let (across, down, wide, _tall) = box_;
+  let (across, down, wide, _tall) = box_;
 
-    Ok(Point {
-        x: f64::from(across) + f64::from(wide) - f64::from(showing::PAD),
-        y: f64::from(down) + f64::from(showing::PAD),
-    })
+  Ok(Point {
+    x: f64::from(across) + f64::from(wide) - f64::from(showing::PAD),
+    y: f64::from(down) + f64::from(showing::PAD),
+  })
 }
 
 fn on_the_device(stage: &mut Device) -> CheckResult {
-    let Ok(already) = came_up(stage);
+  let Ok(already) = came_up(stage);
 
-    match already {
-        Ready::NotYet => {},
-        Ready::Yes => {
-            return cannot(
-                "there is already a card on the screen, and a check may not take away what it \
+  match already {
+    Ready::NotYet => {}
+    Ready::Yes => {
+      return cannot(
+        "there is already a card on the screen, and a check may not take away what it \
                  found",
-            );
-        },
+      );
     }
+  }
 
-    let Ok(notification) = Notification::new(Content { summary: SUMMARY, body: RAISED_HERE });
-    let Ok(notification) = notification.urgent();
-    let Ok(notification) = notification.staying();
-    let Ok(_id) = watching::notify(stage, &notification);
-    let Ok(up) = stage.until(came_up, PATIENCE);
+  let Ok(notification) = Notification::new(Content {
+    summary: SUMMARY,
+    body: RAISED_HERE,
+  });
+  let Ok(notification_2) = notification.urgent();
+  let Ok(notification_3) = notification_2.staying();
+  let Ok(_id) = watching::notify(stage, &notification_3);
+  let Ok(up) = stage.until(came_up, PATIENCE);
 
-    match up {
-        Outcome::Happened => {},
-        Outcome::RanOut => {
-            let Ok(said) = stage.journal("console-notify", JOURNAL);
+  match up {
+    Outcome::Happened => {}
+    Outcome::RanOut => {
+      let Ok(said) = stage.journal("console-notify", JOURNAL);
 
-            return failed(format!(
-                "a notification was raised on the device and no card came up, so the daemon \
+      return failed(format!(
+        "a notification was raised on the device and no card came up, so the daemon \
                  under its own unit never drew what the nested desktop draws. What \
                  console-notify said: {said}"
-            ));
-        },
+      ));
     }
+  }
 
-    let Ok(where_) = stage.layer(showing::WHO);
+  let Ok(where_) = stage.layer(showing::WHO);
 
-    let box_ = match where_ {
-        Some(box_) => box_,
-        None => {
-            return failed(
-                "the compositor had a card a moment ago and has none now, so there is nowhere \
+  let box_ = match where_ {
+    Some(box_) => box_,
+    None => {
+      return failed(
+        "the compositor had a card a moment ago and has none now, so there is nowhere \
                  to look for it"
-                    .to_string(),
-            );
-        },
-    };
+          .to_string(),
+      );
+    }
+  };
 
-    let Ok(at) = in_the_corner(box_);
-    let panel = spent("panel")?;
-    let Ok(()) = stage.again();
-    let on = stage.color(at)?;
+  let Ok(at) = in_the_corner(box_);
+  let panel = spent("panel")?;
+  let Ok(()) = stage.again();
+  let on = stage.color(at)?;
 
-    let Ok(across) =
-        console_core_number_conversion::fitted::<i32, u32>(showing::WIDE.saturating_div(2));
-    let Ok(down) = console_core_number_conversion::fitted::<i32, u32>(PRESS);
+  let Ok(across) =
+    console_core_number_conversion::fitted::<i32, u32>(showing::WIDE.saturating_div(2));
+  let Ok(down) = console_core_number_conversion::fitted::<i32, u32>(PRESS);
 
-    stage.click_in(showing::WHO, (across, down))?;
+  stage.click_in(showing::WHO, (across, down))?;
 
-    let Ok(away) = stage.until(closed_state, PATIENCE);
-    let Ok(()) = stage.again();
-    let after = stage.color(at)?;
+  let Ok(away) = stage.until(closed_state, PATIENCE);
+  let Ok(()) = stage.again();
+  let after = stage.color(at)?;
 
-    let drawn = match (on == panel, away, after == panel) {
-        (true, Outcome::Happened, false) => Ready::Yes,
-        (false, _, _) | (_, Outcome::RanOut, _) | (_, _, true) => Ready::NotYet,
-    };
+  let drawn = match (on == panel, away, after == panel) {
+    (true, Outcome::Happened, false) => Ready::Yes,
+    (false, _, _) | (_, Outcome::RanOut, _) | (_, _, true) => Ready::NotYet,
+  };
 
-    expect_ready(drawn, || {
-        format!(
-            "a notification was raised on the device, so {} across and {} down is inside the \
+  expect_ready(drawn, || {
+    format!(
+      "a notification was raised on the device, so {} across and {} down is inside the \
              card the compositor says is there and should be its own #{panel}, and touching it \
              should leave something else in that place. What is there instead: #{on} while the \
              card was up and #{after} after it was touched",
-            at.x, at.y
-        )
-    })
+      at.x, at.y
+    )
+  })
 }

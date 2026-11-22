@@ -24,10 +24,10 @@
 use crate::sweeping::{Migration, Moment, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1788815507),
-    says: "sweeping two menu entries under the names they used to have",
-    steps: &[
-        Step::Attic("/usr/share/applications/console-music.desktop"),
-        Step::Attic("/usr/share/applications/console-dictate.desktop"),
-    ],
+  moment: Moment(1788815507),
+  says: "sweeping two menu entries under the names they used to have",
+  steps: &[
+    Step::Attic("/usr/share/applications/console-music.desktop"),
+    Step::Attic("/usr/share/applications/console-dictate.desktop"),
+  ],
 };

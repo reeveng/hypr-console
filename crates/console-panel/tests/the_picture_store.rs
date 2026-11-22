@@ -23,47 +23,60 @@ const SIDE: Side = Side(16);
 const GREY: [u8; 72] = [200; 72];
 
 fn a_picture(at: &Path) -> Result<(), Failure> {
-    let size = Size { width: 4, height: 6 };
-    let Ok(pixmap) = console_pictures::portable_pixmap(size, &GREY);
+  let size = Size {
+    width: 4,
+    height: 6,
+  };
+  let Ok(pixmap) = console_pictures::portable_pixmap(size, &GREY);
 
-    console_core_atomic_writes::whole(at, &pixmap)?;
+  console_core_atomic_writes::whole(at, &pixmap)?;
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn two_makers_at_once_keep_each_others_pictures() -> Result<(), Failure> {
-    let room = console_core_temporary_directories::fresh("picture-store")?;
-    let cache = room.join("cache");
-    let one = room.join("one.ppm");
-    let other = room.join("other.ppm");
+  let room = console_core_temporary_directories::fresh("picture-store")?;
+  let cache = room.join("cache");
+  let one = room.join("one.ppm");
+  let other = room.join("other.ppm");
 
-    a_picture(&one)?;
-    a_picture(&other)?;
+  a_picture(&one)?;
+  a_picture(&other)?;
 
-    let side = SIDE.0.to_string();
-    let started: Vec<_> = [&one, &other]
-        .into_iter()
-        .map(|of| Command::new(MAKER).args([pictures::SIDE.spelling, &side]).arg(of).env("XDG_CACHE_HOME", &cache).spawn())
-        .collect::<Result<_, _>>()?;
+  let side = SIDE.0.to_string();
+  let started: Vec<_> = [&one, &other]
+    .into_iter()
+    .map(|of| {
+      Command::new(MAKER)
+        .args([pictures::SIDE.spelling, &side])
+        .arg(of)
+        .env("XDG_CACHE_HOME", &cache)
+        .spawn()
+    })
+    .collect::<Result<_, _>>()?;
 
-    for mut maker in started {
-        let ended = maker.wait()?;
+  for mut maker in started {
+    let ended = maker.wait()?;
 
-        assert!(ended.success(), "a maker failed");
-    }
+    assert!(ended.success(), "a maker failed");
+  }
 
-    let bytes = std::fs::read(cache.join(APPLICATION).join("pictures"))?;
-    let Ok(held) = pictures::read(&bytes);
-    let held = held.ok_or("the store does not read")?;
+  let bytes = std::fs::read(cache.join(APPLICATION).join("pictures"))?;
+  let Ok(held) = pictures::read(&bytes);
+  let entries = held.ok_or("the store does not read")?;
 
-    for of in [&one, &other] {
-        let Ok(named) = pictures::key(&of.display().to_string(), SIDE);
+  for of in [&one, &other] {
+    let Ok(named) = pictures::key(&of.display().to_string(), SIDE);
 
-        assert!(held.contains_key(&named), "{} was written over by the other maker", of.display());
-    }
+    assert!(
+      entries.contains_key(&named),
+      "{} was written over by the other maker",
+      of.display()
+    );
+  }
 
-    std::fs::remove_dir_all(&room)?;
+  std::fs::remove_dir_all(&room)?;
 
-    Ok(())
+  Ok(())
 }

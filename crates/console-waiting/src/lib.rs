@@ -54,305 +54,359 @@ pub use console_core_schedules::Schedule;
 use clock::{Clock, LiveClock};
 use console_core_iteration::Step;
 use console_core_never::Never;
-use console_core_schedules::{Decision, Elapsed};
+use console_core_schedules::{Decision, Elapsed, Lasting};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ready {
-    Yes,
-    NotYet,
+  Yes,
+  NotYet,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
-    Happened,
-    RanOut,
+  Happened,
+  RanOut,
 }
 
 impl Ready {
-    pub fn flipped(self) -> Result<Ready, Never> {
-        Ok(match self {
-            Ready::Yes => Ready::NotYet,
-            Ready::NotYet => Ready::Yes,
-        })
-    }
+  pub fn flipped(self) -> Result<Ready, Never> {
+    Ok(match self {
+      Ready::Yes => Ready::NotYet,
+      Ready::NotYet => Ready::Yes,
+    })
+  }
 }
 
 pub fn until(
-    patience: Schedule,
-    mut ask: impl FnMut() -> Result<Ready, Never>,
+  patience: Schedule,
+  mut ask: impl FnMut() -> Result<Ready, Never>,
 ) -> Result<Outcome, Never> {
-    until_handed(patience, &mut ask, |ask| ask())
+  until_handed(patience, &mut ask, |question| question())
 }
 
 pub fn until_some<T>(
-    patience: Schedule,
-    mut look: impl FnMut() -> Result<Option<T>, Never>,
+  patience: Schedule,
+  mut look: impl FnMut() -> Result<Option<T>, Never>,
 ) -> Result<Option<T>, Never> {
-    until_some_handed(patience, &mut look, |look| look())
+  until_some_handed(patience, &mut look, |question| question())
 }
 
 pub fn until_handed<M>(
-    patience: Schedule,
-    handed: &mut M,
-    ask: impl Fn(&mut M) -> Result<Ready, Never>,
+  patience: Schedule,
+  handed: &mut M,
+  ask: impl Fn(&mut M) -> Result<Ready, Never>,
 ) -> Result<Outcome, Never> {
-    let Ok(found) = until_some_handed(patience, handed, |handed| {
-        let Ok(seen) = ask(handed);
+  let Ok(found) = until_some_handed(patience, handed, |subject| {
+    let Ok(seen) = ask(subject);
 
-        Ok(match seen {
-            Ready::Yes => Some(()),
-            Ready::NotYet => None,
-        })
-    });
-
-    Ok(match found {
-        Some(()) => Outcome::Happened,
-        None => Outcome::RanOut,
+    Ok(match seen {
+      Ready::Yes => Some(()),
+      Ready::NotYet => None,
     })
+  });
+
+  Ok(match found {
+    Some(()) => Outcome::Happened,
+    None => Outcome::RanOut,
+  })
 }
 
 pub fn until_some_handed<M, T>(
-    patience: Schedule,
-    handed: &mut M,
-    look: impl Fn(&mut M) -> Result<Option<T>, Never>,
+  patience: Schedule,
+  handed: &mut M,
+  look: impl Fn(&mut M) -> Result<Option<T>, Never>,
 ) -> Result<Option<T>, Never> {
-    let Ok(mut clock) = LiveClock::started();
+  let Ok(mut clock) = LiveClock::started();
 
-    until_some_handed_on(&mut clock, patience, handed, look)
+  until_some_handed_on(&mut clock, patience, handed, look)
 }
 
 pub fn until_some_handed_on<C: Clock, M, T>(
-    clock: &mut C,
-    patience: Schedule,
-    handed: &mut M,
-    look: impl Fn(&mut M) -> Result<Option<T>, Never>,
+  clock: &mut C,
+  patience: Schedule,
+  handed: &mut M,
+  look: impl Fn(&mut M) -> Result<Option<T>, Never>,
 ) -> Result<Option<T>, Never> {
-    let Ok(began) = clock.elapsed();
-    let Ok(driver) = patience.driver();
-    let ended = console_core_iteration::iterate((clock, handed, driver, began), |(clock, handed, mut driver, this_try)| {
-        let Ok(found) = look(handed);
+  until_some_handed_on_result(clock, patience, handed, look)
+}
 
-        Ok(match found {
-            Some(found) => Step::Halt(Some(found)),
-            None => {
-                let Ok(now) = clock.elapsed();
-                let Ok(decided) =
-                    driver.next(Elapsed { total: now.saturating_sub(began), this_try: now.saturating_sub(this_try) });
-
-                match decided {
-                    Decision::Finished => Step::Halt(None),
-                    Decision::Continue(gap) => {
-                        let Ok(()) = clock.pause(gap);
-                        let Ok(next_try) = clock.elapsed();
-
-                        Step::Again((clock, handed, driver, next_try))
-                    }
-                }
-            }
-        })
-    });
-
-    Ok(match ended {
+pub fn until_some_handed_on_result<C: Clock, M, T, E>(
+  clock: &mut C,
+  patience: Schedule,
+  handed: &mut M,
+  look: impl Fn(&mut M) -> Result<Option<T>, E>,
+) -> Result<Option<T>, E> {
+  let Ok(began) = clock.elapsed();
+  let Ok(driver) = patience.driver();
+  let ended = console_core_iteration::iterate(
+    (clock, handed, driver, began),
+    |(timer, subject, mut schedule, this_try)| {
+      let found = match look(subject) {
         Ok(found) => found,
-        Err(_endless) => None,
-    })
+        Err(error) => return Ok(Step::Halt(Err(error))),
+      };
+
+      Ok(match found {
+        Some(answer) => Step::Halt(Ok(Some(answer))),
+        None => {
+          let Ok(now) = timer.elapsed();
+          let Ok(decided) = schedule.next(Elapsed {
+            total: now.saturating_sub(began),
+            this_try: now.saturating_sub(this_try),
+          });
+
+          match decided {
+            Decision::Finished => Step::Halt(Ok(None)),
+            Decision::Continue(gap) => {
+              let bounded = match patience.lasting {
+                Lasting::Forever => gap,
+                Lasting::UpTo(until) => gap.min(until.saturating_sub(now.saturating_sub(began))),
+              };
+
+              let Ok(()) = timer.pause(bounded);
+              let Ok(next_try) = timer.elapsed();
+
+              Step::Again((timer, subject, schedule, next_try))
+            }
+          }
+        }
+      })
+    },
+  );
+
+  match ended {
+    Ok(found) => found,
+    Err(_endless) => Ok(None),
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use clock::TestClock;
-    use std::cell::Cell;
-    use std::time::{Duration, Instant};
+  use super::*;
+  use clock::TestClock;
+  use std::cell::Cell;
+  use std::time::{Duration, Instant};
 
-    #[test]
-    fn a_thing_that_is_already_there_is_not_waited_for() {
-        let began = Instant::now();
-        let Ok(patience) = Schedule::asking_every(Duration::from_secs(30), Duration::from_secs(30));
-        let Ok(waited) = until(patience, || Ok(Ready::Yes));
+  #[test]
+  fn a_thing_that_is_already_there_is_not_waited_for() {
+    let began = Instant::now();
+    let Ok(patience) = Schedule::asking_every(Duration::from_secs(30), Duration::from_secs(30));
+    let Ok(waited) = until(patience, || Ok(Ready::Yes));
 
-        assert_eq!(waited, Outcome::Happened);
-        assert!(began.elapsed() < Duration::from_secs(1), "it slept before it asked");
+    assert_eq!(waited, Outcome::Happened);
+    assert!(
+      began.elapsed() < Duration::from_secs(1),
+      "it slept before it asked"
+    );
+  }
+
+  #[test]
+  fn a_thing_that_never_comes_runs_out_and_says_so() {
+    let Ok(patience) =
+      Schedule::asking_every(Duration::from_millis(30), Duration::from_millis(5));
+    let Ok(waited) = until(patience, || Ok(Ready::NotYet));
+
+    assert_eq!(waited, Outcome::RanOut);
+  }
+
+  #[test]
+  fn a_patience_of_twenty_seconds_is_asked_every_time_it_would_have_been() {
+    let mut clock = TestClock::default();
+    let mut asks = 0_u32;
+    let Ok(patience) = Schedule::asking_every(Duration::from_secs(20), Duration::from_millis(50));
+    let Ok(found) = until_some_handed_on(&mut clock, patience, &mut asks, |count| {
+      *count = (*count).saturating_add(1);
+
+      Ok(None::<()>)
+    });
+
+    assert_eq!(found, None);
+    assert_eq!(
+      asks, 401,
+      "a look at the start and one after every gap, the last of them at twenty seconds"
+    );
+    assert_eq!(clock.paused.len(), 400);
+    assert_eq!(clock.elapsed, Duration::from_secs(20));
+  }
+
+  #[test]
+  fn a_thing_that_arrives_part_way_through_is_met() {
+    let mut clock = TestClock::default();
+    let mut asks = 0_u32;
+    let Ok(patience) = Schedule::asking_every(Duration::from_secs(10), Duration::from_secs(1));
+    let Ok(found) = until_some_handed_on(&mut clock, patience, &mut asks, |count| {
+      *count = (*count).saturating_add(1);
+
+      Ok(match ::core::primitive::bool::then_some(*count >= 3, ()) {
+        ::core::option::Option::Some(()) => Some(()),
+        ::core::option::Option::None => None,
+      })
+    });
+
+    assert_eq!(found, Some(()));
+    assert_eq!(asks, 3);
+    assert_eq!(
+      clock.paused,
+      vec![Duration::from_secs(1), Duration::from_secs(1)],
+      "it stopped waiting when it was met"
+    );
+  }
+
+  #[test]
+  fn the_last_pause_stops_at_the_deadline() {
+    let mut clock = TestClock::default();
+    let Ok(patience) =
+      Schedule::asking_every(Duration::from_millis(75), Duration::from_millis(50));
+    let Ok(found) = until_some_handed_on(&mut clock, patience, &mut (), |()| Ok(None::<()>));
+
+    assert_eq!(found, None);
+    assert_eq!(clock.elapsed, Duration::from_millis(75));
+    assert_eq!(
+      clock.paused,
+      vec![Duration::from_millis(50), Duration::from_millis(25)]
+    );
+  }
+
+  struct QueryClock<'a> {
+    elapsed: &'a Cell<Duration>,
+    paused: Vec<Duration>,
+  }
+
+  impl Clock for QueryClock<'_> {
+    fn elapsed(&self) -> Result<Duration, Never> {
+      Ok(self.elapsed.get())
     }
 
-    #[test]
-    fn a_thing_that_never_comes_runs_out_and_says_so() {
-        let Ok(patience) = Schedule::asking_every(Duration::from_millis(30), Duration::from_millis(5));
-        let Ok(waited) = until(patience, || Ok(Ready::NotYet));
+    fn pause(&mut self, gap: Duration) -> Result<(), Never> {
+      self.paused.push(gap);
+      self.elapsed.set(self.elapsed.get().saturating_add(gap));
 
-        assert_eq!(waited, Outcome::RanOut);
+      Ok(())
     }
+  }
 
-    #[test]
-    fn a_patience_of_twenty_seconds_is_asked_every_time_it_would_have_been() {
-        let mut clock = TestClock::default();
-        let mut asks = 0_u32;
-        let Ok(patience) = Schedule::asking_every(Duration::from_secs(20), Duration::from_millis(50));
-        let Ok(found) = until_some_handed_on(
-            &mut clock,
-            patience,
-            &mut asks,
-            |asks| {
-                *asks = (*asks).saturating_add(1);
+  #[test]
+  fn a_slow_pending_query_spends_the_patience_without_an_extra_pause() {
+    let elapsed = Cell::new(Duration::ZERO);
+    let mut clock = QueryClock {
+      elapsed: &elapsed,
+      paused: Vec::new(),
+    };
+    let Ok(patience) = Schedule::of(Duration::from_secs(1));
+    let mut handed = (&elapsed, 0_u32);
+    let found =
+      until_some_handed_on_result(&mut clock, patience, &mut handed, |(measured, asks)| {
+        measured.set(measured.get().saturating_add(Duration::from_secs(2)));
+        *asks = asks.saturating_add(1);
 
-                Ok(None::<()>)
-            },
-        );
+        Ok::<Option<()>, u32>(None)
+      });
 
-        assert_eq!(found, None);
-        assert_eq!(asks, 401, "a look at the start and one after every gap, the last of them at twenty seconds");
-        assert_eq!(clock.paused.len(), 400);
-        assert_eq!(clock.elapsed, Duration::from_secs(20));
-    }
+    assert_eq!(found, Ok(None));
+    assert_eq!(handed.1, 1);
+    assert!(clock.paused.is_empty());
+  }
 
-    #[test]
-    fn a_thing_that_arrives_part_way_through_is_met() {
-        let mut clock = TestClock::default();
-        let mut asks = 0_u32;
-        let Ok(patience) = Schedule::asking_every(Duration::from_secs(10), Duration::from_secs(1));
-        let Ok(found) = until_some_handed_on(
-            &mut clock,
-            patience,
-            &mut asks,
-            |asks| {
-                *asks = (*asks).saturating_add(1);
+  #[test]
+  fn the_patience_that_runs_out_still_asked_once() {
+    let mut clock = TestClock::default();
+    let mut asks = 0_u32;
+    let Ok(patience) = Schedule::asking_every(Duration::from_millis(0), Duration::from_secs(30));
+    let Ok(found) = until_some_handed_on(&mut clock, patience, &mut asks, |count| {
+      *count = (*count).saturating_add(1);
 
-                Ok(match *asks >= 3 {
-                    true => Some(()),
-                    false => None,
-                })
-            },
-        );
+      Ok(None::<()>)
+    });
 
-        assert_eq!(found, Some(()));
-        assert_eq!(asks, 3);
-        assert_eq!(clock.paused, vec![Duration::from_secs(1), Duration::from_secs(1)], "it stopped waiting when it was met");
-    }
+    assert_eq!(found, None);
+    assert_eq!(asks, 1, "a patience of nothing at all still gets one look");
+    assert_eq!(clock.paused, Vec::<Duration>::new(), "and no gap after it");
+  }
 
-    #[test]
-    fn the_patience_that_runs_out_still_asked_once() {
-        let mut clock = TestClock::default();
-        let mut asks = 0_u32;
-        let Ok(patience) = Schedule::asking_every(Duration::from_millis(0), Duration::from_secs(30));
-        let Ok(found) = until_some_handed_on(
-            &mut clock,
-            patience,
-            &mut asks,
-            |asks| {
-                *asks = (*asks).saturating_add(1);
+  #[test]
+  fn a_wait_is_measured_from_when_it_began_on_a_clock_that_was_already_running() {
+    let mut clock = TestClock::default();
+    let Ok(()) = clock.adjust(Duration::from_secs(600));
+    let mut asks = 0_u32;
+    let Ok(patience) = Schedule::asking_every(Duration::from_secs(1), Duration::from_millis(500));
+    let Ok(_found) = until_some_handed_on(&mut clock, patience, &mut asks, |count| {
+      *count = (*count).saturating_add(1);
 
-                Ok(None::<()>)
-            },
-        );
+      Ok(None::<()>)
+    });
 
-        assert_eq!(found, None);
-        assert_eq!(asks, 1, "a patience of nothing at all still gets one look");
-        assert_eq!(clock.paused, Vec::<Duration>::new(), "and no gap after it");
-    }
+    assert_eq!(
+      asks, 3,
+      "ten minutes on the clock before the wait is not ten minutes of patience spent"
+    );
+  }
 
-    #[test]
-    fn a_wait_is_measured_from_when_it_began_on_a_clock_that_was_already_running() {
-        let mut clock = TestClock::default();
-        let Ok(()) = clock.adjust(Duration::from_secs(600));
-        let mut asks = 0_u32;
-        let Ok(patience) = Schedule::asking_every(Duration::from_secs(1), Duration::from_millis(500));
-        let Ok(_found) = until_some_handed_on(
-            &mut clock,
-            patience,
-            &mut asks,
-            |asks| {
-                *asks = (*asks).saturating_add(1);
+  #[test]
+  fn what_was_looked_for_comes_back_with_it() {
+    let asks = Cell::new(0_u32);
+    let Ok(patience) = Schedule::asking_every(Duration::from_secs(10), Duration::from_millis(1));
+    let Ok(found) = until_some(patience, || {
+      asks.set(asks.get().saturating_add(1));
 
-                Ok(None::<()>)
-            },
-        );
+      Ok(match ::core::primitive::bool::then_some(asks.get() >= 2, ()) {
+        ::core::option::Option::Some(()) => Some("here"),
+        ::core::option::Option::None => None,
+      })
+    });
 
-        assert_eq!(asks, 3, "ten minutes on the clock before the wait is not ten minutes of patience spent");
-    }
+    assert_eq!(found, Some("here"));
+  }
 
-    #[test]
-    fn what_was_looked_for_comes_back_with_it() {
-        let asks = Cell::new(0_u32);
-        let Ok(patience) = Schedule::asking_every(Duration::from_secs(10), Duration::from_millis(1));
-        let Ok(found) = until_some(
-            patience,
-            || {
-                asks.set(asks.get().saturating_add(1));
+  #[test]
+  fn nothing_found_is_nothing_rather_than_a_wait_that_looked_like_one() {
+    let mut clock = TestClock::default();
+    let Ok(patience) = Schedule::asking_every(Duration::from_secs(20), Duration::from_secs(5));
+    let Ok(found) = until_some_handed_on(&mut clock, patience, &mut (), |()| Ok(None::<u8>));
 
-                Ok(match asks.get() >= 2 {
-                    true => Some("here"),
-                    false => None,
-                })
-            },
-        );
+    assert_eq!(found, None);
+  }
 
-        assert_eq!(found, Some("here"));
-    }
+  #[test]
+  fn what_a_wait_was_handed_is_written_by_the_question_and_kept() {
+    let mut asks = 0_u32;
+    let Ok(patience) = Schedule::asking_every(Duration::from_secs(10), Duration::from_millis(1));
+    let Ok(waited) = until_handed(patience, &mut asks, |count| {
+      *count = (*count).saturating_add(1);
 
-    #[test]
-    fn nothing_found_is_nothing_rather_than_a_wait_that_looked_like_one() {
-        let mut clock = TestClock::default();
-        let Ok(patience) = Schedule::asking_every(Duration::from_secs(20), Duration::from_secs(5));
-        let Ok(found) = until_some_handed_on(
-            &mut clock,
-            patience,
-            &mut (),
-            |()| Ok(None::<u8>),
-        );
+      Ok(match ::core::primitive::bool::then_some(*count >= 3, ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      })
+    });
 
-        assert_eq!(found, None);
-    }
+    assert_eq!(waited, Outcome::Happened);
+    assert_eq!(asks, 3, "the question was handed the same count every time");
+  }
 
-    #[test]
-    fn what_a_wait_was_handed_is_written_by_the_question_and_kept() {
-        let mut asks = 0_u32;
-        let Ok(patience) = Schedule::asking_every(Duration::from_secs(10), Duration::from_millis(1));
-        let Ok(waited) = until_handed(
-            patience,
-            &mut asks,
-            |asks| {
-                *asks = (*asks).saturating_add(1);
+  #[test]
+  fn a_look_brings_back_what_it_found_and_what_it_was_handed() {
+    let mut clock = TestClock::default();
+    let mut said = String::new();
+    let Ok(patience) = Schedule::asking_every(Duration::from_secs(20), Duration::from_secs(5));
+    let Ok(found) = until_some_handed_on(&mut clock, patience, &mut said, |written| {
+      written.push('.');
 
-                Ok(match *asks >= 3 {
-                    true => Ready::Yes,
-                    false => Ready::NotYet,
-                })
-            },
-        );
+      Ok(match ::core::primitive::bool::then_some(written.len() >= 2, ()) {
+        ::core::option::Option::Some(()) => Some(written.clone()),
+        ::core::option::Option::None => None,
+      })
+    });
 
-        assert_eq!(waited, Outcome::Happened);
-        assert_eq!(asks, 3, "the question was handed the same count every time");
-    }
+    assert_eq!(found.as_deref(), Some(".."));
+    assert_eq!(said, "..");
+  }
 
-    #[test]
-    fn a_look_brings_back_what_it_found_and_what_it_was_handed() {
-        let mut clock = TestClock::default();
-        let mut said = String::new();
-        let Ok(patience) = Schedule::asking_every(Duration::from_secs(20), Duration::from_secs(5));
-        let Ok(found) = until_some_handed_on(
-            &mut clock,
-            patience,
-            &mut said,
-            |said| {
-                said.push('.');
+  #[test]
+  fn a_thing_being_gone_is_the_other_side_of_it_being_there() {
+    let Ok(gone) = Ready::Yes.flipped();
+    let Ok(there) = Ready::NotYet.flipped();
 
-                Ok(match said.len() >= 2 {
-                    true => Some(said.clone()),
-                    false => None,
-                })
-            },
-        );
-
-        assert_eq!(found.as_deref(), Some(".."));
-        assert_eq!(said, "..");
-    }
-
-    #[test]
-    fn a_thing_being_gone_is_the_other_side_of_it_being_there() {
-        let Ok(gone) = Ready::Yes.flipped();
-        let Ok(there) = Ready::NotYet.flipped();
-
-        assert_eq!(gone, Ready::NotYet);
-        assert_eq!(there, Ready::Yes);
-    }
+    assert_eq!(gone, Ready::NotYet);
+    assert_eq!(there, Ready::Yes);
+  }
 }

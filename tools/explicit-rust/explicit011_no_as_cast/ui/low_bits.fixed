@@ -1,0 +1,23 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_number_conversion.rs
+
+extern crate console_core_number_conversion;
+
+fn signed_low_bits(value: i32) -> u8 {
+    match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(value) { ::core::result::Result::Ok(converted_position) => converted_position }
+}
+
+fn unsigned_low_bits(value: u64) -> i16 {
+    match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(value) { ::core::result::Result::Ok(converted_position) => converted_position }
+}
+
+fn keep_input_alive(input: &std::cell::RefCell<i32>) -> (u8, bool) {
+    (match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(input.borrow().clone()) { ::core::result::Result::Ok(converted_position) => converted_position }, input.try_borrow_mut().is_err())
+}
+
+fn main() {
+    assert_eq!(signed_low_bits(-257), 255);
+    assert_eq!(unsigned_low_bits(65535), -1);
+    assert_eq!(keep_input_alive(&std::cell::RefCell::new(-1)), (255, true));
+}

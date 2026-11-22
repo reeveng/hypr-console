@@ -23,7 +23,7 @@
 //! longer. The controller asks from inside its loop, and a loop blocked behind
 //! a hung compositor is a pad that stops reading sticks as well.
 
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -32,87 +32,154 @@ use console_core_words::Words;
 
 pub const PATIENCE: Duration = Duration::from_secs(1);
 
+const ANSWER_BYTES: u32 = 16 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Socket {
-    #[words(word = ".socket.sock")]
-    Requests,
-    #[words(word = ".socket2.sock")]
-    Events,
+  #[words(word = ".socket.sock")]
+  Requests,
+  #[words(word = ".socket2.sock")]
+  Events,
+}
+
+impl AsRef<Path> for Socket {
+  fn as_ref(&self) -> &Path {
+    let Ok(name) = self.word();
+
+    Path::new(name)
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unplaced {
-    Sessionless,
-    Compositorless,
+  Sessionless,
+  Compositorless,
 }
 
 impl std::fmt::Display for Unplaced {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unplaced::Sessionless => write!(to, "XDG_RUNTIME_DIR: nothing says where this session keeps its sockets"),
-            Unplaced::Compositorless => write!(to, "HYPRLAND_INSTANCE_SIGNATURE: nothing says which compositor this is"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unplaced::Sessionless => write!(
+        to,
+        "XDG_RUNTIME_DIR: nothing says where this session keeps its sockets"
+      ),
+      Unplaced::Compositorless => write!(
+        to,
+        "HYPRLAND_INSTANCE_SIGNATURE: nothing says which compositor this is"
+      ),
     }
+  }
 }
 
 impl std::error::Error for Unplaced {}
 
+struct InstanceName(String);
+
+impl InstanceName {
+  fn new(signature: String) -> Result<Self, Unplaced> {
+    match ::core::primitive::bool::then_some(signature.is_empty()
+      || matches!(signature.as_str(), "." | "..")
+      || signature.contains(['/', '\0']), ())
+    {
+      ::core::option::Option::Some(()) => Err(Unplaced::Compositorless),
+      ::core::option::Option::None => Ok(Self(signature)),
+    }
+  }
+}
+
+impl AsRef<Path> for InstanceName {
+  fn as_ref(&self) -> &Path {
+    Path::new(&self.0)
+  }
+}
+
 #[derive(Debug)]
 pub enum SocketError {
-    Unplaced(Unplaced),
-    Unreachable(PathBuf, std::io::Error),
-    Unwritten(PathBuf, std::io::Error),
-    Unread(PathBuf, std::io::Error),
+  Unplaced(Unplaced),
+  Unreachable(PathBuf, std::io::Error),
+  Unwritten(PathBuf, std::io::Error),
+  Unread(PathBuf, std::io::Error),
 }
 
 impl std::fmt::Display for SocketError {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SocketError::Unplaced(why) => write!(to, "{why}"),
-            SocketError::Unreachable(at, fault) => write!(to, "{}: {fault}", at.display()),
-            SocketError::Unwritten(at, fault) => write!(to, "{}: asking: {fault}", at.display()),
-            SocketError::Unread(at, fault) => write!(to, "{}: reading the answer: {fault}", at.display()),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      SocketError::Unplaced(why) => write!(to, "{why}"),
+      SocketError::Unreachable(at, fault) => write!(to, "{}: {fault}", at.display()),
+      SocketError::Unwritten(at, fault) => write!(to, "{}: asking: {fault}", at.display()),
+      SocketError::Unread(at, fault) => {
+        write!(to, "{}: reading the answer: {fault}", at.display())
+      }
     }
+  }
 }
 
 impl std::error::Error for SocketError {}
 
 pub fn socket(which: Socket) -> Result<PathBuf, Unplaced> {
-    let Ok(runtime) = console_core_places::runtime();
-    let Ok(instance) = crate::instance();
+  let Ok(runtime) = console_core_places::runtime();
+  let Ok(instance) = crate::instance();
 
-    let runtime = match runtime {
-        Some(runtime) => runtime,
-        None => return Err(Unplaced::Sessionless),
-    };
-    let instance = match instance {
-        Some(instance) => instance,
-        None => return Err(Unplaced::Compositorless),
-    };
-    let Ok(name) = which.word();
+  let runtime_3 = match runtime {
+    Some(runtime_2) => runtime_2,
+    None => return Err(Unplaced::Sessionless),
+  };
+  let signature = match instance {
+    Some(signature) => signature,
+    None => return Err(Unplaced::Compositorless),
+  };
+  let name = InstanceName::new(signature)?;
 
-    Ok(runtime.join("hypr").join(instance).join(name))
+  Ok(runtime_3.join("hypr").join(name).join(which))
 }
 
 pub fn send(line: &str) -> Result<Vec<u8>, SocketError> {
-    let at = socket(Socket::Requests).map_err(SocketError::Unplaced)?;
+  let at = socket(Socket::Requests).map_err(SocketError::Unplaced)?;
 
-    send_at(&at, line)
+  send_at(&at, line)
 }
 
 pub fn send_at(at: &Path, line: &str) -> Result<Vec<u8>, SocketError> {
-    let mut stream = UnixStream::connect(at).map_err(|fault| SocketError::Unreachable(at.to_path_buf(), fault))?;
+  let mut stream =
+    UnixStream::connect(at).map_err(|fault| SocketError::Unreachable(at.to_path_buf(), fault))?;
 
-    stream.set_read_timeout(Some(PATIENCE)).map_err(|fault| SocketError::Unreachable(at.to_path_buf(), fault))?;
+  stream
+    .set_read_timeout(Some(PATIENCE))
+    .map_err(|fault| SocketError::Unreachable(at.to_path_buf(), fault))?;
 
-    stream.set_write_timeout(Some(PATIENCE)).map_err(|fault| SocketError::Unreachable(at.to_path_buf(), fault))?;
+  stream
+    .set_write_timeout(Some(PATIENCE))
+    .map_err(|fault| SocketError::Unreachable(at.to_path_buf(), fault))?;
 
-    stream.write_all(line.as_bytes()).map_err(|fault| SocketError::Unwritten(at.to_path_buf(), fault))?;
+  stream
+    .write_all(line.as_bytes())
+    .map_err(|fault| SocketError::Unwritten(at.to_path_buf(), fault))?;
 
-    let mut answer = Vec::new();
+  console_core_bounded_reads::bytes(stream, ANSWER_BYTES)
+    .map_err(std::io::Error::from)
+    .map_err(|fault| SocketError::Unread(at.to_path_buf(), fault))
+}
 
-    stream.read_to_end(&mut answer).map_err(|fault| SocketError::Unread(at.to_path_buf(), fault))?;
+#[cfg(test)]
+mod tests {
+  use super::*;
 
-    Ok(answer)
+  #[test]
+  fn an_instance_must_name_one_socket_directory() -> Result<(), Unplaced> {
+    for refused in ["", ".", "..", "/outside", "other/instance", "with\0nul"] {
+      assert!(matches!(
+        InstanceName::new(refused.to_string()),
+        Err(Unplaced::Compositorless)
+      ));
+    }
+
+    let instance = InstanceName::new("hyprland_123_456".to_string())?;
+
+    assert_eq!(
+      Path::new("hypr").join(instance).join(Socket::Requests),
+      Path::new("hypr/hyprland_123_456/.socket.sock")
+    );
+
+    Ok(())
+  }
 }

@@ -26,186 +26,200 @@ use console_core_arguments::{Operands, Subcommand, read_with};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_words::Words;
-use console_settings::warm::{self, Standing, Switched, NightShift, at, configuration};
+use console_settings::warm::{self, NightShift, Standing, Switched, at, configuration};
 
 const UNIT: &str = "console-warm.service";
 
 const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
-    name: "console-warm",
-    about: "whether the screen follows the clock, and the curve it follows; with nothing, follow it or stop following it",
-    flags: &[],
-    operands: Operands::None,
+  name: "console-warm",
+  about: "whether the screen follows the clock, and the curve it follows; with nothing, follow it or stop following it",
+  flags: &[],
+  operands: Operands::None,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 enum Report {
-    #[words(word = "get", about = "which way the switch is standing")]
-    Get,
-    #[words(word = "switched-on", about = "nothing said; the exit code is the answer")]
-    SwitchedOn,
-    #[words(word = "curve", about = "print the config the daemon reads")]
-    Curve,
+  #[words(word = "get", about = "which way the switch is standing")]
+  Get,
+  #[words(
+    word = "switched-on",
+    about = "nothing said; the exit code is the answer"
+  )]
+  SwitchedOn,
+  #[words(word = "curve", about = "print the config the daemon reads")]
+  Curve,
 }
 
 impl Subcommand for Report {
-    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
-        Ok(Report::VARIANTS.iter().copied())
-    }
+  fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+    Ok(Report::VARIANTS.iter().copied())
+  }
 
-    fn spelling(self) -> Result<&'static str, Never> {
-        self.word()
-    }
+  fn spelling(self) -> Result<&'static str, Never> {
+    self.word()
+  }
 
-    fn about(self) -> Result<&'static str, Never> {
-        Report::about(self)
-    }
+  fn about(self) -> Result<&'static str, Never> {
+    Report::about(self)
+  }
 }
 
 fn curve() -> Result<ExitCode, Never> {
-    let Ok(configuration) = configuration();
+  let Ok(configuration) = configuration();
 
-    print!("{configuration}");
+  print!("{configuration}");
 
-    Ok(ExitCode::SUCCESS)
+  Ok(ExitCode::SUCCESS)
 }
 
 fn main() -> ExitCode {
-    let words: Vec<String> = std::env::args().skip(1).collect();
+  let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let asked = match read_with::<Report, String>(&COMMAND, &words) {
-        Ok(line) => {
-            let Ok(asked) = line.subcommand();
+  let asked = match read_with::<Report, String>(&COMMAND, &words) {
+    Ok(line) => {
+      let Ok(asked) = line.subcommand();
 
-            asked
-        }
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
-
-            return ExitCode::from(code);
-        }
-    };
-
-    match asked {
-        Some(Report::Curve) => {
-            let Ok(printed) = curve();
-
-            return printed;
-        }
-        Some(Report::Get | Report::SwitchedOn) | None => {},
+      asked
     }
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
 
-    let Ok(said) = console_core_places::home();
-
-    let home = match said {
-        Some(home) => home,
-        None => {
-            eprintln!("console-warm: no HOME, so there is no one to remember for");
-
-            return ExitCode::FAILURE;
-        }
-    };
-
-    let Ok(at) = at(&home);
-    let Ok(held) = warm::load(&home);
-
-    let standing = match held {
-        Standing::Loaded(warmth) => warmth,
-
-        Standing::Invalid(fault) => {
-            eprintln!("console-warm: {}: {fault}", at.display());
-
-            NightShift::Scheduled
-        }
-    };
-
-    let wanted = match asked {
-        Some(Report::Get) => {
-            let Ok(written) = standing.written();
-
-            println!("{}", written.trim());
-            return ExitCode::SUCCESS;
-        }
-        Some(Report::SwitchedOn) => {
-            let Ok(switched) = standing.switched();
-
-            return match switched {
-                Switched::On => ExitCode::SUCCESS,
-                Switched::Off => ExitCode::FAILURE,
-            };
-        }
-        Some(Report::Curve) => {
-            let Ok(printed) = curve();
-
-            return printed;
-        }
-        None => {
-            let Ok(other) = standing.other();
-
-            other
-        }
-    };
-
-    match at.parent() {
-        Some(holding) => {
-            match std::fs::create_dir_all(holding) {
-                Ok(()) => {},
-                Err(fault) => {
-                    eprintln!(
-                        "console-warm: {}: {fault}, so nothing was changed",
-                        holding.display()
-                    );
-
-                    return ExitCode::FAILURE;
-                }
-            }
-
-            let Ok(written) = wanted.written();
-
-            match console_core_atomic_writes::whole(&at, written.as_bytes()) {
-                Ok(()) => {},
-                Err(fault) => {
-                    eprintln!("console-warm: {}: {fault}, so nothing was changed", at.display());
-
-                    return ExitCode::FAILURE;
-                }
-            }
-        }
-        None => {},
+      return ExitCode::from(code);
     }
+  };
 
-    let Ok(mut asking) = Program::Systemctl.command();
-    let done = asking.args(["--user", "restart", UNIT]).status();
+  match asked {
+    Some(Report::Curve) => {
+      let Ok(printed) = curve();
 
-    match done.is_ok_and(|how| how.success()) {
-        true => {},
-        false => {
-            eprintln!(
-                "console-warm: {UNIT} would not restart, so the screen is still what it was. \
+      return printed;
+    }
+    Some(Report::Get | Report::SwitchedOn) | None => {}
+  }
+
+  let Ok(said) = console_core_places::home();
+
+  let home = match said {
+    Some(home) => home,
+    None => {
+      eprintln!("console-warm: no HOME, so there is no one to remember for");
+
+      return ExitCode::FAILURE;
+    }
+  };
+
+  let Ok(at) = at(&home);
+  let Ok(held) = warm::load(&home);
+
+  let standing = match held {
+    Standing::Loaded(warmth) => warmth,
+
+    Standing::Invalid(fault) => {
+      eprintln!("console-warm: {}: {fault}", at.display());
+
+      NightShift::Scheduled
+    }
+  };
+
+  let wanted = match asked {
+    Some(Report::Get) => {
+      let Ok(written) = standing.written();
+
+      println!("{}", written.trim());
+      return ExitCode::SUCCESS;
+    }
+    Some(Report::SwitchedOn) => {
+      let Ok(switched) = standing.switched();
+
+      return match switched {
+        Switched::On => ExitCode::SUCCESS,
+        Switched::Off => ExitCode::FAILURE,
+      };
+    }
+    Some(Report::Curve) => {
+      let Ok(printed) = curve();
+
+      return printed;
+    }
+    None => {
+      let Ok(other) = standing.other();
+
+      other
+    }
+  };
+
+  match at.parent() {
+    Some(holding) => {
+      match std::fs::create_dir_all(holding) {
+        Ok(()) => {}
+        Err(fault) => {
+          eprintln!(
+            "console-warm: {}: {fault}, so nothing was changed",
+            holding.display()
+          );
+
+          return ExitCode::FAILURE;
+        }
+      }
+
+      let Ok(written) = wanted.written();
+
+      match console_core_atomic_writes::whole(&at, written.as_bytes()) {
+        Ok(()) => {}
+        Err(fault) => {
+          eprintln!(
+            "console-warm: {}: {fault}, so nothing was changed",
+            at.display()
+          );
+
+          return ExitCode::FAILURE;
+        }
+      }
+    }
+    None => {}
+  }
+
+  let Ok(mut asking) = Program::Systemctl.command();
+  let done = asking.args(["--user", "restart", UNIT]).status();
+
+  match done.map(|status| status.code()) {
+    Ok(Some(0)) => {}
+    Err(fault) => {
+      eprintln!("console-warm: restarting {UNIT} failed: {fault}");
+      return ExitCode::FAILURE;
+    }
+    Ok(_) => {
+      eprintln!(
+        "console-warm: {UNIT} would not restart, so the screen is still what it was. \
                  It is written down, and the next start of the desktop will wear it."
-            );
+      );
 
-            return ExitCode::FAILURE;
-        }
+      return ExitCode::FAILURE;
     }
+  }
 
-    ExitCode::SUCCESS
+  ExitCode::SUCCESS
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use console_core_arguments::{Reason, ValidationError};
+  use super::*;
+  use console_core_arguments::{Reason, ValidationError};
 
-    #[test]
-    fn no_word_flips_the_switch_and_it_refuses_a_word_it_does_not_know() -> Result<(), ValidationError> {
-        let switch = read_with::<Report, &str>(&COMMAND, &[])?;
-        let curve = read_with::<Report, &str>(&COMMAND, &["curve"])?;
-        let unknown = read_with::<Report, &str>(&COMMAND, &["warmer"]);
+  #[test]
+  fn no_word_flips_the_switch_and_it_refuses_a_word_it_does_not_know()
+  -> Result<(), ValidationError> {
+    let switch = read_with::<Report, &str>(&COMMAND, &[])?;
+    let curve = read_with::<Report, &str>(&COMMAND, &["curve"])?;
+    let unknown = read_with::<Report, &str>(&COMMAND, &["warmer"]);
 
-        assert_eq!(switch.subcommand(), Ok(None));
-        assert_eq!(curve.subcommand(), Ok(Some(Report::Curve)));
-        assert_eq!(unknown.map_err(|refusal| refusal.reason), Err(Reason::NoSuchSubcommand("warmer".to_string())));
+    assert_eq!(switch.subcommand(), Ok(None));
+    assert_eq!(curve.subcommand(), Ok(Some(Report::Curve)));
+    assert_eq!(
+      unknown.map_err(|refusal| refusal.reason),
+      Err(Reason::NoSuchSubcommand("warmer".to_string()))
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

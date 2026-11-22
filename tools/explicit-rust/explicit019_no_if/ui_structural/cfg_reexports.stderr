@@ -1,0 +1,27 @@
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/cfg_reexports.rs:33:9
+   |
+LL |         if let Self::Ready = self { 1 } else { 0 }
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on an enum that names the outcomes
+   = note: `#[deny(explicit019_no_if)]` on by default
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/cfg_reexports.rs:38:5
+   |
+LL |     if let selected::Stage::Ready = value { 1 } else { 0 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on an enum that names the outcomes
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/cfg_reexports.rs:42:5
+   |
+LL |     if let Imported::Ready = value { 1 } else { 0 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on an enum that names the outcomes
+
+error: aborting due to 3 previous errors
+

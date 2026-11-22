@@ -38,41 +38,41 @@ use core::fmt;
 pub enum Never {}
 
 impl Never {
-    pub fn absurd(self) -> ! {
-        match self {}
-    }
+  pub fn absurd(self) -> ! {
+    match self {}
+  }
 }
 
 impl fmt::Display for Never {
-    fn fmt(&self, _to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {}
-    }
+  fn fmt(&self, _to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match *self {}
+  }
 }
 
 impl core::error::Error for Never {}
 
 #[cfg(test)]
 mod tests {
-    extern crate std;
+  extern crate std;
 
-    use super::*;
-    use std::mem::size_of;
-    use std::string::String;
+  use super::*;
+  use std::mem::size_of;
+  use std::string::String;
 
-    #[test]
-    fn a_result_that_cannot_fail_is_the_size_of_the_value() {
-        assert_eq!(size_of::<Result<u8, Never>>(), size_of::<u8>());
-        assert_eq!(size_of::<Result<u64, Never>>(), size_of::<u64>());
-        assert_eq!(size_of::<Result<String, Never>>(), size_of::<String>());
-        assert_eq!(size_of::<Result<(), Never>>(), size_of::<()>());
-    }
+  #[test]
+  fn a_result_that_cannot_fail_is_the_size_of_the_value() {
+    assert_eq!(size_of::<Result<u8, Never>>(), size_of::<u8>());
+    assert_eq!(size_of::<Result<u64, Never>>(), size_of::<u64>());
+    assert_eq!(size_of::<Result<String, Never>>(), size_of::<String>());
+    assert_eq!(size_of::<Result<(), Never>>(), size_of::<()>());
+  }
 
-    #[test]
-    fn the_error_arm_is_one_no_one_has_to_write() {
-        let answered: Result<u8, Never> = Ok(7);
+  #[test]
+  fn the_error_arm_is_one_no_one_has_to_write() {
+    let answered: Result<u8, Never> = Ok(7);
 
-        let Ok(value) = answered;
+    let Ok(value) = answered;
 
-        assert_eq!(value, 7);
-    }
+    assert_eq!(value, 7);
+  }
 }

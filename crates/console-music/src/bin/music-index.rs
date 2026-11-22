@@ -13,7 +13,6 @@
 
 use std::path::Path;
 
-use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_music::library::{self, folder};
 use console_music::looking::{self, Song};
@@ -22,103 +21,88 @@ use console_music_player::tags;
 const NOW_AND_THEN: u32 = 50;
 
 fn main() {
-    let Ok(cache) = console_core_places::Base::Cache.user();
+  let Ok(cache) = console_core_places::Base::Cache.user();
 
-    let cache = match cache {
-        Some(cache) => cache,
+  let cache_home = match cache {
+    Some(home) => home,
 
-        None => {
-            eprintln!("music-index: no HOME, so there is nowhere to keep what is known about the songs");
+    None => {
+      eprintln!(
+        "music-index: no HOME, so there is nowhere to keep what is known about the songs"
+      );
 
-            return;
-        }
+      return;
+    }
+  };
+
+  let Ok(at) = looking::at(&cache_home);
+  let Ok(known) = looking::load(&at);
+
+  let Ok(music) = folder();
+
+  let Ok(mut songs) = looking::songs(&music, &library::things, &known);
+
+  let mut read: u32 = 0;
+
+  #[cfg_attr(
+    dylint_lib = "explicit031_no_walking_by_count",
+    allow(
+      explicit031_no_walking_by_count,
+      reason = "the list is written out from inside the loop as it goes, and one song is put back into it each time round, so the walk cannot be holding a borrow of it"
+    )
+  )]
+  for one in 0..songs.len() {
+    let song = match songs.get(one) {
+      Some(song) => song,
+      None => continue,
     };
 
-    let Ok(at) = looking::at(&cache);
-
-    let Ok(held) = console_core_atomic_writes::read(&at);
-
-    let said = match held {
-        Stored::Text(said) => said,
-
-        Stored::Absent => String::new(),
-
-        Stored::Failed(fault) => {
-            eprintln!("music-index: {}: reading what is known about the songs: {fault}", at.display());
-            String::new()
-        }
-    };
-
-    let Ok(known) = looking::parse(&said);
-
-    let Ok(music) = folder();
-
-    let Ok(mut songs) = looking::songs(&music, &library::things, &known);
-
-    let mut read: u32 = 0;
-
-    #[cfg_attr(
-        dylint_lib = "explicit031_no_walking_by_count",
-        allow(
-            explicit031_no_walking_by_count,
-            reason = "the list is written out from inside the loop as it goes, and one song is put back into it each time round, so the walk cannot be holding a borrow of it"
-        )
-    )]
-    for one in 0..songs.len() {
-        let song = match songs.get(one) {
-            Some(song) => song,
-            None => continue,
-        };
-
-        match song.read {
-            true => continue,
-            false => {},
-        }
-
-        let Ok(said) = tags::of(&song.path);
-
-        let song = Song { tags: said, read: true, ..song.clone() };
-
-        let slot = match songs.get_mut(one) {
-            Some(slot) => slot,
-            None => continue,
-        };
-
-        *slot = song;
-        read = read.saturating_add(1);
-
-        match read.wrapping_rem(NOW_AND_THEN) {
-            0 => {
-                let Ok(()) = wrote(&at, &songs);
-            },
-            _ => {},
-        }
+    match ::core::primitive::bool::then_some(song.read, ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
     }
 
-    let Ok(()) = wrote(&at, &songs);
+    let Ok(metadata) = tags::of(&song.path);
+
+    let indexed = Song {
+      tags: metadata,
+      read: true,
+      ..song.clone()
+    };
+
+    let slot = match songs.get_mut(one) {
+      Some(slot) => slot,
+      None => continue,
+    };
+
+    *slot = indexed;
+    read = read.saturating_add(1);
+
+    match read.wrapping_rem(NOW_AND_THEN) {
+      0 => {
+        let Ok(()) = wrote(&at, &songs);
+      }
+      _ => {}
+    }
+  }
+
+  let Ok(()) = wrote(&at, &songs);
 }
 
 fn wrote(at: &Path, songs: &[Song]) -> Result<(), Never> {
-    let folder = match at.parent() {
-        Some(folder) => folder,
-        None => return Ok(()),
-    };
+  let written = looking::serialize(songs)?;
 
-    let _ = std::fs::create_dir_all(folder);
+  match console_core_atomic_writes::whole_with_folders(at, written.as_bytes()) {
+    Ok(()) => {}
+    Err(fault) => {
+      eprintln!(
+        "music-index: {}: writing what was read about the songs: {fault}",
+        at.display()
+      );
 
-    let written = looking::serialize(songs)?;
-
-    match console_core_atomic_writes::whole(at, written.as_bytes()) {
-        Ok(()) => {},
-        Err(fault) => {
-            eprintln!(
-                "music-index: {}: writing what was read about the songs: {fault}",
-                at.display()
-            );
-
-            return Ok(());
-        }
+      return Ok(());
     }
+  }
 
-    Ok(())
+  Ok(())
 }

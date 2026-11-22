@@ -7,104 +7,104 @@
 //! stamps what it is handed with its own clock whatever it said.
 
 use console_core_never::Never;
-use console_core_number_conversion::index;
 
 use crate::codes::{EventType, SynchronizationCode};
 
 pub const LONG: u32 = 24;
 
-const TIME: u32 = 16;
+pub(crate) const EMPTY_BATCH: [u8; 64 * 24] = [0; 64 * 24];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InputEvent {
-    pub kind: EventType,
-    pub code: u16,
-    pub value: i32,
+  pub kind: EventType,
+  pub code: u16,
+  pub value: i32,
 }
 
 impl InputEvent {
-    pub const REPORT: InputEvent =
-        InputEvent { kind: EventType::SYNCHRONIZATION, code: SynchronizationCode::SYN_REPORT.0, value: 0 };
+  pub const REPORT: InputEvent = InputEvent {
+    kind: EventType::SYNCHRONIZATION,
+    code: SynchronizationCode::SYN_REPORT.0,
+    value: 0,
+  };
 
-    pub fn bytes(&self) -> Result<Vec<u8>, Never> {
-        let Ok(time) = index(TIME);
-        let mut bytes = vec![0; time];
+  pub fn bytes(&self) -> Result<Vec<u8>, Never> {
+    let mut bytes = Vec::from([0; 16]);
 
-        bytes.extend(self.kind.0.to_le_bytes());
-        bytes.extend(self.code.to_le_bytes());
-        bytes.extend(self.value.to_le_bytes());
+    bytes.extend(self.kind.0.to_le_bytes());
+    bytes.extend(self.code.to_le_bytes());
+    bytes.extend(self.value.to_le_bytes());
 
-        Ok(bytes)
-    }
+    Ok(bytes)
+  }
 }
 
 pub fn events(read: &[u8]) -> Result<Vec<InputEvent>, Never> {
-    let Ok(long) = index(LONG);
+  let (complete, _incomplete) = read.as_chunks::<24>();
 
-    Ok(read
-        .chunks_exact(long)
-        .filter_map(|event| {
-            let Ok(event) = event_in(event);
+  Ok(
+    complete
+      .iter()
+      .map(|event| {
+        let Ok(event_2) = event_in(event);
 
-            event
-        })
-        .collect())
+        event_2
+      })
+      .collect(),
+  )
 }
 
-fn event_in(bytes: &[u8]) -> Result<Option<InputEvent>, Never> {
-    let Ok(time) = index(TIME);
+fn event_in(bytes: &[u8; 24]) -> Result<InputEvent, Never> {
+  let [
+    ..,
+    kind_a,
+    kind_b,
+    code_a,
+    code_b,
+    value_a,
+    value_b,
+    value_c,
+    value_d,
+  ] = *bytes;
 
-    let after = match bytes.split_at_checked(time) {
-        Some((_, after)) => after,
-        None => return Ok(None),
-    };
-    let (kind, after) = match after.split_first_chunk::<2>() {
-        Some(split) => split,
-        None => return Ok(None),
-    };
-    let (code, after) = match after.split_first_chunk::<2>() {
-        Some(split) => split,
-        None => return Ok(None),
-    };
-    let value = match after.first_chunk::<4>() {
-        Some(value) => value,
-        None => return Ok(None),
-    };
-
-    Ok(Some(InputEvent {
-        kind: EventType(u16::from_le_bytes(*kind)),
-        code: u16::from_le_bytes(*code),
-        value: i32::from_le_bytes(*value),
-    }))
+  Ok(InputEvent {
+    kind: EventType(u16::from_le_bytes([kind_a, kind_b])),
+    code: u16::from_le_bytes([code_a, code_b]),
+    value: i32::from_le_bytes([value_a, value_b, value_c, value_d]),
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
-    use crate::keys::KeyCode;
+  use super::*;
+  use crate::keys::KeyCode;
+  use std::error::Error;
 
-    #[test]
-    fn an_event_reads_back_as_itself() {
-        let pressed = InputEvent { kind: EventType::KEY, code: KeyCode::BTN_SOUTH.0, value: 1 };
-        let Ok(bytes) = pressed.bytes();
-        let Ok(read) = events(&bytes);
+  #[test]
+  fn an_event_reads_back_as_itself() {
+    let pressed = InputEvent {
+      kind: EventType::KEY,
+      code: KeyCode::BTN_SOUTH.0,
+      value: 1,
+    };
+    let Ok(bytes) = pressed.bytes();
+    let Ok(read) = events(&bytes);
 
-        assert_eq!(bytes.len(), 24);
-        assert_eq!(read, vec![pressed]);
-    }
+    assert_eq!(bytes.len(), 24);
+    assert_eq!(read, vec![pressed]);
+  }
 
-    #[test]
-    fn a_torn_event_is_not_read() -> Result<(), Box<dyn Error>> {
-        let Ok(whole) = InputEvent::REPORT.bytes();
-        let torn = match whole.split_last() {
-            Some((_, torn)) => torn,
-            None => return Err(Box::from("an event with nothing in it")),
-        };
-        let Ok(read) = events(torn);
+  #[test]
+  fn a_torn_event_is_not_read() -> Result<(), Box<dyn Error>> {
+    let Ok(whole) = InputEvent::REPORT.bytes();
+    let torn = match whole.split_last() {
+      Some((_, torn)) => torn,
+      None => return Err(Box::from("an event with nothing in it")),
+    };
+    let Ok(read) = events(torn);
 
-        assert_eq!(read, Vec::new());
+    assert_eq!(read, Vec::new());
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

@@ -30,47 +30,58 @@ use console_program_contract::EventGroup;
 use crate::frames::{self, Notice};
 
 #[cfg_attr(
-    dylint_lib = "explicit044_no_ambient_value",
-    allow(
-        explicit044_no_ambient_value,
-        reason = "whether this process is already listening, which is a fact about the process: the host draws each card from a call that knows nothing of the cards before it, so there is nobody to hand it to"
-    )
+  dylint_lib = "explicit044_no_ambient_value",
+  allow(
+    explicit044_no_ambient_value,
+    reason = "whether this process is already listening, which is a fact about the process: the host draws each card from a call that knows nothing of the cards before it, so there is nobody to hand it to"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit068_no_global_mutable_state",
+  expect(
+    explicit068_no_global_mutable_state,
+    reason = "the process installs one shared subscription forwarding compositor arrivals into its panel wake queue"
+  )
 )]
 static FOLLOWING: Once = Once::new();
 
 pub fn follow() -> Result<(), Never> {
-    FOLLOWING.call_once(|| {
-        let Ok(kept) = console_core_places::user_folders();
-        let Ok(folders) = event_groups_for(&kept);
-        let Ok(listening) = subscription::connect(&folders);
-        let Ok(()) = following(listening);
-    });
+  FOLLOWING.call_once(|| {
+    let Ok(kept) = console_core_places::user_folders();
+    let Ok(folders) = event_groups_for(&kept);
+    let Ok(listening) = subscription::connect(&folders);
+    let Ok(()) = following(listening);
+  });
 
-    Ok(())
+  Ok(())
 }
 
 pub fn follow_at(socket: &Path, kept: &[PathBuf]) -> Result<(), Never> {
-    let Ok(folders) = event_groups_for(kept);
-    let Ok(listening) = subscription::connect_at(socket, &folders);
+  let Ok(folders) = event_groups_for(kept);
+  let Ok(listening) = subscription::connect_at(socket, &folders);
 
-    following(listening)
+  following(listening)
 }
 
 fn event_groups_for(kept: &[PathBuf]) -> Result<Vec<EventGroup>, Never> {
-    Ok(kept.iter().cloned().map(EventGroup::Path).collect())
+  Ok(kept.iter().cloned().map(EventGroup::Path).collect())
 }
 
 fn following(listening: subscription::Subscriber) -> Result<(), Never> {
-    console_program_lifetime::threads::let_go(std::thread::spawn(move || {
-        let Ok(arriving) = listening.received();
+  console_program_lifetime::threads::let_go(std::thread::spawn(move || {
+    let Ok(arriving) = listening.received();
 
-        for received in arriving {
-            match received {
-                Received::Event(_changed) => {
-                    let Ok(()) = frames::tell(Notice::Rows);
-                },
-                Received::Connected => {},
-            }
+    #[cfg_attr(
+      dylint_lib = "explicit055_no_unbounded_loop",
+      expect(explicit055_no_unbounded_loop, reason = "this is the process-lifetime folder listener; it ends when its owned subscription closes")
+    )]
+    for received in arriving {
+      match received {
+        Received::Event(_changed) => {
+          let Ok(()) = frames::tell(Notice::Rows);
         }
-    }))
+        Received::Connected => {}
+      }
+    }
+  }))
 }

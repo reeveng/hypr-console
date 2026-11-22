@@ -13,6 +13,7 @@ path = "src/lib.rs"
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
 console-core-words.workspace = true
+rustix.workspace = true
 
 [lints]
 workspace = true

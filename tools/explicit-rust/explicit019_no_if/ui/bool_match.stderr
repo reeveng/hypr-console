@@ -1,0 +1,263 @@
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/bool_match.rs:5:5
+   |
+LL | /     if wide {
+LL | |         9
+LL | |     } else if let Some((left, right)) = request {
+LL | |         left + right
+LL | |     } else {
+LL | |         0
+LL | |     }
+   | |_____^
+   |
+   = note: `#[deny(explicit019_no_if)]` on by default
+help: name both outcomes in a match
+   |
+LL ~     match ::core::primitive::bool::then_some(wide, ()) {
+LL +         ::core::option::Option::Some(()) => {
+LL +             9
+LL +         },
+LL +         ::core::option::Option::None => match request {
+LL +             Some((left, right)) => {
+LL +                 left + right
+LL +             },
+LL +             ::core::option::Option::None => {
+LL +                 0
+LL +             },
+LL +         },
+LL +     }
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/bool_match.rs:7:12
+   |
+LL |       } else if let Some((left, right)) = request {
+   |  ____________^
+LL | |         left + right
+LL | |     } else {
+LL | |         0
+LL | |     }
+   | |_____^
+   |
+   = help: match on an enum that names the outcomes
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/bool_match.rs:15:5
+   |
+LL | /     if let Ok(number) = request.ok_or(()) {
+LL | |         return number;
+LL | |     }
+   | |_____^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match request.ok_or(()) {
+LL +         Ok(number) => {
+LL +             return number;
+LL +         },
+LL +         ::core::result::Result::Err(_) => {},
+LL +     }
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/bool_match.rs:22:5
+   |
+LL | /     if (left
+LL | |         && right) || left
+LL | |     {
+LL | |         return 1;
+LL | |     }
+   | |_____^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match {
+LL +         ::core::primitive::bool::then_some((left
+LL +         && right) || left, ())
+LL +     } {
+LL +         ::core::option::Option::Some(()) => {
+LL +             return 1;
+LL +         },
+LL +         ::core::option::Option::None => {},
+LL +     }
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/bool_match.rs:43:5
+   |
+LL | /     if flag {
+LL | |         return 1;
+LL | |     }
+   | |_____^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match ::core::primitive::bool::then_some(flag, ()) {
+LL +         ::core::option::Option::Some(()) => {
+LL +             return 1;
+LL +         },
+LL +         ::core::option::Option::None => {},
+LL +     }
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/bool_match.rs:51:5
+   |
+LL | /     if value.is_some() {
+LL | |         value.take()
+LL | |     } else {
+LL | |         None
+LL | |     }
+   | |_____^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match value {
+LL +         ::core::option::Option::Some(_) => {
+LL +             value.take()
+LL +         },
+LL +         ::core::option::Option::None => {
+LL +             None
+LL +         },
+LL +     }
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/bool_match.rs:59:5
+   |
+LL |     if let None = value { 0 } else { 1 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match value {
+LL +         None => { 0 },
+LL +         ::core::option::Option::Some(_) => { 1 },
+LL +     }
+   |
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/bool_match.rs:63:5
+   |
+LL | /     match count > 2 {
+LL | |         false => 0,
+LL | |         _ => count,
+LL | |     }
+   | |_____^
+   |
+help: match the outcomes directly
+   |
+LL ~     match ::core::cmp::Ord::cmp(&::core::convert::identity(count), &::core::convert::identity(2)) {
+LL ~         ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => 0,
+LL ~         ::core::cmp::Ordering::Greater => count,
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/bool_match.rs:70:5
+   |
+LL |     if Default::default() { 1 } else { 0 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match {
+LL +         ::core::primitive::bool::then_some(Default::default(), ())
+LL +     } {
+LL +         ::core::option::Option::Some(()) => { 1 },
+LL +         ::core::option::Option::None => { 0 },
+LL +     }
+   |
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/bool_match.rs:74:5
+   |
+LL | /     match !value.is_none() {
+LL | |         true => 1,
+LL | |         false => 0,
+LL | |     }
+   | |_____^
+   |
+help: match the outcomes directly
+   |
+LL ~     match value {
+LL ~         ::core::option::Option::Some(_) => 1,
+LL ~         ::core::option::Option::None => 0,
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/bool_match.rs:81:5
+   |
+LL | /     if value.is_err() {
+LL | |         value = Ok(String::from("recovered"));
+LL | |     }
+   | |_____^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match value {
+LL +         ::core::result::Result::Err(_) => {
+LL +             value = Ok(String::from("recovered"));
+LL +         },
+LL +         ::core::result::Result::Ok(_) => {},
+LL +     }
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/bool_match.rs:88:5
+   |
+LL |     if value.is_some() { 1 } else { 0 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match value {
+LL +         ::core::option::Option::Some(_) => { 1 },
+LL +         ::core::option::Option::None => { 0 },
+LL +     }
+   |
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/bool_match.rs:93:5
+   |
+LL | /     match Decision(&dropped).ask() {
+LL | |         true => assert!(!dropped.get()),
+LL | |         false => assert!(!dropped.get()),
+LL | |     }
+   | |_____^
+   |
+help: match the outcomes directly
+   |
+LL ~     match ::core::primitive::bool::then_some(Decision(&dropped).ask(), ()) {
+LL ~         ::core::option::Option::Some(()) => assert!(!dropped.get()),
+LL ~         ::core::option::Option::None => assert!(!dropped.get()),
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/bool_match.rs:102:17
+   |
+LL |       let value = if Decision(&dropped).ask() {
+   |  _________________^
+LL | |         assert!(dropped.get());
+LL | |         3
+LL | |     } else {
+LL | |         0
+LL | |     };
+   | |_____^
+   |
+help: name both outcomes in a match
+   |
+LL ~     let value = match {
+LL +         ::core::primitive::bool::then_some(Decision(&dropped).ask(), ())
+LL +     } {
+LL +         ::core::option::Option::Some(()) => {
+LL +             assert!(dropped.get());
+LL +             3
+LL +         },
+LL +         ::core::option::Option::None => {
+LL +             0
+LL +         },
+LL ~     };
+   |
+
+error: aborting due to 14 previous errors
+

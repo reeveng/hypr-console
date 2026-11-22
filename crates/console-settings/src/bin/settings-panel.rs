@@ -13,9 +13,17 @@ use std::process::ExitCode;
 use console_panel::card::{Panel, opened};
 
 fn main() -> ExitCode {
-    let asked: Vec<String> = std::env::args().skip(1).collect();
+  let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(code) = opened(&asked, Panel { who: console_settings::WHO, command: console_settings::COMMAND, door: console_settings::door, card: console_settings::card });
+  let Ok(code) = opened(
+    &asked,
+    Panel {
+      who: console_settings::WHO,
+      command: console_settings::COMMAND,
+      door: console_settings::door,
+      card: console_settings::card,
+    },
+  );
 
-    code
+  code
 }

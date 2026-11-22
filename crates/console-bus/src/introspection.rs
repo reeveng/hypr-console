@@ -20,218 +20,261 @@ pub const DOCTYPE: &str = "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Obj
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Access {
-    Read,
-    Write,
-    ReadWrite,
+  Read,
+  Write,
+  ReadWrite,
 }
 
 impl Access {
-    pub fn word(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Access::Read => "read",
-            Access::Write => "write",
-            Access::ReadWrite => "readwrite",
-        })
-    }
+  pub fn word(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Access::Read => "read",
+      Access::Write => "write",
+      Access::ReadWrite => "readwrite",
+    })
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Argument {
-    pub name: String,
-    pub shape: String,
+  pub name: String,
+  pub shape: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Method {
-    pub name: String,
-    pub taking: Vec<Argument>,
-    pub giving: Vec<Argument>,
+  pub name: String,
+  pub taking: Vec<Argument>,
+  pub giving: Vec<Argument>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Signal {
-    pub name: String,
-    pub carrying: Vec<Argument>,
+  pub name: String,
+  pub carrying: Vec<Argument>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Property {
-    pub name: String,
-    pub shape: String,
-    pub access: Access,
+  pub name: String,
+  pub shape: String,
+  pub access: Access,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Interface {
-    pub name: String,
-    pub methods: Vec<Method>,
-    pub signals: Vec<Signal>,
-    pub properties: Vec<Property>,
+  pub name: String,
+  pub methods: Vec<Method>,
+  pub signals: Vec<Signal>,
+  pub properties: Vec<Property>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Direction {
-    Connected,
-    Disconnected,
+  Connected,
+  Disconnected,
 }
 
 fn argument(argument: &Argument, direction: Option<Direction>) -> Result<String, Never> {
-    let direction = match direction {
-        Some(Direction::Connected) => " direction=\"in\"",
-        Some(Direction::Disconnected) => " direction=\"out\"",
-        None => "",
-    };
+  let direction_2 = match direction {
+    Some(Direction::Connected) => " direction=\"in\"",
+    Some(Direction::Disconnected) => " direction=\"out\"",
+    None => "",
+  };
 
-    Ok(format!("      <arg name=\"{}\" type=\"{}\"{direction}/>\n", argument.name, argument.shape))
+  Ok(format!(
+    "      <arg name=\"{}\" type=\"{}\"{direction}/>\n",
+    argument.name,
+    argument.shape,
+    direction = direction_2
+  ))
 }
 
 fn arguments(listed: &[Argument], direction: Option<Direction>) -> Result<String, Never> {
-    Ok(listed
-        .iter()
-        .map(|one| {
-            let Ok(line) = argument(one, direction);
+  Ok(
+    listed
+      .iter()
+      .map(|one| {
+        let Ok(line) = argument(one, direction);
 
-            line
-        })
-        .collect())
+        line
+      })
+      .collect(),
+  )
 }
 
 fn method(method: &Method) -> Result<String, Never> {
-    let Ok(taking) = arguments(&method.taking, Some(Direction::Connected));
-    let Ok(giving) = arguments(&method.giving, Some(Direction::Disconnected));
+  let Ok(taking) = arguments(&method.taking, Some(Direction::Connected));
+  let Ok(giving) = arguments(&method.giving, Some(Direction::Disconnected));
 
-    Ok(format!("    <method name=\"{}\">\n{taking}{giving}    </method>\n", method.name))
+  Ok(format!(
+    "    <method name=\"{}\">\n{taking}{giving}    </method>\n",
+    method.name
+  ))
 }
 
 fn signal(signal: &Signal) -> Result<String, Never> {
-    let Ok(carrying) = arguments(&signal.carrying, None);
+  let Ok(carrying) = arguments(&signal.carrying, None);
 
-    Ok(format!("    <signal name=\"{}\">\n{carrying}    </signal>\n", signal.name))
+  Ok(format!(
+    "    <signal name=\"{}\">\n{carrying}    </signal>\n",
+    signal.name
+  ))
 }
 
 fn property(property: &Property) -> Result<String, Never> {
-    let Ok(access) = property.access.word();
+  let Ok(access) = property.access.word();
 
-    Ok(format!(
-        "    <property name=\"{}\" type=\"{}\" access=\"{access}\"/>\n",
-        property.name, property.shape
-    ))
+  Ok(format!(
+    "    <property name=\"{}\" type=\"{}\" access=\"{access}\"/>\n",
+    property.name, property.shape
+  ))
 }
 
 fn interface(interface: &Interface) -> Result<String, Never> {
-    let methods: String = interface
-        .methods
-        .iter()
-        .map(|one| {
-            let Ok(said) = method(one);
+  let methods: String = interface
+    .methods
+    .iter()
+    .map(|one| {
+      let Ok(said) = method(one);
 
-            said
-        })
-        .collect();
-    let signals: String = interface
-        .signals
-        .iter()
-        .map(|one| {
-            let Ok(said) = signal(one);
+      said
+    })
+    .collect();
+  let signals: String = interface
+    .signals
+    .iter()
+    .map(|one| {
+      let Ok(said) = signal(one);
 
-            said
-        })
-        .collect();
-    let properties: String = interface
-        .properties
-        .iter()
-        .map(|one| {
-            let Ok(said) = property(one);
+      said
+    })
+    .collect();
+  let properties: String = interface
+    .properties
+    .iter()
+    .map(|one| {
+      let Ok(said) = property(one);
 
-            said
-        })
-        .collect();
+      said
+    })
+    .collect();
 
-    Ok(format!(
-        "  <interface name=\"{}\">\n{methods}{signals}{properties}  </interface>\n",
-        interface.name
-    ))
+  Ok(format!(
+    "  <interface name=\"{}\">\n{methods}{signals}{properties}  </interface>\n",
+    interface.name
+  ))
 }
 
 pub fn xml(interfaces: &[Interface]) -> Result<String, Never> {
-    let inside: String = interfaces
-        .iter()
-        .map(|one| {
-            let Ok(said) = interface(one);
+  let inside: String = interfaces
+    .iter()
+    .map(|one| {
+      let Ok(said) = interface(one);
 
-            said
-        })
-        .collect();
+      said
+    })
+    .collect();
 
-    Ok(format!("{DOCTYPE}<node>\n{inside}</node>\n"))
+  Ok(format!("{DOCTYPE}<node>\n{inside}</node>\n"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn empty_interface(name: &str) -> Result<Interface, Never> {
-        Ok(Interface { name: name.to_string(), methods: Vec::new(), signals: Vec::new(), properties: Vec::new() })
-    }
+  fn empty_interface(name: &str) -> Result<Interface, Never> {
+    Ok(Interface {
+      name: name.to_string(),
+      methods: Vec::new(),
+      signals: Vec::new(),
+      properties: Vec::new(),
+    })
+  }
 
-    fn argument((name, shape): (&str, &str)) -> Result<Argument, Never> {
-        Ok(Argument { name: name.to_string(), shape: shape.to_string() })
-    }
+  fn argument((name, shape): (&str, &str)) -> Result<Argument, Never> {
+    Ok(Argument {
+      name: name.to_string(),
+      shape: shape.to_string(),
+    })
+  }
 
-    #[test]
-    fn a_method_says_what_it_takes_and_what_it_gives() {
-        let Ok(mut shown) = empty_interface("org.example.Player");
-        let Ok(uri) = argument(("Uri", "s"));
-        let Ok(opened) = argument(("Opened", "b"));
+  #[test]
+  fn a_method_says_what_it_takes_and_what_it_gives() {
+    let Ok(mut shown) = empty_interface("org.example.Player");
+    let Ok(uri) = argument(("Uri", "s"));
+    let Ok(opened) = argument(("Opened", "b"));
 
-        shown.methods.push(Method { name: "OpenUri".to_string(), taking: vec![uri], giving: vec![opened] });
+    shown.methods.push(Method {
+      name: "OpenUri".to_string(),
+      taking: vec![uri],
+      giving: vec![opened],
+    });
 
-        let Ok(said) = xml(&[shown]);
+    let Ok(said) = xml(&[shown]);
 
-        assert!(said.contains("<interface name=\"org.example.Player\">"), "{said}");
-        assert!(said.contains("<method name=\"OpenUri\">"), "{said}");
-        assert!(said.contains("<arg name=\"Uri\" type=\"s\" direction=\"in\"/>"), "{said}");
-        assert!(said.contains("<arg name=\"Opened\" type=\"b\" direction=\"out\"/>"), "{said}");
-    }
+    assert!(
+      said.contains("<interface name=\"org.example.Player\">"),
+      "{said}"
+    );
+    assert!(said.contains("<method name=\"OpenUri\">"), "{said}");
+    assert!(
+      said.contains("<arg name=\"Uri\" type=\"s\" direction=\"in\"/>"),
+      "{said}"
+    );
+    assert!(
+      said.contains("<arg name=\"Opened\" type=\"b\" direction=\"out\"/>"),
+      "{said}"
+    );
+  }
 
-    #[test]
-    fn a_signal_has_no_direction_to_say() {
-        let Ok(mut shown) = empty_interface("org.example.Player");
-        let Ok(position) = argument(("Position", "x"));
+  #[test]
+  fn a_signal_has_no_direction_to_say() {
+    let Ok(mut shown) = empty_interface("org.example.Player");
+    let Ok(position) = argument(("Position", "x"));
 
-        shown.signals.push(Signal { name: "Seeked".to_string(), carrying: vec![position] });
+    shown.signals.push(Signal {
+      name: "Seeked".to_string(),
+      carrying: vec![position],
+    });
 
-        let Ok(said) = xml(&[shown]);
+    let Ok(said) = xml(&[shown]);
 
-        assert!(said.contains("<signal name=\"Seeked\">"), "{said}");
-        assert!(said.contains("<arg name=\"Position\" type=\"x\"/>"), "{said}");
-        assert!(!said.contains("direction"), "{said}");
-    }
+    assert!(said.contains("<signal name=\"Seeked\">"), "{said}");
+    assert!(
+      said.contains("<arg name=\"Position\" type=\"x\"/>"),
+      "{said}"
+    );
+    assert!(!said.contains("direction"), "{said}");
+  }
 
-    #[test]
-    fn a_property_says_who_may_touch_it() {
-        let Ok(mut shown) = empty_interface("org.example.Player");
+  #[test]
+  fn a_property_says_who_may_touch_it() {
+    let Ok(mut shown) = empty_interface("org.example.Player");
 
-        shown.properties.push(Property {
-            name: "Volume".to_string(),
-            shape: "d".to_string(),
-            access: Access::ReadWrite,
-        });
+    shown.properties.push(Property {
+      name: "Volume".to_string(),
+      shape: "d".to_string(),
+      access: Access::ReadWrite,
+    });
 
-        let Ok(said) = xml(&[shown]);
+    let Ok(said) = xml(&[shown]);
 
-        assert!(said.contains("<property name=\"Volume\" type=\"d\" access=\"readwrite\"/>"), "{said}");
-    }
+    assert!(
+      said.contains("<property name=\"Volume\" type=\"d\" access=\"readwrite\"/>"),
+      "{said}"
+    );
+  }
 
-    #[test]
-    fn the_document_is_one_node_with_every_interface_in_it() {
-        let Ok(one) = empty_interface("org.example.One");
-        let Ok(two) = empty_interface("org.example.Two");
-        let Ok(said) = xml(&[one, two]);
+  #[test]
+  fn the_document_is_one_node_with_every_interface_in_it() {
+    let Ok(one) = empty_interface("org.example.One");
+    let Ok(two) = empty_interface("org.example.Two");
+    let Ok(said) = xml(&[one, two]);
 
-        assert!(said.starts_with("<!DOCTYPE node"), "{said}");
-        assert_eq!(said.matches("<node>").count(), 1, "{said}");
-        assert!(said.ends_with("</node>\n"), "{said}");
-        assert_eq!(said.matches("<interface ").count(), 2, "{said}");
-    }
+    assert!(said.starts_with("<!DOCTYPE node"), "{said}");
+    assert_eq!(said.matches("<node>").count(), 1, "{said}");
+    assert!(said.ends_with("</node>\n"), "{said}");
+    assert_eq!(said.matches("<interface ").count(), 2, "{said}");
+  }
 }

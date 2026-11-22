@@ -14,80 +14,80 @@ use console_core_never::Never;
 use crate::Unpainted;
 
 fn row(line: &str) -> Result<Option<(String, String)>, Never> {
-    let row = match line.strip_prefix("| ") {
-        Some(row) => row,
-        None => return Ok(None),
-    };
+  let row = match line.strip_prefix("| ") {
+    Some(row) => row,
+    None => return Ok(None),
+  };
 
-    let mut fields = row.split(" | ");
+  let mut fields = row.split(" | ");
 
-    let said = match fields.next() {
-        Some(said) => said,
-        None => return Ok(None),
-    };
+  let said = match fields.next() {
+    Some(said) => said,
+    None => return Ok(None),
+  };
 
-    let name = said.trim_matches('`');
+  let name = said.trim_matches('`');
 
-    let written = match fields.next() {
-        Some(written) => written,
-        None => return Ok(None),
-    };
+  let written = match fields.next() {
+    Some(written) => written,
+    None => return Ok(None),
+  };
 
-    let code = match written.trim_matches('`').strip_prefix('#') {
-        Some(code) => code,
-        None => return Ok(None),
-    };
+  let code = match written.trim_matches('`').strip_prefix('#') {
+    Some(code) => code,
+    None => return Ok(None),
+  };
 
-    let sound = |text: &str, of: &dyn Fn(char) -> bool| !text.is_empty() && text.chars().all(of);
-    let named = sound(name, &|letter| {
-        letter.is_ascii_alphanumeric() || letter == '_'
-    });
-    let colored = code.len() == 6 && sound(code, &|digit| digit.is_ascii_hexdigit());
+  let sound = |text: &str, of: &dyn Fn(char) -> bool| !text.is_empty() && text.chars().all(of);
+  let named = sound(name, &|letter| {
+    letter.is_ascii_alphanumeric() || letter == '_'
+  });
+  let colored = code.len() == 6 && sound(code, &|digit| digit.is_ascii_hexdigit());
 
-    Ok((named && colored).then(|| (name.to_string(), code.to_string())))
+  Ok((named && colored).then(|| (name.to_string(), code.to_string())))
 }
 
 pub fn read(report: &str) -> Result<BTreeMap<String, String>, Unpainted> {
-    let mut colors: BTreeMap<String, String> = BTreeMap::new();
+  let mut colors: BTreeMap<String, String> = BTreeMap::new();
 
-    for line in report.lines() {
-        let Ok(row) = row(line);
+  for line in report.lines() {
+    let Ok(row) = row(line);
 
-        match row {
-            Some((name, code)) => {
-                let _ = colors.insert(name, code);
-            }
-            None => {},
-        }
+    match row {
+      Some((name, code)) => {
+        let _ = colors.insert(name, code);
+      }
+      None => {}
     }
+  }
 
-    match colors.is_empty() {
-        true => Err(Unpainted::NoColors),
-        false => Ok(colors),
-    }
+  match ::core::primitive::bool::then_some(colors.is_empty(), ()) {
+    ::core::option::Option::Some(()) => Err(Unpainted::NoColors),
+    ::core::option::Option::None => Ok(colors),
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_color_is_read_out_of_a_row_of_the_table() {
-        assert_eq!(
-            row("| `night` | `#110b12` | the deepest ground |"),
-            Ok(Some(("night".to_string(), "110b12".to_string())))
-        );
-    }
+  #[test]
+  fn a_color_is_read_out_of_a_row_of_the_table() {
+    assert_eq!(
+      row("| `night` | `#110b12` | the deepest ground |"),
+      Ok(Some(("night".to_string(), "110b12".to_string())))
+    );
+  }
 
-    #[test]
-    fn a_row_that_is_not_a_color_is_not_one() {
-        assert_eq!(row("| name | ratio | where |"), Ok(None));
-        assert_eq!(row("| `night` | `#110b1` | short |"), Ok(None));
-        assert_eq!(row("nothing at all"), Ok(None));
-    }
+  #[test]
+  fn a_row_that_is_not_a_color_is_not_one() {
+    assert_eq!(row("| name | ratio | where |"), Ok(None));
+    assert_eq!(row("| `night` | `#110b1` | short |"), Ok(None));
+    assert_eq!(row("nothing at all"), Ok(None));
+  }
 
-    #[test]
-    fn a_report_holding_no_colors_says_to_run_the_theme() {
-        assert!(matches!(read("# nothing here\n"), Err(Unpainted::NoColors)));
-    }
+  #[test]
+  fn a_report_holding_no_colors_says_to_run_the_theme() {
+    assert!(matches!(read("# nothing here\n"), Err(Unpainted::NoColors)));
+  }
 }

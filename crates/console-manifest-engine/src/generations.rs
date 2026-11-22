@@ -52,46 +52,46 @@ const NONE: &str = "-";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
-    Started,
-    Finished,
+  Started,
+  Finished,
 }
 
 impl State {
-    fn word(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            State::Started => STARTED,
-            State::Finished => FINISHED,
-        })
-    }
+  fn word(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      State::Started => STARTED,
+      State::Finished => FINISHED,
+    })
+  }
 
-    fn read(said: &str) -> Result<State, Never> {
-        Ok(match said.trim() == FINISHED {
-            true => State::Finished,
-            false => State::Started,
-        })
-    }
+  fn read(said: &str) -> Result<State, Never> {
+    Ok(match ::core::primitive::bool::then_some(said.trim() == FINISHED, ()) {
+      ::core::option::Option::Some(()) => State::Finished,
+      ::core::option::Option::None => State::Started,
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Boot {
-    Pending,
-    Good,
+  Pending,
+  Good,
 }
 
 impl Boot {
-    fn word(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Boot::Pending => PENDING,
-            Boot::Good => GOOD,
-        })
-    }
+  fn word(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Boot::Pending => PENDING,
+      Boot::Good => GOOD,
+    })
+  }
 
-    fn read(said: &str) -> Result<Boot, Never> {
-        Ok(match said.trim() == GOOD {
-            true => Boot::Good,
-            false => Boot::Pending,
-        })
-    }
+  fn read(said: &str) -> Result<Boot, Never> {
+    Ok(match ::core::primitive::bool::then_some(said.trim() == GOOD, ()) {
+      ::core::option::Option::Some(()) => Boot::Good,
+      ::core::option::Option::None => Boot::Pending,
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -104,246 +104,287 @@ const UNSAID: &str = "unknown";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Generation {
-    pub number: u32,
-    pub commit: String,
-    pub state: State,
-    pub before: Option<SnapshotNumber>,
-    pub tries: u32,
-    pub boot: Boot,
+  pub number: u32,
+  pub commit: String,
+  pub state: State,
+  pub before: Option<SnapshotNumber>,
+  pub tries: u32,
+  pub boot: Boot,
 }
 
 impl Generation {
-    pub fn serialize(&self) -> Result<String, Never> {
-        let Ok(word) = self.state.word();
-        let Ok(boot) = self.boot.word();
-        let before = match self.before {
-            Some(SnapshotNumber(number)) => number.to_string(),
-            None => NONE.to_string(),
-        };
+  pub fn serialize(&self) -> Result<String, Never> {
+    let Ok(word) = self.state.word();
+    let Ok(boot) = self.boot.word();
+    let before = match self.before {
+      Some(SnapshotNumber(number)) => number.to_string(),
+      None => NONE.to_string(),
+    };
 
-        Ok(format!("{} {word} {before} {} {boot}\n", self.commit, self.tries))
-    }
+    Ok(format!(
+      "{} {word} {before} {} {boot}\n",
+      self.commit, self.tries
+    ))
+  }
 
-    pub fn label(&self) -> Result<String, Never> {
-        Ok(format!("{} ({})", self.number, self.commit))
-    }
+  pub fn label(&self) -> Result<String, Never> {
+    Ok(format!("{} ({})", self.number, self.commit))
+  }
 
-    pub fn finished(&self) -> Result<Generation, Never> {
-        Ok(Generation { state: State::Finished, ..self.clone() })
-    }
+  pub fn finished(&self) -> Result<Generation, Never> {
+    Ok(Generation {
+      state: State::Finished,
+      ..self.clone()
+    })
+  }
 }
 
 pub fn newest(kept: &[Generation]) -> Result<Option<&Generation>, Never> {
-    Ok(kept.iter().max_by_key(|one| one.number))
+  Ok(kept.iter().max_by_key(|one| one.number))
 }
 
-pub fn next(kept: &[Generation], commit: Commit<'_>, before: Option<SnapshotNumber>) -> Result<Generation, Never> {
-    let highest = match kept.iter().map(|one| one.number).max() {
-        Some(highest) => highest,
-        None => 0,
-    };
+pub fn next(
+  kept: &[Generation],
+  commit: Commit<'_>,
+  before: Option<SnapshotNumber>,
+) -> Result<Generation, Never> {
+  let highest = match kept.iter().map(|one| one.number).max() {
+    Some(highest) => highest,
+    None => 0,
+  };
 
-    let named = match commit.0.trim().is_empty() {
-        true => UNSAID,
-        false => commit.0.trim(),
-    };
+  let named = match ::core::primitive::bool::then_some(commit.0.trim().is_empty(), ()) {
+    ::core::option::Option::Some(()) => UNSAID,
+    ::core::option::Option::None => commit.0.trim(),
+  };
 
-    Ok(Generation {
-        number: highest.saturating_add(1),
-        commit: named.to_string(),
-        state: State::Started,
-        before,
-        tries: 0,
-        boot: Boot::Pending,
-    })
+  Ok(Generation {
+    number: highest.saturating_add(1),
+    commit: named.to_string(),
+    state: State::Started,
+    before,
+    tries: 0,
+    boot: Boot::Pending,
+  })
 }
 
 pub fn unfinished(kept: &[Generation]) -> Result<Option<&Generation>, Never> {
-    let Ok(newest) = newest(kept);
-    let newest = match newest {
-        Some(newest) => newest,
-        None => return Ok(None),
-    };
+  let Ok(newest) = newest(kept);
+  let newest_3 = match newest {
+    Some(newest_2) => newest_2,
+    None => return Ok(None),
+  };
 
-    Ok(match newest.state {
-        State::Started => Some(newest),
-        State::Finished => None,
-    })
+  Ok(match newest_3.state {
+    State::Started => Some(newest_3),
+    State::Finished => None,
+  })
 }
 
 fn one(number: u32, held: &str) -> Result<Generation, Never> {
-    let said = match held.lines().next() {
-        Some(said) => said,
-        None => "",
-    };
-    let mut words = said.split_whitespace();
-    let commit = match words.next() {
-        Some(commit) => commit,
-        None => "",
-    };
-    let Ok(state) = State::read(match words.next() {
-        Some(word) => word,
-        None => STARTED,
-    });
-    let before = match words.next().map(str::parse::<u32>) {
-        Some(Ok(number)) => Some(SnapshotNumber(number)),
-        Some(Err(_not_a_number)) => None,
-        None => None,
-    };
-    let tries = match words.next().map(str::parse::<u32>) {
-        Some(Ok(tries)) => tries,
-        Some(Err(_not_a_number)) => 0,
-        None => 0,
-    };
-    let Ok(boot) = Boot::read(match words.next() {
-        Some(word) => word,
-        None => PENDING,
-    });
+  let said = match held.lines().next() {
+    Some(said) => said,
+    None => "",
+  };
+  let mut words = said.split_whitespace();
+  let commit = match words.next() {
+    Some(commit) => commit,
+    None => "",
+  };
+  let Ok(state) = State::read(match words.next() {
+    Some(word) => word,
+    None => STARTED,
+  });
+  let before = match words.next().map(str::parse::<u32>) {
+    Some(Ok(number_2)) => Some(SnapshotNumber(number_2)),
+    Some(Err(_not_a_number)) => None,
+    None => None,
+  };
+  let tries = match words.next().map(str::parse::<u32>) {
+    Some(Ok(tries)) => tries,
+    Some(Err(_not_a_number)) => 0,
+    None => 0,
+  };
+  let Ok(boot) = Boot::read(match words.next() {
+    Some(word) => word,
+    None => PENDING,
+  });
 
-    Ok(Generation { number, commit: commit.to_string(), state, before, tries, boot })
+  Ok(Generation {
+    number,
+    commit: commit.to_string(),
+    state,
+    before,
+    tries,
+    boot,
+  })
 }
 
 pub fn read(at: &Path) -> Result<Vec<Generation>, Unapplied> {
-    let entries = match std::fs::read_dir(at) {
-        Ok(entries) => entries,
-        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
-            true => return Ok(Vec::new()),
-            false => return Err(Unapplied::Read(at.to_path_buf(), fault)),
-        },
+  let entries = match std::fs::read_dir(at) {
+    Ok(entries) => entries,
+    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+      ::core::option::Option::Some(()) => return Ok(Vec::new()),
+      ::core::option::Option::None => return Err(Unapplied::Read(at.to_path_buf(), fault)),
+    },
+  };
+
+  let mut kept: Vec<Generation> = Vec::new();
+
+  for entry in entries.flatten() {
+    let name = entry.file_name();
+    let text = match name.to_str() {
+      Some(text) => text,
+      None => continue,
+    };
+    let number = match text.parse::<u32>() {
+      Ok(number) => number,
+      Err(_not_a_generation) => continue,
+    };
+    let Ok(held) = console_core_atomic_writes::read(&entry.path());
+
+    let said = match held {
+      console_core_atomic_writes::Stored::Text(said) => said,
+      console_core_atomic_writes::Stored::Absent => continue,
+      console_core_atomic_writes::Stored::Failed(fault) => {
+        return Err(Unapplied::Unsaid(entry.path(), fault));
+      }
     };
 
-    let mut kept: Vec<Generation> = Vec::new();
+    let Ok(generation) = one(number, &said);
 
-    for entry in entries.flatten() {
-        let number = match entry.file_name().to_string_lossy().parse::<u32>() {
-            Ok(number) => number,
-            Err(_not_a_generation) => continue,
-        };
-        let Ok(held) = console_core_atomic_writes::read(&entry.path());
+    kept.push(generation);
+  }
 
-        let said = match held {
-            console_core_atomic_writes::Stored::Text(said) => said,
-            console_core_atomic_writes::Stored::Absent => continue,
-            console_core_atomic_writes::Stored::Failed(fault) => {
-                return Err(Unapplied::Unsaid(entry.path(), fault));
-            }
-        };
+  kept.sort_by_key(|one| one.number);
 
-        let Ok(generation) = one(number, &said);
-
-        kept.push(generation);
-    }
-
-    kept.sort_by_key(|one| one.number);
-
-    Ok(kept)
+  Ok(kept)
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit086_no_climbing_join",
+  expect(
+    explicit086_no_climbing_join,
+    reason = "the filename is the decimal representation of the generation's u32 number"
+  )
+)]
 pub fn remember(at: &Path, generation: &Generation) -> Result<(), Unapplied> {
-    std::fs::create_dir_all(at).map_err(|fault| Unapplied::Making(at.to_path_buf(), fault))?;
+  std::fs::create_dir_all(at).map_err(|fault| Unapplied::Making(at.to_path_buf(), fault))?;
 
-    let Ok(said) = generation.serialize();
+  let Ok(said) = generation.serialize();
 
-    console_core_atomic_writes::whole(&at.join(generation.number.to_string()), said.as_bytes())
-        .map_err(Unapplied::Wrote)
+  console_core_atomic_writes::whole(&at.join(generation.number.to_string()), said.as_bytes())
+    .map_err(Unapplied::Wrote)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn started(number: u32, commit: &str) -> Result<Generation, Never> {
-        Ok(Generation { number, commit: commit.to_string(), state: State::Started, before: None, tries: 0, boot: Boot::Pending })
-    }
+  fn started(number: u32, commit: &str) -> Result<Generation, Never> {
+    Ok(Generation {
+      number,
+      commit: commit.to_string(),
+      state: State::Started,
+      before: None,
+      tries: 0,
+      boot: Boot::Pending,
+    })
+  }
 
-    #[test]
-    fn a_machine_that_has_never_applied_gets_the_first_generation() {
-        let Ok(next) = next(&[], Commit("a1b2c3d"), None);
+  #[test]
+  fn a_machine_that_has_never_applied_gets_the_first_generation() {
+    let Ok(next) = next(&[], Commit("a1b2c3d"), None);
 
-        assert_eq!(Ok(next), started(1, "a1b2c3d"));
-    }
+    assert_eq!(Ok(next), started(1, "a1b2c3d"));
+  }
 
-    #[test]
-    fn the_next_generation_is_one_past_the_highest_and_not_one_past_the_last_read() {
-        let Ok(seventh) = started(7, "a1b2c3d");
-        let Ok(second) = started(2, "0ff0ff0");
-        let kept = vec![seventh, second];
-        let Ok(next) = next(&kept, Commit("beefbee"), None);
+  #[test]
+  fn the_next_generation_is_one_past_the_highest_and_not_one_past_the_last_read() {
+    let Ok(seventh) = started(7, "a1b2c3d");
+    let Ok(second) = started(2, "0ff0ff0");
+    let kept = vec![seventh, second];
+    let Ok(next) = next(&kept, Commit("beefbee"), None);
 
-        assert_eq!(next.number, 8);
-    }
+    assert_eq!(next.number, 8);
+  }
 
-    #[test]
-    fn a_tree_that_would_not_say_which_commit_is_still_a_generation() {
-        let Ok(next) = next(&[], Commit("  "), None);
+  #[test]
+  fn a_tree_that_would_not_say_which_commit_is_still_a_generation() {
+    let Ok(next) = next(&[], Commit("  "), None);
 
-        assert_eq!(next.commit, UNSAID);
-    }
+    assert_eq!(next.commit, UNSAID);
+  }
 
-    #[test]
-    fn an_apply_that_reached_the_end_leaves_nothing_unfinished() {
-        let Ok(third) = started(3, "a1b2c3d");
-        let Ok(done) = third.finished();
-        let kept = [done];
-        let Ok(unfinished) = unfinished(&kept);
+  #[test]
+  fn an_apply_that_reached_the_end_leaves_nothing_unfinished() {
+    let Ok(third) = started(3, "a1b2c3d");
+    let Ok(done) = third.finished();
+    let kept = [done];
+    let Ok(unfinished) = unfinished(&kept);
 
-        assert_eq!(unfinished, None);
-    }
+    assert_eq!(unfinished, None);
+  }
 
-    #[test]
-    fn an_apply_that_stopped_partway_is_the_generation_that_never_finished() {
-        let Ok(third) = started(3, "a1b2c3d");
-        let kept = [third.clone()];
-        let Ok(unfinished) = unfinished(&kept);
+  #[test]
+  fn an_apply_that_stopped_partway_is_the_generation_that_never_finished() {
+    let Ok(third) = started(3, "a1b2c3d");
+    let kept = [third.clone()];
+    let Ok(unfinished) = unfinished(&kept);
 
-        assert_eq!(unfinished, Some(&third));
-    }
+    assert_eq!(unfinished, Some(&third));
+  }
 
-    #[test]
-    fn an_older_generation_that_never_finished_is_not_what_is_running() {
-        let Ok(fourth) = started(4, "beefbee");
-        let Ok(third) = started(3, "a1b2c3d");
-        let Ok(done) = fourth.finished();
-        let kept = vec![third, done];
-        let Ok(unfinished) = unfinished(&kept);
+  #[test]
+  fn an_older_generation_that_never_finished_is_not_what_is_running() {
+    let Ok(fourth) = started(4, "beefbee");
+    let Ok(third) = started(3, "a1b2c3d");
+    let Ok(done) = fourth.finished();
+    let kept = vec![third, done];
+    let Ok(unfinished) = unfinished(&kept);
 
-        assert_eq!(unfinished, None);
-    }
+    assert_eq!(unfinished, None);
+  }
 
-    #[test]
-    fn what_was_written_is_what_is_read_back() {
-        let Ok(twelfth) = started(12, "a1b2c3d");
-        let Ok(done) = twelfth.finished();
-        let Ok(serialize) = done.serialize();
-        let Ok(read) = one(12, &serialize);
+  #[test]
+  fn what_was_written_is_what_is_read_back() {
+    let Ok(twelfth) = started(12, "a1b2c3d");
+    let Ok(done) = twelfth.finished();
+    let Ok(serialize) = done.serialize();
+    let Ok(read) = one(12, &serialize);
 
-        assert_eq!(read, done);
-    }
+    assert_eq!(read, done);
+  }
 
-    #[test]
-    fn a_generation_that_came_up_is_read_back_with_its_snapshot_and_tries() {
-        let Ok(twelfth) = started(12, "a1b2c3d");
-        let Ok(done) = twelfth.finished();
-        let good = Generation { before: Some(SnapshotNumber(184)), tries: 2, boot: Boot::Good, ..done };
-        let Ok(serialize) = good.serialize();
-        let Ok(read) = one(12, &serialize);
+  #[test]
+  fn a_generation_that_came_up_is_read_back_with_its_snapshot_and_tries() {
+    let Ok(twelfth) = started(12, "a1b2c3d");
+    let Ok(done) = twelfth.finished();
+    let good = Generation {
+      before: Some(SnapshotNumber(184)),
+      tries: 2,
+      boot: Boot::Good,
+      ..done
+    };
+    let Ok(serialize) = good.serialize();
+    let Ok(read) = one(12, &serialize);
 
-        assert_eq!(read, good);
-    }
+    assert_eq!(read, good);
+  }
 
-    #[test]
-    fn a_line_written_before_boots_were_counted_has_no_snapshot_and_has_not_come_up() {
-        let Ok(read) = one(12, "a1b2c3d finished\n");
-        let Ok(twelfth) = started(12, "a1b2c3d");
-        let Ok(done) = twelfth.finished();
+  #[test]
+  fn a_line_written_before_boots_were_counted_has_no_snapshot_and_has_not_come_up() {
+    let Ok(read) = one(12, "a1b2c3d finished\n");
+    let Ok(twelfth) = started(12, "a1b2c3d");
+    let Ok(done) = twelfth.finished();
 
-        assert_eq!(read, done);
-    }
+    assert_eq!(read, done);
+  }
 
-    #[test]
-    fn a_word_nothing_here_wrote_is_an_apply_that_did_not_finish() {
-        let Ok(read) = one(12, "a1b2c3d confirmed\n");
+  #[test]
+  fn a_word_nothing_here_wrote_is_an_apply_that_did_not_finish() {
+    let Ok(read) = one(12, "a1b2c3d confirmed\n");
 
-        assert_eq!(Ok(read), started(12, "a1b2c3d"));
-    }
+    assert_eq!(Ok(read), started(12, "a1b2c3d"));
+  }
 }

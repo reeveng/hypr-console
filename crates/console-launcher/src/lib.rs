@@ -48,121 +48,114 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
+use console_actor::{Actor, SendError};
 use console_applications::{counts, entry, found, narrow};
-use console_default_applications::engines;
+use console_core_arguments::{
+  Command, CommandLine, Flag, NoSubcommand, Operands, Presence, Takes, read,
+};
 use console_core_external_programs::Program;
-use console_home_screen::{HomeScreen, Spot};
-use console_home_screen::shape::Shape;
-use console_core_arguments::{Command, CommandLine, Flag, NoSubcommand, Operands, Presence, Takes, read};
 use console_core_internal_programs::LAUNCHER_KEEP;
 use console_core_never::Never;
-use console_actor::Actor;
 use console_core_state_machine::{Machine, Queue};
+use console_default_applications::engines;
+use console_home_screen::shape::Shape;
+use console_home_screen::{HomeScreen, Spot};
 use console_panel::card::{Card, Door};
+use console_panel::page::{ActionOutcome, Aside, Handler, Page, Picture, Row, Rows};
 use console_panel::picker::Again;
-use console_panel::page::{Aside, Handler, Page, Picture, Row, Rows};
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 pub const WHO: &str = "launcher";
 
 const DOOR: &str = "menu";
 
 pub const PLACE: Flag = Flag {
-    spelling: "--place",
-    takes: Takes::Value("SQUARE"),
-    about: "put what is chosen on this square of the home screen, written pane.row.column",
+  spelling: "--place",
+  takes: Takes::Value("SQUARE"),
+  about: "put what is chosen on this square of the home screen, written pane.row.column",
 };
 
-pub const COMMAND: Command = Command { name: WHO, about: "the menu", flags: &[LAUNCHER_KEEP, PLACE], operands: Operands::None };
-
-type Shared = Arc<Cache>;
-
-#[derive(Default)]
-struct Cache {
-    all: OnceLock<Everything>,
-    before: OnceLock<Everything>,
-}
+pub const COMMAND: Command = Command {
+  name: WHO,
+  about: "the menu",
+  flags: &[LAUNCHER_KEEP, PLACE],
+  operands: Operands::None,
+};
 
 pub fn door(arguments: &[String]) -> Result<Door, Never> {
-    let Ok(read) = command_line(arguments);
-    let kept = match read {
-        Some(line) => line.presence(LAUNCHER_KEEP),
-        None => Ok(Presence::Absent),
-    };
+  let Ok(read) = command_line(arguments);
+  let kept = match read {
+    Some(line) => line.presence(LAUNCHER_KEEP),
+    None => Ok(Presence::Absent),
+  };
 
-    let again = match kept {
-        Ok(Presence::Present) => Again::Keeps,
-        Ok(Presence::Absent) => Again::Closes,
-    };
+  let again = match kept {
+    Ok(Presence::Present) => Again::Keeps,
+    Ok(Presence::Absent) => Again::Closes,
+  };
 
-    Door::new(DOOR, again)
+  Door::new(DOOR, again)
 }
 
 fn command_line(arguments: &[String]) -> Result<Option<CommandLine<NoSubcommand>>, Never> {
-    Ok(match read(&COMMAND, arguments) {
-        Ok(line) => Some(line),
-        Err(refusal) => {
-            eprintln!("{refusal}, so this is the menu as it usually opens");
+  Ok(match read(&COMMAND, arguments) {
+    Ok(line) => Some(line),
+    Err(refusal) => {
+      eprintln!("{refusal}, so this is the menu as it usually opens");
 
-            None
-        }
-    })
+      None
+    }
+  })
 }
 
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
-    let Ok(going) = asked_for(arguments);
-    let kept: Shared = Arc::default();
+  let Ok(going) = asked_for(arguments);
 
-    Card::supervised::<Word, _>((), move |typed| pages(typed, &kept, going))
+  Card::supervised::<Word, _>((), move |typed| {
+    let Ok(page) = menu_page(typed, going);
+
+    Ok(vec![page])
+  })
 }
 
 struct Everything {
-    applications: BTreeMap<String, entry::Application>,
-    icon: BTreeMap<String, String>,
-    order: Vec<String>,
+  applications: BTreeMap<String, entry::Application>,
+  icon: BTreeMap<String, String>,
+  order: Vec<String>,
 }
 
 struct Word;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Narrowed {
-    Same,
-    Different,
+  Same,
+  Different,
 }
 
 impl Machine for Word {
-    type Input = ();
-    type State = String;
-    type Request = String;
-    type Effect = Narrowed;
+  type Input = ();
+  type State = String;
+  type Request = String;
+  type Effect = Narrowed;
 
-    fn initialize(_input: &(), _previous: Option<String>, _effects: &mut Queue<Narrowed>) -> Result<String, Never> {
-        Ok(String::new())
-    }
+  fn initialize(
+    _input: &(),
+    _previous: Option<String>,
+    _effects: &mut Queue<Narrowed>,
+  ) -> Result<String, Never> {
+    Ok(String::new())
+  }
 
-    fn handle(said: String, word: String, effects: &mut Queue<Narrowed>) -> Result<String, Never> {
-        let narrowed = match said == word {
-            true => Narrowed::Same,
-            false => Narrowed::Different,
-        };
-        let Ok(()) = effects.offer(narrowed);
+  fn handle(said: String, word: String, effects: &mut Queue<Narrowed>) -> Result<String, Never> {
+    let narrowed = match ::core::primitive::bool::then_some(said == word, ()) {
+      ::core::option::Option::Some(()) => Narrowed::Same,
+      ::core::option::Option::None => Narrowed::Different,
+    };
+    let Ok(()) = effects.offer(narrowed);
 
-        Ok(word)
-    }
+    Ok(word)
+  }
 }
 
 type Typed = Actor<Word>;
@@ -173,432 +166,493 @@ const ON: &str = "on the home screen";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum For {
-    Opening,
-    Placing(Spot),
+  Opening,
+  Placing(Spot),
 }
 
 fn standing() -> Result<console_screen::Shape, Never> {
-    Ok(match console_home_screen::standing() {
-        Ok(standing) => standing,
-        Err(fault) => {
-            eprintln!("launcher: which way up the screen stands: {fault}");
+  Ok(match console_home_screen::standing() {
+    Ok(standing) => standing,
+    Err(fault) => {
+      eprintln!("launcher: which way up the screen stands: {fault}");
 
-            console_screen::Shape::Wider
-        }
-    })
+      console_screen::Shape::Wider
+    }
+  })
 }
 
 fn shape() -> Result<Shape, Never> {
-    let hers = console_core_places::home()?;
-    let Ok(standing) = standing();
-    let usual = Shape::usual(standing)?;
+  let hers = console_core_places::home()?;
+  let Ok(standing) = standing();
+  let usual = Shape::usual(standing)?;
 
-    let hers = match hers {
-        Some(hers) => hers,
-        None => return Ok(usual),
-    };
+  let hers_3 = match hers {
+    Some(hers_2) => hers_2,
+    None => return Ok(usual),
+  };
 
-    match console_home_screen::grid(&hers, standing) {
-        Ok(grid) => Ok(grid),
-        Err(fault) => {
-            eprintln!("launcher: {fault}");
+  match console_home_screen::grid(&hers_3, standing) {
+    Ok(grid) => Ok(grid),
+    Err(fault) => {
+      eprintln!("launcher: {fault}");
 
-            Ok(usual)
-        }
+      Ok(usual)
     }
+  }
 }
 
 fn home() -> Result<HomeScreen, Never> {
-    let Ok(found) = console_core_places::home();
+  let Ok(found) = console_core_places::home();
 
-    let hers = match found {
-        Some(hers) => hers,
-        None => return Ok(HomeScreen::default()),
-    };
+  let hers = match found {
+    Some(hers) => hers,
+    None => return Ok(HomeScreen::default()),
+  };
 
-    let Ok(standing) = standing();
-    let Ok(held) = console_home_screen::kept(&hers, standing);
+  let Ok(standing) = standing();
+  let Ok(held) = console_home_screen::kept(&hers, standing);
 
-    match held {
-        console_core_atomic_writes::Stored::Text(said) => HomeScreen::read(&said),
-        console_core_atomic_writes::Stored::Absent => Ok(HomeScreen::default()),
-        console_core_atomic_writes::Stored::Failed(fault) => {
-            eprintln!("launcher: the home screen: {fault}");
+  match held {
+    console_core_atomic_writes::Stored::Text(said) => HomeScreen::read(&said),
+    console_core_atomic_writes::Stored::Absent => Ok(HomeScreen::default()),
+    console_core_atomic_writes::Stored::Failed(fault) => {
+      eprintln!("launcher: the home screen: {fault}");
 
-            Ok(HomeScreen::default())
-        },
+      Ok(HomeScreen::default())
     }
+  }
 }
 
 fn keep(home: &HomeScreen) -> Result<(), Never> {
-    let Ok(found) = console_core_places::home();
+  let Ok(found) = console_core_places::home();
 
-    let hers = match found {
-        Some(hers) => hers,
-        None => {
-            eprintln!("launcher: no home to keep the home screen in; leaving it as it is");
+  let hers = match found {
+    Some(hers) => hers,
+    None => {
+      eprintln!("launcher: no home to keep the home screen in; leaving it as it is");
 
-            return Ok(());
-        }
-    };
-
-    let Ok(standing) = standing();
-
-    match console_home_screen::keep(&hers, standing, home) {
-        Ok(()) => {},
-        Err(fault) => eprintln!("launcher: {fault}"),
+      return Ok(());
     }
+  };
 
-    Ok(())
+  let Ok(standing) = standing();
+
+  match console_home_screen::keep(&hers, standing, home) {
+    Ok(()) => {}
+    Err(fault) => eprintln!("launcher: {fault}"),
+  }
+
+  Ok(())
 }
 
 fn toggle_on_home(name: &str) -> Result<(), Never> {
-    let Ok(home) = home();
-    let Ok(shape) = shape();
-    let Ok(turned) = toggle_in(home, shape, name);
-    let Ok(()) = keep(&turned);
+  let Ok(home) = home();
+  let Ok(shape) = shape();
+  let Ok(turned) = toggle_in(home, shape, name);
+  let Ok(()) = keep(&turned);
 
-    Ok(())
+  Ok(())
 }
 
 fn toggle_in(mut home: HomeScreen, shape: Shape, name: &str) -> Result<HomeScreen, Never> {
-    let placed = home.where_(name)?;
+  let placed = home.where_(name)?;
 
-    match placed {
-        Some(_) => home.forget(name)?,
-        None => {
-            let spot = home.first_free(shape)?;
+  match placed {
+    Some(_) => home.forget(name)?,
+    None => {
+      let spot = home.first_free(shape)?;
 
-            home.place(spot, name)?;
-        },
+      home.place(spot, name)?;
     }
+  }
 
-    Ok(home)
+  Ok(home)
 }
 
 fn place_on_home(spot: Spot, name: &str) -> Result<(), Never> {
-    let Ok(home) = home();
-    let Ok(placed) = place_in(home, spot, name);
-    let Ok(()) = keep(&placed);
+  let Ok(home) = home();
+  let Ok(placed) = place_in(home, spot, name);
+  let Ok(()) = keep(&placed);
 
-    Ok(())
+  Ok(())
 }
 
 fn place_in(mut home: HomeScreen, spot: Spot, name: &str) -> Result<HomeScreen, Never> {
-    home.forget(name)?;
+  home.forget(name)?;
 
-    home.place(spot, name)?;
+  home.place(spot, name)?;
 
-    Ok(home)
+  Ok(home)
 }
 
 fn everything() -> Result<Everything, Never> {
-    let machine = found::machine()?;
+  let machine = found::machine()?;
 
-    with_counts(machine)
+  with_counts(machine)
 }
 
 fn everything_before() -> Result<Everything, Never> {
-    let remembered = found::load_cached()?;
+  let remembered = found::load_cached()?;
 
-    with_counts(remembered)
+  with_counts(remembered)
 }
 
 fn with_counts(found: found::Found) -> Result<Everything, Never> {
-    let names: Vec<String> = found.applications.keys().cloned().collect();
+  let names: Vec<String> = found.applications.keys().cloned().collect();
 
-    let counted = found::load_counts()?;
+  let counted = found::load_counts()?;
 
-    let order = counts::order(&names, &counted)?;
+  let order = counts::order(&names, &counted)?;
 
-    Ok(Everything { applications: found.applications, icon: found.icon, order })
+  Ok(Everything {
+    applications: found.applications,
+    icon: found.icon,
+    order,
+  })
 }
 
+fn application_row(
+  all: &Everything,
+  name: &str,
+  going: For,
+  on: &HomeScreen,
+) -> Result<Row, Never> {
+  let picture = all
+    .icon
+    .get(name)
+    .map_or(Picture::Space, |at| Picture::At(PathBuf::from(at)));
+  let named = name.to_string();
 
-fn all(kept: &Shared) -> Result<&Everything, Never> {
-    Ok(kept.all.get_or_init(|| {
-        let Ok(everything) = everything();
+  match going {
+    For::Placing(spot) => {
+      let Ok(places) = Handler::call(move |_| {
+        let Ok(()) = place_on_home(spot, &named);
+        ActionOutcome::Close
+      });
+      let Ok(row) = Row::new(name, Aside(""), places);
 
-        everything
-    }))
-}
-
-fn application_row(all: &Everything, name: &str, going: For, on: &HomeScreen) -> Result<Row, Never> {
-    let picture =
-        all.icon.get(name).map_or(Picture::Space, |at| Picture::At(PathBuf::from(at)));
-    let named = name.to_string();
-
-    match going {
-        For::Placing(spot) => {
-            let Ok(places) = Handler::call(move |_| {
-                let Ok(()) = place_on_home(spot, &named);
-                true
-            });
-            let Ok(row) = Row::new(name, Aside(""), places);
-
-            row.picturing(picture)
-        }
-        For::Opening => {
-            let application = all.applications.get(name).cloned();
-            let placed = on.where_(name)?;
-
-            let aside = match placed {
-                Some(_) => ON,
-                None => "",
-            };
-            let switching = name.to_string();
-
-            let Ok(starts) = Handler::call(move |_| {
-                let Ok(()) = start(application.as_ref(), &named);
-                true
-            });
-            let Ok(row) = Row::new(name, Aside(aside), starts);
-            let Ok(pictured) = row.picturing(picture);
-
-            pictured.offering(move |showing| {
-                let Ok(()) = toggle_on_home(&switching);
-                showing.refresh();
-
-                false
-            })
-        },
+      row.picturing(picture)
     }
+    For::Opening => {
+      let application = all.applications.get(name).cloned();
+      let placed = on.where_(name)?;
+
+      let aside = match placed {
+        Some(_) => ON,
+        None => "",
+      };
+      let switching = name.to_string();
+
+      let Ok(starts) = Handler::call(move |_| {
+        let Ok(()) = start(application.as_ref(), &named);
+        ActionOutcome::Close
+      });
+      let Ok(row) = Row::new(name, Aside(aside), starts);
+      let Ok(pictured) = row.picturing(picture);
+
+      pictured.offering(move |showing| {
+        let Ok(()) = toggle_on_home(&switching);
+        showing.refresh();
+
+        ActionOutcome::Stay
+      })
+    }
+  }
 }
 
 fn looking_up_row(said: &str) -> Result<Row, Never> {
-    let word = said.to_string();
-    let Ok(looks) = Handler::call(move |_| {
-        let Ok(()) = looked_up(&word);
-        true
-    });
-    let Ok(row) = Row::new(&format!("Look up {said:?}"), Aside(""), looks);
+  let word = said.to_string();
+  let Ok(looks) = Handler::call(move |_| {
+    let Ok(()) = looked_up(&word);
+    ActionOutcome::Close
+  });
+  let Ok(row) = Row::new(&format!("Look up {said:?}"), Aside(""), looks);
 
-    row.picturing(Picture::Space)
+  row.picturing(Picture::Space)
 }
 
 fn rows(typed: &Typed, all: &Everything, going: For) -> Result<Vec<Row>, Never> {
-    let mut word = String::new();
+  let word = match typed.get() {
+    Ok(said) => said,
+    Err(_the_actor_has_gone) => String::new(),
+  };
 
-    match typed.get() {
-        Ok(said) => word = said,
-        Err(_the_actor_has_gone) => {},
+  let Ok(on) = home();
+  let standing = narrow::matching(&all.order, &word)?;
+  let mut rows: Vec<Row> = standing
+    .iter()
+    .map(|name| {
+      let Ok(row) = application_row(all, name, going, &on);
+
+      row
+    })
+    .collect();
+  let said = word.trim();
+
+  match ::core::primitive::bool::then_some(!said.is_empty() && going == For::Opening, ()) {
+    ::core::option::Option::Some(()) => {
+      let Ok(row) = looking_up_row(said);
+
+      rows.push(row);
     }
+    ::core::option::Option::None => {}
+  }
 
-    let Ok(on) = home();
-    let standing = narrow::matching(&all.order, &word)?;
-    let mut rows: Vec<Row> = standing
-        .iter()
-        .map(|name| {
-            let Ok(row) = application_row(all, name, going, &on);
-
-            row
-        })
-        .collect();
-    let said = word.trim();
-
-    match !said.is_empty() && going == For::Opening {
-        true => {
-            let Ok(row) = looking_up_row(said);
-
-            rows.push(row);
-        },
-        false => {},
-    }
-
-    Ok(rows)
-}
-
-fn before(typed: &Typed, kept: &Shared, going: For) -> Result<Vec<Row>, Never> {
-    let Ok(listed) = kept_list(kept);
-
-    rows(typed, listed, going)
-}
-
-fn kept_list(kept: &Shared) -> Result<&Everything, Never> {
-    Ok(kept.before.get_or_init(|| {
-        let Ok(everything) = everything_before();
-
-        everything
-    }))
+  Ok(rows)
 }
 
 fn title(going: For) -> Result<&'static str, Never> {
-    Ok(match going {
-        For::Opening => "Menu",
-        For::Placing(_) => "Put one on the home screen",
-    })
+  Ok(match going {
+    For::Opening => "Menu",
+    For::Placing(_) => "Put one on the home screen",
+  })
 }
 
-fn pages(typed: &Typed, kept: &Shared, going: For) -> Result<Vec<Page>, Never> {
-    let listing = typed.clone();
-    let waiting = typed.clone();
-    let typing = typed.clone();
-    let reading = Arc::clone(kept);
-    let remembered = Arc::clone(kept);
+fn menu_page(typed: &Typed, going: For) -> Result<Page, Never> {
+  let listing = typed.clone();
+  let waiting = typed.clone();
+  let typing = typed.clone();
+  let reading = OnceLock::new();
+  let remembered = OnceLock::new();
 
-    let Ok(heading) = title(going);
+  let Ok(heading) = title(going);
 
-    let Ok(asked) = Rows::computed(move || {
-        let Ok(all) = all(&reading);
-        let Ok(rows) = rows(&listing, all, going);
+  let Ok(asked) = Rows::computed(move || {
+    let all = reading.get_or_init(|| {
+      let Ok(found) = everything();
 
-        rows
+      found
     });
-    let Ok(page) = Page::new(heading, asked);
-    let Ok(page) = page.meanwhile(move || {
-        let Ok(before) = before(&waiting, &remembered, going);
+    let Ok(rows) = rows(&listing, all, going);
 
-        before
+    rows
+  });
+  let Ok(page) = Page::new(heading, asked);
+  let Ok(with_preview) = page.meanwhile(move || {
+    let cached = remembered.get_or_init(|| {
+      let Ok(found) = everything_before();
+
+      found
     });
-    let Ok(page) = page.searching(ABOUT, move |showing, word| {
-        let narrowed = typing.send(word.to_string());
+    let Ok(preview) = rows(&waiting, cached, going);
 
-        match matches!(narrowed.as_deref(), Ok([Narrowed::Different])) {
-            true => showing.replace(0),
-            false => {},
-        }
-    });
+    preview
+  });
+  with_preview.searching(ABOUT, move |showing, word| {
+    let narrowed = typing.send(word.to_string());
 
-    Ok(vec![page])
+    match narrowed {
+      Ok(effects) => match effects.as_slice() {
+        [Narrowed::Different] => showing.replace(0),
+        _ => {}
+      },
+      Err(SendError::Closed | SendError::MachineDefect(_)) => showing.replace(0),
+    }
+  })
 }
-
 
 fn asked_for(asked: &[String]) -> Result<For, Never> {
-    let Ok(read) = command_line(asked);
-    let placing = match &read {
-        Some(line) => line.value(PLACE),
-        None => Ok(None),
-    };
+  let Ok(read) = command_line(asked);
+  let placing = match &read {
+    Some(line) => line.value(PLACE),
+    None => Ok(None),
+  };
 
-    let said = match placing {
-        Ok(Some(said)) => said,
-        Ok(None) => return Ok(For::Opening),
-    };
+  let said = match placing {
+    Ok(Some(said)) => said,
+    Ok(None) => return Ok(For::Opening),
+  };
 
-    let read = Spot::read(said)?;
+  let read_2 = Spot::read(said)?;
 
-    Ok(match read {
-        Some(spot) => For::Placing(spot),
-        None => {
-            eprintln!("launcher: --place {said:?} is not a square, so this is the menu");
+  Ok(match read_2 {
+    Some(spot) => For::Placing(spot),
+    None => {
+      eprintln!("launcher: --place {said:?} is not a square, so this is the menu");
 
-            For::Opening
-        },
-    })
+      For::Opening
+    }
+  })
 }
 
 fn start(application: Option<&entry::Application>, chosen: &str) -> Result<(), Never> {
-    match application {
-        Some(application) => {
-            let command = found::command(application)?;
+  match application {
+    Some(application_2) => {
+      let command = found::command(application_2)?;
 
-            match command {
-                Some(arguments) => {
-                    let Ok(()) = console_panel::running::left_running(&arguments);
-                }
-                None => {}
-            }
+      match command {
+        Some(arguments) => {
+          let Ok(()) = console_panel::running::left_running(&arguments);
         }
-        None => {
-            let Ok(()) = looked_up(chosen);
-        },
+        None => {}
+      }
     }
+    None => {
+      let Ok(()) = looked_up(chosen);
+    }
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn looked_up(said: &str) -> Result<(), Never> {
-    let chosen = engines::current()?;
-    let known = engines::one(&chosen)?;
+  let chosen = engines::current()?;
+  let known = engines::one(&chosen)?;
 
-    let engine = match known {
-        Some(engine) => engine,
-        None => return Ok(()),
-    };
+  let engine = match known {
+    Some(engine) => engine,
+    None => return Ok(()),
+  };
 
-    let asked = engines::address(said, engine)?;
+  let asked = engines::address(said, engine)?;
 
-    let address = match asked {
-        Some(address) => address,
-        None => return Ok(()),
-    };
+  let address = match asked {
+    Some(address) => address,
+    None => return Ok(()),
+  };
 
-    eprintln!("the menu was asked {said:?}: {address}");
-    let Ok(opening) = open_command(&address);
-    let Ok(()) = console_panel::running::left_running(&opening);
+  eprintln!("the menu was asked {said:?}: {address}");
+  let Ok(opening) = open_command(&address);
+  let Ok(()) = console_panel::running::left_running(&opening);
 
-    Ok(())
+  Ok(())
 }
 
 fn open_command(address: &str) -> Result<Vec<String>, Never> {
-    Program::XdgOpen.arguments(&[address])
+  Program::XdgOpen.arguments(&[address])
 }
-
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const GRID: Shape = Shape::USUAL;
+  const GRID: Shape = Shape::USUAL;
 
-    fn occupied_home() -> Result<HomeScreen, Never> {
-        let mut home = HomeScreen::default();
-        let Ok(()) = home.place(Spot { pane: 0, row: 0, column: 0 }, "Files");
-        let Ok(()) = home.place(Spot { pane: 0, row: 0, column: 1 }, "Music");
+  fn occupied_home() -> Result<HomeScreen, Never> {
+    let mut home = HomeScreen::default();
+    let Ok(()) = home.place(
+      Spot {
+        pane: 0,
+        row: 0,
+        column: 0,
+      },
+      "Files",
+    );
+    let Ok(()) = home.place(
+      Spot {
+        pane: 0,
+        row: 0,
+        column: 1,
+      },
+      "Music",
+    );
 
-        Ok(home)
-    }
+    Ok(home)
+  }
 
-    #[test]
-    fn y_is_a_switch() {
-        let Ok(home) = occupied_home();
-        let Ok(on) = toggle_in(home.clone(), GRID, "Download");
-        let first = Spot { pane: 0, row: 0, column: 0 };
+  #[test]
+  fn y_is_a_switch() {
+    let Ok(home) = occupied_home();
+    let Ok(on) = toggle_in(home.clone(), GRID, "Download");
+    let first = Spot {
+      pane: 0,
+      row: 0,
+      column: 0,
+    };
 
-        let free = Spot { pane: 0, row: 0, column: 2 };
+    let free = Spot {
+      pane: 0,
+      row: 0,
+      column: 2,
+    };
 
-        assert_eq!(on.where_("Download"), Ok(Some(free)), "the first free square");
-        assert_eq!(on.at(first), Ok(Some("Files")), "and nothing else moved");
+    assert_eq!(
+      on.where_("Download"),
+      Ok(Some(free)),
+      "the first free square"
+    );
+    assert_eq!(on.at(first), Ok(Some("Files")), "and nothing else moved");
 
-        let Ok(off) = toggle_in(on, GRID, "Download");
-        assert_eq!(off.where_("Download"), Ok(None), "pressed again, it is off");
-        assert_eq!(off, home, "and the home screen is where it was");
-    }
+    let Ok(off) = toggle_in(on, GRID, "Download");
+    assert_eq!(off.where_("Download"), Ok(None), "pressed again, it is off");
+    assert_eq!(off, home, "and the home screen is where it was");
+  }
 
-    #[test]
-    fn a_square_that_was_asked_for_is_the_square_it_lands_on() {
-        let asked = Spot { pane: 2, row: 1, column: 3 };
-        let Ok(home) = occupied_home();
-        let Ok(placed) = place_in(home.clone(), asked, "Download");
-        let Ok(free) = home.first_free(GRID);
+  #[test]
+  fn a_square_that_was_asked_for_is_the_square_it_lands_on() {
+    let asked = Spot {
+      pane: 2,
+      row: 1,
+      column: 3,
+    };
+    let Ok(home) = occupied_home();
+    let Ok(placed) = place_in(home.clone(), asked, "Download");
+    let Ok(free) = home.first_free(GRID);
 
-        assert_eq!(placed.where_("Download"), Ok(Some(asked)));
-        assert_ne!(asked, free, "the point of asking");
-    }
+    assert_eq!(placed.where_("Download"), Ok(Some(asked)));
+    assert_ne!(asked, free, "the point of asking");
+  }
 
-    #[test]
-    fn one_that_is_already_on_it_is_moved() {
-        let asked = Spot { pane: 1, row: 0, column: 0 };
-        let Ok(home) = occupied_home();
-        let Ok(placed) = place_in(home, asked, "Files");
+  #[test]
+  fn one_that_is_already_on_it_is_moved() {
+    let asked = Spot {
+      pane: 1,
+      row: 0,
+      column: 0,
+    };
+    let Ok(home) = occupied_home();
+    let Ok(placed) = place_in(home, asked, "Files");
 
-        let first = Spot { pane: 0, row: 0, column: 0 };
+    let first = Spot {
+      pane: 0,
+      row: 0,
+      column: 0,
+    };
 
-        assert_eq!(placed.at(first), Ok(None), "and it left the square it was on");
-    }
+    assert_eq!(
+      placed.at(first),
+      Ok(None),
+      "and it left the square it was on"
+    );
+  }
 
-    #[test]
-    fn what_the_words_after_the_program_name_ask_for() {
-        let asked = |words: &[&str]| {
-            asked_for(&words.iter().map(|word| (*word).to_string()).collect::<Vec<String>>())
-        };
+  #[test]
+  fn what_the_words_after_the_program_name_ask_for() {
+    let asked = |words: &[&str]| {
+      asked_for(
+        &words
+          .iter()
+          .map(|word| (*word).to_string())
+          .collect::<Vec<String>>(),
+      )
+    };
 
-        let spot = Spot { pane: 2, row: 1, column: 3 };
+    let spot = Spot {
+      pane: 2,
+      row: 1,
+      column: 3,
+    };
 
-        assert_eq!(asked(&["--place", "2.1.3"]), Ok(For::Placing(spot)));
-        assert_eq!(asked(&[]), Ok(For::Opening), "the menu, opened the way it usually is");
-        assert_eq!(asked(&["--keep"]), Ok(For::Opening), "the paddles, which only open it");
-        assert_eq!(asked(&["--place"]), Ok(For::Opening), "a square that was not said");
-        assert_eq!(asked(&["--place", "sideways"]), Ok(For::Opening), "a square that is not one");
-    }
+    assert_eq!(asked(&["--place", "2.1.3"]), Ok(For::Placing(spot)));
+    assert_eq!(
+      asked(&[]),
+      Ok(For::Opening),
+      "the menu, opened the way it usually is"
+    );
+    assert_eq!(
+      asked(&["--keep"]),
+      Ok(For::Opening),
+      "the paddles, which only open it"
+    );
+    assert_eq!(
+      asked(&["--place"]),
+      Ok(For::Opening),
+      "a square that was not said"
+    );
+    assert_eq!(
+      asked(&["--place", "sideways"]),
+      Ok(For::Opening),
+      "a square that is not one"
+    );
+  }
 }

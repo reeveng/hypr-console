@@ -4,8 +4,8 @@
 //! outward half is `zwp_virtual_keyboard_v1`: a keymap handed to the
 //! compositor once, and key and modifier events sent against it afterwards.
 //! The inward half is what a key press means -- shift held until the next
-//! letter, a layer key that walks, a long press that opens the accents, a
-//! character that is in no keymap at all.
+//! letter, a layer key that walks, the compose key that opens a letter's
+//! accents, a character that is in no keymap at all.
 //!
 //! ## Why a keymap of our own rather than the system's
 //!
@@ -21,7 +21,17 @@
 //! the keycode that is ก *in that keymap*. `keymap` composes them out of the
 //! system's own xkb symbols, so what is typed is what `/usr/share/X11/xkb`
 //! says the alphabet is, and adding a language installs no data here.
-
+//!
+//! ## What a key held down does again
+//!
+//! A key that types repeats while it is held, and nothing else does. A shift
+//! that toggled at every repeat would be on or off at random by the time the
+//! thumb came up, and a press that took the board somewhere else -- a layer, a
+//! language, the accent shelf a composed letter opens -- has left the key it
+//! was made on behind, so the same place on the board is a different key. A
+//! character that is in no keymap is sent by uploading a keymap with only it
+//! in, and a repeat of that would be a keymap upload at every interval, so it
+//! types once.
 
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
@@ -31,9 +41,10 @@ use std::time::Instant;
 use wayland_client::QueueHandle;
 use wayland_client::protocol::wl_seat;
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
-    zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1,
+  zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1,
 };
 
+use crate::key_repeat::RepeatMode;
 use crate::keymap::{Keymap, Layer};
 use crate::layout::{Drops, Kind, Layout, LayoutKind, modifiers, of};
 use crate::shared_memory::keymap_file;
@@ -42,545 +53,656 @@ use console_core_walking::{Ring, Step, where_it_is};
 
 const THE_FIRST_ONE: u32 = 0;
 
-
 const SPARE: u32 = 127;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum After {
-    Still,
-    Draw,
+  Still,
+  Draw,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Way {
-    On,
-    Back,
+  On,
+  Back,
 }
 
 pub fn after(walk: &[LayoutKind], alphabet: LayoutKind) -> Result<Option<LayoutKind>, Never> {
-    let languages: Vec<LayoutKind> = walk
-        .iter()
-        .copied()
-        .filter(|which| {
-            let Ok(of) = of(*which);
+  let languages: Vec<LayoutKind> = walk
+    .iter()
+    .copied()
+    .filter(|which| {
+      let Ok(of) = of(*which);
 
-            of.primary
-        })
-        .collect();
+      of.primary
+    })
+    .collect();
 
-    match languages.len() < 2 {
-        true => return Ok(None),
-        false => {},
-    }
+  match ::core::primitive::bool::then_some(languages.len() < 2, ()) {
+    ::core::option::Option::Some(()) => return Ok(None),
+    ::core::option::Option::None => {}
+  }
 
-    let Ok(round) = Ring::of(&languages);
+  let Ok(round) = Ring::of(&languages);
 
-    let ring = match round {
-        Some(ring) => ring,
-        None => return Ok(None),
-    };
+  let ring = match round {
+    Some(ring) => ring,
+    None => return Ok(None),
+  };
 
-    let Ok(found) = where_it_is(&languages, &alphabet);
+  let Ok(found) = where_it_is(&languages, &alphabet);
 
-    let here = match found {
-        Some(here) => here,
-        None => THE_FIRST_ONE,
-    };
+  let here = match found {
+    Some(here) => here,
+    None => THE_FIRST_ONE,
+  };
 
-    let Ok(next) = ring.step(here, Step::Forward);
-    let Ok(next) = index(next);
+  let Ok(next) = ring.step(here, Step::Forward);
+  let Ok(next_2) = index(next);
 
-    Ok(languages.get(next).copied())
+  Ok(languages.get(next_2).copied())
+}
+
+pub fn repeat_mode(
+  kind: Kind,
+  before: LayoutKind,
+  after: LayoutKind,
+) -> Result<RepeatMode, Never> {
+  let types = match kind {
+    Kind::Code { .. } => RepeatMode::Repeating,
+    Kind::Pad
+    | Kind::EndRow
+    | Kind::Mod(_)
+    | Kind::Copy { .. }
+    | Kind::Layout(_)
+    | Kind::Back
+    | Kind::Next
+    | Kind::Language
+    | Kind::Symbols
+    | Kind::Compose => RepeatMode::Once,
+  };
+
+  Ok(match ::core::primitive::bool::then_some(before == after, ()) {
+    ::core::option::Option::Some(()) => types,
+    ::core::option::Option::None => RepeatMode::Once,
+  })
 }
 
 pub fn symbols(walk: &[LayoutKind]) -> Result<Option<LayoutKind>, Never> {
-    Ok(walk.iter().copied().find(|which| {
-        let Ok(of) = of(*which);
+  Ok(walk.iter().copied().find(|which| {
+    let Ok(of) = of(*which);
 
-        !of.primary
-    }))
+    !of.primary
+  }))
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit048_no_unreal_state",
-    allow(
-        explicit048_no_unreal_state,
-        reason = "`worn` is which alphabet the compositor is holding and `composing` is whether a dead key is waiting for its second press; either can be true of the other, and neither decides the other"
-    )
+  dylint_lib = "explicit048_no_unreal_state",
+  allow(
+    explicit048_no_unreal_state,
+    reason = "`worn` is which alphabet the compositor is holding and `composing` is whether a dead key is waiting for its second press; either can be true of the other, and neither decides the other"
+  )
 )]
 pub struct Typist {
-    keys: zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
-    alphabets: Vec<Keymap>,
-    worn: Option<Layer>,
-    since: Instant,
-    pub held: u8,
-    pub composing: bool,
-    pub showing: LayoutKind,
-    pub walk: Vec<LayoutKind>,
-    pub step: u32,
-    pub last_alphabet: LayoutKind,
+  keys: zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
+  alphabets: Vec<Keymap>,
+  worn: Option<Layer>,
+  since: Instant,
+  pub held: u8,
+  pub composing: bool,
+  pub showing: LayoutKind,
+  pub walk: Vec<LayoutKind>,
+  pub step: u32,
+  pub last_alphabet: LayoutKind,
 }
 
 impl Typist {
-    pub fn new(
-        manager: &zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1,
-        seat: &wl_seat::WlSeat,
-        hand: &QueueHandle<Board>,
-        alphabets: Vec<Keymap>,
-        walk: Vec<LayoutKind>,
-        opening: Option<LayoutKind>,
-        since: Instant,
-    ) -> Result<Typist, Never> {
-        let keys = manager.create_virtual_keyboard(seat, hand, ());
-        let showing = match opening.filter(|which| walk.contains(which)).or_else(|| walk.first().copied()) {
-            Some(showing) => showing,
-            None => LayoutKind::Full,
-        };
+  pub fn new(
+    manager: &zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1,
+    seat: &wl_seat::WlSeat,
+    hand: &QueueHandle<Board>,
+    alphabets: Vec<Keymap>,
+    walk: Vec<LayoutKind>,
+    opening: Option<LayoutKind>,
+    since: Instant,
+  ) -> Result<Typist, Never> {
+    let keys = manager.create_virtual_keyboard(seat, hand, ());
+    let showing = match opening
+      .filter(|which| walk.contains(which))
+      .or_else(|| walk.first().copied())
+    {
+      Some(showing) => showing,
+      None => LayoutKind::Full,
+    };
 
-        let Ok(found) = where_it_is(&walk, &showing);
+    let Ok(found) = where_it_is(&walk, &showing);
 
-        let step = match found {
-            Some(step) => step,
-            None => THE_FIRST_ONE,
-        };
-        let mut typist = Typist {
-            keys,
-            alphabets,
-            worn: None,
-            since,
-            held: modifiers::NONE,
-            composing: false,
-            showing,
-            walk,
-            step,
-            last_alphabet: showing,
-        };
-        let Ok(of) = of(showing);
-        let Ok(()) = typist.wear(of.alphabet);
-        Ok(typist)
+    let step = match found {
+      Some(step) => step,
+      None => THE_FIRST_ONE,
+    };
+    let mut typist = Typist {
+      keys,
+      alphabets,
+      worn: None,
+      since,
+      held: modifiers::NONE,
+      composing: false,
+      showing,
+      walk,
+      step,
+      last_alphabet: showing,
+    };
+    let Ok(of) = of(showing);
+    let Ok(()) = typist.wear(of.alphabet);
+    Ok(typist)
+  }
+
+  fn elapsed_ms(&self) -> Result<u32, Never> {
+    fitted(self.since.elapsed().as_millis())
+  }
+
+  pub fn wear(&mut self, alphabet: Layer) -> Result<(), Never> {
+    match ::core::primitive::bool::then_some(self.worn == Some(alphabet), ()) {
+      ::core::option::Option::Some(()) => return Ok(()),
+      ::core::option::Option::None => {}
     }
 
-    fn elapsed_ms(&self) -> Result<u32, Never> {
-        fitted(self.since.elapsed().as_millis())
-    }
+    let keymap = match self
+      .alphabets
+      .iter()
+      .find(|keymap| keymap.layer == alphabet)
+    {
+      Some(keymap) => keymap,
+      None => return Ok(()),
+    };
 
-    pub fn wear(&mut self, alphabet: Layer) -> Result<(), Never> {
-        match self.worn == Some(alphabet) {
-            true => return Ok(()),
-            false => {},
-        }
+    let (file, long) = match keymap_file(&keymap.bytes) {
+      Ok((file, long)) => (file, long),
+      Err(_no_keymap_file) => return Ok(()),
+    };
 
-        let keymap = match self.alphabets.iter().find(|keymap| keymap.layer == alphabet) {
-            Some(keymap) => keymap,
-            None => return Ok(()),
-        };
+    let Ok(long_2) = fitted(long);
 
-        let (file, long) = match keymap_file(&keymap.bytes) {
-            Ok((file, long)) => (file, long),
-            Err(_no_keymap_file) => return Ok(()),
-        };
+    self.keys.keymap(1, file.as_fd(), long_2);
+    self.worn = Some(alphabet);
 
-        let Ok(long) = fitted(long);
+    Ok(())
+  }
 
-        self.keys.keymap(1, file.as_fd(), long);
-        self.worn = Some(alphabet);
+  pub fn tap(&mut self, code: u32) -> Result<(), Never> {
+    let Ok(at) = self.elapsed_ms();
 
-        Ok(())
-    }
+    self.keys.key(at, code, 1);
 
-    pub fn tap(&mut self, code: u32) -> Result<(), Never> {
-        let Ok(at) = self.elapsed_ms();
+    let Ok(then) = self.elapsed_ms();
 
-        self.keys.key(at, code, 1);
+    self.keys.key(then, code, 0);
 
-        let Ok(then) = self.elapsed_ms();
+    Ok(())
+  }
 
-        self.keys.key(then, code, 0);
+  pub fn set_modifiers(&mut self, held: u8) -> Result<(), Never> {
+    self.keys.modifiers(u32::from(held), 0, 0, 0);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    pub fn set_modifiers(&mut self, held: u8) -> Result<(), Never> {
-        self.keys.modifiers(u32::from(held), 0, 0, 0);
-
-        Ok(())
-    }
-
-    pub fn send(&mut self, character: u32) -> Result<(), Never> {
-        let one = format!(
-            "xkb_keymap {{\n\
+  pub fn send(&mut self, character: u32) -> Result<(), Never> {
+    let one = format!(
+      "xkb_keymap {{\n\
              xkb_keycodes {{ minimum = 8; maximum = 255; <SPR> = {}; }};\n\
              xkb_types {{ include \"complete\" }};\n\
              xkb_compat {{ include \"complete\" }};\n\
              xkb_symbols {{ key <SPR> {{ [ U{:04X} ] }}; }};\n\
              }};",
-            SPARE.saturating_add(8),
-            character
-        );
+      SPARE.saturating_add(8),
+      character
+    );
 
-        let (file, long) = match keymap_file(&one) {
-            Ok((file, long)) => (file, long),
-            Err(_no_keymap_file) => return Ok(()),
+    let (file, long) = match keymap_file(&one) {
+      Ok((file, long)) => (file, long),
+      Err(_no_keymap_file) => return Ok(()),
+    };
+
+    let Ok(long_2) = fitted(long);
+
+    self.keys.keymap(1, file.as_fd(), long_2);
+    self.keys.modifiers(0, 0, 0, 0);
+    let Ok(()) = self.tap(SPARE);
+    self.worn = None;
+    let Ok(of) = of(self.showing);
+    let Ok(()) = self.wear(of.alphabet);
+    let held = self.held;
+    let Ok(()) = self.set_modifiers(held);
+
+    Ok(())
+  }
+
+  pub fn layout(&self) -> Result<&'static Layout, Never> {
+    of(self.showing)
+  }
+
+  pub fn go(&mut self, which: LayoutKind) -> Result<(), Never> {
+    self.showing = which;
+
+    let Ok(of) = of(which);
+
+    match ::core::primitive::bool::then_some(of.primary, ()) {
+      ::core::option::Option::Some(()) => {
+        self.last_alphabet = which;
+
+        let Ok(found) = where_it_is(&self.walk, &which);
+
+        match found {
+          Some(step) => self.step = step,
+          None => {}
+        }
+      }
+      ::core::option::Option::None => {}
+    }
+
+    let Ok(()) = self.wear(of.alphabet);
+
+    Ok(())
+  }
+
+  pub fn next(&mut self, way: Way) -> Result<(), Never> {
+    match ::core::primitive::bool::then_some(self.walk.is_empty(), ()) {
+      ::core::option::Option::Some(()) => return Ok(()),
+      ::core::option::Option::None => {}
+    }
+
+    let held_down = self.held & (modifiers::CONTROL | modifiers::ALT | modifiers::ALT_GRAPH) != 0
+      || self.composing;
+    let backward = way == Way::Back || self.held & (modifiers::SHIFT | modifiers::CAPS_LOCK) != 0;
+
+    match (held_down, backward) {
+      (true, _) => {
+        self.held = modifiers::NONE;
+        self.composing = false;
+        self.step = 0;
+      }
+      (false, true) => {
+        self.step = match self.step {
+          0 => {
+            let Ok(many) = fitted::<_, u32>(self.walk.len());
+
+            many.saturating_sub(1)
+          }
+          step => step.saturating_sub(1),
         };
+      }
+      (false, false) => {
+        let Ok(round) = Ring::of(&self.walk);
 
-        let Ok(long) = fitted(long);
+        self.step = match round {
+          Some(ring) => {
+            let Ok(went) = ring.step(self.step, Step::Forward);
 
-        self.keys.keymap(1, file.as_fd(), long);
-        self.keys.modifiers(0, 0, 0, 0);
-        let Ok(()) = self.tap(SPARE);
-        self.worn = None;
-        let Ok(of) = of(self.showing);
-        let Ok(()) = self.wear(of.alphabet);
+            went
+          }
+          None => THE_FIRST_ONE,
+        };
+      }
+    }
+
+    let Ok(step) = index(self.step);
+
+    let going = match self.walk.get(step).copied() {
+      Some(going) => going,
+      None => return Ok(()),
+    };
+
+    let Ok(()) = self.go(going);
+
+    Ok(())
+  }
+
+  pub fn pressed(&mut self, kind: Kind, force: u8, reset: Drops) -> Result<After, Never> {
+    match ::core::primitive::bool::then_some(self.composing, ()) {
+      ::core::option::Option::Some(()) => {
+        self.composing = false;
+
+        match kind {
+          Kind::Code {
+            held: Some(shelf), ..
+          } => {
+            let Ok(()) = self.go(shelf);
+            return Ok(After::Draw);
+          }
+          Kind::Code { held: None, .. }
+          | Kind::Pad
+          | Kind::EndRow
+          | Kind::Mod(_)
+          | Kind::Copy { .. }
+          | Kind::Layout(_)
+          | Kind::Back
+          | Kind::Next
+          | Kind::Language
+          | Kind::Symbols
+          | Kind::Compose => {}
+        }
+      }
+      ::core::option::Option::None => {}
+    }
+
+    Ok(match kind {
+      Kind::Code { code, .. } => {
+        let held = self.held | force;
+        let Ok(()) = self.set_modifiers(held);
+        let Ok(()) = self.tap(code);
+
+        match ::core::primitive::bool::then_some(reset == Drops::Modifiers || self.held != modifiers::NONE, ()) {
+          ::core::option::Option::Some(()) => {
+            self.held &= modifiers::CAPS_LOCK;
+            let Ok(()) = self.set_modifiers(self.held);
+            After::Draw
+          }
+          ::core::option::Option::None => {
+            let Ok(()) = self.set_modifiers(self.held);
+            After::Still
+          }
+        }
+      }
+      Kind::Copy { code, shifted } => {
+        let which = match ::core::primitive::bool::then_some(self.held & (modifiers::SHIFT | modifiers::CAPS_LOCK) != 0, ()) {
+          ::core::option::Option::Some(()) => shifted,
+          ::core::option::Option::None => code,
+        };
+        let Ok(()) = self.send(which);
+        let back = self.last_alphabet;
+        let Ok(()) = self.go(back);
+        After::Draw
+      }
+      Kind::Mod(bit) => {
+        self.held ^= bit;
         let held = self.held;
         let Ok(()) = self.set_modifiers(held);
+        After::Draw
+      }
+      Kind::Layout(which) => {
+        let Ok(()) = self.go(which);
+        After::Draw
+      }
+      Kind::Language => {
+        let Ok(next) = self.next_language();
 
-        Ok(())
-    }
-
-    pub fn layout(&self) -> Result<&'static Layout, Never> {
-        of(self.showing)
-    }
-
-    pub fn go(&mut self, which: LayoutKind) -> Result<(), Never> {
-        self.showing = which;
-
-        let Ok(of) = of(which);
-
-        match of.primary {
-            true => {
-                self.last_alphabet = which;
-
-                let Ok(found) = where_it_is(&self.walk, &which);
-
-                match found {
-                    Some(step) => self.step = step,
-                    None => {},
-                }
-            }
-            false => {},
+        match next {
+          Some(next_2) => {
+            let Ok(()) = self.go(next_2);
+          }
+          None => {}
         }
 
-        let Ok(()) = self.wear(of.alphabet);
+        After::Draw
+      }
+      Kind::Back => {
+        let back = self.last_alphabet;
+        let Ok(()) = self.go(back);
+        After::Draw
+      }
+      Kind::Next => {
+        let Ok(()) = self.next(Way::On);
+        After::Draw
+      }
+      Kind::Symbols => {
+        let Ok(shelf) = symbols(&self.walk);
 
-        Ok(())
-    }
-
-    pub fn next(&mut self, way: Way) -> Result<(), Never> {
-        match self.walk.is_empty() {
-            true => return Ok(()),
-            false => {},
+        match shelf {
+          Some(shelf_2) => {
+            let Ok(()) = self.go(shelf_2);
+            After::Draw
+          }
+          None => After::Still,
         }
+      }
+      Kind::Compose => {
+        self.composing = !self.composing;
+        After::Draw
+      }
+      Kind::Pad | Kind::EndRow => After::Still,
+    })
+  }
 
-        let held_down = self.held & (modifiers::CONTROL | modifiers::ALT | modifiers::ALT_GRAPH) != 0 || self.composing;
-        let backward = way == Way::Back || self.held & (modifiers::SHIFT | modifiers::CAPS_LOCK) != 0;
+  pub fn next_language(&self) -> Result<Option<LayoutKind>, Never> {
+    after(&self.walk, self.last_alphabet)
+  }
 
-        match (held_down, backward) {
-            (true, _) => {
-                self.held = modifiers::NONE;
-                self.composing = false;
-                self.step = 0;
-            }
-            (false, true) => {
-                self.step = match self.step {
-                    0 => {
-                        let Ok(many) = fitted::<_, u32>(self.walk.len());
-
-                        many.saturating_sub(1)
-                    }
-                    step => step.saturating_sub(1),
-                };
-            }
-            (false, false) => {
-                let Ok(round) = Ring::of(&self.walk);
-
-                self.step = match round {
-                    Some(ring) => {
-                        let Ok(went) = ring.step(self.step, Step::Forward);
-
-                        went
-                    }
-                    None => THE_FIRST_ONE,
-                };
-            }
-        }
-
-        let Ok(step) = index(self.step);
-
-        let going = match self.walk.get(step).copied() {
-            Some(going) => going,
-            None => return Ok(()),
-        };
-
-        let Ok(()) = self.go(going);
-
-        Ok(())
-    }
-
-    pub fn pressed(&mut self, kind: Kind, force: u8, reset: Drops) -> Result<After, Never> {
-        match self.composing {
-            true => {
-                self.composing = false;
-
-                match kind {
-                    Kind::Code { held: Some(shelf), .. } => {
-                        let Ok(()) = self.go(shelf);
-                        return Ok(After::Draw);
-                    }
-                    Kind::Code { held: None, .. }
-                    | Kind::Pad
-                    | Kind::EndRow
-                    | Kind::Mod(_)
-                    | Kind::Copy { .. }
-                    | Kind::Layout(_)
-                    | Kind::Back
-                    | Kind::Next
-                    | Kind::Language
-                    | Kind::Symbols
-                    | Kind::Compose => {},
-                }
-            }
-            false => {},
-        }
-
-        Ok(match kind {
-            Kind::Code { code, .. } => {
-                let held = self.held | force;
-                let Ok(()) = self.set_modifiers(held);
-                let Ok(()) = self.tap(code);
-
-                match reset == Drops::Modifiers || self.held != modifiers::NONE {
-                    true => {
-                        self.held &= modifiers::CAPS_LOCK;
-                        let Ok(()) = self.set_modifiers(self.held);
-                        After::Draw
-                    },
-                    false => {
-                        let Ok(()) = self.set_modifiers(self.held);
-                        After::Still
-                    },
-                }
-            },
-            Kind::Copy { code, shifted } => {
-                let which = match self.held & (modifiers::SHIFT | modifiers::CAPS_LOCK) != 0 {
-                    true => shifted,
-                    false => code,
-                };
-                let Ok(()) = self.send(which);
-                let back = self.last_alphabet;
-                let Ok(()) = self.go(back);
-                After::Draw
-            },
-            Kind::Mod(bit) => {
-                self.held ^= bit;
-                let held = self.held;
-                let Ok(()) = self.set_modifiers(held);
-                After::Draw
-            },
-            Kind::Layout(which) => {
-                let Ok(()) = self.go(which);
-                After::Draw
-            },
-            Kind::Language => {
-                let Ok(next) = self.next_language();
-
-                match next {
-                    Some(next) => {
-                        let Ok(()) = self.go(next);
-                    },
-                    None => {},
-                }
-
-                After::Draw
-            },
-            Kind::Back => {
-                let back = self.last_alphabet;
-                let Ok(()) = self.go(back);
-                After::Draw
-            },
-            Kind::Next => {
-                let Ok(()) = self.next(Way::On);
-                After::Draw
-            },
-            Kind::Symbols => {
-                let Ok(shelf) = symbols(&self.walk);
-
-                match shelf {
-                    Some(shelf) => {
-                        let Ok(()) = self.go(shelf);
-                        After::Draw
-                    },
-                    None => After::Still,
-                }
-            },
-            Kind::Compose => {
-                self.composing = !self.composing;
-                After::Draw
-            },
-            Kind::Pad | Kind::EndRow => After::Still,
-        })
-    }
-
-    pub fn next_language(&self) -> Result<Option<LayoutKind>, Never> {
-        after(&self.walk, self.last_alphabet)
-    }
-
-    pub fn held_down(&mut self, kind: Kind) -> Result<After, Never> {
-        Ok(match kind {
-            Kind::Code { held: Some(shelf), .. } => {
-                let Ok(()) = self.go(shelf);
-                After::Draw
-            },
-            Kind::Code { held: None, .. }
-            | Kind::Pad
-            | Kind::Mod(_)
-            | Kind::Copy { .. }
-            | Kind::Layout(_)
-            | Kind::Back
-            | Kind::Next
-            | Kind::Language
-            | Kind::Symbols
-            | Kind::Compose
-            | Kind::EndRow => After::Still,
-        })
-    }
+  pub fn held_down(&mut self, kind: Kind) -> Result<After, Never> {
+    Ok(match kind {
+      Kind::Code {
+        held: Some(shelf), ..
+      } => {
+        let Ok(()) = self.go(shelf);
+        After::Draw
+      }
+      Kind::Code { held: None, .. }
+      | Kind::Pad
+      | Kind::Mod(_)
+      | Kind::Copy { .. }
+      | Kind::Layout(_)
+      | Kind::Back
+      | Kind::Next
+      | Kind::Language
+      | Kind::Symbols
+      | Kind::Compose
+      | Kind::EndRow => After::Still,
+    })
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::layout::{Kind, Layout, LayoutKind, modifiers};
+  use crate::key_repeat::RepeatMode;
+  use crate::layout::{Kind, Layout, LayoutKind, modifiers};
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    fn named(name: &str) -> Result<LayoutKind, Failure> {
-        let Ok(found) = crate::layout::find_layout(name);
-        let which = found.ok_or(format!("no layout called {name}"))?;
+  fn named(name: &str) -> Result<LayoutKind, Failure> {
+    let Ok(found) = crate::layout::find_layout(name);
+    let which = found.ok_or(format!("no layout called {name}"))?;
 
-        Ok(which)
+    Ok(which)
+  }
+
+  fn laid_out(which: LayoutKind) -> Result<&'static Layout, Failure> {
+    let Ok(layout) = crate::layout::of(which);
+
+    Ok(layout)
+  }
+
+  #[test]
+  fn an_accent_shelf_goes_back_to_the_alphabet_not_to_the_shelf() -> Result<(), Failure> {
+    let composea = named("composea")?;
+    let shelf = laid_out(composea)?;
+    let full = named("full")?;
+    let alphabet = laid_out(full)?;
+
+    assert!(!shelf.primary, "an accent shelf is not somewhere you type");
+    assert!(alphabet.primary, "the letters are");
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_language_key_walks_the_alphabets_and_skips_the_shelf() -> Result<(), Failure> {
+    let landscape = named("landscape")?;
+    let thai = named("thai")?;
+    let shelf = named("landscapespecial")?;
+    let walk = [landscape, thai, shelf];
+    let shelf_laid_out = laid_out(shelf)?;
+
+    assert_eq!(
+      super::after(&walk, landscape),
+      Ok(Some(thai)),
+      "latin goes to Thai"
+    );
+    assert_eq!(
+      super::after(&walk, thai),
+      Ok(Some(landscape)),
+      "and Thai comes back round"
+    );
+    assert!(!shelf_laid_out.primary, "the ?123 shelf is not a language");
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_numbers_key_finds_the_shelf_of_whichever_walk_it_is_in() -> Result<(), Failure> {
+    let thai = named("thai")?;
+    let landscape = named("landscape")?;
+    let wide_shelf = named("landscapespecial")?;
+    let full = named("full")?;
+    let tall_shelf = named("special")?;
+
+    assert_eq!(
+      super::symbols(&[landscape, thai, wide_shelf]),
+      Ok(Some(wide_shelf))
+    );
+    assert_eq!(
+      super::symbols(&[full, thai, tall_shelf]),
+      Ok(Some(tall_shelf))
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_walk_with_no_shelf_has_no_numbers_to_go_to() -> Result<(), Failure> {
+    let full = named("full")?;
+    let thai = named("thai")?;
+
+    assert_eq!(super::symbols(&[full, thai]), Ok(None));
+
+    Ok(())
+  }
+
+  #[test]
+  fn one_alphabet_leaves_the_language_key_with_nothing_to_say() -> Result<(), Failure> {
+    let landscape = named("landscape")?;
+    let shelf = named("landscapespecial")?;
+
+    assert_eq!(super::after(&[landscape, shelf], landscape), Ok(None));
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_third_language_needs_no_new_key() -> Result<(), Failure> {
+    let landscape = named("landscape")?;
+    let thai = named("thai")?;
+    let russian = named("cyrillic")?;
+    let walk = [landscape, thai, russian];
+
+    assert_eq!(super::after(&walk, landscape), Ok(Some(thai)));
+    assert_eq!(super::after(&walk, thai), Ok(Some(russian)));
+    assert_eq!(super::after(&walk, russian), Ok(Some(landscape)));
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_walk_this_desktop_uses_is_alphabets_and_a_shelf_of_symbols() -> Result<(), Failure> {
+    for name in ["full", "thai"] {
+      let which = named(name)?;
+      let layout = laid_out(which)?;
+
+      assert!(layout.primary, "{name} is not an alphabet");
     }
 
-    fn laid_out(which: LayoutKind) -> Result<&'static Layout, Failure> {
-        let Ok(layout) = crate::layout::of(which);
+    Ok(())
+  }
 
-        Ok(layout)
-    }
+  #[test]
+  fn the_letters_that_have_accents_carry_them_and_the_rest_do_not() -> Result<(), Failure> {
+    let full = named("full")?;
+    let full_2 = laid_out(full)?;
+    let key = full_2
+      .keys
+      .iter()
+      .find(|key| key.label == "a")
+      .ok_or("the a key")?;
 
-    #[test]
-    fn an_accent_shelf_goes_back_to_the_alphabet_not_to_the_shelf() -> Result<(), Failure> {
-        let composea = named("composea")?;
-        let shelf = laid_out(composea)?;
-        let full = named("full")?;
-        let full = laid_out(full)?;
-
-        assert!(!shelf.primary, "an accent shelf is not somewhere you type");
-        assert!(full.primary, "the letters are");
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_language_key_walks_the_alphabets_and_skips_the_shelf() -> Result<(), Failure> {
-        let landscape = named("landscape")?;
-        let thai = named("thai")?;
-        let shelf = named("landscapespecial")?;
-        let walk = [landscape, thai, shelf];
-        let shelf_laid_out = laid_out(shelf)?;
-
-        assert_eq!(super::after(&walk, landscape), Ok(Some(thai)), "latin goes to Thai");
-        assert_eq!(super::after(&walk, thai), Ok(Some(landscape)), "and Thai comes back round");
-        assert!(!shelf_laid_out.primary, "the ?123 shelf is not a language");
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_numbers_key_finds_the_shelf_of_whichever_walk_it_is_in() -> Result<(), Failure> {
-        let thai = named("thai")?;
-        let landscape = named("landscape")?;
-        let wide_shelf = named("landscapespecial")?;
-        let full = named("full")?;
-        let tall_shelf = named("special")?;
-
-        assert_eq!(super::symbols(&[landscape, thai, wide_shelf]), Ok(Some(wide_shelf)));
-        assert_eq!(super::symbols(&[full, thai, tall_shelf]), Ok(Some(tall_shelf)));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_walk_with_no_shelf_has_no_numbers_to_go_to() -> Result<(), Failure> {
-        let full = named("full")?;
-        let thai = named("thai")?;
-
-        assert_eq!(super::symbols(&[full, thai]), Ok(None));
-
-        Ok(())
-    }
-
-    #[test]
-    fn one_alphabet_leaves_the_language_key_with_nothing_to_say() -> Result<(), Failure> {
-        let landscape = named("landscape")?;
-        let shelf = named("landscapespecial")?;
-
-        assert_eq!(super::after(&[landscape, shelf], landscape), Ok(None));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_third_language_needs_no_new_key() -> Result<(), Failure> {
-        let landscape = named("landscape")?;
-        let thai = named("thai")?;
-        let russian = named("cyrillic")?;
-        let walk = [landscape, thai, russian];
-
-        assert_eq!(super::after(&walk, landscape), Ok(Some(thai)));
-        assert_eq!(super::after(&walk, thai), Ok(Some(russian)));
-        assert_eq!(super::after(&walk, russian), Ok(Some(landscape)));
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_walk_this_desktop_uses_is_alphabets_and_a_shelf_of_symbols() -> Result<(), Failure> {
-        for name in ["full", "thai"] {
-            let which = named(name)?;
-            let layout = laid_out(which)?;
-
-            assert!(layout.primary, "{name} is not an alphabet");
+    assert!(
+      matches!(
+        key.kind,
+        Kind::Code {
+          held: Some(LayoutKind::ComposeA),
+          ..
         }
+      ),
+      "compose and then a does not reach the accents"
+    );
 
-        Ok(())
-    }
+    let space = full_2
+      .keys
+      .iter()
+      .find(|key_2| key_2.label == "space" || key_2.width > 3.0)
+      .ok_or("the space bar")?;
 
-    #[test]
-    fn the_letters_that_have_accents_carry_them_and_the_rest_do_not() -> Result<(), Failure> {
-        let full = named("full")?;
-        let full = laid_out(full)?;
-        let key = full
-            .keys
-            .iter()
-            .find(|key| key.label == "a")
-            .ok_or("the a key")?;
+    assert!(
+      matches!(space.kind, Kind::Code { held: None, .. }),
+      "the space bar carries a shelf"
+    );
 
-        assert!(
-            matches!(key.kind, Kind::Code { held: Some(LayoutKind::ComposeA), .. }),
-            "a long press on a does not reach the accents"
-        );
+    Ok(())
+  }
 
-        let space = full
-            .keys
-            .iter()
-            .find(|key| key.label == "space" || key.width > 3.0)
-            .ok_or("the space bar")?;
+  #[test]
+  fn a_letter_held_down_types_again_and_a_shift_held_down_does_not_flicker() -> Result<(), Failure>
+  {
+    let full = named("full")?;
+    let letter = Kind::Code {
+      code: crate::layout::key::Q,
+      held: None,
+    };
 
-        assert!(matches!(space.kind, Kind::Code { held: None, .. }), "the space bar carries a shelf");
+    assert_eq!(
+      super::repeat_mode(letter, full, full),
+      Ok(RepeatMode::Repeating)
+    );
+    assert_eq!(
+      super::repeat_mode(Kind::Mod(modifiers::SHIFT), full, full),
+      Ok(RepeatMode::Once)
+    );
+    assert_eq!(
+      super::repeat_mode(Kind::Language, full, full),
+      Ok(RepeatMode::Once)
+    );
+    assert_eq!(
+      super::repeat_mode(
+        Kind::Copy {
+          code: 0x20AC,
+          shifted: 0x20AC
+        },
+        full,
+        full
+      ),
+      Ok(RepeatMode::Once)
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn shift_and_caps_lock_are_different_bits() {
-        assert_ne!(modifiers::SHIFT, modifiers::CAPS_LOCK);
-        assert_eq!(modifiers::SHIFT & modifiers::CAPS_LOCK, 0);
-    }
+  #[test]
+  fn a_letter_that_opened_its_accents_has_left_the_key_it_was_pressed_on() -> Result<(), Failure>
+  {
+    let full = named("full")?;
+    let shelf = named("composea")?;
+    let a = Kind::Code {
+      code: crate::layout::key::A,
+      held: Some(shelf),
+    };
+
+    assert_eq!(super::repeat_mode(a, full, shelf), Ok(RepeatMode::Once));
+
+    Ok(())
+  }
+
+  #[test]
+  fn shift_and_caps_lock_are_different_bits() {
+    assert_ne!(modifiers::SHIFT, modifiers::CAPS_LOCK);
+    assert_eq!(modifiers::SHIFT & modifiers::CAPS_LOCK, 0);
+  }
 }

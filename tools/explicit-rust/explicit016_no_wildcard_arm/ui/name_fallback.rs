@@ -1,0 +1,61 @@
+// run-rustfix
+// edition:2024
+
+fn option(value: &Option<u8>) -> u8 {
+    match value {
+        Some(number) => *number,
+        _ => 0,
+    }
+}
+
+fn result(value: Result<u8, String>) -> Result<u8, String> {
+    match value {
+        Ok(0) => Ok(1),
+        other => other,
+    }
+}
+
+fn guarded(value: Option<u8>) -> bool {
+    match value {
+        Some(number) if number > 4 => true,
+        _ => false,
+    }
+}
+
+enum Local {
+    Empty,
+    Tuple(u8, u8),
+    Named { count: u8 },
+    Single(u8),
+}
+
+impl Local {
+    fn count(&self) -> u8 {
+        match self {
+            Self::Named { count } => *count,
+            _ => 0,
+        }
+    }
+}
+
+fn keep(value: Local) -> Local {
+    match value {
+        Local::Tuple(1, 2) => Local::Empty,
+        Local::Named { .. } => Local::Empty,
+        other => other,
+    }
+}
+
+fn main() {
+    assert_eq!(option(&Some(8)), 8);
+    assert_eq!(option(&None), 0);
+    assert_eq!(result(Ok(0)), Ok(1));
+    assert_eq!(result(Ok(5)), Ok(5));
+    assert_eq!(result(Err(String::from("error"))), Err(String::from("error")));
+    assert!(guarded(Some(8)));
+    assert!(!guarded(Some(3)));
+    assert_eq!(Local::Named { count: 7 }.count(), 7);
+    assert_eq!(Local::Single(2).count(), 0);
+    assert!(matches!(keep(Local::Tuple(1, 3)), Local::Tuple(1, 3)));
+    assert!(matches!(Local::Single(2), Local::Single(value) if value == 2));
+}

@@ -1,0 +1,19 @@
+error: boolean parameter is forbidden
+  --> $DIR/methods_blocked.rs:12:39
+   |
+LL |     fn missing_consumer(&self, large: bool) -> u32 {
+   |                                       ^^^^
+   |
+   = help: use an `enum` so the call site reads `Mode::Append`, not `true`
+   = note: `#[deny(explicit008_no_bool_param)]` on by default
+
+error: boolean parameter is forbidden
+  --> $DIR/methods_blocked.rs:19:34
+   |
+LL |     fn as_callback(&self, large: bool) -> u32 {
+   |                                  ^^^^
+   |
+   = help: use an `enum` so the call site reads `Mode::Append`, not `true`
+
+error: aborting due to 2 previous errors
+

@@ -1,0 +1,19 @@
+error: `as` cast is forbidden
+  --> $DIR/review_reference.rs:4:17
+   |
+LL |     let bytes = &[make()] as &[u8];
+   |                 ^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `From` / `TryFrom` for value types; `pointer::cast`, `&raw const`, `&raw mut` for pointers
+   = note: `#[deny(explicit011_no_as_cast)]` on by default
+
+error: `as` cast is forbidden
+  --> $DIR/review_reference.rs:7:48
+   |
+LL | fn mutable(bytes: &mut [u8; 2]) -> &mut [u8] { bytes as &mut [u8] }
+   |                                                ^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `From` / `TryFrom` for value types; `pointer::cast`, `&raw const`, `&raw mut` for pointers
+
+error: aborting due to 2 previous errors
+

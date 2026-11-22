@@ -1,0 +1,47 @@
+// run-rustfix
+// edition:2024
+
+#[derive(Debug, PartialEq, Eq)]
+enum CopyError {
+    Bounds,
+}
+
+fn write_le(
+    dst: &mut [u8],
+    start: usize,
+    counter: &mut u32,
+) -> Result<(), CopyError> {
+    {
+      let explicit_byte_copy_destination = <[u8]>::get_mut(&mut *dst, start..)
+        .and_then(<[_]>::first_chunk_mut::<2>)
+        .ok_or(CopyError::Bounds)?;
+      *explicit_byte_copy_destination = {
+            *counter += 1;
+            0x1234_u16
+        }.to_le_bytes();
+    };
+    Ok(())
+}
+
+fn write_be(dst: &mut [u8], start: usize, value: u32) -> Result<(), CopyError> {
+    {
+      let explicit_byte_copy_destination = <[_]>::get_mut(&mut *dst, start..)
+        .and_then(<[_]>::first_chunk_mut::<4>)
+        .ok_or(CopyError::Bounds)?;
+      *explicit_byte_copy_destination = value.to_be_bytes();
+    };
+    Ok(())
+}
+
+fn main() {
+    let mut dst = [0; 6];
+    let mut count = 0;
+    assert_eq!(write_le(&mut dst, 0, &mut count), Ok(()));
+    assert_eq!(write_be(&mut dst, 2, 0x1234_5678), Ok(()));
+    assert_eq!(dst, [0x34, 0x12, 0x12, 0x34, 0x56, 0x78]);
+    assert_eq!(write_le(&mut dst, 5, &mut count), Err(CopyError::Bounds));
+    assert_eq!(write_le(&mut dst, 7, &mut count), Err(CopyError::Bounds));
+    assert_eq!(write_le(&mut dst, usize::MAX, &mut count), Err(CopyError::Bounds));
+    assert_eq!(dst, [0x34, 0x12, 0x12, 0x34, 0x56, 0x78]);
+    assert_eq!(count, 1);
+}

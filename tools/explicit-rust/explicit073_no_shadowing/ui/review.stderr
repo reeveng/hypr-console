@@ -1,0 +1,47 @@
+warning: this name is already bound outside the scope being entered
+  --> $DIR/review.rs:6:9
+   |
+LL |     let value = value + 1;
+   |         ^^^^^
+   |
+   = help: name the new value what it is -- a conversion names what it becomes, EXPLICIT045's own sentence -- or bind it `_`-prefixed if nobody will read it again. Where the second binding really is the same value narrowed, allow this rule here and let the reason say so
+   = note: `#[warn(explicit073_no_shadowing)]` on by default
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/review.rs:11:9
+   |
+LL |     let value = value + 1;
+   |         ^^^^^
+   |
+help: rename this binding to `value_2`
+   |
+LL ~     let value_2 = value + 1;
+LL ~     format!("{value}", value = value_2)
+   |
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/review.rs:16:9
+   |
+LL |     let value = value + 1;
+   |         ^^^^^
+   |
+   = help: name the new value what it is -- a conversion names what it becomes, EXPLICIT045's own sentence -- or bind it `_`-prefixed if nobody will read it again. Where the second binding really is the same value narrowed, allow this rule here and let the reason say so
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/review.rs:23:9
+   |
+LL |     let value = value + 1;
+   |         ^^^^^
+   |
+   = help: name the new value what it is -- a conversion names what it becomes, EXPLICIT045's own sentence -- or bind it `_`-prefixed if nobody will read it again. Where the second binding really is the same value narrowed, allow this rule here and let the reason say so
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/review.rs:34:13
+   |
+LL |         let number = number + 1;
+   |             ^^^^^^
+   |
+   = help: name the new value what it is -- a conversion names what it becomes, EXPLICIT045's own sentence -- or bind it `_`-prefixed if nobody will read it again. Where the second binding really is the same value narrowed, allow this rule here and let the reason say so
+
+warning: 5 warnings emitted
+

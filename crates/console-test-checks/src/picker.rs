@@ -20,32 +20,37 @@ pub const WORN: &str = "Router";
 pub struct Expected<'a>(pub &'a str);
 
 pub fn opens(stage: &mut Device, button: &str, what: Expected<'_>) -> CheckResult {
-    let what = what.0;
-    let Ok(()) = stage.press(button);
-    let Ok(drawn) = stage.wait_for_menu(PATIENCE);
+  let what_2 = what.0;
+  let Ok(()) = stage.press(button);
+  let Ok(drawn) = stage.wait_for_menu(PATIENCE);
 
-    happened(drawn, || format!("the {what} did not draw"))?;
+  happened(drawn, || format!("the {what} did not draw", what = what_2))?;
 
-    let Ok(held) = stage.profile();
+  let Ok(held) = stage.profile();
 
-    same(&held, WORN, || {
-        format!("the {what} changed the profile to {held}, and a picker has nothing to change")
-    })?;
+  same(&held, WORN, || {
+    format!(
+      "the {what} changed the profile to {held}, and a picker has nothing to change",
+      what = what_2
+    )
+  })?;
 
-    closes(stage, what)
+  closes(stage, what_2)
 }
 
 pub fn closes(stage: &mut Device, what: &str) -> CheckResult {
-    let Ok(()) = stage.press("b");
-    let Ok(gone) = stage.wait_for_close(PATIENCE);
+  let Ok(()) = stage.press("b");
+  let Ok(gone) = stage.wait_for_close(PATIENCE);
 
-    happened_handed(gone, stage, |stage| {
-        let Ok(left) = stage.menus();
+  happened_handed(gone, stage, |stage_2| {
+    let Ok(left) = stage_2.menus();
 
-        format!("B did not close the {what}: {left:?}")
-    })?;
+    format!("B did not close the {what}: {left:?}")
+  })?;
 
-    let Ok(held) = stage.profile();
+  let Ok(held) = stage.profile();
 
-    same(&held, WORN, || format!("the {what} left the pad wearing {held}"))
+  same(&held, WORN, || {
+    format!("the {what} left the pad wearing {held}")
+  })
 }

@@ -1,0 +1,19 @@
+warning: `std::sync::mpsc::channel` makes a queue with no end, so its sender decides how much this program holds
+  --> $DIR/main.rs:7:5
+   |
+LL |     mpsc::channel()
+   |     ^^^^^^^^^^^^^^^
+   |
+   = help: make it with `sync_channel(MOST)`, the bound a `const` whose name says what it is the most of, and decide at the `send` what a full queue means. Where the sender cannot outrun the receiver, allow this rule here and let the reason say what paces it
+   = note: `#[warn(explicit097_no_unbounded_channel)]` on by default
+
+warning: `std::sync::mpsc::channel` makes a queue with no end, so its sender decides how much this program holds
+  --> $DIR/main.rs:12:5
+   |
+LL |     std::sync::mpsc::channel::<String>()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: make it with `sync_channel(MOST)`, the bound a `const` whose name says what it is the most of, and decide at the `send` what a full queue means. Where the sender cannot outrun the receiver, allow this rule here and let the reason say what paces it
+
+warning: 2 warnings emitted
+

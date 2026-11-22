@@ -31,9 +31,8 @@
 //!
 //! `console_panel::pictures` is the file's shape, who reads it and why.
 
-
-use console_core_geometry::Size;
 use console_core_arguments::{Command, Operands, Reason, ValidationError, read};
+use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use std::collections::BTreeMap;
@@ -45,228 +44,251 @@ use console_panel::pictures::{self, Picture};
 use console_panel::strip::PICTURE;
 
 const COMMAND: Command = Command {
-    name: "panel-pictures",
-    about: "decode each FILE at the side asked for into the one store every list reads",
-    flags: &[pictures::SIDE],
-    operands: Operands::Any("FILE"),
+  name: "panel-pictures",
+  about: "decode each FILE at the side asked for into the one store every list reads",
+  flags: &[pictures::SIDE],
+  operands: Operands::Any("FILE"),
 };
 
 fn main() -> ExitCode {
-    let words: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(asked) = request(&words);
+  let words: Vec<String> = std::env::args().skip(1).collect();
+  let Ok(asked) = request(&words);
 
-    let (side, wanted) = match asked {
-        Ok(asked) => asked,
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
+  let (side, wanted) = match asked {
+    Ok(asked_2) => asked_2,
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
 
-            return ExitCode::from(code);
-        }
-    };
-
-    let Ok(cores) = console_concurrency::Cores::counted();
-    let every = console_concurrency::map(cores, &wanted, |of| decode(of, side));
-
-    let every = match every {
-        Ok(every) => every,
-        Err(fault) => {
-            eprintln!("panel-pictures: {fault}");
-
-            return ExitCode::FAILURE;
-        }
-    };
-
-    let Ok(_held) = hold_store();
-    let Ok(mut made) = load_store();
-
-    for (of, drawn) in wanted.iter().zip(every) {
-        let Ok(named) = pictures::key(of, side);
-        let Ok(drawn) = drawn;
-
-        match drawn {
-            Some(picture) => {
-                made.insert(named.clone(), Picture { of: named, ..picture });
-            },
-            None => {
-                made.remove(&named);
-            },
-        }
+      return ExitCode::from(code);
     }
+  };
 
-    let pictures: Vec<Picture> = made.into_values().collect();
+  let Ok(cores) = console_concurrency::Cores::counted();
+  let every = console_concurrency::map(cores, &wanted, |of| decode(of, side));
 
-    let Ok(written) = save_store(&pictures);
+  let every_3 = match every {
+    Ok(every_2) => every_2,
+    Err(fault) => {
+      eprintln!("panel-pictures: {fault}");
 
-    match written {
-        Written::Yes => ExitCode::SUCCESS,
-        Written::No => ExitCode::FAILURE,
+      return ExitCode::FAILURE;
     }
+  };
+
+  let Ok(_held) = hold_store();
+  let Ok(mut made) = load_store();
+
+  for (of, drawn) in wanted.iter().zip(every_3) {
+    let Ok(named) = pictures::key(of, side);
+    let Ok(drawn_2) = drawn;
+
+    match drawn_2 {
+      Some(picture) => {
+        made.insert(
+          named.clone(),
+          Picture {
+            of: named,
+            ..picture
+          },
+        );
+      }
+      None => {
+        made.remove(&named);
+      }
+    }
+  }
+
+  let pictures: Vec<Picture> = made.into_values().collect();
+
+  let Ok(written) = save_store(&pictures);
+
+  match written {
+    Written::Yes => ExitCode::SUCCESS,
+    Written::No => ExitCode::FAILURE,
+  }
 }
 
-fn request(words: &[String]) -> Result<Result<(pictures::Side, Vec<String>), ValidationError>, Never> {
-    let line = match read(&COMMAND, words) {
-        Ok(line) => line,
-        Err(refusal) => return Ok(Err(refusal)),
-    };
-    let Ok(rows) = fitted::<i32, u32>(PICTURE);
+fn request(
+  words: &[String],
+) -> Result<Result<(pictures::Side, Vec<String>), ValidationError>, Never> {
+  let line = match read(&COMMAND, words) {
+    Ok(line) => line,
+    Err(refusal) => return Ok(Err(refusal)),
+  };
+  let Ok(rows) = fitted::<i32, u32>(PICTURE);
 
-    let side = match line.parsed::<u32>(pictures::SIDE) {
-        Ok(Some(pixels)) => pictures::Side(pixels),
-        Ok(None) => pictures::Side(rows),
-        Err(refusal) => return Ok(Err(refusal)),
-    };
-    let Ok(operands) = line.operands();
+  let side = match line.parsed::<u32>(pictures::SIDE) {
+    Ok(Some(pixels)) => pictures::Side(pixels),
+    Ok(None) => pictures::Side(rows),
+    Err(refusal) => return Ok(Err(refusal)),
+  };
+  let Ok(operands) = line.operands();
 
-    Ok(match operands.is_empty() {
-        true => {
-            let Ok(refusal) = line.refusal(Reason::MissingOperands(vec!["FILE"]));
+  Ok(match ::core::primitive::bool::then_some(operands.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {
+      let Ok(refusal) = line.refusal(Reason::MissingOperands(vec!["FILE"]));
 
-            Err(refusal)
-        }
-        false => Ok((side, operands.to_vec())),
-    })
+      Err(refusal)
+    }
+    ::core::option::Option::None => Ok((side, operands.to_vec())),
+  })
 }
 
 fn hold_store() -> Result<Option<File>, Never> {
-    let Ok(store) = pictures::store();
+  let Ok(store) = pictures::store();
 
-    let at = match store {
-        Some(store) => store.with_extension("lock"),
-        None => return Ok(None),
-    };
+  let at = match store {
+    Some(path) => path.with_extension("lock"),
+    None => return Ok(None),
+  };
 
-    #[cfg_attr(
-        dylint_lib = "explicit040_no_torn_write",
-        allow(
-            explicit040_no_torn_write,
-            reason = "the lock, whose whole point is the open file and not its bytes, and a rename would hand the next maker a different file to take the lock on"
-        )
-    )]
-    let opened = at
-        .parent()
-        .map(std::fs::create_dir_all)
-        .transpose()
-        .and_then(|_| OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&at));
+  #[cfg_attr(
+    dylint_lib = "explicit040_no_torn_write",
+    allow(
+      explicit040_no_torn_write,
+      reason = "the lock, whose whole point is the open file and not its bytes, and a rename would hand the next maker a different file to take the lock on"
+    )
+  )]
+  let opened = at
+    .parent()
+    .map(std::fs::create_dir_all)
+    .transpose()
+    .and_then(|_| {
+      OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&at)
+    });
 
-    let handle = match opened {
-        Ok(handle) => handle,
-        Err(fault) => {
-            eprintln!("panel-pictures: {}: {fault}", at.display());
+  let handle = match opened {
+    Ok(handle) => handle,
+    Err(fault) => {
+      eprintln!("panel-pictures: {}: {fault}", at.display());
 
-            return Ok(None);
-        }
-    };
+      return Ok(None);
+    }
+  };
 
-    Ok(match rustix::fs::flock(&handle, rustix::fs::FlockOperation::LockExclusive) {
-        Ok(()) => Some(handle),
-        Err(fault) => {
-            eprintln!("panel-pictures: {}: {fault}", at.display());
+  Ok(
+    match rustix::fs::flock(&handle, rustix::fs::FlockOperation::LockExclusive) {
+      Ok(()) => Some(handle),
+      Err(fault) => {
+        eprintln!("panel-pictures: {}: {fault}", at.display());
 
-            None
-        }
-    })
+        None
+      }
+    },
+  )
 }
 
 fn load_store() -> Result<BTreeMap<String, Picture>, Never> {
-    let Ok(store) = pictures::store();
+  let Ok(store) = pictures::store();
 
-    let store = match store {
-        Some(store) => store,
-        None => return Ok(BTreeMap::new()),
-    };
+  let store_3 = match store {
+    Some(store_2) => store_2,
+    None => return Ok(BTreeMap::new()),
+  };
 
-    let bytes = match std::fs::read(store) {
-        Ok(bytes) => bytes,
-        Err(_unreadable) => return Ok(BTreeMap::new()),
-    };
+  let bytes = match std::fs::read(store_3) {
+    Ok(bytes) => bytes,
+    Err(_unreadable) => return Ok(BTreeMap::new()),
+  };
 
-    let index = match pictures::read(&bytes) {
-        Ok(Some(index)) => index,
-        Ok(None) | Err(_) => return Ok(BTreeMap::new()),
-    };
+  let index = match pictures::read(&bytes) {
+    Ok(Some(index)) => index,
+    Ok(None) | Err(_) => return Ok(BTreeMap::new()),
+  };
 
-    Ok(index
-        .into_iter()
-        .filter(|(named, _)| match pictures::parse_key(named) {
-            Ok(Some((of, _))) => std::path::Path::new(of).exists(),
-            Ok(None) | Err(_) => false,
-        })
-        .filter_map(|(of, found)| {
-            let Ok(held) = found.in_store(&bytes);
+  Ok(
+    index
+      .into_iter()
+      .filter(|(named, _)| match pictures::parse_key(named) {
+        Ok(Some((of, _))) => match std::fs::metadata(of) {
+          Ok(_source_is_present) => true,
+          Err(_source_cannot_be_read) => false,
+        },
+        Ok(None) | Err(_) => false,
+      })
+      .filter_map(|(of, found)| {
+        let Ok(pixels) = found.pixels(&bytes);
+        let pixels_2 = pixels?;
 
-            let held = match held {
-                Some(held) => held,
-                None => return None,
-            };
-
-            let pixels = held.to_vec();
-            Some((
-                of.clone(),
-                Picture { of, width: found.width, height: found.height, stride: found.stride, pixels },
-            ))
-        })
-        .collect())
+        Some((
+          of.clone(),
+          Picture {
+            of,
+            pixels: pixels_2,
+          },
+        ))
+      })
+      .collect(),
+  )
 }
 
 fn decode(of: &str, side: pictures::Side) -> Result<Option<Picture>, Never> {
-    let read = console_pictures::decoded(Path::new(of), Size { width: side.0, height: side.0 });
+  let read = console_pictures::decoded(
+    Path::new(of),
+    Size {
+      width: side.0,
+      height: side.0,
+    },
+  );
 
-    let held = match read {
-        Ok(Some(held)) => held,
-        Ok(None) => return Ok(None),
-        Err(why) => {
-            eprintln!("panel-pictures: {of}: {why}");
+  let held = match read {
+    Ok(Some(held)) => held,
+    Ok(None) => return Ok(None),
+    Err(why) => {
+      eprintln!("panel-pictures: {of}: {why}");
 
-            return Ok(None);
-        }
-    };
+      return Ok(None);
+    }
+  };
 
-    Ok(Some(Picture {
-        of: of.to_string(),
-        width: held.width,
-        height: held.height,
-        stride: held.stride,
-        pixels: held.bytes.to_vec(),
-    }))
+  Ok(Some(Picture {
+    of: of.to_string(),
+    pixels: held,
+  }))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Written {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 fn save_store(pictures: &[Picture]) -> Result<Written, Never> {
-    let Ok(at) = pictures::store();
+  let Ok(at) = pictures::store();
 
-    let at = match at {
-        Some(at) => at,
-        None => return Ok(Written::No),
-    };
+  let at_3 = match at {
+    Some(at_2) => at_2,
+    None => return Ok(Written::No),
+  };
 
-    let above = match at.parent() {
-        Some(above) => above,
-        None => return Ok(Written::No),
-    };
+  let above = match at_3.parent() {
+    Some(above) => above,
+    None => return Ok(Written::No),
+  };
 
-    match std::fs::create_dir_all(above) {
-        Ok(_) => {},
-        Err(fault) => {
-            eprintln!("panel-pictures: {}: {fault}", above.display());
+  match std::fs::create_dir_all(above) {
+    Ok(_) => {}
+    Err(fault) => {
+      eprintln!("panel-pictures: {}: {fault}", above.display());
 
-            return Ok(Written::No);
-        }
+      return Ok(Written::No);
     }
+  }
 
-    let Ok(said) = pictures::serialize(pictures);
+  let Ok(said) = pictures::serialize(pictures);
 
-    Ok(match console_core_atomic_writes::whole(&at, &said) {
-        Ok(()) => Written::Yes,
+  Ok(match console_core_atomic_writes::whole(&at_3, &said) {
+    Ok(()) => Written::Yes,
 
-        Err(fault) => {
-            eprintln!("panel-pictures: {}: {fault}", at.display());
+    Err(fault) => {
+      eprintln!("panel-pictures: {}: {fault}", at_3.display());
 
-            Written::No
-        }
-    })
+      Written::No
+    }
+  })
 }

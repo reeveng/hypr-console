@@ -17,7 +17,7 @@
 
 use console_core_never::Never;
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub mod sources;
 pub mod tracked;
@@ -26,79 +26,121 @@ pub const MARK: &str = "desktop.conf";
 
 pub const DEVICE_ROOT: &str = "/etc/console";
 
+pub struct RelativePath<'a>(&'a Path);
+
+#[derive(Debug)]
+pub struct InvalidRelativePath(PathBuf);
+
+impl fmt::Display for InvalidRelativePath {
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(to, "expected a path below the checkout: {:?}", self.0)
+  }
+}
+
+impl std::error::Error for InvalidRelativePath {}
+
+impl<'a> RelativePath<'a> {
+  pub fn new(path: &'a Path) -> Result<Self, InvalidRelativePath> {
+    let normal = path
+      .components()
+      .all(|component| matches!(component, Component::Normal(_)));
+
+    match ::core::primitive::bool::then_some(normal && !path.as_os_str().is_empty(), ()) {
+      ::core::option::Option::Some(()) => Ok(Self(path)),
+      ::core::option::Option::None => Err(InvalidRelativePath(path.to_path_buf())),
+    }
+  }
+}
+
+impl AsRef<Path> for RelativePath<'_> {
+  fn as_ref(&self) -> &Path {
+    self.0
+  }
+}
+
 pub fn above(here: &Path) -> Result<Option<PathBuf>, Never> {
-    Ok(here.ancestors().find(|at| at.join(MARK).is_file()).map(Path::to_path_buf))
+  Ok(
+    here
+      .ancestors()
+      .find(|at| std::fs::metadata(at.join(MARK)).is_ok_and(|entry| entry.is_file()))
+      .map(Path::to_path_buf),
+  )
 }
 
 #[derive(Debug)]
 pub enum NotFound {
-    Nowhere(std::io::Error),
-    Outside(PathBuf),
+  Nowhere(std::io::Error),
+  Outside(PathBuf),
 }
 
 impl fmt::Display for NotFound {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            NotFound::Nowhere(fault) => write!(to, "no working directory: {fault}"),
-            NotFound::Outside(here) => write!(
-                to,
-                "no {MARK} above {}; run this inside the repository",
-                here.display()
-            ),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      NotFound::Nowhere(fault) => write!(to, "no working directory: {fault}"),
+      NotFound::Outside(here) => write!(
+        to,
+        "no {MARK} above {}; run this inside the repository",
+        here.display()
+      ),
     }
+  }
 }
 
 impl std::error::Error for NotFound {}
 
 #[cfg_attr(
-    dylint_lib = "explicit044_no_ambient_value",
-    allow(
-        explicit044_no_ambient_value,
-        reason = "where the program was run from is the question this crate exists to answer: someone typing inside a checkout means that checkout, and the head above is why the walk is here rather than in each of the four programs that want it"
-    )
+  dylint_lib = "explicit044_no_ambient_value",
+  allow(
+    explicit044_no_ambient_value,
+    reason = "where the program was run from is the question this crate exists to answer: someone typing inside a checkout means that checkout, and the head above is why the walk is here rather than in each of the four programs that want it"
+  )
 )]
 pub fn root() -> Result<PathBuf, NotFound> {
-    let here = std::env::current_dir().map_err(NotFound::Nowhere)?;
+  let here = std::env::current_dir().map_err(NotFound::Nowhere)?;
 
-    let Ok(above) = above(&here);
+  let Ok(above) = above(&here);
 
-    above.ok_or(NotFound::Outside(here))
+  above.ok_or(NotFound::Outside(here))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn root() -> Result<PathBuf, std::io::Error> {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize()
-    }
+  fn root() -> Result<PathBuf, std::io::Error> {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+      .ancestors()
+      .nth(2)
+      .ok_or_else(|| std::io::Error::other("crate directory has no workspace parent"))?;
 
-    #[test]
-    fn the_top_is_found_from_a_crate_inside_it() -> Result<(), std::io::Error> {
-        let Ok(above) = above(Path::new(env!("CARGO_MANIFEST_DIR")));
-        let root = root()?;
+    workspace.canonicalize()
+  }
 
-        assert_eq!(above, Some(root));
+  #[test]
+  fn the_top_is_found_from_a_crate_inside_it() -> Result<(), std::io::Error> {
+    let Ok(above) = above(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let root = root()?;
 
-        Ok(())
-    }
+    assert_eq!(above, Some(root));
 
-    #[test]
-    fn it_is_the_same_answer_from_further_down() -> Result<(), std::io::Error> {
-        let deep = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let Ok(above) = above(&deep);
-        let root = root()?;
+    Ok(())
+  }
 
-        assert_eq!(above, Some(root));
+  #[test]
+  fn it_is_the_same_answer_from_further_down() -> Result<(), std::io::Error> {
+    let deep = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let Ok(above) = above(&deep);
+    let root = root()?;
 
-        Ok(())
-    }
+    assert_eq!(above, Some(root));
 
-    #[test]
-    fn nothing_above_the_filesystem_holds_the_mark() {
-        let Ok(above) = above(Path::new("/"));
+    Ok(())
+  }
 
-        assert_eq!(above, None);
-    }
+  #[test]
+  fn nothing_above_the_filesystem_holds_the_mark() {
+    let Ok(above) = above(Path::new("/"));
+
+    assert_eq!(above, None);
+  }
 }

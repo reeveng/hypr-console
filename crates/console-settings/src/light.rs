@@ -44,57 +44,76 @@ pub struct Lit(pub i64);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Sensor {
-    pub at: PathBuf,
+  pub at: PathBuf,
 }
 
 impl Sensor {
-    pub fn reading(&self) -> Result<PathBuf, Never> {
-        Ok(self.at.join(RAW))
-    }
+  pub fn reading(&self) -> Result<PathBuf, Never> {
+    Ok(self.at.join(RAW))
+  }
 
-    pub fn now(&self) -> Result<Option<Lit>, Never> {
-        let Ok(at) = self.reading();
+  pub fn now(&self) -> Result<Option<Lit>, Never> {
+    let Ok(at) = self.reading();
 
-        let said = match std::fs::read_to_string(at) {
-            Err(_the_sensor_would_not_say) => return Ok(None),
-            Ok(said) => said,
-        };
+    let said = match std::fs::read_to_string(at) {
+      Err(_the_sensor_would_not_say) => return Ok(None),
+      Ok(said) => said,
+    };
 
-        let Ok(read) = whole(&said);
+    let Ok(read) = whole(&said);
 
-        Ok(read.map(Lit))
-    }
+    Ok(read.map(Lit))
+  }
 }
 
 pub fn read(at: &Path) -> Result<Option<Sensor>, Never> {
-    Ok(match at.join(RAW).exists() {
-        true => Some(Sensor { at: at.to_path_buf() }),
-        false => None,
-    })
+  let sensor = Sensor {
+    at: at.to_path_buf(),
+  };
+  let Ok(reading) = sensor.reading();
+
+  Ok(match std::fs::metadata(&reading) {
+    Ok(_metadata) => Some(sensor),
+    Err(fault) => match (fault.kind() == std::io::ErrorKind::NotFound).then_some(()) {
+      Some(()) => None,
+      None => {
+        console_core_logging::warn!(
+          "could not check light sensor {}: {fault}",
+          reading.display()
+        );
+        None
+      }
+    },
+  })
 }
 
 pub fn find_sensor(under: &Path) -> Result<Option<Sensor>, Never> {
-    let held = match std::fs::read_dir(under) {
-        Err(_no_sensors_on_this_machine) => return Ok(None),
-        Ok(held) => held,
-    };
+  let held = match std::fs::read_dir(under) {
+    Err(_no_sensors_on_this_machine) => return Ok(None),
+    Ok(held) => held,
+  };
 
-    let mut every: Vec<(OsString, Sensor)> = Vec::new();
+  let mut every: Vec<(OsString, Sensor)> = Vec::new();
 
-    for one in held.flatten() {
-        let Ok(read) = read(&one.path());
+  for one in held.flatten() {
+    let Ok(read) = read(&one.path());
 
-        match read {
-            Some(sensor) => every.push((one.file_name(), sensor)),
-            None => {},
-        }
+    match read {
+      Some(sensor) => every.push((one.file_name(), sensor)),
+      None => {}
     }
+  }
 
-    every.sort_by(|left, right| left.0.cmp(&right.0));
+  every.sort_by(|left, right| left.0.cmp(&right.0));
 
-    Ok(every.into_iter().next().map(|(_whatever_it_was_called, sensor)| sensor))
+  Ok(
+    every
+      .into_iter()
+      .next()
+      .map(|(_whatever_it_was_called, sensor)| sensor),
+  )
 }
 
 pub fn here() -> Result<Option<Sensor>, Never> {
-    find_sensor(Path::new(UNDER))
+  find_sensor(Path::new(UNDER))
 }

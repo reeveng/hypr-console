@@ -1,0 +1,63 @@
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/decisions.rs:11:5
+   |
+LL |     if left > right { 1 } else { 0 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on an enum that names the outcomes
+   = note: `#[deny(explicit019_no_if)]` on by default
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/decisions.rs:23:5
+   |
+LL |     if let state::Stage::Ready = value { 1 } else { 0 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on an enum that names the outcomes
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/decisions.rs:35:5
+   |
+LL |     if sample().value() > 0 { 1 } else { 0 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on an enum that names the outcomes
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/decisions.rs:43:5
+   |
+LL |     if left > right { 1 } else { 0 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on an enum that names the outcomes
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/decisions.rs:49:5
+   |
+LL | /     if skip {
+LL | |         println!("skipped");
+LL | |     }
+   | |_____^
+   |
+   = help: match on an enum that names the outcomes
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/decisions.rs:52:5
+   |
+LL | /     if missing.is_none() {
+LL | |         println!("missing");
+LL | |     }
+   | |_____^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match missing {
+LL +         ::core::option::Option::None => {
+LL +             println!("missing");
+LL +         },
+LL +         ::core::option::Option::Some(_) => {},
+LL +     }
+   |
+
+error: aborting due to 6 previous errors
+

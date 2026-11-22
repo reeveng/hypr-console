@@ -31,116 +31,143 @@ const MINUTE: u64 = 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Standing {
-    minute: u64,
-    zone: Duration,
-    told: Duration,
+  minute: u64,
+  zone: Duration,
+  told: Duration,
 }
 
 fn since(when: SystemTime) -> Result<Duration, Never> {
-    Ok(match when.duration_since(UNIX_EPOCH) {
-        Ok(since) => since,
-        Err(_a_machine_that_thinks_it_is_before_1970) => Duration::ZERO,
-    })
+  Ok(match when.duration_since(UNIX_EPOCH) {
+    Ok(since) => since,
+    Err(_a_machine_that_thinks_it_is_before_1970) => Duration::ZERO,
+  })
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit039_no_reading_the_clock",
-    allow(
-        explicit039_no_reading_the_clock,
-        reason = "what time it is, which is what this draws: the reading is the answer rather than a decision taken from one, and an instant handed in would be the caller answering the question this exists to ask"
-    )
+  dylint_lib = "explicit039_no_reading_the_clock",
+  allow(
+    explicit039_no_reading_the_clock,
+    reason = "what time it is, which is what this draws: the reading is the answer rather than a decision taken from one, and an instant handed in would be the caller answering the question this exists to ask"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit077_no_ambient_randomness",
+  allow(
+    explicit077_no_ambient_randomness,
+    reason = "what time it is, which is what this draws: the reading is the answer rather than a decision taken from one"
+  )
 )]
 fn minute() -> Result<u64, Never> {
-    let Ok(since) = since(SystemTime::now());
+  let Ok(since) = since(SystemTime::now());
 
-    Ok(since.as_secs().saturating_div(MINUTE))
+  Ok(since.as_secs().saturating_div(MINUTE))
 }
 
 fn changed(at: &Path) -> Result<Duration, Never> {
-    let held = match std::fs::metadata(at) {
-        Ok(held) => held,
-        Err(_nothing_there_yet_to_have_changed) => return Ok(Duration::ZERO),
-    };
+  let held = match std::fs::metadata(at) {
+    Ok(held) => held,
+    Err(_nothing_there_yet_to_have_changed) => return Ok(Duration::ZERO),
+  };
 
-    let when = match held.modified() {
-        Ok(when) => when,
-        Err(_this_filesystem_keeps_no_stamp) => return Ok(Duration::ZERO),
-    };
+  let when = match held.modified() {
+    Ok(when) => when,
+    Err(_this_filesystem_keeps_no_stamp) => return Ok(Duration::ZERO),
+  };
 
-    since(when)
+  since(when)
 }
 
 fn settings_changed() -> Result<Duration, Never> {
-    let Ok(at) = console_defaults::where_();
+  let Ok(at) = console_defaults::where_();
 
-    match at {
-        Some(at) => changed(&at),
-        None => Ok(Duration::ZERO),
-    }
+  match at {
+    Some(at_2) => changed(&at_2),
+    None => Ok(Duration::ZERO),
+  }
 }
 
 pub fn current() -> Result<Standing, Never> {
-    let Ok(minute) = minute();
-    let Ok(zone) = changed(Path::new(ZONE));
-    let Ok(told) = settings_changed();
+  let Ok(minute) = minute();
+  let Ok(zone) = changed(Path::new(ZONE));
+  let Ok(told) = settings_changed();
 
-    Ok(Standing { minute, zone, told })
+  Ok(Standing { minute, zone, told })
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit039_no_reading_the_clock",
-    allow(
-        explicit039_no_reading_the_clock,
-        reason = "what time it is, which is what this draws: the reading is the answer rather than a decision taken from one, and an instant handed in would be the caller answering the question this exists to ask"
-    )
+  dylint_lib = "explicit039_no_reading_the_clock",
+  allow(
+    explicit039_no_reading_the_clock,
+    reason = "what time it is, which is what this draws: the reading is the answer rather than a decision taken from one, and an instant handed in would be the caller answering the question this exists to ask"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit077_no_ambient_randomness",
+  allow(
+    explicit077_no_ambient_randomness,
+    reason = "what time it is, which is what this draws: the reading is the answer rather than a decision taken from one"
+  )
 )]
 pub fn until_the_minute_turns() -> Result<Duration, Never> {
-    let Ok(since) = since(SystemTime::now());
-    let seconds = since.as_secs();
-    let into = seconds.saturating_sub(seconds.saturating_div(MINUTE).saturating_mul(MINUTE));
+  let Ok(since) = since(SystemTime::now());
+  let seconds = since.as_secs();
+  let into = seconds.saturating_sub(seconds.saturating_div(MINUTE).saturating_mul(MINUTE));
 
-    Ok(Duration::from_secs(MINUTE.saturating_sub(into)))
+  Ok(Duration::from_secs(MINUTE.saturating_sub(into)))
 }
 
 pub fn format_time(clock: Clock) -> Result<String, Never> {
-    let Ok(shape) = clock.shape();
+  let Ok(shape) = clock.shape();
 
-    let mut command = match Program::Date.command() {
-        Ok(command) => command,
-        Err(_) => return Ok(String::new()),
-    };
+  let Ok(mut command) = Program::Date.command();
 
-    let out = command.arg(format!("+{shape}")).output();
+  let output = match command.arg(format!("+{shape}")).output() {
+    Ok(output) => output,
+    Err(fault) => {
+      console_core_logging::warn!("could not read the current time: {fault}");
+      return Ok(String::new());
+    }
+  };
 
-    Ok(match out {
-        Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
-        Err(_the_machine_will_not_say_what_time_it_is) => String::new(),
-    })
+  Ok(match std::str::from_utf8(&output.stdout) {
+    Ok(text) => text.trim().to_owned(),
+    Err(fault) => {
+      console_core_logging::warn!("date returned a time format that is not UTF-8: {fault}");
+      String::new()
+    }
+  })
 }
 
 pub fn now() -> Result<String, Never> {
-    let Ok(clock) = clock::clock();
+  let Ok(clock) = clock::clock();
 
-    format_time(clock)
+  format_time(clock)
+}
+
+pub fn time_only(reading: &str) -> Result<&str, Never> {
+  Ok(reading.rsplit_once("  ").map_or(reading, |(_, time)| time))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn the_wait_for_the_minute_is_never_nothing_and_never_more_than_a_minute() {
-        let Ok(until) = until_the_minute_turns();
+  #[test]
+  fn the_wait_for_the_minute_is_never_nothing_and_never_more_than_a_minute() {
+    let Ok(until) = until_the_minute_turns();
 
-        assert!(until > Duration::ZERO, "the bar would spin on a minute that has already turned");
-        assert!(until <= Duration::from_secs(MINUTE));
-    }
+    assert!(
+      until > Duration::ZERO,
+      "the bar would spin on a minute that has already turned"
+    );
+    assert!(until <= Duration::from_secs(MINUTE));
+  }
 
-    #[test]
-    fn the_clock_is_the_minute_the_zone_and_the_shape_someone_chose() {
-        let Ok(one) = current();
-        let Ok(again) = current();
+  #[test]
+  fn the_clock_is_the_minute_the_zone_and_the_shape_someone_chose() {
+    let Ok(one) = current();
+    let Ok(again) = current();
 
-        assert_eq!(one, again, "two readings a moment apart disagreed");
-    }
+    assert_eq!(one, again, "two readings a moment apart disagreed");
+  }
 }

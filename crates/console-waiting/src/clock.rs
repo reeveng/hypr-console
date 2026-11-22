@@ -24,104 +24,106 @@ use console_core_never::Never;
 use std::time::{Duration, Instant};
 
 pub trait Clock {
-    fn elapsed(&self) -> Result<Duration, Never>;
+  fn elapsed(&self) -> Result<Duration, Never>;
 
-    fn pause(&mut self, gap: Duration) -> Result<(), Never>;
+  fn pause(&mut self, gap: Duration) -> Result<(), Never>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LiveClock {
-    began: Instant,
+  began: Instant,
 }
 
-#[cfg_attr(
-    dylint_lib = "explicit039_no_reading_the_clock",
-    allow(
-        explicit039_no_reading_the_clock,
-        reason = "this is the clock everything else is handed: something has to read the machine's, and a wait handed one cannot also be the thing that made it"
-    )
-)]
 impl LiveClock {
-    pub fn started() -> Result<LiveClock, Never> {
-        Ok(LiveClock { began: Instant::now() })
-    }
+  #[cfg_attr(
+    all(dylint_lib = "explicit039_no_reading_the_clock", not(test)),
+    expect(
+      explicit039_no_reading_the_clock,
+      reason = "starting a live clock reads the machine clock at the boundary before it is handed to a caller"
+    )
+  )]
+  pub fn started() -> Result<LiveClock, Never> {
+    Ok(LiveClock {
+      began: Instant::now(),
+    })
+  }
 }
 
-#[cfg_attr(
-    dylint_lib = "explicit039_no_reading_the_clock",
-    allow(
-        explicit039_no_reading_the_clock,
-        reason = "this is the clock everything else is handed: something has to read the machine's, and a wait handed one cannot also be the thing that made it"
-    )
-)]
 impl Clock for LiveClock {
-    fn elapsed(&self) -> Result<Duration, Never> {
-        Ok(self.began.elapsed())
-    }
+  fn elapsed(&self) -> Result<Duration, Never> {
+    Ok(self.began.elapsed())
+  }
 
-    fn pause(&mut self, gap: Duration) -> Result<(), Never> {
-        #[cfg_attr(
-            dylint_lib = "explicit021_no_sleeping",
-            allow(
-                explicit021_no_sleeping,
-                reason = "this is the one place a thread stops for a span: the gap between two asks about a thing nothing will announce, which a spin would spend heating a handheld someone is holding, or a press played back for as long as it was held when it was captured"
-            )
-        )]
-        std::thread::sleep(gap);
+  fn pause(&mut self, gap: Duration) -> Result<(), Never> {
+    #[cfg_attr(
+      dylint_lib = "explicit021_no_sleeping",
+      allow(
+        explicit021_no_sleeping,
+        reason = "this is the one place a thread stops for a span: the gap between two asks about a thing nothing will announce, which a spin would spend heating a handheld someone is holding, or a press played back for as long as it was held when it was captured"
+      )
+    )]
+    std::thread::sleep(gap);
 
-        Ok(())
-    }
+    Ok(())
+  }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TestClock {
-    pub elapsed: Duration,
-    pub paused: Vec<Duration>,
+  pub elapsed: Duration,
+  pub paused: Vec<Duration>,
 }
 
 impl TestClock {
-    pub fn adjust(&mut self, by: Duration) -> Result<(), Never> {
-        self.elapsed = self.elapsed.saturating_add(by);
+  pub fn adjust(&mut self, by: Duration) -> Result<(), Never> {
+    self.elapsed = self.elapsed.saturating_add(by);
 
-        Ok(())
-    }
+    Ok(())
+  }
 }
 
 impl Clock for TestClock {
-    fn elapsed(&self) -> Result<Duration, Never> {
-        Ok(self.elapsed)
-    }
+  fn elapsed(&self) -> Result<Duration, Never> {
+    Ok(self.elapsed)
+  }
 
-    fn pause(&mut self, gap: Duration) -> Result<(), Never> {
-        self.paused.push(gap);
+  fn pause(&mut self, gap: Duration) -> Result<(), Never> {
+    self.paused.push(gap);
 
-        self.adjust(gap)
-    }
+    self.adjust(gap)
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_test_clock_moves_only_when_it_is_paused_or_adjusted() {
-        let mut clock = TestClock::default();
-        let Ok(before) = clock.elapsed();
-        let Ok(()) = clock.pause(Duration::from_secs(20));
-        let Ok(()) = clock.adjust(Duration::from_millis(5));
-        let Ok(after) = clock.elapsed();
+  #[test]
+  fn a_test_clock_moves_only_when_it_is_paused_or_adjusted() {
+    let mut clock = TestClock::default();
+    let Ok(before) = clock.elapsed();
+    let Ok(()) = clock.pause(Duration::from_secs(20));
+    let Ok(()) = clock.adjust(Duration::from_millis(5));
+    let Ok(after) = clock.elapsed();
 
-        assert_eq!(before, Duration::ZERO);
-        assert_eq!(after, Duration::from_millis(20_005));
-        assert_eq!(clock.paused, vec![Duration::from_secs(20)], "an adjustment is time passing, not a pause");
-    }
+    assert_eq!(before, Duration::ZERO);
+    assert_eq!(after, Duration::from_millis(20_005));
+    assert_eq!(
+      clock.paused,
+      vec![Duration::from_secs(20)],
+      "an adjustment is time passing, not a pause"
+    );
+  }
 
-    #[test]
-    fn the_live_clock_pauses_for_as_long_as_it_was_asked() {
-        let Ok(mut clock) = LiveClock::started();
-        let Ok(()) = clock.pause(Duration::from_millis(20));
-        let Ok(elapsed) = clock.elapsed();
+  #[test]
+  fn the_live_clock_pauses_for_as_long_as_it_was_asked() {
+    let Ok(mut clock) = LiveClock::started();
+    let Ok(()) = clock.pause(Duration::from_millis(20));
+    let Ok(elapsed) = clock.elapsed();
 
-        assert!(elapsed >= Duration::from_millis(20), "it came back after {elapsed:?}");
-    }
+    assert!(
+      elapsed >= Duration::from_millis(20),
+      "it came back after {elapsed:?}"
+    );
+  }
 }

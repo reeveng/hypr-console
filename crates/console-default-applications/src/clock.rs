@@ -22,75 +22,83 @@ const TWELVE: &str = "12";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Clock {
-    #[words(says = "14:30", shape = "%a %d %b  %H:%M")]
-    TwentyFour,
-    #[words(says = "2:30 pm", shape = "%a %d %b  %-I:%M %P")]
-    Twelve,
+  #[words(says = "14:30", shape = "%a %d %b  %H:%M")]
+  TwentyFour,
+  #[words(says = "2:30 pm", shape = "%a %d %b  %-I:%M %P")]
+  Twelve,
 }
 
 pub const EVERY: [Clock; 2] = [Clock::TwentyFour, Clock::Twelve];
 
 impl Clock {
-    pub fn key(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Clock::TwentyFour => TWENTY_FOUR,
-            Clock::Twelve => TWELVE,
-        })
-    }
+  pub fn key(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Clock::TwentyFour => TWENTY_FOUR,
+      Clock::Twelve => TWELVE,
+    })
+  }
 }
 
 pub fn read(said: &str) -> Result<Clock, Never> {
-    Ok(match said.trim() == TWELVE {
-        true => Clock::Twelve,
-        false => Clock::TwentyFour,
-    })
+  Ok(match ::core::primitive::bool::then_some(said.trim() == TWELVE, ()) {
+    ::core::option::Option::Some(()) => Clock::Twelve,
+    ::core::option::Option::None => Clock::TwentyFour,
+  })
 }
 
 pub fn clock() -> Result<Clock, Never> {
-    let told = console_defaults::setting(SETTING)?;
+  let told = console_defaults::setting(SETTING)?;
 
-    let said = match told {
-        Some(said) => said,
-        None => String::new(),
-    };
+  let said = match told {
+    Some(said) => said,
+    None => String::new(),
+  };
 
-    read(&said)
+  read(&said)
 }
 
 pub fn choose(clock: Clock) -> Result<(), Never> {
-    let Ok(key) = clock.key();
+  let Ok(key) = clock.key();
 
-    console_defaults::set(console_defaults::Setting { key: SETTING, value: key })
+  console_defaults::set(console_defaults::Setting {
+    key: SETTING,
+    value: key,
+  })
 }
-
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn the_two_ways_of_writing_the_hour_are_two_different_readings() {
-        let Ok(long) = Clock::TwentyFour.shape();
-        let Ok(short) = Clock::Twelve.shape();
+  #[test]
+  fn the_two_ways_of_writing_the_hour_are_two_different_readings() {
+    let Ok(long) = Clock::TwentyFour.shape();
+    let Ok(short) = Clock::Twelve.shape();
 
-        assert_ne!(long, short);
-        assert!(long.contains("%H"), "{long} is not the twenty-four hour clock");
-        assert!(short.contains("%P"), "{short} does not say which half of the day it is");
-    }
+    assert_ne!(long, short);
+    assert!(
+      long.contains("%H"),
+      "{long} is not the twenty-four hour clock"
+    );
+    assert!(
+      short.contains("%P"),
+      "{short} does not say which half of the day it is"
+    );
+  }
 
-    #[test]
-    fn a_machine_no_one_has_told_writes_the_hour_the_way_this_one_always_has() {
-        assert_eq!(read(""), Ok(Clock::TwentyFour));
-        assert_eq!(read("nonsense"), Ok(Clock::TwentyFour));
-        assert_eq!(read("12"), Ok(Clock::Twelve));
-    }
+  #[test]
+  fn a_machine_no_one_has_told_writes_the_hour_the_way_this_one_always_has() {
+    assert_eq!(read(""), Ok(Clock::TwentyFour));
+    assert_eq!(read("nonsense"), Ok(Clock::TwentyFour));
+    assert_eq!(read("12"), Ok(Clock::Twelve));
+  }
 
-    #[test]
-    fn the_two_readings_a_person_is_offered_are_the_same_moment() {
-        let Ok(long) = Clock::TwentyFour.says();
-        let Ok(short) = Clock::Twelve.says();
+  #[test]
+  fn the_two_readings_a_person_is_offered_are_the_same_moment() {
+    let Ok(long) = Clock::TwentyFour.says();
+    let Ok(short) = Clock::Twelve.says();
 
-        assert_eq!(long, "14:30");
-        assert_eq!(short, "2:30 pm");
-    }
+    assert_eq!(long, "14:30");
+    assert_eq!(short, "2:30 pm");
+  }
 }

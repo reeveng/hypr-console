@@ -1,0 +1,59 @@
+warning: `password` is a secret by its name and an ordinary value by its type
+  --> $DIR/main.rs:19:5
+   |
+LL |     password: String,
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: hold it in a type made for one: no `Debug`, no `Display`, no `PartialEq`, a comparison that takes the same time whatever it finds, and its bytes written over when it is dropped. Where the name describes a secret and the value is not one, allow this rule here and let the reason say what it is
+   = note: `#[warn(explicit094_no_plain_secret)]` on by default
+
+warning: `wifi_passphrase` is a secret by its name and an ordinary value by its type
+  --> $DIR/main.rs:21:5
+   |
+LL |     wifi_passphrase: Option<String>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: hold it in a type made for one: no `Debug`, no `Display`, no `PartialEq`, a comparison that takes the same time whatever it finds, and its bytes written over when it is dropped. Where the name describes a secret and the value is not one, allow this rule here and let the reason say what it is
+
+warning: `passkey` is a secret by its name and an ordinary value by its type
+  --> $DIR/main.rs:27:5
+   |
+LL |     passkey: u32,
+   |     ^^^^^^^^^^^^
+   |
+   = help: hold it in a type made for one: no `Debug`, no `Display`, no `PartialEq`, a comparison that takes the same time whatever it finds, and its bytes written over when it is dropped. Where the name describes a secret and the value is not one, allow this rule here and let the reason say what it is
+
+warning: `password` is a secret by its name and an ordinary value by its type
+  --> $DIR/main.rs:32:24
+   |
+LL | fn joined(named: &str, password: &str) -> usize {
+   |                        ^^^^^^^^^^^^^^
+   |
+   = help: hold it in a type made for one: no `Debug`, no `Display`, no `PartialEq`, a comparison that takes the same time whatever it finds, and its bytes written over when it is dropped. Where the name describes a secret and the value is not one, allow this rule here and let the reason say what it is
+
+warning: `pin` is a secret by its name and an ordinary value by its type
+  --> $DIR/main.rs:37:10
+   |
+LL | fn typed(pin: &[u8]) -> usize {
+   |          ^^^^^^^^^^
+   |
+   = help: hold it in a type made for one: no `Debug`, no `Display`, no `PartialEq`, a comparison that takes the same time whatever it finds, and its bytes written over when it is dropped. Where the name describes a secret and the value is not one, allow this rule here and let the reason say what it is
+
+warning: `password` is a secret by its name and an ordinary value by its type
+  --> $DIR/main.rs:42:12
+   |
+LL | fn hurried(password: &str, kept: &str) -> u8 {
+   |            ^^^^^^^^^^^^^^
+   |
+   = help: hold it in a type made for one: no `Debug`, no `Display`, no `PartialEq`, a comparison that takes the same time whatever it finds, and its bytes written over when it is dropped. Where the name describes a secret and the value is not one, allow this rule here and let the reason say what it is
+
+warning: `password` is compared with `==`, which stops at the first byte that differs
+  --> $DIR/main.rs:44:11
+   |
+LL |     match password == kept {
+   |           ^^^^^^^^^^^^^^^^
+   |
+   = help: compare secrets in time that does not depend on what they hold: fold the difference of every byte and look at the total once, behind a method on the type that holds one. Where neither side is a secret, allow this rule here and let the reason say what they are
+
+warning: 7 warnings emitted
+

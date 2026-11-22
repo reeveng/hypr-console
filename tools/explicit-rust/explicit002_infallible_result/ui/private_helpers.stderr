@@ -1,0 +1,78 @@
+error: this function cannot say it succeeded
+  --> $DIR/private_helpers.rs:7:41
+   |
+LL |     fn write_header(bytes: &mut Vec<u8>) {
+   |                                         ^
+   |
+   = note: `#[deny(explicit002_infallible_result)]` on by default
+help: return an infallible result and handle its success at every call
+   |
+LL ~     fn write_header(bytes: &mut Vec<u8>) -> ::core::result::Result<(), ::console_core_never::Never> {
+LL |         bytes.push(3);
+LL ~         ::core::result::Result::Ok(())
+LL ~     }
+LL |
+...
+LL |         let mut bytes = vec![1];
+LL ~         let ::core::result::Result::Ok(()) = write_header(&mut bytes);
+   |
+
+error: this function cannot say it succeeded
+  --> $DIR/private_helpers.rs:12:33
+   |
+LL |     fn example_track_table() -> Vec<u8> {
+   |                                 ^^^^^^^
+   |
+help: return an infallible result and handle its success at every call
+   |
+LL ~     fn example_track_table() -> ::core::result::Result<Vec<u8>, ::console_core_never::Never> {
+LL |         let mut bytes = vec![1];
+LL |         write_header(&mut bytes);
+LL ~         ::core::result::Result::Ok(bytes)
+LL |     }
+LL |
+LL |     pub fn inspect() -> Result<(), ()> {
+LL ~         let ::core::result::Result::Ok(first) = example_track_table();
+LL ~         let ::core::result::Result::Ok(mut second) = example_track_table();
+LL ~         let ::core::result::Result::Ok(_) = example_track_table();
+   |
+
+error: this function cannot say it succeeded
+  --> $DIR/private_helpers.rs:30:74
+   |
+LL |     fn covers<T: Ord>(start: T, end: T, inner_start: T, inner_end: T) -> bool {
+   |                                                                          ^^^^
+   |
+help: return an infallible result and handle its success at every call
+   |
+LL ~     fn covers<T: Ord>(start: T, end: T, inner_start: T, inner_end: T) -> ::core::result::Result<bool, ::console_core_never::Never> {
+LL ~         ::core::result::Result::Ok(start <= inner_start && inner_end <= end)
+LL |     }
+...
+LL |         match covers(2, 8, 4, 6) {
+LL ~             ::core::result::Result::Ok(true) => {}
+LL ~             ::core::result::Result::Ok(false) => return Err(()),
+   |
+
+error: this function cannot say it succeeded
+  --> $DIR/private_helpers.rs:34:70
+   |
+LL |     fn intersection<T: Copy + Ord>(left: &[T; 2], right: &[T; 2]) -> Option<T> {
+   |                                                                      ^^^^^^^^^
+   |
+help: return an infallible result and handle its success at every call
+   |
+LL ~     fn intersection<T: Copy + Ord>(left: &[T; 2], right: &[T; 2]) -> ::core::result::Result<Option<T>, ::console_core_never::Never> {
+LL ~         ::core::result::Result::Ok(match left[0].max(right[0]) <= left[1].min(right[1]) {
+LL |             true => Some(left[0].max(right[0])),
+LL |             false => None,
+LL ~         })
+LL |     }
+...
+LL |         match intersection(&[1, 3], &[2, 4]) {
+LL ~             ::core::result::Result::Ok(Some(start)) if start == 2 => Ok(()),
+LL ~             ::core::result::Result::Ok(Some(_) | None) => Err(()),
+   |
+
+error: aborting due to 4 previous errors
+

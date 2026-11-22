@@ -21,74 +21,78 @@ use crate::picker::{self, Alone};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Update {
-    None,
-    Redraw,
-    Exit,
+  None,
+  Redraw,
+  Exit,
 }
 
 pub trait Responder {
-    fn key_pressed(&mut self, key: Keysym, room: Size<u32>) -> Result<Update, Never>;
+  fn key_pressed(&mut self, key: Keysym, room: Size<u32>) -> Result<Update, Never>;
 
-    fn pointer_event(&mut self, event: PointerEvent, room: Size<u32>) -> Result<Update, Never>;
+  fn pointer_event(&mut self, event: PointerEvent, room: Size<u32>) -> Result<Update, Never>;
 }
 
 pub fn open<E: Display>(
-    asked: &[String],
-    program: InternalProgram,
-    command: &Command,
-    run: fn(&[String]) -> Result<(), E>,
+  asked: &[String],
+  program: InternalProgram,
+  command: &Command,
+  run: fn(&[String]) -> Result<(), E>,
 ) -> Result<ExitCode, Never> {
-    let Ok(refusing) = refusal(command, asked);
+  let Ok(refusing) = refusal(command, asked);
 
-    match refusing {
-        Some(code) => return Ok(code),
-        None => {},
+  match refusing {
+    Some(code) => return Ok(code),
+    None => {}
+  }
+
+  let Ok(named) = program.name();
+  let Ok(alone) = picker::alone_as(named, asked);
+
+  match alone {
+    Alone::Yes => {}
+    Alone::No => return Ok(ExitCode::SUCCESS),
+  }
+
+  Ok(match run(asked) {
+    Ok(()) => ExitCode::SUCCESS,
+    Err(fault) => {
+      console_core_logging::warn!("{named}: {fault}");
+
+      ExitCode::FAILURE
     }
-
-    let Ok(named) = program.name();
-    let Ok(alone) = picker::alone_as(named, asked);
-
-    match alone {
-        Alone::Yes => {},
-        Alone::No => return Ok(ExitCode::SUCCESS),
-    }
-
-    Ok(match run(asked) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(fault) => {
-            eprintln!("{named}: {fault}");
-
-            ExitCode::FAILURE
-        },
-    })
+  })
 }
 
-pub fn handle_input(responder: &mut impl Responder, surface: &mut Surface, room: Size<u32>) -> Result<Update, Never> {
-    let Ok(keys) = surface.keyboard_events();
-    let Ok(pointer) = surface.pointer_events();
-    let mut outcome = Update::None;
+pub fn handle_input(
+  responder: &mut impl Responder,
+  surface: &mut Surface,
+  room: Size<u32>,
+) -> Result<Update, Never> {
+  let Ok(keys) = surface.keyboard_events();
+  let Ok(pointer) = surface.pointer_events();
+  let mut outcome = Update::None;
 
-    for KeyboardEvent::Down { key } in keys {
-        let Ok(update) = responder.key_pressed(key, room);
-        let Ok(merged) = merge(outcome, update);
+  for KeyboardEvent::Down { key } in keys {
+    let Ok(update) = responder.key_pressed(key, room);
+    let Ok(merged) = merge(outcome, update);
 
-        outcome = merged;
-    }
+    outcome = merged;
+  }
 
-    for event in pointer {
-        let Ok(update) = responder.pointer_event(event, room);
-        let Ok(merged) = merge(outcome, update);
+  for event in pointer {
+    let Ok(update) = responder.pointer_event(event, room);
+    let Ok(merged) = merge(outcome, update);
 
-        outcome = merged;
-    }
+    outcome = merged;
+  }
 
-    Ok(outcome)
+  Ok(outcome)
 }
 
 pub fn merge(was: Update, now: Update) -> Result<Update, Never> {
-    Ok(match (was, now) {
-        (Update::Exit, _) | (_, Update::Exit) => Update::Exit,
-        (Update::Redraw, _) | (_, Update::Redraw) => Update::Redraw,
-        (Update::None, Update::None) => Update::None,
-    })
+  Ok(match (was, now) {
+    (Update::Exit, _) | (_, Update::Exit) => Update::Exit,
+    (Update::Redraw, _) | (_, Update::Redraw) => Update::Redraw,
+    (Update::None, Update::None) => Update::None,
+  })
 }

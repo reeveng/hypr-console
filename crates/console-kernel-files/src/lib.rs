@@ -16,9 +16,9 @@
 //! yet, so whoever creates a file hands the number in. A version is immutable
 //! and names its parent and its content, and the content lives in a store keyed
 //! by its hash, so the same bytes are held once however many files hold them.
-//! Which hash is also handed in, as a `Digest`: the one checksum crate in this
-//! tree speaks MD5 and CRC32 for other people's formats, needs `std`, and is not
-//! a name anybody should address content by.
+//! Which hash is also handed in, as a `Digest`: the caller owns the content
+//! identity and collision policy. The format checksums and test fingerprints
+//! in `console-core-checksums` do not choose that policy for the kernel.
 //!
 //! What that buys the kernel is three things it would otherwise have to build.
 //! A handle names an identity, so it keeps working across a rename, because a
@@ -48,6 +48,7 @@ extern crate alloc;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::cmp::Ordering;
 use core::fmt;
 
 use console_core_never::Never;
@@ -65,214 +66,257 @@ pub struct VersionId(ContentHash);
 pub struct Path(pub String);
 
 pub trait Digest {
-    fn digest(&self, bytes: &[u8]) -> Result<ContentHash, Never>;
+  fn digest_parts<'a>(
+    &self,
+    parts: impl IntoIterator<Item = &'a [u8]>,
+  ) -> Result<ContentHash, Never>;
+
+  fn digest(&self, bytes: &[u8]) -> Result<ContentHash, Never> {
+    self.digest_parts([bytes])
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Version {
-    pub id: VersionId,
-    pub parent: Option<VersionId>,
-    pub content: ContentHash,
+  pub id: VersionId,
+  pub parent: Option<VersionId>,
+  pub content: ContentHash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operation {
-    Create { file: FileId, at: Path, bytes: Vec<u8> },
-    Modify { file: FileId, from: VersionId, bytes: Vec<u8> },
-    Rename { file: FileId, to: Path },
-    Delete { file: FileId },
+  Create {
+    file: FileId,
+    at: Path,
+    bytes: Vec<u8>,
+  },
+  Modify {
+    file: FileId,
+    from: VersionId,
+    bytes: Vec<u8>,
+  },
+  Rename {
+    file: FileId,
+    to: Path,
+  },
+  Delete {
+    file: FileId,
+  },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Collision {
-    pub at: Path,
-    pub claimed_by: Vec<FileId>,
+  pub at: Path,
+  pub claimed_by: Vec<FileId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilesError {
-    AlreadyExists(FileId),
-    NotFound(FileId),
-    Deleted(FileId),
-    StaleVersion(FileId),
-    MissingVersion(VersionId),
-    MissingContent(ContentHash),
+  AlreadyExists(FileId),
+  NotFound(FileId),
+  Deleted(FileId),
+  StaleVersion(FileId),
+  MissingVersion(VersionId),
+  MissingContent(ContentHash),
 }
 
 #[derive(Clone)]
 pub struct Files<D> {
-    digest: D,
-    contents: BTreeMap<ContentHash, Vec<u8>>,
-    versions: BTreeMap<VersionId, Version>,
-    heads: BTreeMap<FileId, VersionId>,
-    names: BTreeMap<FileId, Path>,
+  digest: D,
+  contents: BTreeMap<ContentHash, Vec<u8>>,
+  versions: BTreeMap<VersionId, Version>,
+  heads: BTreeMap<FileId, VersionId>,
+  names: BTreeMap<FileId, Path>,
 }
 
 impl<D: Digest + Clone> Files<D> {
-    pub fn new(digest: D) -> Result<Files<D>, Never> {
-        Ok(Files {
-            digest,
-            contents: BTreeMap::new(),
-            versions: BTreeMap::new(),
-            heads: BTreeMap::new(),
-            names: BTreeMap::new(),
-        })
+  pub fn new(digest: D) -> Result<Files<D>, Never> {
+    Ok(Files {
+      digest,
+      contents: BTreeMap::new(),
+      versions: BTreeMap::new(),
+      heads: BTreeMap::new(),
+      names: BTreeMap::new(),
+    })
+  }
+
+  #[must_use = "the new state is the only place the change happened"]
+  pub fn apply(&self, change: &[Operation]) -> Result<Files<D>, FilesError> {
+    let mut draft = self.clone();
+
+    for operation in change {
+      draft.perform(operation)?;
     }
 
-    #[must_use = "the new state is the only place the change happened"]
-    pub fn apply(&self, change: &[Operation]) -> Result<Files<D>, FilesError> {
-        let mut draft = self.clone();
+    Ok(draft)
+  }
 
-        for operation in change {
-            draft.perform(operation)?;
-        }
+  pub fn head(&self, file: FileId) -> Result<VersionId, FilesError> {
+    self.live(file)
+  }
 
-        Ok(draft)
+  pub fn path(&self, file: FileId) -> Result<&Path, FilesError> {
+    self.live(file)?;
+
+    match self.names.get(&file) {
+      Some(at) => Ok(at),
+      None => Err(FilesError::NotFound(file)),
     }
+  }
 
-    pub fn head(&self, file: FileId) -> Result<VersionId, FilesError> {
-        self.live(file)
+  pub fn read(&self, file: FileId) -> Result<&[u8], FilesError> {
+    let head = self.live(file)?;
+    let version = self.version(head)?;
+
+    self.content(version.content)
+  }
+
+  pub fn content(&self, hash: ContentHash) -> Result<&[u8], FilesError> {
+    match self.contents.get(&hash) {
+      Some(bytes) => Ok(bytes),
+      None => Err(FilesError::MissingContent(hash)),
     }
+  }
 
-    pub fn path(&self, file: FileId) -> Result<&Path, FilesError> {
-        self.live(file)?;
+  pub fn hashes(&self) -> Result<Vec<ContentHash>, Never> {
+    Ok(self.contents.keys().copied().collect())
+  }
 
-        match self.names.get(&file) {
-            Some(at) => Ok(at),
-            None => Err(FilesError::NotFound(file)),
-        }
-    }
+  pub fn history(&self, file: FileId) -> Result<Vec<Version>, FilesError> {
+    let head = match self.heads.get(&file) {
+      Some(head) => *head,
+      None => return Err(FilesError::NotFound(file)),
+    };
 
-    pub fn read(&self, file: FileId) -> Result<&[u8], FilesError> {
-        let head = self.live(file)?;
-        let version = self.version(head)?;
+    (0..=self.versions.len())
+      .scan(Some(head), |next, _| {
+        let wanted = next.take()?;
+        let found = self.version(wanted);
 
-        self.content(version.content)
-    }
-
-    pub fn content(&self, hash: ContentHash) -> Result<&[u8], FilesError> {
-        match self.contents.get(&hash) {
-            Some(bytes) => Ok(bytes),
-            None => Err(FilesError::MissingContent(hash)),
-        }
-    }
-
-    pub fn hashes(&self) -> Result<Vec<ContentHash>, Never> {
-        Ok(self.contents.keys().copied().collect())
-    }
-
-    pub fn history(&self, file: FileId) -> Result<Vec<Version>, FilesError> {
-        let head = match self.heads.get(&file) {
-            Some(head) => *head,
-            None => return Err(FilesError::NotFound(file)),
+        *next = match &found {
+          Ok(version) => version.parent,
+          Err(_missing_version) => None,
         };
 
-        core::iter::successors(Some(self.version(head)), |found| match found {
-            Ok(version) => version.parent.map(|parent| self.version(parent)),
-            Err(_already_said) => None,
+        Some(found)
+      })
+      .collect()
+  }
+
+  pub fn collisions(&self) -> Result<Vec<Collision>, Never> {
+    let mut claims: BTreeMap<&Path, Vec<FileId>> = BTreeMap::new();
+
+    for (file, at) in &self.names {
+      claims.entry(at).or_default().push(*file);
+    }
+
+    Ok(
+      claims
+        .into_iter()
+        .filter(|(_, claimed_by)| claimed_by.get(1).is_some())
+        .map(|(at, claimed_by)| Collision {
+          at: at.clone(),
+          claimed_by,
         })
-        .collect()
-    }
+        .collect(),
+    )
+  }
 
-    pub fn collisions(&self) -> Result<Vec<Collision>, Never> {
-        let mut claims: BTreeMap<&Path, Vec<FileId>> = BTreeMap::new();
-
-        for (file, at) in &self.names {
-            claims.entry(at).or_default().push(*file);
+  fn perform(&mut self, operation: &Operation) -> Result<(), FilesError> {
+    match operation {
+      Operation::Create { file, at, bytes } => {
+        match self.heads.get(file) {
+          Some(_) => return Err(FilesError::AlreadyExists(*file)),
+          None => {}
         }
 
-        Ok(claims
-            .into_iter()
-            .filter(|(_, claimed_by)| claimed_by.get(1).is_some())
-            .map(|(at, claimed_by)| Collision { at: at.clone(), claimed_by })
-            .collect())
-    }
+        let Ok(version) = self.record(*file, None, bytes);
+        let _fresh = self.heads.insert(*file, version);
+        let _named = self.names.insert(*file, at.clone());
+      }
+      Operation::Modify { file, from, bytes } => {
+        let head = self.live(*file)?;
 
-    fn perform(&mut self, operation: &Operation) -> Result<(), FilesError> {
-        match operation {
-            Operation::Create { file, at, bytes } => {
-                match self.heads.contains_key(file) {
-                    true => return Err(FilesError::AlreadyExists(*file)),
-                    false => {},
-                }
-
-                let Ok(version) = self.record(*file, None, bytes);
-                let _fresh = self.heads.insert(*file, version);
-                let _named = self.names.insert(*file, at.clone());
-            },
-            Operation::Modify { file, from, bytes } => {
-                let head = self.live(*file)?;
-
-                match head == *from {
-                    true => {},
-                    false => return Err(FilesError::StaleVersion(*file)),
-                }
-
-                let Ok(version) = self.record(*file, Some(head), bytes);
-                let _replaced = self.heads.insert(*file, version);
-            },
-            Operation::Rename { file, to } => {
-                self.live(*file)?;
-
-                let _renamed = self.names.insert(*file, to.clone());
-            },
-            Operation::Delete { file } => {
-                self.live(*file)?;
-
-                let _removed = self.names.remove(file);
-            },
+        match head.cmp(from) {
+          Ordering::Equal => {}
+          Ordering::Less | Ordering::Greater => return Err(FilesError::StaleVersion(*file)),
         }
 
-        Ok(())
+        let Ok(version) = self.record(*file, Some(head), bytes);
+        let _replaced = self.heads.insert(*file, version);
+      }
+      Operation::Rename { file, to } => {
+        self.live(*file)?;
+
+        let _renamed = self.names.insert(*file, to.clone());
+      }
+      Operation::Delete { file } => {
+        self.live(*file)?;
+
+        let _removed = self.names.remove(file);
+      }
     }
 
-    fn record(&mut self, file: FileId, parent: Option<VersionId>, bytes: &[u8]) -> Result<VersionId, Never> {
-        let Ok(content) = self.digest.digest(bytes);
-        let _stored = self.contents.entry(content).or_insert_with(|| bytes.to_vec());
-        let mut named = Vec::new();
+    Ok(())
+  }
 
-        named.extend_from_slice(b"version\0");
-        named.extend_from_slice(&file.0);
+  fn record(
+    &mut self,
+    file: FileId,
+    parent: Option<VersionId>,
+    bytes: &[u8],
+  ) -> Result<VersionId, Never> {
+    let Ok(content) = self.digest.digest(bytes);
+    let _stored = self
+      .contents
+      .entry(content)
+      .or_insert_with(|| bytes.to_vec());
+    let parent_bytes = match &parent {
+      Some(VersionId(ContentHash(previous))) => previous,
+      None => &[0; 32],
+    };
+    let fields: [&[u8]; 4] = [b"version\0", &file.0, parent_bytes, &content.0];
+    let Ok(hash) = self.digest.digest_parts(fields);
+    let id = VersionId(hash);
+    let _fresh = self.versions.insert(
+      id,
+      Version {
+        id,
+        parent,
+        content,
+      },
+    );
 
-        match parent {
-            Some(VersionId(ContentHash(parent))) => named.extend_from_slice(&parent),
-            None => named.extend_from_slice(&[0; 32]),
-        }
+    Ok(id)
+  }
 
-        named.extend_from_slice(&content.0);
-
-        let Ok(hash) = self.digest.digest(&named);
-        let id = VersionId(hash);
-        let _fresh = self.versions.insert(id, Version { id, parent, content });
-
-        Ok(id)
+  fn live(&self, file: FileId) -> Result<VersionId, FilesError> {
+    match (self.names.get(&file), self.heads.get(&file)) {
+      (Some(_), Some(head)) => Ok(*head),
+      (None, Some(_)) => Err(FilesError::Deleted(file)),
+      (Some(_) | None, None) => Err(FilesError::NotFound(file)),
     }
+  }
 
-    fn live(&self, file: FileId) -> Result<VersionId, FilesError> {
-        match (self.names.contains_key(&file), self.heads.get(&file)) {
-            (true, Some(head)) => Ok(*head),
-            (false, Some(_)) => Err(FilesError::Deleted(file)),
-            (true | false, None) => Err(FilesError::NotFound(file)),
-        }
+  fn version(&self, id: VersionId) -> Result<Version, FilesError> {
+    match self.versions.get(&id) {
+      Some(version) => Ok(*version),
+      None => Err(FilesError::MissingVersion(id)),
     }
-
-    fn version(&self, id: VersionId) -> Result<Version, FilesError> {
-        match self.versions.get(&id) {
-            Some(version) => Ok(*version),
-            None => Err(FilesError::MissingVersion(id)),
-        }
-    }
+  }
 }
 
 impl fmt::Display for FilesError {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        to.write_str(match self {
-            FilesError::AlreadyExists(_) => "a file with that identity already exists",
-            FilesError::NotFound(_) => "there is no file with that identity",
-            FilesError::Deleted(_) => "the file was deleted",
-            FilesError::StaleVersion(_) => "the file has changed since the version the change was made against",
-            FilesError::MissingVersion(_) => "a version the history names is not stored",
-            FilesError::MissingContent(_) => "the content a version names is not stored",
-        })
-    }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    to.write_str(match self {
+      FilesError::AlreadyExists(_) => "a file with that identity already exists",
+      FilesError::NotFound(_) => "there is no file with that identity",
+      FilesError::Deleted(_) => "the file was deleted",
+      FilesError::StaleVersion(_) => {
+        "the file has changed since the version the change was made against"
+      }
+      FilesError::MissingVersion(_) => "a version the history names is not stored",
+      FilesError::MissingContent(_) => "the content a version names is not stored",
+    })
+  }
 }

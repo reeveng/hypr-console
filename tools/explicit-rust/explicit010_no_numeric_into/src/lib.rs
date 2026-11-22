@@ -1,10 +1,16 @@
 #![feature(rustc_private)]
 #![warn(unused_extern_crates)]
 
+extern crate rustc_errors;
 extern crate rustc_hir;
 extern crate rustc_middle;
+extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+#[path = "../../shared/primitive_conversion.rs"]
+mod primitive_conversion;
+
+use clippy_utils::diagnostics::span_lint_and_then;
+use rustc_errors::Applicability;
 use rustc_hir::{Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::Ty;
@@ -20,7 +26,10 @@ dylint_linting::declare_late_lint! {
 }
 
 fn is_numeric(ty: Ty<'_>) -> bool {
-    matches!(ty.kind(), rustc_middle::ty::Int(_) | rustc_middle::ty::Uint(_) | rustc_middle::ty::Float(_))
+    matches!(
+        ty.kind(),
+        rustc_middle::ty::Int(_) | rustc_middle::ty::Uint(_) | rustc_middle::ty::Float(_)
+    )
 }
 
 impl<'tcx> LateLintPass<'tcx> for Explicit010NoNumericInto {
@@ -37,13 +46,32 @@ impl<'tcx> LateLintPass<'tcx> for Explicit010NoNumericInto {
         if !is_numeric(from) || !is_numeric(to) || from == to {
             return;
         }
-        span_lint_and_help(
+        let standard_into = cx
+            .typeck_results()
+            .type_dependent_def_id(expr.hir_id)
+            .is_some_and(|method| {
+                cx.tcx
+                    .is_diagnostic_item(rustc_span::sym::Into, cx.tcx.parent(method))
+            });
+        span_lint_and_then(
             cx,
             EXPLICIT010_NO_NUMERIC_INTO,
             expr.span,
             format!("`into()` widens `{from}` to `{to}` without saying so at the call site"),
-            None,
-            "write the destination out -- `i64::from(x)` -- so the reader sees which two widths are in play",
+            |diag| {
+                if standard_into
+                    && let Some(edit) = primitive_conversion::replacement(cx, expr, receiver, None)
+                {
+                    diag.span_suggestion(
+                        expr.span,
+                        "name the lossless conversion",
+                        edit,
+                        Applicability::MachineApplicable,
+                    );
+                } else {
+                    diag.help("write the destination out -- `i64::from(x)` -- so the reader sees which two widths are in play");
+                }
+            },
         );
     }
 }

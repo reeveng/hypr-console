@@ -1,0 +1,35 @@
+warning: the mode `0o666` lets every user on the machine write to it
+  --> $DIR/main.rs:6:58
+   |
+LL |     OpenOptions::new().write(true).create_new(true).mode(0o666).open("settings")
+   |                                                          ^^^^^
+   |
+   = help: write the narrowest mode that does the job -- `0o600` for what one person keeps, `0o644` for what others read, `0o755` for what they run. Where a directory is shared on purpose, give it the sticky bit beside the write bit; where a program must run as its owner, allow this rule here and let the reason say who it becomes and why
+   = note: `#[warn(explicit101_no_open_mode)]` on by default
+
+warning: the mode `0o777` lets every user on the machine write to it
+  --> $DIR/main.rs:11:28
+   |
+LL |     Permissions::from_mode(0o777)
+   |                            ^^^^^
+   |
+   = help: write the narrowest mode that does the job -- `0o600` for what one person keeps, `0o644` for what others read, `0o755` for what they run. Where a directory is shared on purpose, give it the sticky bit beside the write bit; where a program must run as its owner, allow this rule here and let the reason say who it becomes and why
+
+warning: the mode `0o4755` sets the user or the group of whoever runs the file to its owner's
+  --> $DIR/main.rs:16:28
+   |
+LL |     Permissions::from_mode(0o4755)
+   |                            ^^^^^^
+   |
+   = help: write the narrowest mode that does the job -- `0o600` for what one person keeps, `0o644` for what others read, `0o755` for what they run. Where a directory is shared on purpose, give it the sticky bit beside the write bit; where a program must run as its owner, allow this rule here and let the reason say who it becomes and why
+
+warning: the mode `0o777` lets every user on the machine write to it
+  --> $DIR/main.rs:21:28
+   |
+LL |     DirBuilder::new().mode(0o777).create("shared")
+   |                            ^^^^^
+   |
+   = help: write the narrowest mode that does the job -- `0o600` for what one person keeps, `0o644` for what others read, `0o755` for what they run. Where a directory is shared on purpose, give it the sticky bit beside the write bit; where a program must run as its owner, allow this rule here and let the reason say who it becomes and why
+
+warning: 4 warnings emitted
+

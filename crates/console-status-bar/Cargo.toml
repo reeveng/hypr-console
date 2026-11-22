@@ -14,6 +14,8 @@ name = "console-bar"
 path = "src/bin/console-bar.rs"
 
 [dependencies]
+console-bluetooth.workspace = true
+console-bus.workspace = true
 console-core-fonts.workspace = true
 console-core-words.workspace = true
 console-core-color.workspace = true
@@ -43,6 +45,12 @@ console-panel.workspace = true
 console-events.workspace = true
 console-response-times.workspace = true
 console-program-contract.workspace = true
+console-core-atomic-writes.workspace = true
+console-core-bounded-reads.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
+console-core-localization.workspace = true
+console-core-places.workspace = true
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rustix.workspace = true
 
@@ -50,7 +58,6 @@ rustix.workspace = true
 workspace = true
 
 [dev-dependencies]
+console-bluetooth = { workspace = true, features = ["written"] }
+console-core-temporary-directories.workspace = true
 console-settings.workspace = true
-# The picture of the bar a test writes when someone asks to look at one,
-# written the way every other file on this desktop is.
-console-core-atomic-writes.workspace = true

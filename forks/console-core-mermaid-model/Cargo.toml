@@ -1,0 +1,128 @@
+[package]
+name = "console-core-mermaid-model"
+version = "0.10.0-alpha.2"
+edition = "2024"
+authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
+license = "AGPL-3.0-or-later"
+homepage = "https://github.com/Latias94/merman"
+repository = "https://github.com/Latias94/merman"
+rust-version = "1.95"
+description = "Canonical Mermaid data and shared controlled execution contracts."
+documentation = "https://docs.rs/merman-model"
+readme = "README.md"
+keywords = ["mermaid", "diagrams", "model"]
+categories = ["data-structures", "visualization"]
+
+[package.metadata.merman]
+artifact-profile-required = true
+
+[features]
+default = []
+all-diagrams = [
+    "diagram-agentflow",
+    "diagram-architecture",
+    "diagram-block",
+    "diagram-c4",
+    "diagram-class",
+    "diagram-cynefin",
+    "diagram-er",
+    "diagram-event-modeling",
+    "diagram-flowchart",
+    "diagram-gantt",
+    "diagram-git-graph",
+    "diagram-info",
+    "diagram-ishikawa",
+    "diagram-journey",
+    "diagram-kanban",
+    "diagram-mindmap",
+    "diagram-packet",
+    "diagram-pie",
+    "diagram-quadrant-chart",
+    "diagram-radar",
+    "diagram-railroad",
+    "diagram-requirement",
+    "diagram-sankey",
+    "diagram-sequence",
+    "diagram-state",
+    "diagram-swimlane",
+    "diagram-timeline",
+    "diagram-tree-view",
+    "diagram-treemap",
+    "diagram-usecase",
+    "diagram-venn",
+    "diagram-wardley",
+    "diagram-xychart",
+    "diagram-zenuml",
+]
+test-support = []
+presentation-data = []
+compat-json = ["presentation-data"]
+html-entities = ["dep:htmlize"]
+terminal-text = ["dep:unicode-segmentation", "dep:unicode-width"]
+diagram-architecture = []
+diagram-c4 = []
+diagram-cynefin = []
+diagram-event-modeling = []
+diagram-er = ["dep:indexmap"]
+diagram-state = ["dep:indexmap"]
+diagram-class = ["dep:indexmap"]
+diagram-flowchart = ["dep:indexmap", "dep:console-core-perfect-hash"]
+diagram-swimlane = ["dep:indexmap", "dep:console-core-perfect-hash"]
+diagram-agentflow = ["dep:indexmap", "dep:console-core-perfect-hash"]
+diagram-quadrant-chart = []
+diagram-requirement = []
+diagram-sankey = []
+diagram-venn = []
+diagram-wardley = []
+diagram-gantt = []
+diagram-git-graph = []
+diagram-sequence = []
+diagram-tree-view = []
+diagram-zenuml = []
+diagram-mindmap = []
+diagram-xychart = []
+diagram-block = ["dep:indexmap"]
+diagram-info = []
+diagram-ishikawa = []
+diagram-journey = []
+diagram-kanban = []
+diagram-packet = []
+diagram-pie = []
+diagram-radar = []
+diagram-railroad = []
+diagram-timeline = []
+diagram-treemap = []
+diagram-usecase = []
+operation-deadlines = ["dep:web-time"]
+system-clock = []
+system-timezone = [
+    "dep:jiff",
+    "jiff/std",
+    "jiff/tz-system",
+    "jiff/tz-fat",
+    "jiff/tzdb-bundle-platform",
+    "jiff/tzdb-zoneinfo",
+    "jiff/tzdb-concatenated",
+    "jiff/perf-inline",
+]
+system-random = ["dep:getrandom", "getrandom/std"]
+system-timing = ["dep:web-time"]
+
+[dependencies]
+htmlize = { version = "1.1.0", features = ["unescape"], optional = true }
+unicode-segmentation = { package = "console-core-text-boundaries", path = "../../crates/console-core-text-boundaries", version = "1.13.3", default-features = false, optional = true }
+unicode-width = { version = "0.2.3", default-features = false, optional = true }
+indexmap = { version = "2.14.2", features = ["serde"], optional = true }
+console-core-perfect-hash = { path = "../../crates/console-core-perfect-hash", features = ["std"], optional = true }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order", "float_roundtrip"] }
+thiserror = "2.0.21"
+jiff = { version = "0.2.39", default-features = false, optional = true }
+getrandom = { version = "0.4.3", default-features = false, optional = true }
+web-time = { version = "1.1.0", optional = true }
+
+[lib]
+name = "merman_model"
+
+[dependencies.console-core-checksums]
+path = "../../crates/console-core-checksums"

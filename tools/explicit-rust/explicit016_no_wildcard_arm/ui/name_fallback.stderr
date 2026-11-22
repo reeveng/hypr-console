@@ -1,0 +1,34 @@
+error: this arm matches every variant of the enum without naming one
+  --> $DIR/name_fallback.rs:7:9
+   |
+LL |         _ => 0,
+   |         ^ help: name the remaining variants: `::core::option::Option::None`
+   |
+   = note: `#[deny(explicit016_no_wildcard_arm)]` on by default
+
+error: this arm matches every variant of the enum without naming one
+  --> $DIR/name_fallback.rs:14:9
+   |
+LL |         other => other,
+   |         ^^^^^ help: name the remaining variants: `other @ (::core::result::Result::Ok(_) | ::core::result::Result::Err(_))`
+
+error: this arm matches every variant of the enum without naming one
+  --> $DIR/name_fallback.rs:21:9
+   |
+LL |         _ => false,
+   |         ^ help: name the remaining variants: `::core::option::Option::None | ::core::option::Option::Some(_)`
+
+error: this arm matches every variant of the enum without naming one
+  --> $DIR/name_fallback.rs:36:13
+   |
+LL |             _ => 0,
+   |             ^ help: name the remaining variants: `Self::Empty | Self::Tuple(..) | Self::Single(_)`
+
+error: this arm matches every variant of the enum without naming one
+  --> $DIR/name_fallback.rs:45:9
+   |
+LL |         other => other,
+   |         ^^^^^ help: name the remaining variants: `other @ (Local::Empty | Local::Tuple(..) | Local::Single(_))`
+
+error: aborting due to 5 previous errors
+

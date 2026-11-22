@@ -15,52 +15,53 @@ use console_input_gamepad::capture::load_capture;
 use console_input_gamepad::targets::ASKED;
 
 #[test]
-fn every_target_this_desktop_asks_for_is_on_the_device_wearing_what_it_says() -> Result<(), GamepadError> {
-    let every = load_capture()?;
+fn every_target_this_desktop_asks_for_is_on_the_device_wearing_what_it_says()
+-> Result<(), GamepadError> {
+  let every = load_capture()?;
 
-    for target in ASKED {
-        let Ok(identity) = target.identity();
-        let Ok(asked) = target.as_str();
+  for target in ASKED {
+    let Ok(identity) = target.identity();
+    let Ok(asked) = target.as_str();
 
-        let found = every
-            .values()
-            .find(|told| told.vendor == identity.vendor && told.product == identity.product);
+    let found = every
+      .values()
+      .find(|told| told.vendor == identity.vendor && told.product == identity.product);
 
-        assert!(
-            found.is_some(),
-            "the profile asks InputPlumber for {asked} and this desktop finds it by \
+    assert!(
+      found.is_some(),
+      "the profile asks InputPlumber for {asked} and this desktop finds it by \
              {:#06x}:{:#06x}, which nothing in the capture is wearing. Either InputPlumber \
              names it differently now or it makes it differently, and the daemon will open \
              someone else's device or none at all",
-            identity.vendor,
-            identity.product
-        );
-    }
+      identity.vendor,
+      identity.product
+    );
+  }
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn nothing_else_on_the_device_is_wearing_a_targets_numbers() -> Result<(), GamepadError> {
-    let every = load_capture()?;
+  let every = load_capture()?;
 
-    for target in ASKED {
-        let Ok(identity) = target.identity();
-        let Ok(asked) = target.as_str();
+  for target in ASKED {
+    let Ok(identity) = target.identity();
+    let Ok(asked) = target.as_str();
 
-        let wearing: Vec<&str> = every
-            .values()
-            .filter(|told| told.vendor == identity.vendor && told.product == identity.product)
-            .map(|told| told.name.as_str())
-            .collect();
+    let wearing: Vec<&str> = every
+      .values()
+      .filter(|told| told.vendor == identity.vendor && told.product == identity.product)
+      .map(|told| told.name.as_str())
+      .collect();
 
-        assert_eq!(
-            wearing.len(),
-            1,
-            "{asked} is found by two numbers and {wearing:?} answer to them, so which device \
+    assert_eq!(
+      wearing.len(),
+      1,
+      "{asked} is found by two numbers and {wearing:?} answer to them, so which device \
              the daemon opens is whichever the kernel lists first"
-        );
-    }
+    );
+  }
 
-    Ok(())
+  Ok(())
 }

@@ -1,0 +1,88 @@
+// run-rustfix
+// edition:2024
+
+use std::cell::Cell;
+use std::ops::AddAssign;
+
+fn read(byte: &u8) -> u8 { *byte }
+
+fn first(bytes: &[u8]) -> Option<u8> {
+    let checked_value = bytes.first()?;
+    Some(read(checked_value))
+}
+
+fn read_pair(first: u8, second: &u8) -> (u8, u8) { (first, *second) }
+
+fn ordered(trace: &Cell<u8>, bytes: &[u8]) -> Option<(u8, u8)> {
+    Some(read_pair(trace.replace(5), { let checked_value = bytes.first()?; checked_value }))
+}
+
+fn explicit_error(bytes: &[u8]) -> Result<u8, &'static str> {
+    let checked_value = bytes.first().ok_or("empty")?;
+    Ok(read(checked_value))
+}
+
+fn from_branch(bytes: &[u8], take: bool) -> Option<u8> {
+    let checked_value = (match take { true => bytes.first(), false => None })?;
+    Some(read(checked_value))
+}
+
+#[derive(Clone, Copy)]
+struct Pixel(u8);
+
+fn light(value: Option<Pixel>) -> Option<u8> {
+    let checked_value = value?;
+    Some(checked_value.0)
+}
+
+struct Counter<'a>(&'a Cell<u8>);
+
+impl AddAssign<u8> for Counter<'_> {
+    fn add_assign(&mut self, value: u8) { self.0.set(self.0.get() + value); }
+}
+
+fn next(trace: &Cell<u8>, succeed: bool) -> Option<u8> {
+    trace.set(trace.get() * 10 + 2);
+    succeed.then_some(4)
+}
+
+fn builtin(index: &Cell<u8>, output: &mut [u8; 1], succeed: bool) -> Option<()> {
+    output[{ index.set(index.get() * 10 + 1); 0 }] += { let checked_value = next(index, succeed)?; checked_value };
+    Some(())
+}
+
+fn overloaded(index: &Cell<u8>, output: &mut [Counter<'_>; 1], succeed: bool) -> Option<()> {
+    output[{ index.set(index.get() * 10 + 1); 0 }] += { let checked_value = next(index, succeed)?; checked_value };
+    Some(())
+}
+
+fn main() {
+    assert_eq!(first(&[7]), Some(7));
+    assert_eq!(first(&[]), None);
+    assert_eq!(explicit_error(&[3]), Ok(3));
+    assert_eq!(explicit_error(&[]), Err("empty"));
+    assert_eq!(from_branch(&[6], true), Some(6));
+    assert_eq!(from_branch(&[6], false), None);
+    let trace = Cell::new(1);
+    assert_eq!(ordered(&trace, &[9]), Some((1, 9)));
+    trace.set(3);
+    assert_eq!(ordered(&trace, &[]), None);
+    assert_eq!(trace.get(), 5);
+    assert_eq!(light(Some(Pixel(3))), Some(3));
+    assert_eq!(light(None), None);
+    let mut output = [1];
+    trace.set(0);
+    assert_eq!(builtin(&trace, &mut output, true), Some(()));
+    assert_eq!((trace.get(), output), (21, [5]));
+    trace.set(0);
+    assert_eq!(builtin(&trace, &mut output, false), None);
+    assert_eq!((trace.get(), output), (2, [5]));
+    let value = Cell::new(1);
+    let mut output = [Counter(&value)];
+    trace.set(0);
+    assert_eq!(overloaded(&trace, &mut output, true), Some(()));
+    assert_eq!((trace.get(), value.get()), (12, 5));
+    trace.set(0);
+    assert_eq!(overloaded(&trace, &mut output, false), None);
+    assert_eq!((trace.get(), value.get()), (12, 5));
+}

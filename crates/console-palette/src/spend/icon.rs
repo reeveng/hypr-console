@@ -1,12 +1,12 @@
 //! The box that stands where an application ships no icon.
 
-use console_core_color::Short;
 use crate::palette::Palette;
+use console_core_color::Short;
 
 pub fn spend(palette: &Palette) -> Result<String, Short> {
-    let edge = palette.must("edge")?;
-    Ok(format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  let edge = palette.must("edge")?;
+  Ok(format!(
+    r##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
   <!-- Written by console-palette. Where an icon would be, for an
        application that ships none. An empty box keeps the names in one column:
        without it those rows sit flush left and the list looks broken rather
@@ -16,33 +16,33 @@ pub fn spend(palette: &Palette) -> Result<String, Short> {
   <circle cx="32" cy="32" r="7" fill="#{edge}" fill-opacity="0.55"/>
 </svg>
 "##
-    ))
+  ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
-    use crate::spend::tests::blossom;
+  use super::*;
+  use crate::spend::tests::blossom;
+  use std::error::Error;
 
-    #[test]
-    fn it_is_drawn_in_the_one_color_a_border_is_drawn_in() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let svg = spend(&palette)?;
-        let edge = palette.must("edge")?;
+  #[test]
+  fn it_is_drawn_in_the_one_color_a_border_is_drawn_in() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let svg = spend(&palette)?;
+    let edge = palette.must("edge")?;
 
-        assert_eq!(svg.matches(&format!("#{}", edge)).count(), 2);
+    assert_eq!(svg.matches(&format!("#{}", edge)).count(), 2);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn it_sits_inside_its_own_box() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let svg = spend(&palette)?;
-        assert!(svg.contains(r#"viewBox="0 0 64 64""#));
-        assert!(svg.contains(r#"x="8.5""#) && svg.contains(r#"stroke-width="3""#));
+  #[test]
+  fn it_sits_inside_its_own_box() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let svg = spend(&palette)?;
+    assert!(svg.contains(r#"viewBox="0 0 64 64""#));
+    assert!(svg.contains(r#"x="8.5""#) && svg.contains(r#"stroke-width="3""#));
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

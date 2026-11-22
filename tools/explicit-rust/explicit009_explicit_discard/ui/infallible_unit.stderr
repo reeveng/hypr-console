@@ -1,0 +1,12 @@
+error: a `#[must_use]` value is being discarded silently
+  --> $DIR/infallible_unit.rs:25:5
+   |
+LL |     send(&counter);
+   |     -^^^^^^^^^^^^^^
+   |     |
+   |     help: acknowledge the only possible result: `let ::core::result::Result::Ok(()) =`
+   |
+   = note: `#[deny(explicit009_explicit_discard)]` on by default
+
+error: aborting due to 1 previous error
+

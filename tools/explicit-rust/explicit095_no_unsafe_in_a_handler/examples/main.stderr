@@ -1,0 +1,27 @@
+warning: `std::string::ToString::to_string` is called in a signal handler, where a lock held at that instant is held for good
+  --> $DIR/main.rs:23:16
+   |
+LL |     let said = number.to_string();
+   |                ^^^^^^^^^^^^^^^^^^
+   |
+   = help: store to an atomic or write a byte down a pipe, and let a thread that may do things do them; ask the kernel through `rustix`. Where the call is one POSIX lists as safe here, allow this rule at the call and let the reason say that it is
+   = note: `#[warn(explicit095_no_unsafe_in_a_handler)]` on by default
+
+warning: `tidy` is called in a signal handler, where a lock held at that instant is held for good
+  --> $DIR/main.rs:25:13
+   |
+LL |     let _ = tidy();
+   |             ^^^^^^
+   |
+   = help: store to an atomic or write a byte down a pipe, and let a thread that may do things do them; ask the kernel through `rustix`. Where the call is one POSIX lists as safe here, allow this rule at the call and let the reason say that it is
+
+warning: `std::env::var` is called between `fork` and `exec`, where a lock held at that instant is held for good
+  --> $DIR/main.rs:51:24
+   |
+LL |             let home = std::env::var("HOME");
+   |                        ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: store to an atomic or write a byte down a pipe, and let a thread that may do things do them; ask the kernel through `rustix`. Where the call is one POSIX lists as safe here, allow this rule at the call and let the reason say that it is
+
+warning: 3 warnings emitted
+

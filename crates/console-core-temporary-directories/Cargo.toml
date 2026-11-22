@@ -11,6 +11,7 @@ path = "src/lib.rs"
 
 [dependencies]
 console-core-never.workspace = true
+getrandom = "0.4"
 
 [lints]
 workspace = true

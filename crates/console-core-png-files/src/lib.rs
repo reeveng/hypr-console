@@ -3,7 +3,7 @@
 //! A screenshot is a PNG, and so is most of what a person saves off a page or
 //! is sent in a chat. Every one of them was read by ffmpeg, after ffprobe had
 //! been asked how big it was: two programs started to read a format that is a
-//! few chunks and a deflate stream, which `console-core-zip-files` already
+//! few chunks and a deflate stream, which `console-core-deflate` already
 //! undoes for the books.
 //!
 //! [`decoded`] reads the whole picture into RGBA, eight bits a channel,
@@ -26,7 +26,7 @@
 //!
 //! [`encoded`] is the other way: RGBA written as a PNG at eight bits a channel,
 //! with only the channels the picture uses, each row filtered whichever way
-//! leaves it smallest and the whole deflated by `console-core-zip-files`. It
+//! leaves it smallest and the whole deflated by `console-core-deflate`. It
 //! is what a thumbnail and an edited photograph are saved as, where ffmpeg and
 //! the image crate wrote them before.
 
@@ -34,157 +34,207 @@ mod chunks;
 mod filters;
 mod pixels;
 
-use console_core_checksums::adler32;
+use console_core_deflate::{DeflateError, zlib};
 use console_core_geometry::Size;
-use console_core_zip_files::ZipError;
-use console_core_zip_files::deflate::deflate;
-use console_core_zip_files::inflate::inflate;
+use console_core_number_conversion::index;
+use console_core_pixel_buffers::{BYTES_PER_PIXEL, Packing};
 
 use crate::chunks::{Header, Lacing};
 
 const MOST_BYTES: u64 = 1 << 30;
 
-const RGBA: u64 = 4;
-
-const ZLIB_HEADER: [u8; 2] = [0x78, 0x9C];
-
 const EIGHT_BITS: u32 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PngError {
-    NotAPng,
-    Truncated,
-    Corrupt,
-    TooLarge,
-    Mismatched,
-    InvalidText,
-    Deflate(ZipError),
+  NotGreyscale,
+  NotAPng,
+  Truncated,
+  Corrupt,
+  TooLarge,
+  Mismatched,
+  InvalidText,
+  Deflate(DeflateError),
 }
 
 impl std::fmt::Display for PngError {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PngError::NotAPng => write!(to, "this is not a PNG"),
-            PngError::Truncated => write!(to, "the file ends before the picture in it does"),
-            PngError::Corrupt => write!(to, "the picture in here is damaged"),
-            PngError::TooLarge => write!(to, "this picture would take more memory than any picture"),
-            PngError::Mismatched => write!(to, "the pixels handed over are not the picture their size says"),
-            PngError::InvalidText => write!(to, "the text is not a PNG keyword and Latin-1 value"),
-            PngError::Deflate(why) => write!(to, "the pixels could not be deflated: {why}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      PngError::NotAPng => write!(to, "this is not a PNG"),
+      PngError::Truncated => write!(to, "the file ends before the picture in it does"),
+      PngError::Corrupt => write!(to, "the picture in here is damaged"),
+      PngError::TooLarge => write!(to, "this picture would take more memory than any picture"),
+      PngError::Mismatched => write!(
+        to,
+        "the pixels handed over are not the picture their size says"
+      ),
+      PngError::NotGreyscale => write!(to, "expected a greyscale PNG without transparency"),
+      PngError::InvalidText => write!(to, "the text is not a PNG keyword and Latin-1 value"),
+      PngError::Deflate(why) => write!(to, "the pixels could not be deflated: {why}"),
     }
+  }
 }
 
 impl std::error::Error for PngError {}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Picture {
-    pub size: Size<u32>,
-    pub rgba: Vec<u8>,
-}
+pub use console_core_pixel_buffers::PackedPixels as Picture;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Text<'a> {
-    pub keyword: &'a str,
-    pub value: &'a str,
+  pub keyword: &'a str,
+  pub value: &'a str,
 }
 
 pub fn measured(bytes: &[u8]) -> Result<Size<u32>, PngError> {
-    let header = chunks::header(bytes)?;
+  let header = chunks::header(bytes)?;
 
-    Ok(header.size)
+  Ok(header.size)
 }
 
 pub fn decoded(bytes: &[u8]) -> Result<Picture, PngError> {
-    let mut read = chunks::read(bytes)?;
-    let filtered = filters::filtered_length(&read.header)?;
+  decoded_rgba(bytes, Reduction::Nearest)
+}
 
-    affordable(&read.header, filtered)?;
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Reduction {
+  Nearest,
+  HighByte,
+}
 
-    let unpacked = unpacked(std::mem::take(&mut read.packed), filtered)?;
-    let rgba = pixels::painted(&read, unpacked)?;
+pub fn decoded_rgba(bytes: &[u8], reduction: Reduction) -> Result<Picture, PngError> {
+  let read = chunks::read(bytes)?;
+  decoded_pixels(read, reduction)
+}
 
-    Ok(Picture { size: read.header.size, rgba })
+pub fn decoded_greyscale(bytes: &[u8]) -> Result<(Size<u32>, Vec<u8>), PngError> {
+  let read = chunks::read(bytes)?;
+
+  match (read.header.color, read.key) {
+    (chunks::Color::Grey, None) => {}
+    _ => return Err(PngError::NotGreyscale),
+  }
+
+  let picture = decoded_pixels(read, Reduction::HighByte)?;
+  let grey = picture
+    .bytes
+    .as_chunks::<4>()
+    .0
+    .iter()
+    .map(|[grey, ..]| *grey)
+    .collect();
+  Ok((picture.size, grey))
+}
+
+fn decoded_pixels(mut read: chunks::Read, reduction: Reduction) -> Result<Picture, PngError> {
+  let filtered = filters::filtered_length(&read.header)?;
+
+  let rgba_bytes = affordable(&read.header, filtered)?;
+  let unpacked = unpacked(std::mem::take(&mut read.packed), filtered)?;
+  let Ok(length) = index(rgba_bytes);
+  #[cfg_attr(
+    dylint_lib = "explicit088_no_arriving_length",
+    expect(
+      explicit088_no_arriving_length,
+      reason = "affordable checks the combined byte count of the RGBA output and inflated rows against MOST_BYTES and returns the checked RGBA length"
+    )
+  )]
+  let mut rgba = vec![0u8; length];
+
+  pixels::painted(&read, unpacked, &mut rgba, reduction)?;
+
+  Ok(Picture {
+    size: read.header.size,
+    bytes: rgba,
+  })
 }
 
 pub fn encoded(picture: &Picture) -> Result<Vec<u8>, PngError> {
-    encoded_with_text(picture, &[])
+  encoded_with_text(picture, &[])
 }
 
 pub fn encoded_with_text(picture: &Picture, text: &[Text<'_>]) -> Result<Vec<u8>, PngError> {
-    let Picture { size, rgba } = picture;
-    let area = u64::from(size.width).saturating_mul(u64::from(size.height));
+  let Ok(packing) = picture.packing();
 
-    match (area > 0, u64::try_from(rgba.len()) == Ok(area.saturating_mul(RGBA))) {
-        (true, true) => {},
-        (false, _) | (true, false) => return Err(PngError::Mismatched),
-    }
+  match packing {
+    Packing::Complete => {}
+    Packing::Mismatched => return Err(PngError::Mismatched),
+  }
 
-    let Ok(kept) = pixels::fewest(rgba);
-    let Ok(color) = kept.color();
-    let header = Header { size: *size, depth: EIGHT_BITS, color, lacing: Lacing::Straight };
-    let filtered = filters::filtered_length(&header)?;
+  let Ok(kept) = pixels::fewest(&picture.bytes);
+  let Ok(color) = kept.color();
+  let header = encoding_header(picture.size, color)?;
+  let Ok(raw) = pixels::unpainted(&picture.bytes, kept);
+  write_channels(&header, &raw, text)
+}
 
-    affordable(&header, filtered)?;
+pub fn encoded_rgba(size: Size<u32>, bytes: &[u8]) -> Result<Vec<u8>, PngError> {
+  let header = encoding_header(size, chunks::Color::Rgba)?;
+  write_channels(&header, bytes, &[])
+}
 
-    let Ok(raw) = pixels::unpainted(rgba, kept);
-    let Ok(filtered) = filters::filtered(&raw, &header);
-    let packed = packed(&filtered)?;
+pub fn encoded_greyscale(size: Size<u32>, bytes: &[u8]) -> Result<Vec<u8>, PngError> {
+  let header = encoding_header(size, chunks::Color::Grey)?;
+  write_channels(&header, bytes, &[])
+}
 
-    chunks::written(&header, &packed, text)
+fn encoding_header(size: Size<u32>, color: chunks::Color) -> Result<Header, PngError> {
+  let header = Header {
+    size,
+    depth: EIGHT_BITS,
+    color,
+    lacing: Lacing::Straight,
+  };
+  let filtered = filters::filtered_length(&header)?;
+
+  let _rgba_bytes = affordable(&header, filtered)?;
+
+  Ok(header)
+}
+
+fn write_channels(header: &Header, raw: &[u8], text: &[Text<'_>]) -> Result<Vec<u8>, PngError> {
+  let size = header.size;
+  let Ok(row_bytes) = filters::row_length(header, size.width);
+  let Ok(length) = console_core_number_conversion::fixed_index(raw.len());
+  let expected = row_bytes.checked_mul(u64::from(size.height));
+
+  match ::core::primitive::bool::then_some(expected == Some(length) && size.width > 0 && size.height > 0, ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => return Err(PngError::Mismatched),
+  }
+
+  let Ok(filtered) = filters::filtered(raw, header);
+  let packed = packed(&filtered)?;
+
+  chunks::written(header, &packed, text)
 }
 
 fn packed(filtered: &[u8]) -> Result<Vec<u8>, PngError> {
-    let deflated = match deflate(filtered) {
-        Ok(deflated) => deflated,
-        Err(why) => return Err(PngError::Deflate(why)),
-    };
-
-    let Ok(sum) = adler32::of(filtered);
-    let mut packed = Vec::with_capacity(deflated.len().saturating_add(6));
-
-    packed.extend_from_slice(&ZLIB_HEADER);
-    packed.extend_from_slice(&deflated);
-    packed.extend_from_slice(&sum.to_be_bytes());
-
-    Ok(packed)
+  zlib::encode(filtered).map_err(PngError::Deflate)
 }
 
-fn affordable(header: &Header, filtered: u64) -> Result<(), PngError> {
-    let area = u64::from(header.size.width).saturating_mul(u64::from(header.size.height));
+fn affordable(header: &Header, filtered: u64) -> Result<u64, PngError> {
+  let area = u64::from(header.size.width).saturating_mul(u64::from(header.size.height));
+  let rgba = area.saturating_mul(u64::from(BYTES_PER_PIXEL));
 
-    match area.saturating_mul(RGBA).saturating_add(filtered) <= MOST_BYTES {
-        true => Ok(()),
-        false => Err(PngError::TooLarge),
-    }
+  match ::core::primitive::bool::then_some(rgba.saturating_add(filtered) <= MOST_BYTES, ()) {
+    ::core::option::Option::Some(()) => Ok(rgba),
+    ::core::option::Option::None => Err(PngError::TooLarge),
+  }
 }
 
 fn unpacked(packed: Vec<u8>, filtered: u64) -> Result<Vec<u8>, PngError> {
-    let (method, flags, stream) = match packed.as_slice() {
-        [method, flags, stream @ ..] => (*method, *flags, stream),
-        _ => return Err(PngError::Truncated),
-    };
+  let size = match u32::try_from(filtered) {
+    Ok(size) => size,
+    Err(_more_than_four_gigabytes) => return Err(PngError::TooLarge),
+  };
+  let unpacked = match zlib::decode(&packed, size) {
+    Ok(unpacked) => unpacked,
+    Err(DeflateError::Truncated) => return Err(PngError::Truncated),
+    Err(_damaged) => return Err(PngError::Corrupt),
+  };
 
-    let checked = u16::from_be_bytes([method, flags]).checked_rem(31);
-
-    match (method & 0x0F, method.wrapping_shr(4) <= 7, flags & 0x20, checked) {
-        (8, true, 0, Some(0)) => {},
-        (_, _, _, _) => return Err(PngError::Corrupt),
-    }
-
-    let size = match u32::try_from(filtered) {
-        Ok(size) => size,
-        Err(_more_than_four_gigabytes) => return Err(PngError::TooLarge),
-    };
-
-    let unpacked = match inflate(stream, size) {
-        Ok(unpacked) => unpacked,
-        Err(ZipError::Truncated) => return Err(PngError::Truncated),
-        Err(_damaged) => return Err(PngError::Corrupt),
-    };
-
-    match u64::try_from(unpacked.len()) == Ok(filtered) {
-        true => Ok(unpacked),
-        false => Err(PngError::Truncated),
-    }
+  match ::core::primitive::bool::then_some(u64::try_from(unpacked.len()) == Ok(filtered), ()) {
+    ::core::option::Option::Some(()) => Ok(unpacked),
+    ::core::option::Option::None => Err(PngError::Truncated),
+  }
 }

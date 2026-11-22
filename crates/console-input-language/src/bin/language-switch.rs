@@ -40,88 +40,96 @@ use console_input_alphabets::wearing;
 use console_input_language::{COMMAND, Switch, along, at, layouts};
 
 fn main() -> std::process::ExitCode {
-    let words: Vec<String> = std::env::args().skip(1).collect();
-    let switch = match console_core_arguments::read(&COMMAND, &words).and_then(|line| Switch::of(&line)) {
-        Ok(switch) => switch,
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
+  let words: Vec<String> = std::env::args().skip(1).collect();
+  let switch =
+    match console_core_arguments::read(&COMMAND, &words).and_then(|line| Switch::of(&line)) {
+      Ok(switch) => switch,
+      Err(refusal) => {
+        let Ok(code) = refusal.print();
 
-            return std::process::ExitCode::from(code);
-        }
+        return std::process::ExitCode::from(code);
+      }
     };
 
-    let keyboards = match console_compositor::ask(console_compositor::Devices) {
-        Ok(keyboards) => keyboards,
-        Err(fault) => {
-            eprintln!("language-switch: {fault}");
-            return std::process::ExitCode::FAILURE;
-        }
+  let keyboards = match console_compositor::ask(console_compositor::Devices) {
+    Ok(keyboards) => keyboards,
+    Err(fault) => {
+      eprintln!("language-switch: {fault}");
+      return std::process::ExitCode::FAILURE;
+    }
+  };
+  let Ok(walk) = console_input_alphabets::current();
+  let Ok(said) = layouts(&walk);
+  let Ok(found_home) = console_core_places::home();
+
+  let home = match found_home {
+    Some(directory) => directory,
+    None => {
+      eprintln!("language-switch: no one's home is known, so nothing can be remembered");
+      return std::process::ExitCode::FAILURE;
+    }
+  };
+
+  let Ok(every) = wearing::every(&home);
+
+  for keyboard in &keyboards {
+    let Ok(worn) = wearing::among(&every, &keyboard.name, &walk);
+
+    let Ok(wants) = match switch {
+      Switch::Settle => Ok(worn),
+      Switch::Along(way) => along(&walk, worn, way),
     };
-    let Ok(walk) = console_input_alphabets::current();
-    let Ok(said) = layouts(&walk);
-    let Ok(home) = console_core_places::home();
 
-    let home = match home {
-        Some(home) => home,
-        None => {
-            eprintln!("language-switch: no one's home is known, so nothing can be remembered");
-            return std::process::ExitCode::FAILURE;
-        }
-    };
+    let Ok(told) =
+      console_compositor::set_layouts(&keyboard.name, console_compositor::Layouts(&said));
 
-    let Ok(every) = wearing::every(&home);
-
-    for keyboard in &keyboards {
-        let Ok(worn) = wearing::among(&every, &keyboard.name, &walk);
-
-        let Ok(wants) = match switch {
-            Switch::Settle => Ok(worn),
-            Switch::Along(way) => along(&walk, worn, way),
-        };
-
-        let Ok(told) = console_compositor::set_layouts(&keyboard.name, console_compositor::Layouts(&said));
-
-        match told {
-            console_compositor::DispatchResult::Success => {},
-            console_compositor::DispatchResult::Failure(why) => {
-                eprintln!("language-switch: {} would not take {said:?}: {why}", keyboard.name);
-                continue;
-            }
-        }
-
-        let Ok(which) = at(&walk, wants);
-        let Ok(switched) = console_compositor::switch_layout(&keyboard.name, which);
-
-        match switched {
-            console_compositor::DispatchResult::Success => {},
-            console_compositor::DispatchResult::Failure(why) => {
-                eprintln!("language-switch: {} would not wear {}: {why}", keyboard.name, wants.key);
-                continue;
-            }
-        }
-
-        match wearing::remember(&home, &keyboard.name, wants) {
-            Ok(()) => {},
-            Err(fault) => eprintln!("language-switch: {fault}"),
-        }
-
-        match keyboard.leading {
-            console_compositor::Leading::No => {},
-            console_compositor::Leading::Yes => {
-                match wearing::remember(&home, wearing::SCREEN, wants) {
-                    Ok(()) => {},
-                    Err(fault) => eprintln!("language-switch: {fault}"),
-                }
-            }
-        }
-
-        println!("{} is typing {}", keyboard.name, wants.says);
+    match told {
+      console_compositor::DispatchResult::Success => {}
+      console_compositor::DispatchResult::Failure(why) => {
+        eprintln!(
+          "language-switch: {} would not take {said:?}: {why}",
+          keyboard.name
+        );
+        continue;
+      }
     }
 
-    match keyboards.is_empty() {
-        true => eprintln!("language-switch: the compositor lists no keyboard at all"),
-        false => {},
+    let Ok(which) = at(&walk, wants);
+    let Ok(switched) = console_compositor::switch_layout(&keyboard.name, which);
+
+    match switched {
+      console_compositor::DispatchResult::Success => {}
+      console_compositor::DispatchResult::Failure(why) => {
+        eprintln!(
+          "language-switch: {} would not wear {}: {why}",
+          keyboard.name, wants.key
+        );
+        continue;
+      }
     }
 
-    std::process::ExitCode::SUCCESS
+    match wearing::remember(&home, &keyboard.name, wants) {
+      Ok(()) => {}
+      Err(fault) => eprintln!("language-switch: {fault}"),
+    }
+
+    match keyboard.leading {
+      console_compositor::Leading::No => {}
+      console_compositor::Leading::Yes => {
+        match wearing::remember(&home, wearing::SCREEN, wants) {
+          Ok(()) => {}
+          Err(fault) => eprintln!("language-switch: {fault}"),
+        }
+      }
+    }
+
+    println!("{} is typing {}", keyboard.name, wants.says);
+  }
+
+  match keyboards.as_slice() {
+    [] => eprintln!("language-switch: the compositor lists no keyboard at all"),
+    [_first, ..] => {}
+  }
+
+  std::process::ExitCode::SUCCESS
 }

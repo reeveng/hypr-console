@@ -1,0 +1,28 @@
+warning: a fault or a value the type says not to drop, discarded with nothing said
+  --> $DIR/infallible_unit.rs:25:5
+   |
+LL |     let _ = send(&counter);
+   |     ^^^^-^^^^^^^^^^^^^^^^^^
+   |         |
+   |         help: acknowledge the only possible result: `::core::result::Result::Ok(())`
+   |
+   = note: `#[warn(explicit060_no_reasonless_discard)]` on by default
+
+warning: a fault or a value the type says not to drop, discarded with nothing said
+  --> $DIR/infallible_unit.rs:26:5
+   |
+LL |     let _ = Result::<(), Infallible>::Ok(());
+   |     ^^^^-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |         |
+   |         help: acknowledge the only possible result: `::core::result::Result::Ok(())`
+
+warning: a fault or a value the type says not to drop, discarded with nothing said
+  --> $DIR/infallible_unit.rs:28:5
+   |
+LL |     let _: Result<_, Infallible> = Ok(CountOnDrop(&counter));
+   |     ^^^^-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |         |
+   |         help: acknowledge the only possible result: `::core::result::Result::Ok(_)`
+
+warning: 3 warnings emitted
+

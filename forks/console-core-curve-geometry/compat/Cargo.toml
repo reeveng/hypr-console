@@ -1,0 +1,21 @@
+[package]
+name = "kurbo"
+version = "0.13.1"
+edition = "2024"
+rust-version = "1.85"
+description = "Cargo compatibility package for the console curve geometry fork"
+# The upstream copyright and permission notices remain with the source.
+license = "AGPL-3.0-or-later"
+publish = false
+
+[features]
+default = ["std"]
+euclid = ["curve-geometry/euclid"]
+libm = ["curve-geometry/libm"]
+mint = ["curve-geometry/mint"]
+schemars = ["curve-geometry/schemars"]
+serde = ["curve-geometry/serde"]
+std = ["curve-geometry/std"]
+
+[dependencies]
+curve-geometry = { package = "console-core-curve-geometry", path = "..", default-features = false }

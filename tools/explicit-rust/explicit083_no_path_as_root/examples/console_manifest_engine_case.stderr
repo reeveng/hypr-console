@@ -1,0 +1,43 @@
+warning: `std::fs::read_to_string` walks a path as root, and the walk is whatever is there when it is made
+  --> $DIR/console_manifest_engine_case.rs:7:5
+   |
+LL |     std::fs::read_to_string(at)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: open the directory once and reach what is under it from that descriptor, with a walk that may not leave it and follows no link (`openat2` and `RESOLVE_BENEATH`), then ask and change the thing that was opened (`fchown`, `fchmod`, `fstat`) rather than its name. Where nobody but root can write to any directory on the way, allow this rule here and let the reason name the directory
+   = note: `#[warn(explicit083_no_path_as_root)]` on by default
+
+warning: `std::fs::File::open` walks a path as root, and the walk is whatever is there when it is made
+  --> $DIR/console_manifest_engine_case.rs:12:5
+   |
+LL |     File::open(at)
+   |     ^^^^^^^^^^^^^^
+   |
+   = help: open the directory once and reach what is under it from that descriptor, with a walk that may not leave it and follows no link (`openat2` and `RESOLVE_BENEATH`), then ask and change the thing that was opened (`fchown`, `fchmod`, `fstat`) rather than its name. Where nobody but root can write to any directory on the way, allow this rule here and let the reason name the directory
+
+warning: `std::os::unix::fs::chown` walks a path as root, and the walk is whatever is there when it is made
+  --> $DIR/console_manifest_engine_case.rs:17:5
+   |
+LL |     std::os::unix::fs::chown(at, Some(1000), Some(1000))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: open the directory once and reach what is under it from that descriptor, with a walk that may not leave it and follows no link (`openat2` and `RESOLVE_BENEATH`), then ask and change the thing that was opened (`fchown`, `fchmod`, `fstat`) rather than its name. Where nobody but root can write to any directory on the way, allow this rule here and let the reason name the directory
+
+warning: `std::path::Path::metadata` walks a path as root, and the walk is whatever is there when it is made
+  --> $DIR/console_manifest_engine_case.rs:22:16
+   |
+LL |     let held = at.metadata()?;
+   |                ^^^^^^^^^^^^^
+   |
+   = help: open the directory once and reach what is under it from that descriptor, with a walk that may not leave it and follows no link (`openat2` and `RESOLVE_BENEATH`), then ask and change the thing that was opened (`fchown`, `fchmod`, `fstat`) rather than its name. Where nobody but root can write to any directory on the way, allow this rule here and let the reason name the directory
+
+warning: `std::fs::remove_dir_all` walks a path as root, and the walk is whatever is there when it is made
+  --> $DIR/console_manifest_engine_case.rs:29:5
+   |
+LL |     std::fs::remove_dir_all(at)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: open the directory once and reach what is under it from that descriptor, with a walk that may not leave it and follows no link (`openat2` and `RESOLVE_BENEATH`), then ask and change the thing that was opened (`fchown`, `fchmod`, `fstat`) rather than its name. Where nobody but root can write to any directory on the way, allow this rule here and let the reason name the directory
+
+warning: 5 warnings emitted
+

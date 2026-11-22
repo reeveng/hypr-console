@@ -1,0 +1,77 @@
+warning: blocking call in machine initialization
+  --> $DIR/handlers.rs:26:9
+   |
+LL |         startup();
+   |         ^^^^^^^^^
+   |
+note: this helper reaches a blocking operation
+  --> $DIR/handlers.rs:56:13
+   |
+LL |     let _ = std::fs::read_to_string("settings");
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: offer a read effect and deliver the data or error as another request
+   = note: `#[warn(explicit105_no_blocking_in_handler)]` on by default
+
+warning: blocking call in an event handler
+  --> $DIR/handlers.rs:31:9
+   |
+LL |         wait(WAIT);
+   |         ^^^^^^^^^^
+   |
+   = help: schedule `Subscription::Once` and continue on its `Event::Tick`
+
+warning: blocking call in an event handler
+  --> $DIR/handlers.rs:32:17
+   |
+LL |         let _ = request.events.recv_timeout(WAIT);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: offer an effect for the driver to perform and handle its outcome as another request
+
+warning: blocking call in an event handler
+  --> $DIR/handlers.rs:33:17
+   |
+LL |         let _ = Receiver::recv_timeout(&request.events, WAIT);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: offer an effect for the driver to perform and handle its outcome as another request
+
+warning: blocking call in an event handler
+  --> $DIR/handlers.rs:36:22
+   |
+LL |         let _guard = mutex.lock();
+   |                      ^^^^^^^^^^^^
+   |
+   = help: offer an effect for the driver to perform and handle its outcome as another request
+
+warning: blocking call in an event handler
+  --> $DIR/handlers.rs:37:17
+   |
+LL |         let _ = request.actor.get();
+   |                 ^^^^^^^^^^^^^^^^^^^
+   |
+   = help: offer an effect for the driver to perform and handle its outcome as another request
+
+warning: blocking call in an event handler
+  --> $DIR/handlers.rs:38:17
+   |
+LL |         let _ = request.completions.recv_timeout(WAIT);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: offer an effect for the driver to perform and handle its outcome as another request
+
+warning: blocking call in an event handler
+  --> $DIR/handlers.rs:41:9
+   |
+LL |         query();
+   |         ^^^^^^^
+   |
+note: this helper reaches a blocking operation
+  --> $DIR/handlers.rs:60:13
+   |
+LL |     let _ = std::process::Command::new("example").output();
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: offer `Effect::Run` or `Effect::Fork` and handle the result in `Event::Replied`
+
+warning: 8 warnings emitted
+

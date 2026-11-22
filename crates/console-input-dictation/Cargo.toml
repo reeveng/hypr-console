@@ -28,10 +28,9 @@ console-defaults.workspace = true
 console-core-internal-programs.workspace = true
 console-core-number-conversion.workspace = true
 console-core-places.workspace = true
-console-waiting.workspace = true
 console-response-times.workspace = true
 console-program-contract.workspace = true
-console-program-runtime.workspace = true
+console-operating-system-linux.workspace = true
 rustix.workspace = true
 console-core-state-machine.workspace = true
 

@@ -15,38 +15,38 @@
 
 mod reading;
 
-use reading::{Failure, read, Section, section};
+use reading::{Failure, Section, read, section};
 
 fn packages() -> Result<Vec<String>, Failure> {
-    let held = read("desktop.conf")?;
-    let named = section(&held, Section::Packages)?;
+  let held = read("desktop.conf")?;
+  let named = section(&held, Section::Packages)?;
 
-    Ok(named)
+  Ok(named)
 }
 
 #[test]
 fn the_fonts_that_draw_thai_are_installed() -> Result<(), Failure> {
-    let packages = packages()?;
+  let packages = packages()?;
 
-    assert!(
-        packages.iter().any(|name| name == "noto-fonts"),
-        "nothing on the machine draws Thai: the keys and everything typed with them come out as \
+  assert!(
+    packages.iter().any(|name| name == "noto-fonts"),
+    "nothing on the machine draws Thai: the keys and everything typed with them come out as \
          empty boxes"
-    );
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn the_symbols_the_keyboard_composes_from_are_installed() -> Result<(), Failure> {
-    let packages = packages()?;
+  let packages = packages()?;
 
-    assert!(
-        packages.iter().any(|name| name == "xkeyboard-config"),
-        "the manifest does not ask for xkeyboard-config, which is where every alphabet the \
+  assert!(
+    packages.iter().any(|name| name == "xkeyboard-config"),
+    "the manifest does not ask for xkeyboard-config, which is where every alphabet the \
          keyboard offers comes from. Without it there is no keymap to compose and the keyboard \
          says so and stops."
-    );
+  );
 
-    Ok(())
+  Ok(())
 }

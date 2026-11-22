@@ -8,18 +8,18 @@ use console_test_stages::here::Here;
 use crate::picker::{Expected, opens};
 
 pub const GUIDE: Check = Check {
-    name: "050-the-guide",
-    about: "The Menu button opens the guide to what every button does.",
-    feature: "guide",
-    since: "2026-08-26",
-    bodies: &[Body::Here(here), Body::Device(there)],
+  name: "050-the-guide",
+  about: "The Menu button opens the guide to what every button does.",
+  feature: "guide",
+  since: "2026-08-26",
+  bodies: &[Body::Here(here), Body::Device(there)],
 };
 
 fn here(stage: &mut Here) -> CheckResult {
-    stage.press("menu")?;
-    stage.ran(&[&["/usr/local/bin/mapping-panel"]])
+  stage.press("menu")?;
+  stage.ran(&[&["/usr/local/bin/mapping-panel"]])
 }
 
 fn there(stage: &mut Device) -> CheckResult {
-    opens(stage, "menu", Expected("guide"))
+  opens(stage, "menu", Expected("guide"))
 }

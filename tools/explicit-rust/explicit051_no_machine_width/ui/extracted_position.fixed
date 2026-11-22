@@ -1,0 +1,29 @@
+// run-rustfix
+// edition:2024
+
+use std::convert::Infallible;
+
+#[allow(explicit051_no_machine_width)]
+type Position = usize;
+
+fn index(value: u8) -> Result<Position, Infallible> {
+    Ok(value.into())
+}
+
+fn wrapped(value: u8) -> Result<Position, Infallible> {
+    #[allow(explicit051_no_machine_width)]
+    let Ok(position) = index(value);
+    Ok(position.wrapping_mul(8))
+}
+
+fn optional(position: Option<Position>) -> Position {
+    #[allow(explicit051_no_machine_width)]
+    let Some(offset) = position else { return 0 };
+    offset.wrapping_add(4)
+}
+
+fn main() {
+    assert_eq!(wrapped(3), Ok(24));
+    assert_eq!(optional(Some(Position::MAX)), 3);
+    assert_eq!(optional(None), 0);
+}

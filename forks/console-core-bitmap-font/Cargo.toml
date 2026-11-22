@@ -1,0 +1,17 @@
+[package]
+name = "console-core-bitmap-font"
+version = "0.3.1"
+edition = "2015"
+authors = ["Joaquin Rosales <casabenita7@gmail.com>", "Philipp Oppermann <dev@phil-opp.com>", "Jonathan Pallant <github@thejpster.org.uk>"]
+description = "8x8 monochrome bitmap font for rendering."
+license = "AGPL-3.0-or-later"
+repository = "https://gitlab.com/saibatizoku/font8x8-rs"
+
+[workspace]
+
+[dependencies]
+
+[features]
+default = ["unicode", "std"]
+std = []
+unicode = []

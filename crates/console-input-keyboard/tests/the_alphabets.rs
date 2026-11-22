@@ -41,117 +41,126 @@ use std::process::Command;
 type Failure = Box<dyn Error>;
 
 fn layers() -> Result<BTreeSet<String>, Failure> {
-    let listed = Command::new(env!("CARGO_BIN_EXE_console-keyboard"))
-        .arg("--list-layers")
-        .output()?;
+  let listed = Command::new(env!("CARGO_BIN_EXE_console-keyboard"))
+    .arg("--list-layers")
+    .output()?;
 
-    assert!(listed.status.success(), "--list-layers did not answer: {listed:?}");
+  assert!(
+    listed.status.success(),
+    "--list-layers did not answer: {listed:?}"
+  );
 
-    Ok(String::from_utf8_lossy(&listed.stdout).split_whitespace().map(str::to_string).collect())
+  let names = std::str::from_utf8(&listed.stdout)?;
+
+  Ok(names.split_whitespace().map(str::to_string).collect())
 }
 
 #[test]
 fn the_keyboard_knows_thai() -> Result<(), Failure> {
-    let layers = layers()?;
-    assert!(
-        layers.iter().any(|layer| layer == "thai"),
-        "the keyboard has no thai layer, only {layers:?}. It is the only keyboard on this device \
+  let layers = layers()?;
+  assert!(
+    layers.iter().any(|layer| layer == "thai"),
+    "the keyboard has no thai layer, only {layers:?}. It is the only keyboard on this device \
          and she writes Thai."
-    );
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn the_latin_layers_are_still_there() -> Result<(), Failure> {
-    let layers = layers()?;
+  let layers = layers()?;
 
-    for wanted in ["full", "landscape", "landscapespecial", "special"] {
-        assert!(
-            layers.contains(wanted),
-            "the keyboard lost its {wanted} layer, and has {layers:?}"
-        );
-    }
+  for wanted in ["full", "landscape", "landscapespecial", "special"] {
+    assert!(
+      layers.contains(wanted),
+      "the keyboard lost its {wanted} layer, and has {layers:?}"
+    );
+  }
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn every_alphabet_someone_can_choose_is_one_the_keyboard_has() -> Result<(), Failure> {
-    let layers = layers()?;
+  let layers = layers()?;
 
-    for alphabet in &console_input_alphabets::EVERY {
-        for wanted in [alphabet.upright, alphabet.width] {
-            assert!(
-                layers.contains(wanted),
-                "the settings panel offers {}, which walks the {wanted} arrangement, and the \
+  for alphabet in &console_input_alphabets::EVERY {
+    for wanted in [alphabet.upright, alphabet.width] {
+      assert!(
+        layers.contains(wanted),
+        "the settings panel offers {}, which walks the {wanted} arrangement, and the \
                  keyboard has {layers:?}. A layer no one can find is dropped without a word, so \
                  choosing that alphabet would do nothing and say nothing.",
-                alphabet.says
-            );
-        }
+        alphabet.says
+      );
     }
+  }
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn the_shelf_of_symbols_is_reachable_from_either_way_up() -> Result<(), Failure> {
-    let layers = layers()?;
-    let Ok(chosen) = console_input_alphabets::read(console_input_alphabets::UNLESS_TOLD);
+  let layers = layers()?;
+  let Ok(chosen) = console_input_alphabets::read(console_input_alphabets::UNLESS_TOLD);
 
-    for holding in [console_input_alphabets::Orientation::Upright, console_input_alphabets::Orientation::Across] {
-        let Ok(walk) = console_input_alphabets::walk(&chosen, holding);
+  for holding in [
+    console_input_alphabets::Orientation::Upright,
+    console_input_alphabets::Orientation::Across,
+  ] {
+    let Ok(walk) = console_input_alphabets::walk(&chosen, holding);
 
-        for one in &walk {
-            assert!(
-                layers.contains(one),
-                "the walk this machine types with asks for {one}, and the keyboard has {layers:?}"
-            );
-        }
+    for one in &walk {
+      assert!(
+        layers.contains(one),
+        "the walk this machine types with asks for {one}, and the keyboard has {layers:?}"
+      );
     }
+  }
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
-fn every_alphabet_someone_can_choose_can_put_the_insertion_point_where_they_want_it() -> Result<(), Failure> {
-    let arrows = [
-        (console_input_keyboard::layout::key::UP, "up"),
-        (console_input_keyboard::layout::key::DOWN, "down"),
-        (console_input_keyboard::layout::key::LEFT, "left"),
-        (console_input_keyboard::layout::key::RIGHT, "right"),
-    ];
+fn every_alphabet_someone_can_choose_can_put_the_insertion_point_where_they_want_it()
+-> Result<(), Failure> {
+  let arrows = [
+    (console_input_keyboard::layout::key::UP, "up"),
+    (console_input_keyboard::layout::key::DOWN, "down"),
+    (console_input_keyboard::layout::key::LEFT, "left"),
+    (console_input_keyboard::layout::key::RIGHT, "right"),
+  ];
 
-    for alphabet in &console_input_alphabets::EVERY {
-        for wanted in [alphabet.upright, alphabet.width] {
-            let Ok(named) = console_input_keyboard::layout::find_layout(wanted);
-            let which = named.ok_or(format!("no arrangement called {wanted}"))?;
-            let Ok(layout) = console_input_keyboard::layout::of(which);
+  for alphabet in &console_input_alphabets::EVERY {
+    for wanted in [alphabet.upright, alphabet.width] {
+      let Ok(named) = console_input_keyboard::layout::find_layout(wanted);
+      let which = named.ok_or(format!("no arrangement called {wanted}"))?;
+      let Ok(layout) = console_input_keyboard::layout::of(which);
 
-            for (code, arrow) in arrows {
-                assert!(
-                    layout.keys.iter().any(|key| match key.kind {
-                        Kind::Code { code: on, .. } => on == code,
-                        Kind::Pad
-                        | Kind::EndRow
-                        | Kind::Mod(_)
-                        | Kind::Copy { .. }
-                        | Kind::Layout(_)
-                        | Kind::Back
-                        | Kind::Next
-                        | Kind::Language
-                        | Kind::Symbols
-                        | Kind::Compose => false,
-                    }),
-                    "{} walks the {wanted} arrangement, which has no {arrow} key. The insertion point can \
+      for (code, arrow) in arrows {
+        assert!(
+          layout.keys.iter().any(|key| match key.kind {
+            Kind::Code { code: on, .. } => on == code,
+            Kind::Pad
+            | Kind::EndRow
+            | Kind::Mod(_)
+            | Kind::Copy { .. }
+            | Kind::Layout(_)
+            | Kind::Back
+            | Kind::Next
+            | Kind::Language
+            | Kind::Symbols
+            | Kind::Compose => false,
+          }),
+          "{} walks the {wanted} arrangement, which has no {arrow} key. The insertion point can \
                      then only be where the last letter left it, and putting one right takes a \
                      trip through the shelf of symbols and back.",
-                    alphabet.says
-                );
-            }
-        }
+          alphabet.says
+        );
+      }
     }
+  }
 
-    Ok(())
+  Ok(())
 }

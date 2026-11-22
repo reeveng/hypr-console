@@ -1,0 +1,14 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_number_conversion.rs
+
+extern crate console_core_number_conversion;
+
+fn at(value: f32, bytes: &[u8]) -> Option<u8> {
+    let ::core::result::Result::Ok(index) = ::console_core_number_conversion::toward_zero_usize(<::core::primitive::f64 as ::core::convert::From<::core::primitive::f32>>::from(value));
+    bytes.get(index).copied()
+}
+
+fn main() {
+    assert_eq!(at(1.5, &[7, 11]), Some(11));
+}

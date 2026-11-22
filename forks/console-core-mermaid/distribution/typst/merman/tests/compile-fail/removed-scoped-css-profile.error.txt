@@ -1,1 +1,0 @@
-merman profile field `scoped-css` was removed; use `diagram-theme`, `theme-variables`, or `background`

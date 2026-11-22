@@ -1,0 +1,12 @@
+# The sequence header supplies the size to the tree lookups in decode_sb.
+[[explicit008_enum_families]]
+module = "console_core_video_decoding_av1::src::intra_edge"
+inherent_type = "crate::src::intra_edge::IntraEdges"
+enum = "crate::src::intra_edge::SuperblockSize"
+when_true = "Pixels128"
+when_false = "Pixels64"
+sources = [
+    "console-core-video-decoding-av1/src/intra_edge.rs",
+    "console-core-video-decoding-av1/src/decode.rs",
+]
+members = { branch = "sb128", tip = "sb128", node = "sb128" }

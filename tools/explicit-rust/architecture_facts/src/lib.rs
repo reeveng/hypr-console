@@ -18,19 +18,21 @@
 //! that variable it writes nothing at all, so a run that did not ask for the
 //! facts is not slowed by them. The file is written at the end of every crate
 //! it is handed, empty or not, which is what lets `just map` say it visited
-//! every crate: a cached crate is not handed to it, so the recipe cleans the
-//! workspace's own crates first, and `console-architecture` refuses facts that
-//! are missing a target cargo says exists.
+//! every crate: a cached crate is not handed to it, so the file it wrote the
+//! last time stands until cargo builds the crate again, the recipe cleans the
+//! workspace's own crates only when there are no facts at all, and
+//! `console-architecture` refuses facts that are missing a target cargo says
+//! exists.
 //!
 //! It is named outside the `explicit*` pattern on purpose, so `cargo dylint
 //! --all` and the gate never load it.
 //!
 //! What a fact means is decided here and nowhere else: the definitions below
 //! are the vocabulary, and the reader of the facts sees `runs Hyprctl` rather
-//! than a path it would have to know how to spell. A use of a definition from
-//! the crate being compiled is not a fact about it -- the pool's own client
-//! calling its own `connect` is the machinery, not a subscription -- so only
-//! a use that crosses into another crate is written.
+//! than a path it would have to know how to spell. Effects are usually
+//! recorded when a call crosses into another crate. The Linux adapter also
+//! records subscription calls because its runtime shares a crate with the
+//! event client.
 #![feature(rustc_private)]
 #![warn(unused_extern_crates)]
 
@@ -49,10 +51,10 @@ use rustc_lint::{LateContext, LateLintPass, LintContext};
 use rustc_middle::ty::print::with_no_trimmed_paths;
 
 dylint_linting::impl_late_lint! {
-    /// Not a rule. Records what a crate runs, listens to and connects to, for
-    /// `just map`, and says nothing.
+    /// Records architecture and host access facts for `just map`.
     pub ARCHITECTURE_FACTS,
-    Warn,
+    // Keep collecting in crates that allow warnings. This pass emits facts.
+    Deny,
     "records what a crate runs, listens to and connects to; never emitted",
     ArchitectureFacts::default()
 }
@@ -77,7 +79,8 @@ enum Class {
     Timer(&'static str),
 }
 
-const ASKING: [&str; 12] = [
+const ASKING: [&str; 13] = [
+    "ask_recorded",
     "query",
     "query_at",
     "query_with",
@@ -99,14 +102,14 @@ fn classify(krate: &str, path: &str) -> Option<Class> {
     match (krate, two.as_str()) {
         ("console_core_external_programs", _) if two.starts_with("Program::") => Some(Class::Runs),
         ("console_core_internal_programs", _) if two.starts_with("InternalProgram::") => Some(Class::Starts),
-        ("console_events", "subscription::connect" | "subscription::connect_at" | "Subscriber::subscribe" | "Subscriptions::subscribe" | "again::about") => {
-            Some(Class::Subscribes)
-        }
+        ("console_operating_system_linux", "subscription::connect" | "subscription::connect_at" | "Subscriber::subscribe" | "Subscriptions::subscribe")
+        | ("console_events", "again::about") => Some(Class::Subscribes),
         ("console_events", "again::layers") => Some(Class::SubscribesTo("Compositor")),
         ("console_panel", "Page::with_subscription") => Some(Class::Subscribes),
         ("console_program_contract", "Subscription::EventGroup") => Some(Class::Subscribes),
         ("console_program_contract", "Subscription::Timer" | "Timer::new") => Some(Class::Timer("contract")),
         ("console_compositor", "Socket::Events" | "Socket::Requests") => Some(Class::Socket),
+        ("console_compositor", "Action::dispatch") => Some(Class::Asks),
         ("console_compositor", _) if ASKING.contains(&last.as_str()) => Some(Class::Asks),
         ("console_onscreen", "console_onscreen::events") => Some(Class::SocketEvents),
         ("std", "UnixStream::connect" | "UnixStream::connect_addr" | "UnixDatagram::connect") => Some(Class::Connects),
@@ -129,6 +132,33 @@ fn tail(path: &str, count: usize) -> String {
 
 fn path_of(cx: &LateContext<'_>, id: DefId) -> String {
     with_no_trimmed_paths!(cx.tcx.def_path_str(id))
+}
+
+fn host_access(krate: &str, path: &str) -> Option<&'static str> {
+    if krate == "libc" {
+        return Some("system");
+    }
+
+    let mut parts = path.split("::").filter(|part| !part.starts_with('<'));
+    let _ = parts.next();
+    let module = parts.next()?;
+    let operation = parts.last()?;
+
+    match (krate, module, operation) {
+        ("std", "fs", _) | ("rustix", "fs", _) => Some("filesystem"),
+        ("std", "path", "exists" | "try_exists" | "is_file" | "is_dir" | "is_symlink"
+            | "metadata" | "symlink_metadata" | "read_link" | "read_dir" | "canonicalize") => Some("filesystem"),
+        ("std", "process", "spawn" | "status" | "output" | "exit" | "abort" | "id" | "kill" | "wait" | "try_wait" | "wait_with_output")
+        | ("rustix", "process", _) => Some("process"),
+        ("std", "time", "now" | "elapsed") | ("rustix", "time", _) => Some("clock"),
+        ("std", "env", "var" | "var_os" | "vars" | "vars_os" | "args" | "args_os" | "current_dir" | "current_exe"
+            | "set_current_dir" | "set_var" | "remove_var" | "temp_dir" | "home_dir") => Some("environment"),
+        ("std", "net" | "os", "bind" | "connect" | "connect_addr" | "bind_addr" | "connect_timeout" | "pair")
+        | ("rustix", "net", _) => Some("network"),
+        ("std", "thread", "spawn" | "spawn_scoped" | "available_parallelism" | "sleep" | "sleep_until") => Some("threads"),
+        ("rustix", _, _) => Some("system"),
+        _ => None,
+    }
 }
 
 fn is_event_group(cx: &LateContext<'_>, variant: DefId) -> bool {
@@ -183,19 +213,37 @@ fn event_groups_in<'tcx>(cx: &LateContext<'tcx>, given: &[&'tcx Expr<'tcx>]) -> 
 }
 
 impl ArchitectureFacts {
+    fn record_host_access(&mut self, cx: &LateContext<'_>, id: DefId) {
+        let krate = cx.tcx.crate_name(id.krate);
+
+        if matches!(krate.as_str(), "std" | "rustix" | "libc") {
+            let path = path_of(cx, id);
+
+            if let Some(capability) = host_access(krate.as_str(), &path) {
+                self.said("host-access", format!("{capability} {path}"));
+            }
+        }
+    }
+
     fn record<'tcx>(&mut self, cx: &LateContext<'tcx>, id: DefId, given: &[&'tcx Expr<'tcx>]) {
-        if id.krate == LOCAL_CRATE {
+        let krate = cx.tcx.crate_name(id.krate).to_string();
+        let path = path_of(cx, id);
+        let class = classify(&krate, &path);
+
+        // The Linux runtime and its event client share a crate. The runtime
+        // still subscribes to the groups handed in by its programs.
+        let linux_subscription = krate == "console_operating_system_linux" && matches!(class, Some(Class::Subscribes));
+
+        if id.krate == LOCAL_CRATE && !linux_subscription {
             return;
         }
 
-        let krate = cx.tcx.crate_name(id.krate).to_string();
-        let path = path_of(cx, id);
         let last = tail(&path, 1);
         let variant = matches!(cx.tcx.def_kind(id), DefKind::Variant);
 
         // A program is the variant; `Program::command` is the same program
         // asked for its spelling, and was already written where it was named.
-        match classify(&krate, &path) {
+        match class {
             Some(Class::Runs) if variant => self.said("runs", last),
             Some(Class::Starts) if variant => self.said("starts", last),
             Some(Class::Runs | Class::Starts) => {}
@@ -243,12 +291,13 @@ fn pattern_path<'a>(arm: &'a Arm<'a>) -> Option<(&'a QPath<'a>, rustc_hir::HirId
 
 impl<'tcx> LateLintPass<'tcx> for ArchitectureFacts {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_left_out(cx) || expr.span.from_expansion() {
+        if is_left_out(cx) {
             return;
         }
 
+        let expanded = expr.span.from_expansion();
         match expr.kind {
-            ExprKind::Call(called, arguments) => {
+            ExprKind::Call(called, arguments) if !expanded => {
                 let ExprKind::Path(ref qpath) = called.kind else {
                     return;
                 };
@@ -264,12 +313,25 @@ impl<'tcx> LateLintPass<'tcx> for ArchitectureFacts {
                 let Some(id) = cx.typeck_results().type_dependent_def_id(expr.hir_id) else {
                     return;
                 };
+
+                self.record_host_access(cx, id);
+                if expanded {
+                    return;
+                }
+
                 let given: Vec<&'tcx Expr<'tcx>> = std::iter::once(receiver).chain(arguments.iter()).collect();
 
                 self.record(cx, id, &given);
             }
             ExprKind::Path(ref qpath) => {
                 let res = cx.qpath_res(qpath, expr.hir_id);
+
+                if let Res::Def(DefKind::Fn | DefKind::AssocFn, id) = res {
+                    self.record_host_access(cx, id);
+                }
+                if expanded {
+                    return;
+                }
 
                 if let Some(event_group) = event_group_named(cx, expr) {
                     self.said("names", event_group);

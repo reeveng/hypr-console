@@ -1,0 +1,16 @@
+[package]
+name = "console-core-epub-files"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Read EPUB publication metadata, reading order, and archive resources."
+
+[dependencies]
+console-core-markup-tokens.workspace = true
+console-core-never.workspace = true
+console-core-percent-decoding.workspace = true
+console-core-zip-files.workspace = true
+
+[lints]
+workspace = true

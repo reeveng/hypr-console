@@ -1,0 +1,762 @@
+== UPPER.MP3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Upper"
+== alaw.wav
+duration 250000000
+primary none
+== ape-and-v1.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Front title"
+tag Id3v1
+  TrackTitle "V1 title"
+  TrackArtist "V1 artist"
+  Genre "Blues"
+tag Ape
+  TrackTitle "Ape title"
+  TrackArtist "Ape artist"
+  AlbumArtist "Ape band"
+== ape-v1.mp3
+duration 792000000
+primary none
+tag Ape
+  TrackTitle "Ape one title"
+  TrackArtist "Ape one artist"
+== ape.aac
+duration 845000000
+primary none
+== ape.mp3
+duration 792000000
+primary none
+tag Ape
+  TrackArtist "Ape artist"
+  AlbumArtist "Ape band"
+  AlbumArtist "Ape band two"
+  AlbumTitle "Ape album"
+  TrackSubtitle "Ape sub"
+  RecordingDate "2005-06-07"
+  Genre "Ape genre"
+  Comment "Ape comment"
+  Performer "Ape performer"
+  Label "Ape label"
+  CopyrightMessage "Ape copyright"
+  TrackTitle "Lowercase ape title"
+== bad-size.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+== bad-version.mp3
+unread: failed to parse Mpeg file
+== both.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Two title"
+  TrackArtist "Two artist"
+tag Id3v1
+  TrackTitle "One title"
+  TrackArtist "One artist"
+  AlbumTitle "One album"
+  Year "2001"
+  Comment "One comment"
+  Genre "Folk"
+== cbr-no-xing.mp3
+duration 792000000
+primary none
+== compressed23.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  AlbumTitle "Compressed album Compressed album Compressed album "
+  TrackArtist "Plain"
+== compressed24.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Compressed title Compressed title Compressed title Compressed title "
+  TrackArtist "Plain"
+== eight-bit.wav
+duration 230000000
+primary none
+== empty.flac
+unread: failed to parse Flac file
+== empty.mp3
+unread: failed to parse Mpeg file
+== empty.wav
+unread: failed to parse Wav file
+== experimental-flag.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Experimental"
+== extended23.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+== extended24.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Extended four"
+== float.wav
+duration 210000000
+primary none
+== footer24.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Footer"
+== frame-unsynchronised.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Frame unsync ÿà"
+  picture CoverFront 84 3f2a5710b2f3f716
+== garbage.aac
+unread: failed to parse Aac file
+== garbage.flac
+unread: failed to parse Flac file
+== garbage.m4a
+unread: failed to parse Mp4 file
+== garbage.mp3
+unread: failed to parse Mpeg file
+== garbage.ogg
+unread: failed to parse Vorbis file
+== garbage.opus
+unread: failed to parse Opus file
+== garbage.wav
+unread: failed to parse Wav file
+== genre.m4a
+duration 728000000
+primary Mp4Ilst
+tag Mp4Ilst
+  TrackTitle "Numbered genre"
+  Genre "Rock"
+== handmade-info.wav
+duration 600000000
+primary none
+tag RiffInfo
+  TrackTitle "Info title"
+  TrackArtist "Info artist"
+  AlbumTitle "Info album"
+  Comment "Info comment"
+  RecordingDate "1999"
+  Genre "Info genre"
+  CopyrightMessage "Info copyright"
+  Composer "Info composer"
+  TrackTitle "Second title"
+== id3-lower.wav
+duration 600000000
+primary Id3v2
+tag RiffInfo
+  TrackArtist "Wav artist"
+  Comment "Wav comment"
+  CopyrightMessage "Wav copyright"
+  RecordingDate "2017"
+  Genre "Wav genre"
+  TrackTitle "Wav title"
+  AlbumTitle "Wav album"
+tag Id3v2
+  TrackTitle "Id3 in wav"
+  TrackArtist "Id3 artist"
+  picture CoverFront 85 da9026eb194113ab
+== id3-upper.wav
+duration 600000000
+primary Id3v2
+tag RiffInfo
+  TrackArtist "Wav artist"
+  Comment "Wav comment"
+  CopyrightMessage "Wav copyright"
+  RecordingDate "2017"
+  Genre "Wav genre"
+  TrackTitle "Wav title"
+  AlbumTitle "Wav album"
+tag Id3v2
+  TrackTitle "Id3 in wav"
+  TrackArtist "Id3 artist"
+  picture CoverFront 85 da9026eb194113ab
+== id3.flac
+duration 600000000
+primary VorbisComments
+tag Id3v2
+  TrackTitle "Id3 title"
+  TrackArtist "Id3 artist"
+tag VorbisComments
+  TrackTitle "Comment title"
+== id3v1-unknown-genre.mp3
+duration 792000000
+primary none
+tag Id3v1
+  TrackTitle "Only title"
+== id3v1.mp3
+duration 792000000
+primary none
+tag Id3v1
+  TrackTitle "V1 title"
+  TrackArtist "V1 artist"
+  AlbumTitle "V1 album"
+  Year "1987"
+  Comment "V1 comment"
+  Genre "Rock"
+== id3v22.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Title two"
+  TrackArtist "Artist two"
+  AlbumArtist "Band two"
+  AlbumTitle "Album two"
+  RecordingDate "1998"
+  Genre "Pop"
+  Comment "Two comment"
+  Composer "Comp two"
+  Publisher "Pub two"
+  CopyrightMessage "Copy two"
+  TrackSubtitle "Sub two"
+  picture CoverFront 85 da9026eb194113ab
+  picture CoverBack 46 85df0f68fb3a75ed
+== id3v23.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Title three"
+  TrackArtist "Artist/Other"
+  AlbumTitle "Album"
+  Genre "Rock"
+  Genre "Jazz"
+  Genre "Funk"
+  Comment "Old comment"
+  Comment " 00000001"
+  Composer "Compöser"
+  CopyrightMessage "Copy"
+  Publisher "Pub"
+  RecordingDate "2011-07-05T12:30"
+  picture CoverFront 85 da9026eb194113ab
+== id3v24.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Title föur"
+  TrackArtist "One"
+  TrackArtist "Two"
+  AlbumArtist "Band"
+  AlbumTitle "Album é"
+  TrackSubtitle "Sub"
+  RecordingDate "2014-12-25T10:11"
+  Genre "Rock"
+  Genre "Jazz"
+  Genre "Remix"
+  Genre "Cover"
+  Genre "200"
+  Comment "A comment"
+  Comment "Another"
+  Composer "Composer"
+  Publisher "Publisher Co"
+  CopyrightMessage "2014 Someone"
+  AlbumArtist "Alt band"
+  TrackTitle "Lower title"
+  picture CoverFront 85 da9026eb194113ab
+  picture CoverBack 46 85df0f68fb3a75ed
+  picture Other 84 3f2a5710b2f3f716
+== info.wav
+duration 600000000
+primary none
+tag RiffInfo
+  TrackArtist "Wav artist"
+  Comment "Wav comment"
+  CopyrightMessage "Wav copyright"
+  RecordingDate "2017"
+  Genre "Wav genre"
+  TrackTitle "Wav title"
+  AlbumTitle "Wav album"
+== junk.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Junk"
+== missing.mp3
+unread: failed to parse file
+== odd-comments.ogg
+duration 600000000
+primary VorbisComments
+tag VorbisComments
+  TrackTitle "lower key"
+  TrackArtist "a=b=c"
+  AlbumTitle ""
+  Genre "Mixed Case"
+== odd22-com-desc.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd com-desc"
+  Comment "Kommentar"
+== odd22-pic-unknown-format.mp3
+unread: failed to parse Mpeg file
+== odd22-tye-tda-tim.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd tye-tda-tim"
+  RecordingDate "1990"
+== odd22-unknown-id.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd unknown-id"
+== odd23-compressed-flag-bad.mp3
+unread: failed to parse Mpeg file
+== odd23-encrypted.mp3
+unread: failed to parse Mpeg file
+== odd23-grouping.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd grouping"
+  AlbumTitle "Grouped album"
+== odd23-tcon-number.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd tcon-number"
+  Genre "Rock"
+== odd23-tcon-refinement.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd tcon-refinement"
+  Genre "Disco"
+  Genre "(Escaped)"
+== odd23-tcon-twice.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd tcon-twice"
+  Genre "Second genre frame"
+== odd23-tdat-no-tyer.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd tdat-no-tyer"
+== odd23-tory.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd tory"
+== odd23-trda.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd trda"
+== odd23-truncated-frame.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd truncated-frame"
+  TrackArtist "Too lo"
+== odd23-tsiz.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd tsiz"
+== odd23-txxx-desc.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd txxx-desc"
+== odd23-tyer-bad.mp3
+unread: failed to parse Mpeg file
+== odd23-tyer-only.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd tyer-only"
+  RecordingDate "2001"
+== odd23-unknown-id.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd unknown-id"
+== odd23-v24-only-id.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd v24-only-id"
+  RecordingDate "2004"
+== odd24-apic-no-mime.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd apic-no-mime"
+  picture CoverFront 85 da9026eb194113ab
+== odd24-apic-truncated.mp3
+unread: failed to parse Mpeg file
+== odd24-apic-type-out-of-range.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd apic-type-out-of-range"
+  picture Undefined(77) 85 da9026eb194113ab
+== odd24-apic-unknown-mime.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd apic-unknown-mime"
+  picture CoverFront 85 da9026eb194113ab
+== odd24-bad-encoding.mp3
+unread: failed to parse Mpeg file
+== odd24-duplicate-title.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Second title"
+== odd24-empty-comment.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd empty-comment"
+  Comment ""
+== odd24-empty-frame.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd empty-frame"
+== odd24-frame-flags-encrypted.mp3
+unread: failed to parse Mpeg file
+== odd24-frame-flags-grouping.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd frame-flags-grouping"
+  TrackArtist "Grouped"
+== odd24-frame-flags-length.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd frame-flags-length"
+  TrackArtist "Lengthed"
+== odd24-frame-flags-status.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd frame-flags-status"
+  TrackArtist "Discard"
+== odd24-genres.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd genres"
+  Genre "(255)"
+  Genre "(4)Eurodisco"
+  Genre "Rock"
+  Genre ""
+  Genre "abc"
+== odd24-latin1-trailing-nul.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd latin1-trailing-nul"
+  Publisher "Pub"
+== odd24-lowercase-id.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd lowercase-id"
+== odd24-odd-language.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd odd-language"
+  Comment "Odd language"
+== odd24-only-encoding.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd only-encoding"
+  AlbumTitle ""
+== odd24-padding-garbage.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd padding-garbage"
+  TrackArtist "Before junk"
+== odd24-popm.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd popm"
+== odd24-short-comment.mp3
+unread: failed to parse Mpeg file
+== odd24-tdor-partial.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd tdor-partial"
+== odd24-tdrc-not-a-date.mp3
+unread: failed to parse Mpeg file
+== odd24-tdrc-utf16.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd tdrc-utf16"
+  RecordingDate "2003-04-05"
+== odd24-tdrc-year.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd tdrc-year"
+  RecordingDate "1987"
+== odd24-tipl.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd tipl"
+== odd24-tmcl.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd tmcl"
+== odd24-trck-bad.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd trck-bad"
+== odd24-txxx-empty-value.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd txxx-empty-value"
+  AlbumArtist ""
+== odd24-ufid.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd ufid"
+== odd24-unknown-id.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd unknown-id"
+== odd24-utf16-big-bom.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd utf16-big-bom"
+  AlbumArtist "Band"
+== odd24-utf16-no-bom.mp3
+unread: failed to parse Mpeg file
+== odd24-utf16-no-terminator.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd utf16-no-terminator"
+  Composer "No terminator"
+== odd24-utf8-invalid.mp3
+unread: failed to parse Mpeg file
+== odd24-wxxx.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Odd wxxx"
+== opus-named.ogg
+unread: failed to parse Vorbis file
+== oversized-frame.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Before"
+  TrackArtist "Huge"
+== picture-in-comment.flac
+duration 600000000
+primary VorbisComments
+tag VorbisComments
+  TrackTitle "Pic"
+  picture CoverFront 85 da9026eb194113ab
+== plain.aac
+duration 793000000
+primary none
+== plain.flac
+duration 600000000
+primary VorbisComments
+tag VorbisComments
+== plain.m4a
+duration 728000000
+primary Mp4Ilst
+tag Mp4Ilst
+== plain.ogg
+duration 600000000
+primary VorbisComments
+tag VorbisComments
+== plain.opus
+duration 600000000
+primary VorbisComments
+tag VorbisComments
+== plain.wav
+duration 600000000
+primary none
+== rate11-24bit.wav
+duration 270000000
+primary none
+== rate22.mp3
+duration 496000000
+primary none
+== rate44-no-xing.mp3
+duration 340000000
+primary none
+== rate44.aac
+duration 409000000
+primary none
+== rate44.flac
+duration 290000000
+primary VorbisComments
+tag VorbisComments
+== rate44.m4a
+duration 373000000
+primary Mp4Ilst
+tag Mp4Ilst
+== rate44.mp3
+duration 340000000
+primary none
+== rate44.ogg
+duration 330000000
+primary VorbisComments
+tag VorbisComments
+== rate48.opus
+duration 410000000
+primary VorbisComments
+tag VorbisComments
+== song.oga
+unread: failed to parse file
+== song.webm
+unread: failed to parse file
+== song.wma
+unread: failed to parse file
+== tagged.aac
+duration 797000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Aac title"
+  TrackArtist "Aac artist"
+  picture CoverFront 85 da9026eb194113ab
+tag Id3v1
+  TrackTitle "Aac v1"
+  Genre "Classic rock"
+== tagged.flac
+duration 600000000
+primary VorbisComments
+tag VorbisComments
+  TrackTitle "Flac title"
+  TrackArtist "First"
+  TrackArtist "Second"
+  AlbumArtist "Flac band"
+  AlbumArtist "Flac band two"
+  AlbumTitle "Flac album"
+  TrackSubtitle "Flac sub"
+  RecordingDate "2020-02-02"
+  Year "2020"
+  Genre "Electronic"
+  Comment "Flac comment"
+  Description "Flac description"
+  Composer "Flac composer"
+  Performer "Flac performer"
+  Publisher "Flac publisher"
+  Label "Flac label"
+  Label "Flac organisation"
+  CopyrightMessage "Flac copyright"
+  TrackTitle "Ünicode ☃"
+  picture CoverFront 85 da9026eb194113ab
+  picture CoverBack 46 85df0f68fb3a75ed
+== tags.m4a
+duration 728000000
+primary Mp4Ilst
+tag Mp4Ilst
+  TrackTitle "Mp4 title"
+  TrackArtist "Mp4 one"
+  TrackArtist "Mp4 two"
+  Composer "Mp4 composer"
+  AlbumTitle "Mp4 album"
+  Genre "Mp4 genre"
+  RecordingDate "2019-03-04"
+  TrackSubtitle "Mp4 sub"
+  Label "Mp4 label"
+  AlbumArtist "Mp4 band"
+  Comment "Mp4 comment"
+  CopyrightMessage "Mp4 copyright"
+  Description "Mp4 description"
+  picture Other 85 da9026eb194113ab
+  picture Other 46 85df0f68fb3a75ed
+== tags.ogg
+duration 600000000
+primary VorbisComments
+tag VorbisComments
+  TrackTitle "Vorbis title"
+  TrackArtist "Vorbis one"
+  TrackArtist "Vorbis two"
+  AlbumTitle "Vorbis album"
+  RecordingDate "2018"
+  Genre "Vorbis genre"
+  Comment "Vorbis comment"
+  Label "Vorbis label"
+  picture CoverFront 85 da9026eb194113ab
+  picture CoverBack 46 85df0f68fb3a75ed
+  picture Other 85 da9026eb194113ab
+== tags.opus
+duration 600000000
+primary VorbisComments
+tag VorbisComments
+  TrackTitle "Opus title"
+  TrackArtist "Opus artist"
+  AlbumArtist "Opus band"
+  AlbumTitle "Opus album"
+  RecordingDate "20141225"
+  Description "Opus description"
+  picture CoverFront 85 da9026eb194113ab
+== truncated.flac
+unread: failed to parse Flac file
+== truncated.m4a
+unread: failed to parse Mp4 file
+== truncated.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Title föur"
+  TrackArtist "One"
+  TrackArtist "Two"
+  AlbumArtist "Band"
+  AlbumTitle "Album é"
+  TrackSubtitle "Sub"
+  RecordingDate "2014-12-25T10:11"
+  Genre "Rock"
+  Genre "Jazz"
+  Genre "Remix"
+  Genre "Cover"
+  Genre "200"
+  Comment "A comment"
+  Comment "Another"
+  Composer "Composer"
+  Publisher "Publisher Co"
+  CopyrightMessage "2014 Someone"
+  AlbumArtist "Alt band"
+  TrackTitle "Lower title"
+  picture CoverFront 85 da9026eb194113ab
+  picture CoverBack 46 85df0f68fb3a75ed
+  picture Other 84 3f2a5710b2f3f716
+== unknown-tag-flags.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Flags"
+== unsynchronised.mp3
+duration 792000000
+primary Id3v2
+tag Id3v2
+  TrackTitle "Unsynchronised ÿ"
+  TrackArtist "ÿArtist"
+  picture CoverFront 84 3f2a5710b2f3f716
+== untagged.mp3
+duration 792000000
+primary none
+== v22-compressed.mp3
+unread: failed to parse Mpeg file

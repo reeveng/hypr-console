@@ -1,0 +1,11 @@
+// run-rustfix
+// edition:2024
+struct Pixel { channels: [u8; 4] }
+fn convert(x: &[u16; 2]) -> u32 { u32::from(match x { &[_, _explicit_element, ..] => _explicit_element }) }
+fn main() {
+    let p = Pixel { channels: [1, 2, 3, 4] };
+    let [red, ..] = p.channels;
+    assert_eq!(red, 1);
+    assert_eq!(convert(&[5, 7]), 7);
+    assert_eq!((match p.channels { [_, _, _explicit_element, ..] => _explicit_element }) + (match p.channels { [_, _, _, _explicit_element, ..] => _explicit_element }), 7);
+}

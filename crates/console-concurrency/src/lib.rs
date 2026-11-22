@@ -9,17 +9,14 @@
 //!
 //! **It is rayon's shape and not rayon.** `par_iter().map().collect()` is the
 //! right idea and a work-stealing pool is more than a list of independent pieces
-//! needs: the workers here take the next item from one shared queue until it is
-//! empty, so a slow item holds up one core rather than a share of the list
-//! decided in advance. The queue is a lock around an iterator, which is a lock
-//! taken once per item, and every item worth handing to this costs a program
-//! run or a decode -- milliseconds against the nanoseconds of the lock.
+//! needs: the workers claim successive indices in one borrowed list. A slow
+//! item holds up one core, and the others can keep claiming work. The atomic
+//! index governs only which worker gets each item. The scope lends the
+//! immutable list to every worker and joins them before returning.
 //!
-//! **How many threads is decided here and nowhere else.** One per core the
-//! machine has, never more than there are items, and one when the machine will
-//! not say. A caller says what the work is and not how wide to run it, so the
-//! width of every parallel thing on the device is one function to read and one
-//! to change.
+//! [`map`] uses one worker per core, limited by the number of items. Decoders with
+//! a caller-supplied thread budget use [`map_with_threads`] for borrowed tile
+//! columns or [`FifoPool`] for pictures that outlive the call that submits them.
 //!
 //! **The cores are counted once and handed in.** Counting them reads a file
 //! under `/sys` for every thread the machine has, which took 0.23 ms on an
@@ -58,237 +55,364 @@
 use std::collections::BTreeSet;
 use std::fmt;
 use std::fs;
-use std::iter::{self, Zip};
-use std::ops::RangeFrom;
+use std::iter;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
-use std::slice::Iter;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
+use console_core_number_conversion::{fitted, index};
+use console_core_parallel_execution::{Failed, Worker, Workers};
+
+mod fifo;
+pub use fifo::FifoPool;
+
+pub struct HostWorkers;
+
+impl Workers for HostWorkers {
+  fn parallelism(&self) -> Result<std::num::NonZeroU32, Never> {
+    let Ok(count) = threads();
+
+    Ok(match std::num::NonZeroU32::new(count) {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => std::num::NonZeroU32::MIN,
+    })
+  }
+
+  fn start(&self, name: String, work: impl FnOnce() + Send + 'static) -> std::io::Result<Worker> {
+    let started = thread::Builder::new().name(name).spawn(work)?;
+
+    #[cfg_attr(
+      dylint_lib = "explicit057_no_unbounded_wait",
+      expect(
+        explicit057_no_unbounded_wait,
+        reason = "the caller owns the Worker and ends its job before joining; the OS join also reports panics"
+      )
+    )]
+    let Ok(worker) = Worker::new(move || started.join().map_err(|_panicked| Failed));
+
+    Ok(worker)
+  }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
-    Defect,
+  Defect,
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Error::Defect => write!(formatter, "a piece of the work panicked, so the answer is missing a piece"),
-        }
+  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Error::Defect => write!(
+        formatter,
+        "a piece of the work panicked, so the answer is missing a piece"
+      ),
     }
+  }
 }
 
 impl std::error::Error for Error {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cores {
-    counted: u32,
+  counted: u32,
 }
 
 impl Cores {
-    pub fn one() -> Result<Cores, Never> {
-        Ok(Cores { counted: 1 })
-    }
+  pub fn one() -> Result<Cores, Never> {
+    Ok(Cores { counted: 1 })
+  }
 
-    pub fn counted() -> Result<Cores, Never> {
-        let Ok(threads) = threads();
-        let Ok(cores) = counted_cores(Path::new(CPUS));
+  pub fn counted() -> Result<Cores, Never> {
+    let Ok(threads) = threads();
+    let Ok(cores) = counted_cores(Path::new(CPUS));
 
-        Ok(Cores {
-            counted: match cores {
-                0 => threads,
-                cores => cores.min(threads),
-            },
-        })
-    }
+    Ok(Cores {
+      counted: match cores {
+        0 => threads,
+        cores_2 => cores_2.min(threads),
+      },
+    })
+  }
 }
-
-type Queue<'items, T> = Mutex<Zip<Iter<'items, T>, RangeFrom<u32>>>;
 
 pub fn map<T, R, F>(cores: Cores, items: &[T], each: F) -> Result<Vec<R>, Error>
 where
-    T: Sync,
-    R: Send,
-    F: Fn(&T) -> R + Sync,
+  T: Sync,
+  R: Send,
+  F: Fn(&T) -> R + Sync,
 {
-    let Ok(many) = fitted::<_, u32>(items.len());
-    let workers = many.min(cores.counted);
-    let queue: Queue<'_, T> = Mutex::new(items.iter().zip(0_u32..));
-    let (queue, each) = (&queue, &each);
+  map_with_threads(cores.counted, items, each).map_err(|_panic| Error::Defect)
+}
 
-    let finished = thread::scope(|scope| {
-        let started: Vec<_> = (1..workers).map(|_| scope.spawn(move || drain_queue(queue, each))).collect();
-        let here = catch_unwind(AssertUnwindSafe(|| drain_queue(queue, each)));
+pub fn map_with_threads<T, R, F>(width: u32, items: &[T], each: F) -> thread::Result<Vec<R>>
+where
+  T: Sync,
+  R: Send,
+  F: Fn(&T) -> R + Sync,
+{
+  let Ok(many) = fitted::<_, u32>(items.len());
+  let workers = width.min(many);
+  let cursor = AtomicU64::new(0);
+  let (next, apply) = (&cursor, &each);
 
-        iter::once(here).chain(started.into_iter().map(|worker| worker.join())).collect::<Vec<_>>()
-    });
+  let finished = thread::scope(|scope| {
+    let mut started = Vec::new();
 
-    let mut answered = Vec::new();
-
-    for worker in finished {
-        match worker {
-            Ok(Ok(done)) => answered.extend(done),
-            Ok(Err(never)) => match never {},
-            Err(_a_piece_panicked) => return Err(Error::Defect),
-        }
+    for _ in 1..workers {
+      match thread::Builder::new().spawn_scoped(scope, move || drain(items, next, apply)) {
+        Ok(worker) => started.push(worker),
+        Err(_caller_will_drain_remaining_items) => break,
+      }
     }
 
-    answered.sort_by_key(|(at, _)| *at);
+    let here = catch_unwind(AssertUnwindSafe(|| drain(items, next, apply)));
 
-    Ok(answered.into_iter().map(|(_, answer)| answer).collect())
+    #[cfg_attr(
+      dylint_lib = "explicit057_no_unbounded_wait",
+      expect(
+        explicit057_no_unbounded_wait,
+        reason = "these scoped workers borrow the list and callback and must finish before returning; map accepts finite work on a fixed list, and joining preserves worker panics as Defect"
+      )
+    )]
+    let outcomes = iter::once(here)
+      .chain(started.into_iter().map(|worker| worker.join()))
+      .collect::<Vec<_>>();
+
+    outcomes
+  });
+
+  let mut answered = Vec::new();
+
+  for worker in finished {
+    let Ok(done) = worker?;
+    answered.extend(done);
+  }
+
+  answered.sort_by_key(|(at, _)| *at);
+
+  Ok(answered.into_iter().map(|(_, answer)| answer).collect())
 }
 
 const CPUS: &str = "/sys/devices/system/cpu";
 
 fn threads() -> Result<u32, Never> {
-    match thread::available_parallelism() {
-        Ok(threads) => fitted::<_, u32>(threads.get()),
-        Err(_the_machine_will_not_say) => Ok(1),
-    }
+  match thread::available_parallelism() {
+    Ok(threads) => fitted::<_, u32>(threads.get()),
+    Err(_the_machine_will_not_say) => Ok(1),
+  }
 }
 
 fn counted_cores(cpus: &Path) -> Result<u32, Never> {
-    let listed = match fs::read_dir(cpus) {
-        Ok(listed) => listed,
-        Err(_no_topology_here) => return Ok(0),
-    };
+  let listed = match fs::read_dir(cpus) {
+    Ok(listed) => listed,
+    Err(_no_topology_here) => return Ok(0),
+  };
 
-    let mut cores = BTreeSet::new();
+  let mut cores = BTreeSet::new();
 
-    for cpu in listed.flatten() {
-        match fs::read_to_string(cpu.path().join("topology").join("core_cpus_list")) {
-            Ok(threads) => {
-                cores.insert(threads);
-            },
-            Err(_not_a_cpu) => {},
-        }
+  for cpu in listed.flatten() {
+    let entry = cpu.file_name();
+    let numbered = entry
+      .as_encoded_bytes()
+      .strip_prefix(b"cpu")
+      .filter(|suffix| !suffix.is_empty() && suffix.iter().all(u8::is_ascii_digit));
+
+    match numbered {
+      Some(_) => {}
+      None => continue,
     }
 
-    fitted::<_, u32>(cores.len())
+    match fs::read_to_string(cpu.path().join("topology").join("core_cpus_list")) {
+      Ok(threads) => {
+        cores.insert(threads);
+      }
+      Err(fault) => match ::core::primitive::bool::then_some(
+        fault.kind() == std::io::ErrorKind::NotFound,
+        (),
+      ) {
+        ::core::option::Option::Some(()) => continue,
+        ::core::option::Option::None => return Ok(0),
+      },
+    }
+  }
+
+  fitted::<_, u32>(cores.len())
 }
 
-fn drain_queue<T, R, F>(queue: &Queue<'_, T>, each: &F) -> Result<Vec<(u32, R)>, Never>
+fn drain<T, R, F>(items: &[T], next: &AtomicU64, each: &F) -> Result<Vec<(u64, R)>, Never>
 where
-    F: Fn(&T) -> R,
+  F: Fn(&T) -> R,
 {
-    Ok(iter::from_fn(|| match queue.lock() {
-        Ok(mut waiting) => waiting.next(),
-        Err(_another_piece_panicked) => None,
-    })
-    .map(|(item, at)| (at, each(item)))
-    .collect())
+  let mut done = Vec::new();
+
+  for _ in items {
+    #[cfg_attr(
+      dylint_lib = "explicit069_lock_discipline",
+      expect(
+        explicit069_lock_discipline,
+        reason = "the atomic only hands out distinct indices; threads share immutable input through the scope and return their own results at join"
+      )
+    )]
+    let claimed =
+      match next.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |at| at.checked_add(1)) {
+        Ok(claimed) => claimed,
+        Err(_reached_the_end) => break,
+      };
+    let Ok(position) = index(claimed);
+    let item = match items.get(position) {
+      Some(item) => item,
+      None => break,
+    };
+
+    done.push((claimed, each(item)));
+  }
+
+  Ok(done)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use console_waiting::{Ready, Schedule, until};
-    use std::collections::BTreeSet;
-    use std::time::Duration;
+  use super::*;
+  use console_waiting::{Ready, Schedule, until};
+  use std::collections::BTreeSet;
+  use std::time::Duration;
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    #[test]
-    fn the_answers_come_back_in_the_order_the_items_went_in() -> Result<(), Failure> {
-        let items: Vec<u32> = (0..500).collect();
-        let Ok(cores) = Cores::counted();
+  #[test]
+  fn the_answers_come_back_in_the_order_the_items_went_in() -> Result<(), Failure> {
+    let items: Vec<u32> = (0..500).collect();
+    let Ok(cores) = Cores::counted();
 
-        let answered = map(cores, &items, |item| item.saturating_mul(2))?;
+    let answered = map(cores, &items, |item| item.saturating_mul(2))?;
 
-        assert_eq!(answered, items.iter().map(|item| item.saturating_mul(2)).collect::<Vec<u32>>());
+    assert_eq!(
+      answered,
+      items
+        .iter()
+        .map(|item| item.saturating_mul(2))
+        .collect::<Vec<u32>>()
+    );
 
-        Ok(())
+    Ok(())
+  }
+
+  #[test]
+  fn nothing_to_do_is_nothing_done() {
+    let items: Vec<u32> = Vec::new();
+    let Ok(cores) = Cores::counted();
+
+    assert_eq!(map(cores, &items, |item| *item), Ok(Vec::new()));
+  }
+
+  #[test]
+  fn the_pieces_run_on_more_than_one_thread_where_there_is_more_than_one_core()
+  -> Result<(), Failure> {
+    let Ok(cores) = Cores::counted();
+    let used = threads_used(cores)?;
+
+    assert_eq!(
+      used,
+      cores.counted.min(8),
+      "one thread per core, and every one of them used"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_width_is_the_count_it_was_handed_rather_than_one_it_takes_again() -> Result<(), Failure>
+  {
+    let two = threads_used(Cores { counted: 2 })?;
+    let one = threads_used(Cores { counted: 1 })?;
+
+    assert_eq!(two, 2);
+    assert_eq!(one, 1, "which is the thread that asked, and no other");
+
+    Ok(())
+  }
+
+  fn threads_used(cores: Cores) -> Result<u32, Failure> {
+    let items: Vec<u32> = (0..8).collect();
+    let Ok(a_while) = Schedule::of(Duration::from_millis(50));
+
+    let ran_on = map(cores, &items, |_| {
+      let Ok(_held_long_enough_for_the_others_to_start) = until(a_while, || Ok(Ready::NotYet));
+
+      format!("{:?}", std::thread::current().id())
+    })?;
+
+    let threads: BTreeSet<String> = ran_on.into_iter().collect();
+    let Ok(used) = fitted::<_, u32>(threads.len());
+
+    Ok(used)
+  }
+
+  #[test]
+  #[cfg_attr(
+    dylint_lib = "explicit040_no_torn_write",
+    allow(
+      explicit040_no_torn_write,
+      reason = "a topology made up in a directory of this test's own, which nothing reads while it is written"
+    )
+  )]
+  fn a_core_that_runs_two_threads_is_counted_once() -> Result<(), Failure> {
+    let cpus = console_core_temporary_directories::fresh("concurrency-cores")?;
+
+    for (cpu, siblings) in [
+      ("cpu0", "0-1"),
+      ("cpu1", "0-1"),
+      ("cpu2", "2-3"),
+      ("cpu3", "2-3"),
+      ("cpu4", "4"),
+    ] {
+      #[cfg_attr(
+        dylint_lib = "explicit086_no_climbing_join",
+        expect(
+          explicit086_no_climbing_join,
+          reason = "the fixture supplies literal CPU directory names"
+        )
+      )]
+      let topology = cpus.join(cpu).join("topology");
+
+      fs::create_dir_all(&topology)?;
+      fs::write(topology.join("core_cpus_list"), siblings)?;
     }
 
-    #[test]
-    fn nothing_to_do_is_nothing_done() {
-        let items: Vec<u32> = Vec::new();
-        let Ok(cores) = Cores::counted();
+    fs::create_dir_all(cpus.join("cpufreq"))?;
 
-        assert_eq!(map(cores, &items, |item| *item), Ok(Vec::new()));
-    }
+    assert_eq!(counted_cores(&cpus), Ok(3));
+    assert_eq!(counted_cores(&cpus.join("not-there")), Ok(0));
 
-    #[test]
-    fn the_pieces_run_on_more_than_one_thread_where_there_is_more_than_one_core() -> Result<(), Failure> {
-        let Ok(cores) = Cores::counted();
-        let used = threads_used(cores)?;
+    Ok(())
+  }
 
-        assert_eq!(used, cores.counted.min(8), "one thread per core, and every one of them used");
+  #[test]
+  fn a_piece_that_panics_is_a_defect_rather_than_a_short_answer() {
+    let items: Vec<u32> = (0..16).collect();
+    let Ok(cores) = Cores::counted();
 
-        Ok(())
-    }
+    assert_eq!(map(cores, &items, seventh_panics), Err(Error::Defect));
+    assert_eq!(
+      map(cores, &[7], seventh_panics),
+      Err(Error::Defect),
+      "and so is one done by the thread that asked"
+    );
+  }
 
-    #[test]
-    fn the_width_is_the_count_it_was_handed_rather_than_one_it_takes_again() -> Result<(), Failure> {
-        let two = threads_used(Cores { counted: 2 })?;
-        let one = threads_used(Cores { counted: 1 })?;
-
-        assert_eq!(two, 2);
-        assert_eq!(one, 1, "which is the thread that asked, and no other");
-
-        Ok(())
-    }
-
-    fn threads_used(cores: Cores) -> Result<u32, Failure> {
-        let items: Vec<u32> = (0..8).collect();
-        let Ok(a_while) = Schedule::of(Duration::from_millis(50));
-
-        let ran_on = map(cores, &items, |_| {
-            let Ok(_held_long_enough_for_the_others_to_start) = until(a_while, || Ok(Ready::NotYet));
-
-            format!("{:?}", std::thread::current().id())
-        })?;
-
-        let threads: BTreeSet<String> = ran_on.into_iter().collect();
-        let Ok(used) = fitted::<_, u32>(threads.len());
-
-        Ok(used)
-    }
-
-    #[test]
-    #[cfg_attr(
-        dylint_lib = "explicit040_no_torn_write",
-        allow(explicit040_no_torn_write, reason = "a topology made up in a directory of this test's own, which nothing reads while it is written")
-    )]
-    fn a_core_that_runs_two_threads_is_counted_once() -> Result<(), Failure> {
-        let cpus = console_core_temporary_directories::fresh("concurrency-cores")?;
-
-        for (cpu, siblings) in [("cpu0", "0-1"), ("cpu1", "0-1"), ("cpu2", "2-3"), ("cpu3", "2-3"), ("cpu4", "4")] {
-            let topology = cpus.join(cpu).join("topology");
-
-            fs::create_dir_all(&topology)?;
-            fs::write(topology.join("core_cpus_list"), siblings)?;
-        }
-
-        fs::create_dir_all(cpus.join("cpufreq"))?;
-
-        assert_eq!(counted_cores(&cpus), Ok(3));
-        assert_eq!(counted_cores(&cpus.join("not-there")), Ok(0));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_piece_that_panics_is_a_defect_rather_than_a_short_answer() {
-        let items: Vec<u32> = (0..16).collect();
-        let Ok(cores) = Cores::counted();
-
-        assert_eq!(map(cores, &items, seventh_panics), Err(Error::Defect));
-        assert_eq!(map(cores, &[7], seventh_panics), Err(Error::Defect), "and so is one done by the thread that asked");
-    }
-
-    fn seventh_panics(item: &u32) -> Result<u32, Never> {
-        Ok(match *item {
-            #[cfg_attr(
-                dylint_lib = "explicit004_no_panic",
-                allow(explicit004_no_panic, reason = "a piece that panics is what this test is about, and a panic is the only thing that presses it")
-            )]
-            7 => panic!("the seventh piece"),
-            other => other,
-        })
-    }
+  fn seventh_panics(item: &u32) -> Result<u32, Never> {
+    Ok(match *item {
+      #[cfg_attr(
+        dylint_lib = "explicit004_no_panic",
+        allow(
+          explicit004_no_panic,
+          reason = "a piece that panics is what this test is about, and a panic is the only thing that presses it"
+        )
+      )]
+      7 => panic!("the seventh piece"),
+      other => other,
+    })
+  }
 }

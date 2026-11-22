@@ -5,11 +5,17 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = ["std"]
+std = ["console-core-number-conversion/std"]
+
 [dependencies]
+console-core-picture-scaling = { path = "../console-core-picture-scaling", default-features = false }
+console-core-pixel-buffers.workspace = true
 console-core-geometry.workspace = true
 console-core-iteration.workspace = true
 console-core-never.workspace = true
-console-core-number-conversion.workspace = true
+console-core-number-conversion = { path = "../console-core-number-conversion", default-features = false }
 
 [lints]
 workspace = true

@@ -18,11 +18,11 @@
 use console_core_internal_programs::InternalProgram;
 use std::path::{Path, PathBuf};
 
-use console_input_bindings::moved::Tasks;
+use console_core_arguments::Presence;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_core_arguments::Presence;
-use console_program_contract::{Effect, Command, Event, FileWrite};
+use console_input_bindings::moved::Tasks;
+use console_program_contract::{Command, Effect, Event, FileWrite};
 
 use crate::rows::{Part, question};
 
@@ -32,220 +32,264 @@ pub const NOWHERE: &str = "Can't identify this controller";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Empty {
-    Write,
-    Leave,
+  Write,
+  Leave,
 }
 
 impl Empty {
-    pub fn of(first: Presence, written: Presence) -> Result<Self, Never> {
-        Ok(match (first, written) {
-            (Presence::Present, Presence::Absent) => Empty::Write,
-            (Presence::Present, Presence::Present) | (Presence::Absent, Presence::Present | Presence::Absent) => Empty::Leave,
-        })
-    }
+  pub fn of(first: Presence) -> Result<Self, Never> {
+    Ok(match first {
+      Presence::Present => Empty::Write,
+      Presence::Absent => Empty::Leave,
+    })
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Setting {
-    Nowhere,
-    Initial { at: PathBuf, empty: Empty },
-    Set { at: PathBuf },
+  Nowhere,
+  Initial { at: PathBuf, empty: Empty },
+  Set { at: PathBuf },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MappingEvent {
-    Requested(Part),
-    Restore,
-    Sure,
+  Requested(Part),
+  Restore,
+  Sure,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MappingEffect {
-    Note(String),
-    Sure,
+  Note(String),
+  Sure,
 }
 
 pub struct Setup;
 
 impl Machine for Setup {
-    type Input = Setting;
-    type State = Setting;
-    type Request = Event<MappingEvent>;
-    type Effect = Effect<MappingEffect>;
+  type Input = Setting;
+  type State = Setting;
+  type Request = Event<MappingEvent>;
+  type Effect = Effect<MappingEffect>;
 
-    fn initialize(setting: &Setting, _previous: Option<Setting>, effects: &mut Effects) -> Result<Setting, Never> {
-        let Ok(opening) = Transition::without_effects(setting.clone());
+  fn initialize(
+    setting: &Setting,
+    _previous: Option<Setting>,
+    effects: &mut Effects,
+  ) -> Result<Setting, Never> {
+    let Ok(opening) = Transition::without_effects(setting.clone());
 
-        opening.offered(effects)
-    }
+    opening.offered(effects)
+  }
 
-    fn handle(state: Setting, event: Event<MappingEvent>, effects: &mut Effects) -> Result<Setting, Never> {
-        let Ok(decided) = decide(&state, &event);
+  fn handle(
+    state: Setting,
+    event: Event<MappingEvent>,
+    effects: &mut Effects,
+  ) -> Result<Setting, Never> {
+    let Ok(decided) = decide(&state, &event);
 
-        decided.offered(effects)
-    }
+    decided.offered(effects)
+  }
 }
 
 type Effects = Queue<Effect<MappingEffect>>;
 
-fn decide(state: &Setting, event: &Event<MappingEvent>) -> Result<Transition<Setting, Effect<MappingEffect>>, Never> {
-    let Ok(turn) = match (state, event) {
-        (Setting::Initial { at, empty }, Event::Opened) => {
-            let Ok(nothing) = emptied(at);
+fn decide(
+  state: &Setting,
+  event: &Event<MappingEvent>,
+) -> Result<Transition<Setting, Effect<MappingEffect>>, Never> {
+  let Ok(turn) = match (state, event) {
+    (Setting::Initial { at, empty }, Event::Opened) => {
+      let Ok(nothing) = emptied(at);
 
-            let effects = match empty {
-                Empty::Write => vec![Effect::Write(nothing)],
-                Empty::Leave => Vec::new(),
-            };
+      let effects = match empty {
+        Empty::Write => vec![Effect::Write(nothing)],
+        Empty::Leave => Vec::new(),
+      };
 
-            Transition::new(Setting::Set { at: at.clone() }, effects)
-        }
+      Transition::new(Setting::Set { at: at.clone() }, effects)
+    }
 
-        (Setting::Set { .. }, Event::Custom(MappingEvent::Requested(part))) => {
-            let Ok(asked) = question(part);
-            let Ok(word) = part.on.word();
-            let Ok(asking) = Command::internal(ASKING, &[&part.slug, word]);
+    (Setting::Set { .. }, Event::Custom(MappingEvent::Requested(part))) => {
+      let Ok(asked) = question(part);
+      let Ok(word) = part.on.word();
+      let Ok(asking) = Command::internal(ASKING, &[&part.slug, word]);
 
-            Transition::new(
-                state.clone(),
-                vec![Effect::Custom(MappingEffect::Note(asked)), Effect::Run(asking)],
-            )
-        }
+      Transition::new(
+        state.clone(),
+        vec![
+          Effect::Custom(MappingEffect::Note(asked)),
+          Effect::Run(asking),
+        ],
+      )
+    }
 
-        (Setting::Set { .. }, Event::Custom(MappingEvent::Restore)) => {
-            Transition::new(state.clone(), vec![Effect::Custom(MappingEffect::Sure)])
-        }
+    (Setting::Set { .. }, Event::Custom(MappingEvent::Restore)) => {
+      Transition::new(state.clone(), vec![Effect::Custom(MappingEffect::Sure)])
+    }
 
-        (Setting::Set { at }, Event::Custom(MappingEvent::Sure)) => {
-            let Ok(nothing) = emptied(at);
+    (Setting::Set { at }, Event::Custom(MappingEvent::Sure)) => {
+      let Ok(nothing) = emptied(at);
 
-            Transition::new(state.clone(), vec![Effect::Write(nothing)])
-        }
+      Transition::new(state.clone(), vec![Effect::Write(nothing)])
+    }
 
-        (Setting::Nowhere, Event::Custom(_)) => {
-            Transition::new(state.clone(), vec![Effect::Custom(MappingEffect::Note(NOWHERE.to_string()))])
-        }
+    (Setting::Nowhere, Event::Custom(_)) => Transition::new(
+      state.clone(),
+      vec![Effect::Custom(MappingEffect::Note(NOWHERE.to_string()))],
+    ),
 
-        (_, _) => Transition::without_effects(state.clone()),
-    };
+    (_, _) => Transition::without_effects(state.clone()),
+  };
 
-    Ok(turn)
+  Ok(turn)
 }
 
 fn emptied(at: &Path) -> Result<FileWrite, Never> {
-    let Ok(none) = Tasks::none();
-    let Ok(contents) = none.serialize();
+  let Ok(none) = Tasks::none();
+  let Ok(contents) = none.serialize();
 
-    Ok(FileWrite { path: at.to_path_buf(), contents })
+  Ok(FileWrite {
+    path: at.to_path_buf(),
+    contents,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use console_core_state_machine::run;
+  use console_core_state_machine::run;
 
-    use super::*;
+  use super::*;
 
-    fn table(at: &str, empty: Empty) -> Result<Setting, Never> {
-        Ok(Setting::Initial { at: PathBuf::from(at), empty })
-    }
+  fn table(at: &str, empty: Empty) -> Result<Setting, Never> {
+    Ok(Setting::Initial {
+      at: PathBuf::from(at),
+      empty,
+    })
+  }
 
-    fn opened(setting: &Setting) -> Result<Vec<Effect<MappingEffect>>, Never> {
-        let Ok(said) = run::<Setup>(setting, &[Event::Opened]);
+  fn opened(setting: &Setting) -> Result<Vec<Effect<MappingEffect>>, Never> {
+    let Ok(said) = run::<Setup>(setting, &[Event::Opened]);
 
-        said.effects()
-    }
+    said.effects()
+  }
 
-    fn pressing(setting: &Setting, heard: &[MappingEvent]) -> Result<Vec<Effect<MappingEffect>>, Never> {
-        let mut words_said = vec![Event::Opened];
+  fn pressing(
+    setting: &Setting,
+    heard: &[MappingEvent],
+  ) -> Result<Vec<Effect<MappingEffect>>, Never> {
+    let mut words_said = vec![Event::Opened];
 
-        words_said.extend(heard.iter().cloned().map(Event::Custom));
+    words_said.extend(heard.iter().cloned().map(Event::Custom));
 
-        let Ok(said) = run::<Setup>(setting, &words_said);
+    let Ok(said) = run::<Setup>(setting, &words_said);
 
-        said.effects()
-    }
+    said.effects()
+  }
 
-    fn part() -> Result<Part, Never> {
-        Ok(Part {
-            slug: "open-the-menu".to_string(),
-            action: console_input_controller::actions::Action::Menu,
-            does: "Open the menu".to_string(),
-            on: console_input_bindings::bound::Input::Pad,
-            plays: Vec::new(),
-            moved: false,
-        })
-    }
+  fn part() -> Result<Part, Never> {
+    Ok(Part {
+      slug: "open-the-menu".to_string(),
+      action: console_input_controller::actions::Action::Menu,
+      does: "Open the menu".to_string(),
+      on: console_input_bindings::bound::Input::Pad,
+      plays: Vec::new(),
+      moved: false,
+    })
+  }
 
-    fn nothing_written() -> Result<String, Never> {
-        let Ok(none) = Tasks::none();
+  fn nothing_written() -> Result<String, Never> {
+    let Ok(none) = Tasks::none();
 
-        none.serialize()
-    }
+    none.serialize()
+  }
 
-    #[test]
-    fn a_first_run_with_nothing_written_writes_the_empty_table() {
-        let Ok(first) = table("/home/someone/.config/console/buttons.toml", Empty::Write);
-        let Ok(said) = opened(&first);
-        let Ok(contents) = nothing_written();
+  #[test]
+  fn a_first_run_with_nothing_written_writes_the_empty_table() {
+    let Ok(first) = table("/home/someone/.config/console/buttons.toml", Empty::Write);
+    let Ok(said) = opened(&first);
+    let Ok(contents) = nothing_written();
 
-        assert_eq!(said, vec![Effect::Write(FileWrite {
-            path: PathBuf::from("/home/someone/.config/console/buttons.toml"),
-            contents,
-        })]);
-    }
+    assert_eq!(
+      said,
+      vec![Effect::Write(FileWrite {
+        path: PathBuf::from("/home/someone/.config/console/buttons.toml"),
+        contents,
+      })]
+    );
+  }
 
-    #[test]
-    fn a_first_run_over_a_table_someone_answered_writes_nothing() {
-        let Ok(answered) = table("/somewhere", Empty::Leave);
+  #[test]
+  fn a_first_run_over_a_table_someone_answered_writes_nothing() {
+    let Ok(answered) = table("/somewhere", Empty::Leave);
 
-        assert_eq!(opened(&answered), Ok(Vec::new()));
-    }
+    assert_eq!(opened(&answered), Ok(Vec::new()));
+  }
 
-    #[test]
-    fn opening_it_the_ordinary_way_writes_nothing() {
-        let Ok(ordinary) = table("/somewhere", Empty::Leave);
+  #[test]
+  fn opening_it_the_ordinary_way_writes_nothing() {
+    let Ok(ordinary) = table("/somewhere", Empty::Leave);
 
-        assert_eq!(opened(&ordinary), Ok(Vec::new()));
-    }
+    assert_eq!(opened(&ordinary), Ok(Vec::new()));
+  }
 
-    #[test]
-    fn putting_them_back_asks_before_it_writes() {
-        let Ok(somewhere) = table("/somewhere", Empty::Leave);
-        let Ok(asked) = pressing(&somewhere, &[MappingEvent::Restore]);
+  #[test]
+  fn putting_them_back_asks_before_it_writes() {
+    let Ok(somewhere) = table("/somewhere", Empty::Leave);
+    let Ok(asked) = pressing(&somewhere, &[MappingEvent::Restore]);
 
-        assert_eq!(asked, vec![Effect::Custom(MappingEffect::Sure)]);
+    assert_eq!(asked, vec![Effect::Custom(MappingEffect::Sure)]);
 
-        let Ok(answered) = pressing(&somewhere, &[MappingEvent::Restore, MappingEvent::Sure]);
-        let Ok(contents) = nothing_written();
+    let Ok(answered) = pressing(&somewhere, &[MappingEvent::Restore, MappingEvent::Sure]);
+    let Ok(contents) = nothing_written();
 
-        assert_eq!(answered.last(), Some(&Effect::Write(FileWrite { path: PathBuf::from("/somewhere"), contents })));
-    }
+    assert_eq!(
+      answered.last(),
+      Some(&Effect::Write(FileWrite {
+        path: PathBuf::from("/somewhere"),
+        contents
+      }))
+    );
+  }
 
-    #[test]
-    fn a_machine_that_will_not_say_whose_buttons_these_are_writes_nothing() {
-        assert_eq!(opened(&Setting::Nowhere), Ok(Vec::new()));
-    }
+  #[test]
+  fn a_machine_that_will_not_say_whose_buttons_these_are_writes_nothing() {
+    assert_eq!(opened(&Setting::Nowhere), Ok(Vec::new()));
+  }
 
-    #[test]
-    fn a_press_with_nowhere_to_write_says_so_rather_than_writing() {
-        let Ok(asked) = pressing(&Setting::Nowhere, &[MappingEvent::Restore, MappingEvent::Sure]);
+  #[test]
+  fn a_press_with_nowhere_to_write_says_so_rather_than_writing() {
+    let Ok(asked) = pressing(
+      &Setting::Nowhere,
+      &[MappingEvent::Restore, MappingEvent::Sure],
+    );
 
-        assert_eq!(asked, vec![
-            Effect::Custom(MappingEffect::Note(NOWHERE.to_string())),
-            Effect::Custom(MappingEffect::Note(NOWHERE.to_string())),
-        ]);
-    }
+    assert_eq!(
+      asked,
+      vec![
+        Effect::Custom(MappingEffect::Note(NOWHERE.to_string())),
+        Effect::Custom(MappingEffect::Note(NOWHERE.to_string())),
+      ]
+    );
+  }
 
-    #[test]
-    fn asking_for_a_button_puts_the_card_up_before_the_card_is_started() {
-        let Ok(part) = part();
-        let Ok(somewhere) = table("/somewhere", Empty::Leave);
-        let Ok(said) = pressing(&somewhere, &[MappingEvent::Requested(part)]);
-        let Ok(runs) = Command::internal(ASKING, &["open-the-menu", "pad"]);
+  #[test]
+  fn asking_for_a_button_puts_the_card_up_before_the_card_is_started() {
+    let Ok(part) = part();
+    let Ok(somewhere) = table("/somewhere", Empty::Leave);
+    let Ok(said) = pressing(&somewhere, &[MappingEvent::Requested(part)]);
+    let Ok(runs) = Command::internal(ASKING, &["open-the-menu", "pad"]);
 
-        assert_eq!(said, vec![
-            Effect::Custom(MappingEffect::Note("Press a button for \u{201c}Open the menu\u{201d}".to_string())),
-            Effect::Run(runs),
-        ]);
-    }
+    assert_eq!(
+      said,
+      vec![
+        Effect::Custom(MappingEffect::Note(
+          "Press a button for \u{201c}Open the menu\u{201d}".to_string()
+        )),
+        Effect::Run(runs),
+      ]
+    );
+  }
 }

@@ -1,0 +1,27 @@
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/assignments.rs:27:5
+   |
+LL |     values[index(&trace)] += amount(&Step(&trace));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: apply the selected wrapping arithmetic policy: `match (amount(&Step(&trace)), &mut values[index(&trace)]) { (explicit_arithmetic_amount, explicit_arithmetic_place) => *explicit_arithmetic_place = ::core::primitive::u32::wrapping_add(*explicit_arithmetic_place, explicit_arithmetic_amount) }`
+   |
+   = note: `#[deny(explicit015_no_bare_arithmetic)]` on by default
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/assignments.rs:33:5
+   |
+LL | /     scalar -= {
+LL | |         scalar = 8;
+LL | |         1
+LL | |     };
+   | |_____^
+   |
+help: apply the selected wrapping arithmetic policy
+   |
+LL ~     match ({
+LL +         scalar = 8;
+LL +         1
+LL ~     }, &mut scalar) { (explicit_arithmetic_amount, explicit_arithmetic_place) => *explicit_arithmetic_place = ::core::primitive::u32::wrapping_sub(*explicit_arithmetic_place, explicit_arithmetic_amount) };
+   |
+
+error: aborting due to 2 previous errors
+

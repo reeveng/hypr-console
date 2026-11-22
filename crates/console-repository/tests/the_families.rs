@@ -52,232 +52,344 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
+use console_repository::{RelativePath, root};
 
 const FAMILY: &str = "console-core-";
 
-fn root() -> Result<PathBuf, std::io::Error> {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize()
-}
+fn manifests() -> Result<BTreeMap<String, String>, Box<dyn Error>> {
+  let mut held = BTreeMap::new();
+  let root = root()?;
+  let crates = std::fs::read_dir(root.join("crates"))?;
 
-fn manifests() -> Result<BTreeMap<String, String>, std::io::Error> {
-    let mut held = BTreeMap::new();
-    let root = root()?;
-    let crates = std::fs::read_dir(root.join("crates"))?;
+  for at in crates.flatten().map(|entry| entry.path()) {
+    let manifest = at.join("Cargo.toml");
+    let named = match at.file_name().and_then(|named| named.to_str()) {
+      Some(named) => named.to_string(),
+      None => continue,
+    };
 
-    for at in crates.flatten().map(|entry| entry.path()) {
-        let manifest = at.join("Cargo.toml");
-        let named = match at.file_name().and_then(|named| named.to_str()) {
-            Some(named) => named.to_string(),
-            None => continue,
-        };
+    let said = match std::fs::read_to_string(&manifest) {
+      Ok(said) => said,
+      Err(_nothing_there) => continue,
+    };
 
-        match std::fs::read_to_string(&manifest) {
-            Ok(said) => {
-                held.insert(named, said);
-            }
-            Err(_nothing_there) => {}
-        }
-    }
+    held.insert(named, said);
+  }
 
-    Ok(held)
+  Ok(held)
 }
 
 fn depends_on(said: &str) -> Result<Vec<String>, Never> {
-    let mut found = Vec::new();
-    let mut inside = false;
+  let mut found = Vec::new();
+  let mut inside = false;
 
-    for line in said.lines().map(str::trim) {
-        match line.starts_with('[') {
-            true => inside = line == "[dependencies]" || line == "[dev-dependencies]",
-            false => match inside {
-                true => match line.split_whitespace().next() {
-                    Some(named) => {
-                        let named = match named.split_once('.') {
-                            Some((named, _key)) => named,
-                            None => named,
-                        };
+  for line in said.lines().map(str::trim) {
+    match ::core::primitive::bool::then_some(line.starts_with('['), ()) {
+      ::core::option::Option::Some(()) => {
+        inside = line == "[dependencies]" || line == "[dev-dependencies]";
 
-                        match named.starts_with("console-") {
-                            true => found.push(named.to_string()),
-                            false => {}
-                        }
-                    }
-                    None => {}
-                },
-                false => {}
-            },
-        }
+        continue;
+      }
+      ::core::option::Option::None => {}
     }
 
-    Ok(found)
+    let entry = match (inside, line.split_whitespace().next()) {
+      (true, Some(entry)) => entry,
+      (true, None) | (false, _) => continue,
+    };
+    let dependency = match entry.split_once('.') {
+      Some((name, _key)) => name,
+      None => entry,
+    };
+
+    match ::core::primitive::bool::then_some(dependency.starts_with("console-"), ()) {
+      ::core::option::Option::Some(()) => found.push(dependency.to_string()),
+      ::core::option::Option::None => {}
+    }
+  }
+
+  Ok(found)
 }
 
 #[test]
 fn a_core_crate_depends_on_nothing_but_the_core() -> Result<(), Box<dyn Error>> {
-    let held = manifests()?;
+  let held = manifests()?;
 
-    let reaching: Vec<String> = held
-        .iter()
-        .filter(|(named, _)| named.starts_with(FAMILY))
-        .flat_map(|(named, said)| {
-            let Ok(on) = depends_on(said);
+  let reaching: Vec<String> = held
+    .iter()
+    .filter(|(named, _)| named.starts_with(FAMILY))
+    .flat_map(|(named, said)| {
+      let Ok(on) = depends_on(said);
 
-            on.into_iter()
-                .filter(|on| !on.starts_with(FAMILY))
-                .map(move |on| format!("{named} -> {on}"))
-        })
-        .collect();
+      on.into_iter()
+        .filter(|on_2| !on_2.starts_with(FAMILY))
+        .map(move |on_3| format!("{named} -> {on}", on = on_3))
+    })
+    .collect();
 
-    assert!(
-        reaching.is_empty(),
-        "a core crate is the bottom of the tree and reaches down into nothing: {reaching:?}"
-    );
+  assert!(
+    reaching.is_empty(),
+    "a core crate is the bottom of the tree and reaches down into nothing: {reaching:?}"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn every_crate_in_the_tree_says_what_family_it_is_in() -> Result<(), Box<dyn Error>> {
-    let held = manifests()?;
-    let strange: Vec<&String> =
-        held.keys().filter(|named| !named.starts_with("console-")).collect();
+  let held = manifests()?;
+  let strange: Vec<&String> = held
+    .keys()
+    .filter(|named| !named.starts_with("console-"))
+    .collect();
 
-    assert!(strange.is_empty(), "every crate here is a console-*: {strange:?}");
+  assert!(
+    strange.is_empty(),
+    "every crate here is a console-*: {strange:?}"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 const SHELVES: [&str; 15] = [
-    "base", "common", "data", "extras", "helper", "helpers", "info", "lib", "misc", "shared",
-    "stuff", "support", "things", "util", "utils",
+  "base", "common", "data", "extras", "helper", "helpers", "info", "lib", "misc", "shared",
+  "stuff", "support", "things", "util", "utils",
 ];
 
 const MECHANISMS: [&str; 18] = [
-    "adapter", "backend", "broker", "claim", "daemon", "dispatcher", "factory", "handler", "host",
-    "manager", "mgr", "module", "modules", "provider", "registry", "service", "services", "wrapper",
+  "adapter",
+  "backend",
+  "broker",
+  "claim",
+  "daemon",
+  "dispatcher",
+  "factory",
+  "handler",
+  "host",
+  "manager",
+  "mgr",
+  "module",
+  "modules",
+  "provider",
+  "registry",
+  "service",
+  "services",
+  "wrapper",
 ];
 
-fn named_with(denied: &[&str]) -> Result<Vec<String>, std::io::Error> {
-    let held = manifests()?;
-    let denied: BTreeSet<&str> = denied.iter().copied().collect();
+fn named_with(denied: &[&str]) -> Result<Vec<String>, Box<dyn Error>> {
+  let held = manifests()?;
+  let denied_2: BTreeSet<&str> = denied.iter().copied().collect();
 
-    let named = held
-        .keys()
-        .flat_map(|named| {
-            named
-                .split('-')
-                .filter(|word| denied.contains(*word))
-                .map(|word| format!("{named}, for {word}"))
-                .collect::<Vec<String>>()
-        })
-        .collect();
+  let named = held
+    .keys()
+    .flat_map(|named| {
+      named
+        .split('-')
+        .filter(|word| denied_2.contains(*word))
+        .map(|word| format!("{named}, for {word}"))
+        .collect::<Vec<String>>()
+    })
+    .collect();
 
-    Ok(named)
+  Ok(named)
 }
 
 #[test]
 fn nothing_here_is_a_shelf() -> Result<(), Box<dyn Error>> {
-    let shelved = named_with(&SHELVES)?;
+  let shelved = named_with(&SHELVES)?;
 
-    assert!(
-        shelved.is_empty(),
-        "a crate that would be a shelf does not get created, it gets a job: {shelved:?}"
-    );
+  assert!(
+    shelved.is_empty(),
+    "a crate that would be a shelf does not get created, it gets a job: {shelved:?}"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn no_crate_is_named_for_the_mechanism_it_happens_to_be() -> Result<(), Box<dyn Error>> {
-    let mechanical = named_with(&MECHANISMS)?;
+  let mechanical = named_with(&MECHANISMS)?;
 
-    assert!(
-        mechanical.is_empty(),
-        "a word that names the mechanism is a word the name does not need: {mechanical:?}"
-    );
+  assert!(
+    mechanical.is_empty(),
+    "a word that names the mechanism is a word the name does not need: {mechanical:?}"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 const MACHINE: [&str; 3] = ["std::fs", "std::env", "std::process"];
 
-const EDGES: [(&str, &str); 10] = [
-    ("console-core-byte-sources", "positioned file reads and length queries shared by format readers"),
-    ("console-core-arguments", "a program's edge, where its words come in and its exit code goes out, written once"),
-    ("console-core-atomic-writes", "the file writer EXPLICIT040 sends every write through"),
-    ("console-core-external-programs", "the one list of programs this desktop did not write"),
-    ("console-core-internal-programs", "the other list, and where a staged binary is found"),
-    ("console-core-places", "where `HOME` is read, once, for the whole tree"),
-    ("console-core-localization", "where the locale variables are read, once"),
-    ("console-core-color", "where the palette beside the running program is read, once"),
-    ("console-core-temporary-directories", "an empty directory of this process's own, made once"),
-    ("console-core-directory-listing", "everything under a directory, walked once for the whole tree"),
+const EDGES: [(&str, &str); 23] = [
+  (
+    "console-core-text-layout",
+    "font discovery and glyph loading for text layout",
+  ),
+  (
+    "console-core-byte-streams",
+    "file-backed buffered sources report their length and seekability here",
+  ),
+  (
+    "console-core-byte-sources",
+    "positioned file reads and length queries shared by format readers",
+  ),
+  (
+    "console-core-arguments",
+    "a program's edge, where its words come in and its exit code goes out, written once",
+  ),
+  (
+    "console-core-atomic-writes",
+    "the file writer EXPLICIT040 sends every write through",
+  ),
+  (
+    "console-core-external-programs",
+    "the one list of programs this desktop did not write",
+  ),
+  (
+    "console-core-internal-programs",
+    "the other list, and where a staged binary is found",
+  ),
+  (
+    "console-core-places",
+    "where `HOME` is read, once, for the whole tree",
+  ),
+  (
+    "console-core-localization",
+    "where the locale variables are read, once",
+  ),
+  (
+    "console-core-color",
+    "where the palette beside the running program is read, once",
+  ),
+  (
+    "console-core-temporary-directories",
+    "an empty directory of this process's own, made once",
+  ),
+  (
+    "console-core-directory-listing",
+    "everything under a directory, walked once for the whole tree",
+  ),
+  (
+    "console-core-font-configuration",
+    "font configuration files are read from the filesystem",
+  ),
+  (
+    "console-core-font-database",
+    "font files are read from the filesystem and environment variables locate them",
+  ),
+  (
+    "console-core-font-reading",
+    "font files are opened from the filesystem",
+  ),
+  (
+    "console-core-jpeg-2000-files",
+    "jpeg 2000 files are read from the filesystem",
+  ),
+  (
+    "console-core-path-rasterizer",
+    "pixmaps and masks are read from and written to files",
+  ),
+  (
+    "console-core-portable-document-syntax",
+    "PDF objects are read from files",
+  ),
+  (
+    "console-core-portable-document-text",
+    "locale variables are read from the environment",
+  ),
+  (
+    "console-core-scalable-vector-graphics",
+    "SVG images are read from files",
+  ),
+  (
+    "console-core-video-decoding-advanced-video-coding",
+    "H.264 bitstreams are read from files",
+  ),
+  (
+    "console-core-video-decoding-av1",
+    "AV1 test vectors are read from files, environment and process control are used in tests",
+  ),
+  (
+    "console-core-video-decoding-high-efficiency-video-coding",
+    "HEVC bitstreams are read from files",
+  ),
 ];
+
+fn crate_sources(root: &Path, name: &str) -> Result<Vec<PathBuf>, Never> {
+  match RelativePath::new(Path::new(name)) {
+    Ok(relative) => {
+      console_repository::sources::under(&root.join("crates").join(relative).join("src"))
+    }
+    Err(_invalid_crate_path) => Ok(Vec::new()),
+  }
+}
 
 #[test]
 fn a_core_crate_reaches_the_machine_only_where_it_is_the_edge() -> Result<(), Box<dyn Error>> {
-    let allowed: BTreeSet<&str> = EDGES.iter().map(|(named, _why)| *named).collect();
-    let held = manifests()?;
-    let root = root()?;
+  let allowed: BTreeSet<&str> = EDGES.iter().map(|(named, _why)| *named).collect();
+  let held = manifests()?;
+  let root = root()?;
 
-    let reaching: Vec<String> = held
-        .keys()
-        .filter(|named| named.starts_with(FAMILY))
-        .filter(|named| !allowed.contains(&named.as_str()))
-        .flat_map(|named| {
-            console_repository::sources::under(&root.join("crates").join(named).join("src"))
-                .into_iter()
-                .flatten()
-                .filter_map(|at| match std::fs::read_to_string(&at) {
-                    Ok(said) => Some((at, said)),
-                    Err(_unreadable_is_not_reaching) => None,
-                })
-                .flat_map(move |(at, said)| {
-                    MACHINE
-                        .iter()
-                        .filter(|reach| said.contains(*reach))
-                        .map(|reach| format!("{named} names {reach} in {}", at.display()))
-                        .collect::<Vec<String>>()
-                })
+  let reaching: Vec<String> = held
+    .keys()
+    .filter(|named| named.starts_with(FAMILY))
+    .filter(|named| !allowed.contains(&named.as_str()))
+    .flat_map(|named| {
+      let Ok(files) = crate_sources(&root, named);
+
+      files
+        .into_iter()
+        .filter_map(|at| match std::fs::read_to_string(&at) {
+          Ok(said) => Some((at, said)),
+          Err(_unreadable_is_not_reaching) => None,
         })
-        .collect();
+        .flat_map(move |(at, said)| {
+          MACHINE
+            .iter()
+            .filter(|reach| said.contains(*reach))
+            .map(|reach| format!("{named} names {reach} in {}", at.display()))
+            .collect::<Vec<String>>()
+        })
+    })
+    .collect();
 
-    assert!(
-        reaching.is_empty(),
-        "a core crate is arithmetic, and the machine is asked by the crate that owns the question: {reaching:?}"
-    );
+  assert!(
+    reaching.is_empty(),
+    "a core crate is arithmetic, and the machine is asked by the crate that owns the question: {reaching:?}"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn every_edge_named_here_is_still_a_core_crate_that_reaches() -> Result<(), Box<dyn Error>> {
-    let held = manifests()?;
-    let root = root()?;
+  let held = manifests()?;
+  let root = root()?;
 
-    let stale: Vec<String> = EDGES
-        .iter()
-        .filter(|(named, _why)| {
-            let gone = !held.contains_key(*named);
+  let stale: Vec<String> = EDGES
+    .iter()
+    .filter(|(named, _why)| {
+      let gone = !held.contains_key(*named);
 
-            let quiet = console_repository::sources::under(&root.join("crates").join(named).join("src"))
-                .into_iter()
-                .flatten()
-                .filter_map(|at| match std::fs::read_to_string(at) {
-                    Ok(said) => Some(said),
-                    Err(_unreadable_is_quiet) => None,
-                })
-                .all(|said| MACHINE.iter().all(|reach| !said.contains(reach)));
-
-            gone || quiet
+      let Ok(files) = crate_sources(&root, named);
+      let quiet = files
+        .into_iter()
+        .filter_map(|at| match std::fs::read_to_string(at) {
+          Ok(said) => Some(said),
+          Err(_unreadable_is_quiet) => None,
         })
-        .map(|(named, why)| format!("{named}, {why}"))
-        .collect();
+        .all(|said| MACHINE.iter().all(|reach| !said.contains(reach)));
 
-    assert!(
-        stale.is_empty(),
-        "an edge that no longer reaches is a line to delete rather than a permission to keep: {stale:?}"
-    );
+      gone || quiet
+    })
+    .map(|(named, why)| format!("{named}, {why}"))
+    .collect();
 
-    Ok(())
+  assert!(
+    stale.is_empty(),
+    "an edge that no longer reaches is a line to delete rather than a permission to keep: {stale:?}"
+  );
+
+  Ok(())
 }

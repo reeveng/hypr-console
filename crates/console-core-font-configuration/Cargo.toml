@@ -1,0 +1,29 @@
+[package]
+name = "console-core-font-configuration"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "A machine's fontconfig files, read into their aliases, directories and rules."
+
+[features]
+log = ["dep:console-core-logging"]
+serde = ["dep:serde"]
+
+[dependencies]
+console-core-iteration.workspace = true
+console-core-never.workspace = true
+console-core-logging = { workspace = true, optional = true, features = ["std"] }
+roxmltree = { package = "console-core-extensible-markup", path = "../console-core-extensible-markup" }
+serde = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+console-core-atomic-writes.workspace = true
+serde_json = "1"
+
+[[bench]]
+name = "parse_test_conf"
+harness = false
+
+[lints]
+workspace = true

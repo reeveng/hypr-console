@@ -25,19 +25,9 @@
 //! `console-compositor` knows that sentence for a refusal now, and the checks
 //! ask what is held rather than what was sent.
 //!
-//! So a bind is lua: `hl.bind`, with `hl.dsp.exec_cmd` for the effect and the
-//! flags in a table beside it. `repeating` rather than `repeat`, because the
-//! word a person would use is a keyword in that language.
-//!
-//! ## What a bind carries
-//!
-//! `exec_cmd`, always, and never a dispatcher. Every job's effect is already a
-//! `Effect::Run` or it is not a job a keyboard can reach at all, so rendering
-//! one thing rather than two means there is no second vocabulary to keep
-//! agreeing with the first. It costs a process on the workspace binds, which
-//! run `hyprctl dispatch` back at the compositor that just called them. That
-//! is a real cost and it buys the property worth having: what a key does and
-//! what a button does are the same sentence, read out of the same row.
+//! A bind uses `hl.bind`, with the dispatcher from the same typed action
+//! a pad sends to the compositor. Programs use `hl.dsp.exec_cmd`. The
+//! options are `locked` and `repeating`.
 //!
 //! `locked` where the job answers with the screen locked and `repeating` where
 //! holding it goes on stepping -- both read off `Action` rather than written
@@ -111,8 +101,8 @@ use console_core_never::Never;
 use console_input_bindings::bound::{Binding, Input, Played};
 use console_input_bindings::keys;
 
-use crate::effect::Effect;
-use crate::actions::{Task, LockBehavior, ButtonPress, RepeatMode, Table};
+use crate::actions::{ButtonPress, LockBehavior, RepeatMode, Table, Task};
+use crate::effect::{CompositorAction, Effect};
 
 const BIND: &str = "hl.bind";
 
@@ -126,611 +116,787 @@ const WHILE_HELD: &str = "repeating = true";
 
 const ABOUT: &str = "description";
 
+const NATIVE: &str = " [dispatcher]";
+
 const ON: &str = "on";
 
 const PLAIN: &[char] = &['.', '_', '-', '/', '+'];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BindingAction {
+  Run(String),
+  Dispatch(CompositorAction),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyBinding {
-    pub keys: String,
-    pub held: u64,
-    pub runs: String,
-    pub about: String,
-    pub locked: LockBehavior,
-    pub repeats: RepeatMode,
+  pub keys: String,
+  pub held: u64,
+  pub action: BindingAction,
+  pub about: String,
+  pub locked: LockBehavior,
+  pub repeats: RepeatMode,
 }
 
 impl KeyBinding {
-    pub fn bind_command(&self) -> Result<String, Never> {
-        let Ok(keys) = console_compositor::quote(&self.keys);
-        let Ok(runs) = console_compositor::quote(&self.runs);
-        let Ok(about) = console_compositor::quote(&self.about);
+  fn description(&self) -> Result<String, Never> {
+    Ok(match self.action {
+      BindingAction::Run(_) => self.about.clone(),
+      BindingAction::Dispatch(_) => format!("{}{NATIVE}", self.about),
+    })
+  }
 
-        let mut options: Vec<String> = vec![format!("{ABOUT} = {about}")];
+  pub fn bind_command(&self) -> Result<String, Never> {
+    let Ok(keys) = console_compositor::quote(&self.keys);
+    let Ok(description) = self.description();
+    let Ok(about) = console_compositor::quote(&description);
+    let dispatch = match &self.action {
+      BindingAction::Run(runs) => {
+        let Ok(runs_2) = console_compositor::quote(runs);
 
-        match self.locked {
-            LockBehavior::EvenThen => options.push(WHILE_LOCKED.to_string()),
-            LockBehavior::Unlocked => {},
-        }
+        format!("{RUNS}({runs})", runs = runs_2)
+      }
+      BindingAction::Dispatch(action) => {
+        let Ok(dispatch) = action.dispatcher();
 
-        match self.repeats {
-            RepeatMode::WhileHeld => options.push(WHILE_HELD.to_string()),
-            RepeatMode::Once => {},
-        }
+        dispatch
+      }
+    };
 
-        Ok(format!("{BIND}({keys}, {RUNS}({runs}), {{ {} }})", options.join(", ")))
+    let mut options: Vec<String> = vec![format!("{ABOUT} = {about}")];
+
+    match self.locked {
+      LockBehavior::EvenThen => options.push(WHILE_LOCKED.to_string()),
+      LockBehavior::Unlocked => {}
     }
 
-    pub fn unbind_command(&self) -> Result<String, Never> {
-        let Ok(keys) = console_compositor::quote(&self.keys);
-
-        Ok(format!("{UNBIND}({keys})"))
+    match self.repeats {
+      RepeatMode::WhileHeld => options.push(WHILE_HELD.to_string()),
+      RepeatMode::Once => {}
     }
+
+    Ok(format!(
+      "{BIND}({keys}, {dispatch}, {{ {} }})",
+      options.join(", ")
+    ))
+  }
+
+  pub fn unbind_command(&self) -> Result<String, Never> {
+    let Ok(keys) = console_compositor::quote(&self.keys);
+
+    Ok(format!("{UNBIND}({keys})"))
+  }
 }
 
 pub fn desired_binds(table: &Table) -> Result<Vec<KeyBinding>, Never> {
-    let Ok(every) = table.every();
-    let mut wanted: Vec<KeyBinding> = Vec::new();
+  let Ok(every) = table.every();
+  let mut wanted: Vec<KeyBinding> = Vec::new();
 
-    for (job, bound) in every {
-        'over_binds: for one in bound.iter().filter(|one| one.on == Input::Keyboard) {
-            let Ok(played) = one.played();
+  for (job, bound) in every {
+    'over_binds: for one in bound.iter().filter(|one| one.on == Input::Keyboard) {
+      let Ok(played) = one.played();
 
-            match played {
-                Played::ByNothing => continue 'over_binds,
-                Played::ByAPress => {},
-            }
+      match played {
+        Played::ByNothing => continue 'over_binds,
+        Played::ByAPress => {}
+      }
 
-            let Ok(keys) = key_combo(one);
+      let Ok(keys) = key_combo(one);
 
-            let keys = match keys {
-                Some(keys) => keys,
-                None => continue 'over_binds,
-            };
+      let keys_3 = match keys {
+        Some(keys_2) => keys_2,
+        None => continue 'over_binds,
+      };
 
-            let Ok(held) = keys::mask(&one.held);
+      let Ok(held) = keys::mask(&one.held);
 
-            let held = match held {
-                Some(held) => held,
-                None => continue 'over_binds,
-            };
+      let held_3 = match held {
+        Some(held_2) => held_2,
+        None => continue 'over_binds,
+      };
 
-            let Ok(does) = job.action.does(ButtonPress::Down);
+      let Ok(does) = job.action.does(ButtonPress::Down);
 
-            let arguments = match does {
-                Some(Effect::Run(arguments)) => arguments,
-                Some(Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) | Effect::Reconnected(_)) | None => {
-                    continue 'over_binds
-                }
-            };
+      let action = match does {
+        Some(Effect::Run(arguments)) => {
+          let Ok(words) = shell_quote(&arguments);
 
-            let Ok(runs) = shell_quote(&arguments);
-            let Ok(locked) = job.action.locked();
-            let Ok(repeats) = job.action.repeats();
-
-            let Ok(about) = bind_name(job, &keys);
-
-            wanted.push(KeyBinding { keys, held, runs, about, locked, repeats });
+          BindingAction::Run(words)
         }
-    }
+        Some(Effect::Dispatch(action)) => BindingAction::Dispatch(action),
+        Some(Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) | Effect::Reconnected(_))
+        | None => continue 'over_binds,
+      };
 
-    Ok(wanted)
+      let Ok(locked) = job.action.locked();
+      let Ok(repeats) = job.action.repeats();
+
+      let Ok(about) = bind_name(job, &keys_3);
+
+      wanted.push(KeyBinding {
+        keys: keys_3,
+        held: held_3,
+        action,
+        about,
+        locked,
+        repeats,
+      });
+    }
+  }
+
+  Ok(wanted)
 }
 
 fn bind_name(job: &Task, keys: &str) -> Result<String, Never> {
-    Ok(format!("{} {ON} {keys}", job.slug))
+  Ok(format!("{} {ON} {keys}", job.slug))
 }
 
 fn key_combo(binding: &Binding) -> Result<Option<String>, Never> {
-    keys::bind(&binding.held, &binding.pressed)
+  keys::bind(&binding.held, &binding.pressed)
 }
 
 fn shell_quote(arguments: &[String]) -> Result<String, Never> {
-    let mut said: Vec<String> = Vec::new();
+  let mut said: Vec<String> = Vec::new();
 
-    for word in arguments {
-        let plain = !word.is_empty()
-            && word.chars().all(|letter| letter.is_ascii_alphanumeric() || PLAIN.contains(&letter));
+  for word in arguments {
+    let plain = !word.is_empty()
+      && word
+        .chars()
+        .all(|letter| letter.is_ascii_alphanumeric() || PLAIN.contains(&letter));
 
-        said.push(match plain {
-            true => word.clone(),
-            false => format!("'{}'", word.replace('\'', "'\\''")),
-        });
-    }
+    said.push(match ::core::primitive::bool::then_some(plain, ()) {
+      ::core::option::Option::Some(()) => word.clone(),
+      ::core::option::Option::None => format!("'{}'", word.replace('\'', "'\\''")),
+    });
+  }
 
-    Ok(said.join(" "))
+  Ok(said.join(" "))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Worth {
-    Querying,
-    Ignoring,
+  Querying,
+  Ignoring,
 }
 
 pub fn worth_asking_after(line: &str) -> Result<Worth, Never> {
-    let Ok(stirred) = console_compositor::events::read(line);
+  let Ok(stirred) = console_compositor::events::read(line);
 
-    Ok(match stirred {
-        CompositorEvent::ConfigurationReloaded => Worth::Querying,
-        CompositorEvent::WindowOpened(_)
-        | CompositorEvent::WindowClosed(_)
-        | CompositorEvent::WindowRenamed(_)
-        | CompositorEvent::WindowMoved
-        | CompositorEvent::WindowFloated
-        | CompositorEvent::WindowPinned
-        | CompositorEvent::WindowFilled
-        | CompositorEvent::LayerOpened
-        | CompositorEvent::LayerClosed
-        | CompositorEvent::WorkspaceChanged
-        | CompositorEvent::ScreenFocused
-        | CompositorEvent::WindowFocused
-        | CompositorEvent::Ignored => Worth::Ignoring,
-    })
+  Ok(match stirred {
+    CompositorEvent::ConfigurationReloaded => Worth::Querying,
+    CompositorEvent::WindowOpened(_)
+    | CompositorEvent::WindowClosed(_)
+    | CompositorEvent::WindowRenamed(_)
+    | CompositorEvent::WindowMoved
+    | CompositorEvent::WindowFloated
+    | CompositorEvent::WindowPinned
+    | CompositorEvent::WindowFilled
+    | CompositorEvent::LayerOpened
+    | CompositorEvent::LayerClosed
+    | CompositorEvent::WorkspaceChanged
+    | CompositorEvent::ScreenFocused
+    | CompositorEvent::WindowFocused
+    | CompositorEvent::Ignored => Worth::Ignoring,
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Went {
-    Through,
-    Nowhere,
+  Through,
+  Nowhere,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Holding {
-    These(Vec<console_compositor::BoundKey>),
-    HyprctlError(String),
+  These(Vec<console_compositor::BoundKey>),
+  HyprctlError(String),
 }
 
 pub fn current_binds() -> Result<Holding, Never> {
-    Ok(match console_compositor::ask(console_compositor::Binds) {
-        Ok(these) => Holding::These(these),
-        Err(fault) => Holding::HyprctlError(fault.to_string()),
-    })
+  Ok(match console_compositor::ask(console_compositor::Binds) {
+    Ok(these) => Holding::These(these),
+    Err(fault) => Holding::HyprctlError(fault.to_string()),
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Holds {
-    NotAtAll,
-    Once,
-    Over,
+  NotAtAll,
+  Outdated,
+  Once,
+  Over,
 }
 
 pub fn holds(one: &KeyBinding, held: &[console_compositor::BoundKey]) -> Result<Holds, Never> {
-    Ok(match held.iter().filter(|there| there.held == one.held && there.about == one.about).count() {
-        0 => Holds::NotAtAll,
-        1 => Holds::Once,
-        _ => Holds::Over,
-    })
+  let Ok(description) = one.description();
+  let mut current = 0_u32;
+  let mut outdated = false;
+
+  for there in held.iter().filter(|there| there.held == one.held) {
+    match ::core::primitive::bool::then_some({ there.about == description }, ()) {
+      ::core::option::Option::Some(()) => {
+        current = current.saturating_add(1);
+      }
+      ::core::option::Option::None => match ::core::primitive::bool::then_some({ there.about == one.about }, ()) {
+        ::core::option::Option::Some(()) => {
+          outdated = true;
+        }
+        ::core::option::Option::None => {}
+      },
+    }
+  }
+
+  Ok(match (current, outdated) {
+    (0, false) => Holds::NotAtAll,
+    (1, false) => Holds::Once,
+    (0, true) => Holds::Outdated,
+    _ => Holds::Over,
+  })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BindCommand {
-    Bound(KeyBinding),
-    Unbind(KeyBinding),
+  Bound(KeyBinding),
+  Unbind(KeyBinding),
 }
 
 impl BindCommand {
-    pub fn command(&self) -> Result<String, Never> {
-        match self {
-            BindCommand::Bound(one) => one.bind_command(),
-            BindCommand::Unbind(one) => one.unbind_command(),
-        }
+  pub fn command(&self) -> Result<String, Never> {
+    match self {
+      BindCommand::Bound(one) => one.bind_command(),
+      BindCommand::Unbind(one) => one.unbind_command(),
     }
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Standing {
-    pub missing: u32,
-    pub over: u32,
+  pub missing: u32,
+  pub over: u32,
 }
 
 pub fn compare(wanted: &[KeyBinding], holding: &Holding) -> Result<Standing, Never> {
-    let held = match holding {
-        Holding::These(held) => held,
-        Holding::HyprctlError(_) => return Ok(Standing { missing: 0, over: 0 }),
-    };
-
-    let mut standing = Standing { missing: 0, over: 0 };
-
-    for one in wanted {
-        let Ok(holds) = holds(one, held);
-
-        match holds {
-            Holds::Once => {},
-            Holds::NotAtAll => standing.missing = standing.missing.saturating_add(1),
-            Holds::Over => standing.over = standing.over.saturating_add(1),
-        }
+  let held = match holding {
+    Holding::These(held) => held,
+    Holding::HyprctlError(_) => {
+      return Ok(Standing {
+        missing: 0,
+        over: 0,
+      });
     }
+  };
 
-    Ok(standing)
+  let mut standing = Standing {
+    missing: 0,
+    over: 0,
+  };
+
+  for one in wanted {
+    let Ok(holds) = holds(one, held);
+
+    match holds {
+      Holds::Once => {}
+      Holds::NotAtAll | Holds::Outdated => standing.missing = standing.missing.saturating_add(1),
+      Holds::Over => standing.over = standing.over.saturating_add(1),
+    }
+  }
+
+  Ok(standing)
 }
 
-pub fn commands_to_send(wanted: &[KeyBinding], handed: &[KeyBinding], holding: &Holding) -> Result<Vec<BindCommand>, Never> {
-    let held = match holding {
-        Holding::These(held) => held,
-        Holding::HyprctlError(_) => return unasked(wanted, handed),
-    };
+pub fn commands_to_send(
+  wanted: &[KeyBinding],
+  handed: &[KeyBinding],
+  holding: &Holding,
+) -> Result<Vec<BindCommand>, Never> {
+  let held = match holding {
+    Holding::These(held) => held,
+    Holding::HyprctlError(_) => return unasked(wanted, handed),
+  };
 
-    let Ok(mut sent) = dropped(wanted, handed);
+  let Ok(mut sent) = dropped(wanted, handed);
 
-    for one in wanted {
-        let Ok(holds) = holds(one, held);
+  for one in wanted {
+    let Ok(holds) = holds(one, held);
 
-        match holds {
-            Holds::Once => {},
-            Holds::NotAtAll => sent.push(BindCommand::Bound(one.clone())),
-            Holds::Over => {
-                sent.push(BindCommand::Unbind(one.clone()));
-                sent.push(BindCommand::Bound(one.clone()));
-            },
-        }
+    match holds {
+      Holds::Once => {}
+      Holds::NotAtAll => sent.push(BindCommand::Bound(one.clone())),
+      Holds::Over | Holds::Outdated => {
+        sent.push(BindCommand::Unbind(one.clone()));
+        sent.push(BindCommand::Bound(one.clone()));
+      }
     }
+  }
 
-    Ok(sent)
+  Ok(sent)
 }
 
 fn unasked(wanted: &[KeyBinding], handed: &[KeyBinding]) -> Result<Vec<BindCommand>, Never> {
-    let Ok(mut sent) = dropped(wanted, handed);
+  let Ok(mut sent) = dropped(wanted, handed);
 
-    #[cfg_attr(
-        dylint_lib = "explicit028_no_search_in_a_loop",
-        allow(
-            explicit028_no_search_in_a_loop,
-            reason = "both lists are the binds of one controller profile, which is tens of them and is written out in a file someone reads"
-        )
-    )]
-    for one in wanted.iter().filter(|one| !handed.contains(one)) {
-        sent.push(BindCommand::Bound(one.clone()));
-    }
+  #[cfg_attr(
+    dylint_lib = "explicit028_no_search_in_a_loop",
+    allow(
+      explicit028_no_search_in_a_loop,
+      reason = "both lists are the binds of one controller profile, which is tens of them and is written out in a file someone reads"
+    )
+  )]
+  for one in wanted.iter().filter(|one| !handed.contains(one)) {
+    sent.push(BindCommand::Bound(one.clone()));
+  }
 
-    Ok(sent)
+  Ok(sent)
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit028_no_search_in_a_loop",
-    allow(
-        explicit028_no_search_in_a_loop,
-        reason = "both lists are the binds of one controller profile, which is tens of them and is written out in a file someone reads"
-    )
+  dylint_lib = "explicit028_no_search_in_a_loop",
+  allow(
+    explicit028_no_search_in_a_loop,
+    reason = "both lists are the binds of one controller profile, which is tens of them and is written out in a file someone reads"
+  )
 )]
 fn dropped(wanted: &[KeyBinding], handed: &[KeyBinding]) -> Result<Vec<BindCommand>, Never> {
-    Ok(handed
-        .iter()
-        .filter(|one| !wanted.contains(one))
-        .map(|one| BindCommand::Unbind(one.clone()))
-        .collect())
+  Ok(
+    handed
+      .iter()
+      .filter(|one| !wanted.contains(one))
+      .map(|one| BindCommand::Unbind(one.clone()))
+      .collect(),
+  )
 }
 
 pub fn send(sent: &[BindCommand]) -> Result<Went, Never> {
-    let mut went = Went::Through;
+  let mut went = Went::Through;
 
-    for one in sent {
-        let Ok(said) = one.command();
-        let Ok(done) = console_compositor::request(console_compositor::Request::Script, &said);
+  for one in sent {
+    let Ok(said) = one.command();
+    let Ok(done) = console_compositor::request(console_compositor::Request::Script, &said);
 
-        let Ok(through) = complained(done, &said);
+    let Ok(through) = complained(done, &said);
 
-        went = match (went, through) {
-            (Went::Through, Went::Through) => Went::Through,
-            (_, _) => Went::Nowhere,
-        };
-    }
+    went = match (went, through) {
+      (Went::Through, Went::Through) => Went::Through,
+      (_, _) => Went::Nowhere,
+    };
+  }
 
-    Ok(went)
+  Ok(went)
 }
 
 fn complained(said: console_compositor::DispatchResult, about: &str) -> Result<Went, Never> {
-    Ok(match said {
-        console_compositor::DispatchResult::Success => Went::Through,
-        console_compositor::DispatchResult::Failure(why) => {
-            eprintln!("controller-desktop: the compositor would not take {about:?}: {why}");
+  Ok(match said {
+    console_compositor::DispatchResult::Success => Went::Through,
+    console_compositor::DispatchResult::Failure(why) => {
+      eprintln!("controller-desktop: the compositor would not take {about:?}: {why}");
 
-            Went::Nowhere
-        }
-    })
+      Went::Nowhere
+    }
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    use console_core_number_conversion::fitted;
-    use console_input_bindings::moved::Tasks;
+  use console_core_number_conversion::fitted;
+  use console_input_bindings::moved::Tasks;
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    const MOVED: &str = "[jobs]\nsettings = \"keyboard: super + j\"\n";
+  const MOVED: &str = "[jobs]\nsettings = \"keyboard: super + j\"\n";
 
-    fn defaults() -> Result<Vec<KeyBinding>, Never> {
-        let Ok(table) = Table::ours();
+  fn defaults() -> Result<Vec<KeyBinding>, Never> {
+    let Ok(table) = Table::ours();
 
-        desired_binds(&table)
-    }
+    desired_binds(&table)
+  }
 
-    fn moved() -> Result<Vec<KeyBinding>, Failure> {
-        let said = Tasks::read(MOVED)?;
-        let Ok(table) = Table::of(&said);
-        let Ok(now) = desired_binds(&table);
+  fn moved() -> Result<Vec<KeyBinding>, Failure> {
+    let said = Tasks::read(MOVED)?;
+    let Ok(table) = Table::of(&said);
+    let Ok(now) = desired_binds(&table);
 
-        Ok(now)
-    }
+    Ok(now)
+  }
 
-    fn one<'a>(every: &'a [KeyBinding], keys: &str) -> Result<&'a KeyBinding, Failure> {
-        let found = every.iter().find(|bind| bind.keys == keys).ok_or_else(|| format!("a bind on {keys}"))?;
+  fn one<'a>(every: &'a [KeyBinding], keys: &str) -> Result<&'a KeyBinding, Failure> {
+    let found = every
+      .iter()
+      .find(|bind| bind.keys == keys)
+      .ok_or_else(|| format!("a bind on {keys}"))?;
 
-        Ok(found)
-    }
+    Ok(found)
+  }
 
-    fn keys_of((word, pressed): (&str, &str)) -> Result<String, Failure> {
-        let held = vec![word.to_string()];
-        let Ok(said) = keys::bind(&held, pressed);
-        let said = said.ok_or_else(|| format!("a key called {pressed}"))?;
+  fn keys_of((word, pressed): (&str, &str)) -> Result<String, Failure> {
+    let held = vec![word.to_string()];
+    let Ok(said) = keys::bind(&held, pressed);
+    let said_2 = said.ok_or_else(|| format!("a key called {pressed}"))?;
 
-        Ok(said)
-    }
+    Ok(said_2)
+  }
 
-    fn tail(pressed: &str) -> Result<String, Failure> {
-        let Ok(said) = keys::bind(&[], pressed);
-        let said = said.ok_or_else(|| format!("a key called {pressed}"))?;
+  fn tail(pressed: &str) -> Result<String, Failure> {
+    let Ok(said) = keys::bind(&[], pressed);
+    let said_2 = said.ok_or_else(|| format!("a key called {pressed}"))?;
 
-        Ok(said)
-    }
+    Ok(said_2)
+  }
 
-    fn holding(every: &[KeyBinding]) -> Result<Vec<console_compositor::BoundKey>, Never> {
-        Ok(every
-            .iter()
-            .map(|bind| console_compositor::BoundKey {
-                held: bind.held,
-                named: String::new(),
-                about: bind.about.clone(),
-            })
-            .collect())
-    }
+  fn holding(every: &[KeyBinding]) -> Result<Vec<console_compositor::BoundKey>, Never> {
+    Ok(
+      every
+        .iter()
+        .map(|bind| {
+          let Ok(about) = bind.description();
 
-    fn these(every: &[KeyBinding]) -> Result<Holding, Never> {
-        let Ok(held) = holding(every);
+          console_compositor::BoundKey {
+            held: bind.held,
+            named: String::new(),
+            about,
+          }
+        })
+        .collect(),
+    )
+  }
 
-        Ok(Holding::These(held))
-    }
+  fn these(every: &[KeyBinding]) -> Result<Holding, Never> {
+    let Ok(held) = holding(every);
 
-    fn bound(sent: &[BindCommand]) -> Result<Vec<String>, Never> {
-        Ok(sent
-            .iter()
-            .filter_map(|says| match says {
-                BindCommand::Bound(one) => Some(one.about.clone()),
-                BindCommand::Unbind(_) => None,
-            })
-            .collect())
-    }
+    Ok(Holding::These(held))
+  }
 
-    fn unbound(sent: &[BindCommand]) -> Result<Vec<String>, Never> {
-        Ok(sent
-            .iter()
-            .filter_map(|says| match says {
-                BindCommand::Unbind(one) => Some(one.about.clone()),
-                BindCommand::Bound(_) => None,
-            })
-            .collect())
-    }
+  fn bound(sent: &[BindCommand]) -> Result<Vec<String>, Never> {
+    Ok(
+      sent
+        .iter()
+        .filter_map(|says| match says {
+          BindCommand::Bound(one) => Some(one.about.clone()),
+          BindCommand::Unbind(_) => None,
+        })
+        .collect(),
+    )
+  }
 
-    #[test]
-    fn a_job_on_a_key_is_a_bind_that_runs_what_the_job_runs() -> Result<(), Failure> {
-        let Ok(every) = defaults();
-        let keys = keys_of(("super", "i"))?;
-        let settings = one(&every, &keys)?;
+  fn unbound(sent: &[BindCommand]) -> Result<Vec<String>, Never> {
+    Ok(
+      sent
+        .iter()
+        .filter_map(|says| match says {
+          BindCommand::Unbind(one) => Some(one.about.clone()),
+          BindCommand::Bound(_) => None,
+        })
+        .collect(),
+    )
+  }
 
-        assert_eq!(settings.runs, "settings-panel");
-        assert_eq!(settings.about, "settings on SUPER+code:31");
+  #[test]
+  fn a_job_on_a_key_is_a_bind_that_runs_what_the_job_runs() -> Result<(), Failure> {
+    let Ok(every) = defaults();
+    let keys = keys_of(("super", "i"))?;
+    let settings = one(&every, &keys)?;
 
-        Ok(())
-    }
+    assert_eq!(
+      settings.action,
+      BindingAction::Run("settings-panel".to_string())
+    );
+    assert_eq!(settings.about, "settings on SUPER+code:31");
 
-    #[test]
-    fn a_job_on_no_key_is_no_bind() {
-        let Ok(every) = defaults();
+    Ok(())
+  }
 
-        assert!(
-            !every.iter().any(|bind| bind.runs == "console-put-away"),
-            "console-put-away is on the pad alone and has nothing to bind"
-        );
-    }
+  #[test]
+  fn a_job_on_no_key_is_no_bind() {
+    let Ok(every) = defaults();
 
-    #[test]
-    fn a_word_with_room_in_it_is_handed_over_whole() -> Result<(), Failure> {
-        let Ok(every) = defaults();
-        let a = tail("a")?;
-        let sound = one(&every, &format!("SUPER+CTRL+{a}"))?;
+    assert!(
+      !every.iter().any(
+        |bind| matches!(&bind.action, BindingAction::Run(runs) if runs == "console-put-away")
+      ),
+      "console-put-away is on the pad alone and has nothing to bind"
+    );
+  }
 
-        assert_eq!(sound.runs, "settings-panel Sound");
+  #[test]
+  fn a_word_with_room_in_it_is_handed_over_whole() -> Result<(), Failure> {
+    let Ok(every) = defaults();
+    let a = tail("a")?;
+    let sound = one(&every, &format!("SUPER+CTRL+{a}"))?;
 
-        let left = every.iter().find(|bind| bind.runs.contains("direction")).ok_or("a bind with a direction")?;
+    assert_eq!(
+      sound.action,
+      BindingAction::Run("settings-panel Sound".to_string())
+    );
 
-        assert!(left.runs.contains('\''), "a dispatcher's braces are held together: {}", left.runs);
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn an_existing_dispatch_key_is_rebound_without_leaving_the_old_bind() -> Result<(), Failure> {
+    let Ok(every) = defaults();
+    let keys = keys_of(("super", "left"))?;
+    let left = one(&every, &keys)?;
+    let legacy = Holding::These(vec![console_compositor::BoundKey {
+      held: left.held,
+      named: String::new(),
+      about: left.about.clone(),
+    }]);
+    let wanted = std::slice::from_ref(left);
+    let Ok(sent) = commands_to_send(wanted, &[], &legacy);
 
-    #[test]
-    fn what_answers_in_the_dark_says_so_and_what_repeats_says_that() -> Result<(), Failure> {
-        let Ok(every) = defaults();
-        let louder = tail("volume-up")?;
-        let mute = tail("mute")?;
-        let browse = keys_of(("super", "b"))?;
-        let volume = one(&every, &louder)?;
-        let mute = one(&every, &mute)?;
-        let browser = one(&every, &browse)?;
-        let Ok(volume) = volume.bind_command();
-        let Ok(mute) = mute.bind_command();
-        let Ok(browser) = browser.bind_command();
+    assert_eq!(
+      sent,
+      [
+        BindCommand::Unbind(left.clone()),
+        BindCommand::Bound(left.clone())
+      ]
+    );
+    let Ok(lua) = left.bind_command();
 
-        assert!(volume.contains(WHILE_LOCKED) && volume.contains(WHILE_HELD), "{volume}");
-        assert!(mute.contains(WHILE_LOCKED) && !mute.contains(WHILE_HELD), "{mute}");
-        assert!(!browser.contains(WHILE_LOCKED) && !browser.contains(WHILE_HELD), "{browser}");
+    assert!(
+      lua.contains(r#"hl.dsp.focus({direction = "left"})"#),
+      "{lua}"
+    );
+    assert!(!lua.contains(RUNS), "{lua}");
 
-        Ok(())
-    }
+    let Ok(description) = left.description();
+    let holding = Holding::These(vec![console_compositor::BoundKey {
+      held: left.held,
+      named: String::new(),
+      about: description,
+    }]);
 
-    #[test]
-    fn a_bind_is_lua_the_compositor_will_take() -> Result<(), Failure> {
-        let Ok(every) = defaults();
-        let keys = keys_of(("super", "i"))?;
-        let settings = one(&every, &keys)?;
-        let Ok(said) = settings.bind_command();
+    assert_eq!(commands_to_send(wanted, &[], &holding), Ok(Vec::new()));
 
-        assert_eq!(
-            said,
-            "hl.bind(\"SUPER+code:31\", hl.dsp.exec_cmd(\"settings-panel\"), \
+    Ok(())
+  }
+
+  #[test]
+  fn what_answers_in_the_dark_says_so_and_what_repeats_says_that() -> Result<(), Failure> {
+    let Ok(every) = defaults();
+    let louder = tail("volume-up")?;
+    let mute_key = tail("mute")?;
+    let browse = keys_of(("super", "b"))?;
+    let volume = one(&every, &louder)?;
+    let mute = one(&every, &mute_key)?;
+    let browser = one(&every, &browse)?;
+    let Ok(volume_lua) = volume.bind_command();
+    let Ok(mute_lua) = mute.bind_command();
+    let Ok(browser_lua) = browser.bind_command();
+
+    assert!(
+      volume_lua.contains(WHILE_LOCKED) && volume_lua.contains(WHILE_HELD),
+      "{volume_lua}"
+    );
+    assert!(
+      mute_lua.contains(WHILE_LOCKED) && !mute_lua.contains(WHILE_HELD),
+      "{mute_lua}"
+    );
+    assert!(
+      !browser_lua.contains(WHILE_LOCKED) && !browser_lua.contains(WHILE_HELD),
+      "{browser_lua}"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_bind_is_lua_the_compositor_will_take() -> Result<(), Failure> {
+    let Ok(every) = defaults();
+    let keys = keys_of(("super", "i"))?;
+    let settings = one(&every, &keys)?;
+    let Ok(said) = settings.bind_command();
+
+    assert_eq!(
+      said,
+      "hl.bind(\"SUPER+code:31\", hl.dsp.exec_cmd(\"settings-panel\"), \
              { description = \"settings on SUPER+code:31\" })"
-        );
+    );
 
-        let Ok(unsaid) = settings.unbind_command();
+    let Ok(unsaid) = settings.unbind_command();
 
-        assert_eq!(unsaid, "hl.unbind(\"SUPER+code:31\")");
+    assert_eq!(unsaid, "hl.unbind(\"SUPER+code:31\")");
 
-        Ok(())
+    Ok(())
+  }
+
+  #[test]
+  fn moving_a_job_moves_the_bind_and_leaves_the_rest_alone() -> Result<(), Failure> {
+    let now = moved()?;
+    let onto = keys_of(("super", "j"))?;
+    let off = keys_of(("super", "i"))?;
+    let browser = keys_of(("super", "b"))?;
+    let keys: Vec<&str> = now.iter().map(|bind| bind.keys.as_str()).collect();
+
+    assert!(keys.contains(&onto.as_str()));
+    assert!(!keys.contains(&off.as_str()));
+    assert!(
+      keys.contains(&browser.as_str()),
+      "the browser is where it was"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn nothing_that_only_sends_a_key_is_handed_over() {
+    let Ok(every) = defaults();
+
+    assert!(
+      !every
+        .iter()
+        .any(|bind| matches!(&bind.action, BindingAction::Run(runs) if runs.is_empty())),
+      "a bind that runs nothing is a key that does nothing"
+    );
+  }
+
+  #[test]
+  fn no_two_binds_look_the_same_to_the_compositor() {
+    let Ok(every) = defaults();
+    let mut seen = std::collections::BTreeSet::new();
+
+    for bind in &every {
+      assert!(
+        seen.insert(&bind.about),
+        "{:?} names two binds, and neither can be put back alone",
+        bind.about
+      );
     }
 
-    #[test]
-    fn moving_a_job_moves_the_bind_and_leaves_the_rest_alone() -> Result<(), Failure> {
-        let now = moved()?;
-        let onto = keys_of(("super", "j"))?;
-        let off = keys_of(("super", "i"))?;
-        let browser = keys_of(("super", "b"))?;
-        let keys: Vec<&str> = now.iter().map(|bind| bind.keys.as_str()).collect();
+    let keyboard: Vec<&KeyBinding> = every
+      .iter()
+      .filter(|bind| bind.about.starts_with("keyboard "))
+      .collect();
 
-        assert!(keys.contains(&onto.as_str()));
-        assert!(!keys.contains(&off.as_str()));
-        assert!(keys.contains(&browser.as_str()), "the browser is where it was");
+    assert_eq!(
+      keyboard.len(),
+      2,
+      "the keyboard is the job that is on two keys at once"
+    );
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn a_compositor_that_threw_them_away_is_handed_every_one_of_them() {
+    let Ok(every) = defaults();
+    let Ok(sent) = commands_to_send(&every, &[], &Holding::These(Vec::new()));
+    let Ok(bound) = bound(&sent);
+    let Ok(unbound) = unbound(&sent);
 
-    #[test]
-    fn nothing_that_only_sends_a_key_is_handed_over() {
-        let Ok(every) = defaults();
+    assert_eq!(bound.len(), every.len(), "nothing held is everything sent");
+    assert!(unbound.is_empty(), "there is nothing there to take off");
+  }
 
-        assert!(
-            !every.iter().any(|bind| bind.runs.is_empty()),
-            "a bind that runs nothing is a key that does nothing"
-        );
-    }
+  #[test]
+  fn a_compositor_already_holding_them_is_handed_nothing_at_startup() {
+    let Ok(every) = defaults();
+    let Ok(holding) = these(&every);
+    let Ok(sent) = commands_to_send(&every, &[], &holding);
 
-    #[test]
-    fn no_two_binds_look_the_same_to_the_compositor() {
-        let Ok(every) = defaults();
-        let mut seen = std::collections::BTreeSet::new();
+    assert!(
+      sent.is_empty(),
+      "a daemon starting beside a compositor that holds these pushed them again: {sent:?}"
+    );
+  }
 
-        for bind in &every {
-            assert!(seen.insert(&bind.about), "{:?} names two binds, and neither can be put back alone", bind.about);
-        }
+  #[test]
+  fn a_key_held_more_than_once_is_taken_off_and_put_back_once() -> Result<(), Failure> {
+    let Ok(every) = defaults();
+    let louder = tail("volume-up")?;
+    let twice = one(&every, &louder)?;
+    let Ok(mut held) = holding(&every);
+    let Ok(again) = holding(std::slice::from_ref(twice));
 
-        let keyboard: Vec<&KeyBinding> =
-            every.iter().filter(|bind| bind.about.starts_with("keyboard ")).collect();
+    held.extend(again);
 
-        assert_eq!(keyboard.len(), 2, "the keyboard is the job that is on two keys at once");
-    }
+    let Ok(sent) = commands_to_send(&every, &every, &Holding::These(held));
+    let Ok(unbound) = unbound(&sent);
+    let Ok(bound) = bound(&sent);
 
-    #[test]
-    fn a_compositor_that_threw_them_away_is_handed_every_one_of_them() {
-        let Ok(every) = defaults();
-        let Ok(sent) = commands_to_send(&every, &[], &Holding::These(Vec::new()));
-        let Ok(bound) = bound(&sent);
-        let Ok(unbound) = unbound(&sent);
+    assert_eq!(unbound, std::slice::from_ref(&twice.about));
+    assert_eq!(bound, std::slice::from_ref(&twice.about));
 
-        assert_eq!(bound.len(), every.len(), "nothing held is everything sent");
-        assert!(unbound.is_empty(), "there is nothing there to take off");
-    }
+    let before_given: Vec<&BindCommand> = sent
+      .iter()
+      .take_while(|says| **says != BindCommand::Bound(twice.clone()))
+      .collect();
 
-    #[test]
-    fn a_compositor_already_holding_them_is_handed_nothing_at_startup() {
-        let Ok(every) = defaults();
-        let Ok(holding) = these(&every);
-        let Ok(sent) = commands_to_send(&every, &[], &holding);
+    assert!(
+      before_given.contains(&&BindCommand::Unbind(twice.clone())),
+      "it goes back on after it comes off, not before"
+    );
 
-        assert!(
-            sent.is_empty(),
-            "a daemon starting beside a compositor that holds these pushed them again: {sent:?}"
-        );
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_key_held_more_than_once_is_taken_off_and_put_back_once() -> Result<(), Failure> {
-        let Ok(every) = defaults();
-        let louder = tail("volume-up")?;
-        let twice = one(&every, &louder)?;
-        let Ok(mut held) = holding(&every);
-        let Ok(again) = holding(std::slice::from_ref(twice));
+  #[test]
+  fn how_many_are_missing_and_how_many_are_doubled_is_said_apart() -> Result<(), Failure> {
+    let Ok(every) = defaults();
+    let louder = tail("volume-up")?;
+    let twice = one(&every, &louder)?;
+    let others: Vec<KeyBinding> = every
+      .iter()
+      .filter(|bind| bind.about != twice.about)
+      .cloned()
+      .collect();
+    let Ok(mut held) = holding(&others);
+    let Ok(again) = holding(&[twice.clone(), twice.clone()]);
 
-        held.extend(again);
+    held.extend(again);
 
-        let Ok(sent) = commands_to_send(&every, &every, &Holding::These(held));
-        let Ok(unbound) = unbound(&sent);
-        let Ok(bound) = bound(&sent);
+    let Ok(doubled) = compare(&every, &Holding::These(held));
 
-        assert_eq!(unbound, std::slice::from_ref(&twice.about));
-        assert_eq!(bound, std::slice::from_ref(&twice.about));
+    assert_eq!(doubled.over, 1);
+    assert_eq!(doubled.missing, 0);
 
-        let before_given: Vec<&BindCommand> = sent.iter().take_while(|says| **says != BindCommand::Bound(twice.clone())).collect();
+    let Ok(nothing_held) = compare(&every, &Holding::These(Vec::new()));
+    let Ok(all) = fitted::<_, u32>(every.len());
 
-        assert!(before_given.contains(&&BindCommand::Unbind(twice.clone())), "it goes back on after it comes off, not before");
+    assert_eq!(nothing_held.missing, all);
+    assert_eq!(nothing_held.over, 0);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn how_many_are_missing_and_how_many_are_doubled_is_said_apart() -> Result<(), Failure> {
-        let Ok(every) = defaults();
-        let louder = tail("volume-up")?;
-        let twice = one(&every, &louder)?;
-        let others: Vec<KeyBinding> = every.iter().filter(|bind| bind.about != twice.about).cloned().collect();
-        let Ok(mut held) = holding(&others);
-        let Ok(again) = holding(&[twice.clone(), twice.clone()]);
+  #[test]
+  fn a_bind_moved_onto_another_key_is_taken_off_the_key_it_was_on() -> Result<(), Failure> {
+    let Ok(every) = defaults();
+    let off = keys_of(("super", "i"))?;
+    let onto = keys_of(("super", "j"))?;
+    let was = one(&every, &off)?;
+    let now = moved()?;
+    let is = one(&now, &onto)?;
+    let Ok(holding) = these(&every);
+    let Ok(sent) = commands_to_send(&now, &every, &holding);
+    let Ok(unbound) = unbound(&sent);
+    let Ok(bound) = bound(&sent);
 
-        held.extend(again);
+    assert!(
+      unbound.contains(&was.about),
+      "the key it left is not put back"
+    );
+    assert!(
+      bound.contains(&is.about),
+      "the key it moved onto is not handed over"
+    );
 
-        let Ok(doubled) = compare(&every, &Holding::These(held));
+    Ok(())
+  }
 
-        assert_eq!(doubled.over, 1);
-        assert_eq!(doubled.missing, 0);
+  #[test]
+  fn a_compositor_that_will_not_say_is_taken_at_its_last_word() {
+    let Ok(every) = defaults();
+    let would_not = Holding::HyprctlError("no socket".to_string());
+    let Ok(again) = commands_to_send(&every, &every, &would_not);
 
-        let Ok(nothing_held) = compare(&every, &Holding::These(Vec::new()));
-        let Ok(all) = fitted::<_, u32>(every.len());
+    assert!(
+      again.is_empty(),
+      "what cannot be counted is left where it was: {again:?}"
+    );
 
-        assert_eq!(nothing_held.missing, all);
-        assert_eq!(nothing_held.over, 0);
+    let Ok(first) = commands_to_send(&every, &[], &would_not);
+    let Ok(bound) = bound(&first);
 
-        Ok(())
-    }
-
-    #[test]
-    fn a_bind_moved_onto_another_key_is_taken_off_the_key_it_was_on() -> Result<(), Failure> {
-        let Ok(every) = defaults();
-        let off = keys_of(("super", "i"))?;
-        let onto = keys_of(("super", "j"))?;
-        let was = one(&every, &off)?;
-        let now = moved()?;
-        let is = one(&now, &onto)?;
-        let Ok(holding) = these(&every);
-        let Ok(sent) = commands_to_send(&now, &every, &holding);
-        let Ok(unbound) = unbound(&sent);
-        let Ok(bound) = bound(&sent);
-
-        assert!(unbound.contains(&was.about), "the key it left is not put back");
-        assert!(bound.contains(&is.about), "the key it moved onto is not handed over");
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_compositor_that_will_not_say_is_taken_at_its_last_word() {
-        let Ok(every) = defaults();
-        let would_not = Holding::HyprctlError("no socket".to_string());
-        let Ok(again) = commands_to_send(&every, &every, &would_not);
-
-        assert!(again.is_empty(), "what cannot be counted is left where it was: {again:?}");
-
-        let Ok(first) = commands_to_send(&every, &[], &would_not);
-        let Ok(bound) = bound(&first);
-
-        assert_eq!(bound.len(), every.len(), "a first push still goes out");
-    }
+    assert_eq!(bound.len(), every.len(), "a first push still goes out");
+  }
 }

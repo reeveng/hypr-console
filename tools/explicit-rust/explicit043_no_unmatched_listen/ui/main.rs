@@ -1,6 +1,11 @@
 // UI test for EXPLICIT043 — a program that listens to an event group stops
 // listening to it. The crate answers the question rather than the line, so
 // what this file says once about `Subscriber` settles both of its calls.
+// aux-build:console_program_contract.rs
+
+extern crate console_program_contract;
+
+use console_program_contract::{Effect as ProgramEffect, Subscription as ProgramSubscription};
 
 pub struct Subscription(pub &'static str);
 
@@ -46,4 +51,6 @@ fn what_it_means(effect: &Effect) -> &'static str {
 fn main() {
     let _ = starts_caring();
     let _ = what_it_means(&Effect::Print(String::new()));
+    let _ = ProgramEffect::Subscribe(ProgramSubscription::Once(1));
+    let _ = ProgramEffect::Subscribe(ProgramSubscription::Timer(1));
 }

@@ -42,333 +42,350 @@ pub const NOTHING: &str = "";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
 pub enum Input {
-    #[words(word = "pad", says = "Controller")]
-    Pad,
-    #[words(word = "keyboard", says = "Keyboard")]
-    Keyboard,
+  #[words(word = "pad", says = "Controller")]
+  Pad,
+  #[words(word = "keyboard", says = "Keyboard")]
+  Keyboard,
 }
 
 pub const EVERY: [Input; 2] = [Input::Pad, Input::Keyboard];
 
 impl Input {
-    fn of_word(word: &str) -> Result<Option<Self>, Never> {
-        Ok(EVERY.into_iter().find(|input| {
-            let Ok(said) = input.word();
+  fn of_word(word: &str) -> Result<Option<Self>, Never> {
+    Ok(EVERY.into_iter().find(|input| {
+      let Ok(said) = input.word();
 
-            said == word
-        }))
-    }
+      said == word
+    }))
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Played {
-    ByAPress,
-    ByNothing,
+  ByAPress,
+  ByNothing,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fits {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Binding {
-    pub on: Input,
-    pub held: Vec<String>,
-    pub pressed: String,
+  pub on: Input,
+  pub held: Vec<String>,
+  pub pressed: String,
 }
 
 impl Binding {
-    pub fn pad(button: &str) -> Result<Self, Never> {
-        Ok(Binding { on: Input::Pad, held: Vec::new(), pressed: button.to_string() })
+  pub fn pad(button: &str) -> Result<Self, Never> {
+    Ok(Binding {
+      on: Input::Pad,
+      held: Vec::new(),
+      pressed: button.to_string(),
+    })
+  }
+
+  pub fn chord(on: Input, held: &[&str], pressed: &str) -> Result<Self, Never> {
+    Ok(Binding {
+      on,
+      held: held.iter().map(|word| (*word).to_string()).collect(),
+      pressed: pressed.to_string(),
+    })
+  }
+
+  pub fn unbound() -> Result<Self, Never> {
+    Binding::pad(NOTHING)
+  }
+
+  pub fn played(&self) -> Result<Played, Never> {
+    Ok(match ::core::primitive::bool::then_some(self.pressed.is_empty(), ()) {
+      ::core::option::Option::Some(()) => Played::ByNothing,
+      ::core::option::Option::None => Played::ByAPress,
+    })
+  }
+
+  pub fn depth(&self) -> Result<u32, Never> {
+    fitted(self.held.len())
+  }
+
+  pub fn fits(&self, on: Input, held: &[&str], pressed: &str) -> Result<Fits, Never> {
+    let Ok(played) = self.played();
+
+    #[cfg_attr(
+      dylint_lib = "explicit028_no_search_in_a_loop",
+      allow(
+        explicit028_no_search_in_a_loop,
+        reason = "the words held down on one binding against the words held down now, and neither is longer than a hand"
+      )
+    )]
+    let ours = played == Played::ByAPress
+      && self.on == on
+      && self.pressed == pressed
+      && self.held.iter().all(|word| held.contains(&word.as_str()));
+
+    Ok(match ::core::primitive::bool::then_some(ours, ()) {
+      ::core::option::Option::Some(()) => Fits::Yes,
+      ::core::option::Option::None => Fits::No,
+    })
+  }
+
+  pub fn read(said: &str) -> Result<Self, Unbound> {
+    let said_2 = said.trim();
+
+    match ::core::primitive::bool::then_some(said_2.is_empty(), ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(nothing) = Binding::unbound();
+
+        return Ok(nothing);
+      }
+      ::core::option::Option::None => {}
     }
 
-    pub fn chord(on: Input, held: &[&str], pressed: &str) -> Result<Self, Never> {
-        Ok(Binding {
-            on,
-            held: held.iter().map(|word| (*word).to_string()).collect(),
-            pressed: pressed.to_string(),
-        })
-    }
+    let (on, gesture) = match said_2.split_once(':') {
+      Some((word, rest)) => {
+        let Ok(named) = Input::of_word(word.trim());
 
-    pub fn unbound() -> Result<Self, Never> {
-        Binding::pad(NOTHING)
-    }
-
-    pub fn played(&self) -> Result<Played, Never> {
-        Ok(match self.pressed.is_empty() {
-            true => Played::ByNothing,
-            false => Played::ByAPress,
-        })
-    }
-
-    pub fn depth(&self) -> Result<u32, Never> {
-        fitted(self.held.len())
-    }
-
-    pub fn fits(&self, on: Input, held: &[&str], pressed: &str) -> Result<Fits, Never> {
-        let Ok(played) = self.played();
-
-        #[cfg_attr(
-            dylint_lib = "explicit028_no_search_in_a_loop",
-            allow(
-                explicit028_no_search_in_a_loop,
-                reason = "the words held down on one binding against the words held down now, and neither is longer than a hand"
-            )
-        )]
-        let ours = played == Played::ByAPress
-            && self.on == on
-            && self.pressed == pressed
-            && self.held.iter().all(|word| held.contains(&word.as_str()));
-
-        Ok(match ours {
-            true => Fits::Yes,
-            false => Fits::No,
-        })
-    }
-
-    pub fn read(said: &str) -> Result<Self, Unbound> {
-        let said = said.trim();
-
-        match said.is_empty() {
-            true => {
-                let Ok(nothing) = Binding::unbound();
-
-                return Ok(nothing);
-            }
-            false => {},
-        }
-
-        let (on, gesture) = match said.split_once(':') {
-            Some((word, rest)) => {
-                let Ok(named) = Input::of_word(word.trim());
-
-                let on = match named {
-                    Some(on) => on,
-                    None => {
-                        return Err(Unbound::NoSuchInput(
-                            word.trim().to_string(),
-                            said.to_string(),
-                        ));
-                    }
-                };
-
-                (on, rest.trim())
-            }
-            None => (Input::Pad, said),
+        let on = match named {
+          Some(on) => on,
+          None => {
+            return Err(Unbound::NoSuchInput(
+              word.trim().to_string(),
+              said_2.to_string(),
+            ));
+          }
         };
 
-        let mut words: Vec<&str> = gesture.split('+').map(str::trim).collect();
-        let pressed = match words.pop() {
-            Some(pressed) => pressed.to_string(),
-            None => String::new(),
-        };
-        let held: Vec<String> = words.iter().map(|word| (*word).to_string()).collect();
+        (on, rest.trim())
+      }
+      None => (Input::Pad, said_2),
+    };
 
-        let binding = Binding { on, held, pressed };
+    let mut words: Vec<&str> = gesture.split('+').map(str::trim).collect();
+    let pressed = match words.pop() {
+      Some(pressed) => pressed.to_string(),
+      None => String::new(),
+    };
+    let held: Vec<String> = words.iter().map(|word| (*word).to_string()).collect();
 
-        binding.makes_sense()?;
+    let binding = Binding { on, held, pressed };
 
-        Ok(binding)
+    binding.makes_sense()?;
+
+    Ok(binding)
+  }
+
+  fn makes_sense(&self) -> Result<(), Unbound> {
+    match self.on {
+      Input::Pad => self.on_the_pad(),
+      Input::Keyboard => self.on_the_keyboard(),
+    }
+  }
+
+  fn on_the_pad(&self) -> Result<(), Unbound> {
+    let Ok(trigger) = vocabulary::is_trigger(&self.pressed);
+
+    match trigger {
+      Names::ATrigger => {
+        return Err(Unbound::ATrigger(self.pressed.clone(), self.to_string()));
+      }
+      Names::AButton => {}
     }
 
-    fn makes_sense(&self) -> Result<(), Unbound> {
-        match self.on {
-            Input::Pad => self.on_the_pad(),
-            Input::Keyboard => self.on_the_keyboard(),
-        }
+    vocabulary::button_name(&self.pressed)
+      .map_err(|_unnamed| Unbound::NotOnThisMachine(self.pressed.clone()))?;
+
+    for word in &self.held {
+      let Ok(trigger_2) = vocabulary::is_trigger(word);
+
+      match trigger_2 {
+        Names::ATrigger => continue,
+        Names::AButton => {}
+      }
+
+      vocabulary::button_name(word)
+        .map_err(|_unnamed| Unbound::NotOnThisMachine(word.clone()))?;
     }
 
-    fn on_the_pad(&self) -> Result<(), Unbound> {
-        let Ok(trigger) = vocabulary::is_trigger(&self.pressed);
+    Ok(())
+  }
 
-        match trigger {
-            Names::ATrigger => {
-                return Err(Unbound::ATrigger(self.pressed.clone(), self.to_string()));
-            }
-            Names::AButton => {},
-        }
+  fn on_the_keyboard(&self) -> Result<(), Unbound> {
+    let Ok(modifier) = keys::is_a_modifier(&self.pressed);
 
-        vocabulary::button_name(&self.pressed)
-            .map_err(|_unnamed| Unbound::NotOnThisMachine(self.pressed.clone()))?;
-
-        for word in &self.held {
-            let Ok(trigger) = vocabulary::is_trigger(word);
-
-            match trigger {
-                Names::ATrigger => continue,
-                Names::AButton => {},
-            }
-
-            vocabulary::button_name(word)
-                .map_err(|_unnamed| Unbound::NotOnThisMachine(word.clone()))?;
-        }
-
-        Ok(())
+    match modifier {
+      KeyKind::AModifier => {
+        return Err(Unbound::AModifier(self.pressed.clone(), self.to_string()));
+      }
+      KeyKind::AKey => {}
     }
 
-    fn on_the_keyboard(&self) -> Result<(), Unbound> {
-        let Ok(modifier) = keys::is_a_modifier(&self.pressed);
+    keys::key_named(&self.pressed)?;
 
-        match modifier {
-            KeyKind::AModifier => {
-                return Err(Unbound::AModifier(self.pressed.clone(), self.to_string()));
-            }
-            KeyKind::AKey => {},
+    for word in &self.held {
+      let Ok(modifier_2) = keys::is_a_modifier(word);
+
+      match modifier_2 {
+        KeyKind::AModifier => {}
+        KeyKind::AKey => {
+          return Err(Unbound::AKey(word.clone()));
         }
-
-        keys::key_named(&self.pressed)?;
-
-        for word in &self.held {
-            let Ok(modifier) = keys::is_a_modifier(word);
-
-            match modifier {
-                KeyKind::AModifier => {},
-                KeyKind::AKey => {
-                    return Err(Unbound::AKey(word.clone()));
-                }
-            }
-        }
-
-        Ok(())
+      }
     }
+
+    Ok(())
+  }
 }
 
 impl fmt::Display for Binding {
-    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Ok(played) = self.played();
+  fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+    let Ok(played) = self.played();
 
-        match played {
-            Played::ByNothing => return write!(out, "{NOTHING}"),
-            Played::ByAPress => {},
-        }
-
-        let Ok(word) = self.on.word();
-        let mut said: Vec<&str> = self.held.iter().map(String::as_str).collect();
-
-        said.push(&self.pressed);
-
-        write!(out, "{word}: {}", said.join(" + "))
+    match played {
+      Played::ByNothing => return write!(out, "{NOTHING}"),
+      Played::ByAPress => {}
     }
+
+    let Ok(word) = self.on.word();
+    let mut said: Vec<&str> = self.held.iter().map(String::as_str).collect();
+
+    said.push(&self.pressed);
+
+    write!(out, "{word}: {}", said.join(" + "))
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    #[test]
-    fn a_binding_is_read_the_way_it_is_written() -> Result<(), Box<dyn Error>> {
-        let held = Binding::read("l2 + right-paddle-bottom")?;
+  #[test]
+  fn a_binding_is_read_the_way_it_is_written() -> Result<(), Box<dyn Error>> {
+    let held = Binding::read("l2 + right-paddle-bottom")?;
 
-        assert_eq!(held.on, Input::Pad);
-        assert_eq!(held.held, vec!["l2".to_string()]);
-        assert_eq!(held.pressed, "right-paddle-bottom");
-        assert_eq!(held.to_string(), "pad: l2 + right-paddle-bottom");
+    assert_eq!(held.on, Input::Pad);
+    assert_eq!(held.held, vec!["l2".to_string()]);
+    assert_eq!(held.pressed, "right-paddle-bottom");
+    assert_eq!(held.to_string(), "pad: l2 + right-paddle-bottom");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_button_on_its_own_holds_nothing() -> Result<(), Box<dyn Error>> {
-        let alone = Binding::read("a")?;
+  #[test]
+  fn a_button_on_its_own_holds_nothing() -> Result<(), Box<dyn Error>> {
+    let alone = Binding::read("a")?;
 
-        assert_eq!(alone.depth(), Ok(0));
-        assert_eq!(alone.to_string(), "pad: a");
+    assert_eq!(alone.depth(), Ok(0));
+    assert_eq!(alone.to_string(), "pad: a");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_paddle_can_be_held_the_way_a_trigger_can() -> Result<(), Box<dyn Error>> {
-        let chord = Binding::read("left-paddle-top + right-paddle-top")?;
+  #[test]
+  fn a_paddle_can_be_held_the_way_a_trigger_can() -> Result<(), Box<dyn Error>> {
+    let chord = Binding::read("left-paddle-top + right-paddle-top")?;
 
-        assert_eq!(chord.held, vec!["left-paddle-top".to_string()]);
-        assert_eq!(chord.depth(), Ok(1));
+    assert_eq!(chord.held, vec!["left-paddle-top".to_string()]);
+    assert_eq!(chord.depth(), Ok(1));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_keyboard_binding_says_which_input_it_is_on() -> Result<(), Box<dyn Error>> {
-        let chord = Binding::read("keyboard: super + i")?;
+  #[test]
+  fn a_keyboard_binding_says_which_input_it_is_on() -> Result<(), Box<dyn Error>> {
+    let chord = Binding::read("keyboard: super + i")?;
 
-        assert_eq!(chord.on, Input::Keyboard);
-        assert_eq!(chord.pressed, "i");
-        assert_eq!(chord.to_string(), "keyboard: super + i");
+    assert_eq!(chord.on, Input::Keyboard);
+    assert_eq!(chord.pressed, "i");
+    assert_eq!(chord.to_string(), "keyboard: super + i");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_job_with_nothing_on_it_says_so_rather_than_being_left_out() -> Result<(), Box<dyn Error>> {
-        let none = Binding::read("")?;
+  #[test]
+  fn a_job_with_nothing_on_it_says_so_rather_than_being_left_out() -> Result<(), Box<dyn Error>> {
+    let none = Binding::read("")?;
 
-        assert_eq!(none.played(), Ok(Played::ByNothing));
-        assert_eq!(none.to_string(), NOTHING);
+    assert_eq!(none.played(), Ok(Played::ByNothing));
+    assert_eq!(none.to_string(), NOTHING);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn what_this_machine_cannot_press_is_a_fault_and_not_a_guess() {
-        let trigger = Binding::read("l2 + r2").expect_err("r2 is what is held");
+  #[test]
+  fn what_this_machine_cannot_press_is_a_fault_and_not_a_guess() {
+    let trigger = Binding::read("l2 + r2").expect_err("r2 is what is held");
 
-        assert!(matches!(trigger, Unbound::ATrigger(_, _)), "{trigger}");
+    assert!(matches!(trigger, Unbound::ATrigger(_, _)), "{trigger}");
 
-        let nothing = Binding::read("triangle").expect_err("no such button");
+    let nothing = Binding::read("triangle").expect_err("no such button");
 
-        assert!(
-            matches!(nothing, Unbound::NotOnThisMachine(ref said) if said == "triangle"),
-            "{nothing}"
-        );
+    assert!(
+      matches!(nothing, Unbound::NotOnThisMachine(ref said) if said == "triangle"),
+      "{nothing}"
+    );
 
-        let key = Binding::read("keyboard: i + super").expect_err("super is held");
+    let key = Binding::read("keyboard: i + super").expect_err("super is held");
 
-        assert!(matches!(key, Unbound::AModifier(_, _)), "{key}");
+    assert!(matches!(key, Unbound::AModifier(_, _)), "{key}");
 
-        let word = Binding::read("mouse: left").expect_err("no such input");
+    let word = Binding::read("mouse: left").expect_err("no such input");
 
-        assert!(
-            matches!(word, Unbound::NoSuchInput(ref said, _) if said == "mouse"),
-            "{word}"
-        );
-    }
+    assert!(
+      matches!(word, Unbound::NoSuchInput(ref said, _) if said == "mouse"),
+      "{word}"
+    );
+  }
 
-    #[test]
-    fn a_pad_button_is_not_a_key_and_a_key_is_not_a_pad_button() {
-        let paddle = Binding::read("keyboard: left-paddle-top");
-        let key = Binding::read("pad: super + i");
+  #[test]
+  fn a_pad_button_is_not_a_key_and_a_key_is_not_a_pad_button() {
+    let paddle = Binding::read("keyboard: left-paddle-top");
+    let key = Binding::read("pad: super + i");
 
-        assert!(matches!(paddle, Err(Unbound::NoSuchKey(ref said)) if said == "left-paddle-top"), "{paddle:?}");
-        assert!(matches!(key, Err(Unbound::NotOnThisMachine(ref said)) if said == "i"), "{key:?}");
-    }
+    assert!(
+      matches!(paddle, Err(Unbound::NoSuchKey(ref said)) if said == "left-paddle-top"),
+      "{paddle:?}"
+    );
+    assert!(
+      matches!(key, Err(Unbound::NotOnThisMachine(ref said)) if said == "i"),
+      "{key:?}"
+    );
+  }
 
-    #[test]
-    fn a_chord_fits_only_while_what_it_holds_is_held() -> Result<(), Box<dyn Error>> {
-        let chord = Binding::read("l2 + dpad-up")?;
+  #[test]
+  fn a_chord_fits_only_while_what_it_holds_is_held() -> Result<(), Box<dyn Error>> {
+    let chord = Binding::read("l2 + dpad-up")?;
 
-        assert_eq!(chord.fits(Input::Pad, &["l2"], "dpad-up"), Ok(Fits::Yes));
-        assert_eq!(chord.fits(Input::Pad, &[], "dpad-up"), Ok(Fits::No));
-        assert_eq!(chord.fits(Input::Keyboard, &["l2"], "dpad-up"), Ok(Fits::No));
+    assert_eq!(chord.fits(Input::Pad, &["l2"], "dpad-up"), Ok(Fits::Yes));
+    assert_eq!(chord.fits(Input::Pad, &[], "dpad-up"), Ok(Fits::No));
+    assert_eq!(
+      chord.fits(Input::Keyboard, &["l2"], "dpad-up"),
+      Ok(Fits::No)
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn something_else_held_does_not_stop_a_press_that_asks_for_nothing() -> Result<(), Box<dyn Error>> {
-        let bare = Binding::read("left-paddle-top")?;
+  #[test]
+  fn something_else_held_does_not_stop_a_press_that_asks_for_nothing()
+  -> Result<(), Box<dyn Error>> {
+    let bare = Binding::read("left-paddle-top")?;
 
-        assert_eq!(bare.fits(Input::Pad, &["l2", "r2"], "left-paddle-top"), Ok(Fits::Yes));
+    assert_eq!(
+      bare.fits(Input::Pad, &["l2", "r2"], "left-paddle-top"),
+      Ok(Fits::Yes)
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_job_on_no_button_fits_nothing() {
-        let Ok(none) = Binding::unbound();
+  #[test]
+  fn a_job_on_no_button_fits_nothing() {
+    let Ok(none) = Binding::unbound();
 
-        assert_eq!(none.fits(Input::Pad, &[], ""), Ok(Fits::No));
-    }
+    assert_eq!(none.fits(Input::Pad, &[], ""), Ok(Fits::No));
+  }
 }

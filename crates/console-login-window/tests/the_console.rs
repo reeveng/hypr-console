@@ -34,129 +34,177 @@ const TIOCSPTLCK: c_ulong = 0x4004_5431;
 const TIOCGSID: c_ulong = 0x5429;
 
 unsafe extern "C" {
-    fn setsid() -> c_int;
-
-    fn ioctl(descriptor: c_int, request: c_ulong, ...) -> c_int;
+  fn ioctl(descriptor: c_int, request: c_ulong, ...) -> c_int;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Owned {
-    BySomebody,
-    ByNobody,
+  BySomebody,
+  ByNobody,
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit040_no_torn_write",
-    allow(
-        explicit040_no_torn_write,
-        reason = "the multiplexer is a device that hands out terminals, and opening it to read and write is how one is asked for; nothing is written to a file"
-    )
+  dylint_lib = "explicit040_no_torn_write",
+  allow(
+    explicit040_no_torn_write,
+    reason = "the multiplexer is a device that hands out terminals, and opening it to read and write is how one is asked for; nothing is written to a file"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit090_no_raw_descriptor",
+  expect(
+    explicit090_no_raw_descriptor,
+    reason = "the C PTY ioctls accept a descriptor number; master owns it until both requests finish"
+  )
 )]
 fn pseudo() -> Result<(File, PathBuf), io::Error> {
-    let master = OpenOptions::new().read(true).write(true).open("/dev/ptmx")?;
-    let mut number: c_int = 0;
-    let mut locked: c_int = 0;
+  let master = OpenOptions::new()
+    .read(true)
+    .write(true)
+    .open("/dev/ptmx")?;
+  let mut number: c_int = 0;
+  let mut locked: c_int = 0;
 
-    // SAFETY: a descriptor this frame owns, and a pointer to an int it owns.
-    let unlocked = unsafe { ioctl(master.as_raw_fd(), TIOCSPTLCK, &mut locked) };
+  #[cfg_attr(
+    dylint_lib = "explicit058_contain_unsafe",
+    expect(
+      explicit058_contain_unsafe,
+      reason = "the test unlocks its private pseudoterminal through the C TIOCSPTLCK ABI"
+    )
+  )]
+  // SAFETY: a descriptor this frame owns, and a pointer to an int it owns.
+  let unlocked = unsafe { ioctl(master.as_raw_fd(), TIOCSPTLCK, &mut locked) };
 
-    assert_eq!(unlocked, 0, "the pseudo-terminal would not unlock: {}", io::Error::last_os_error());
+  assert_eq!(
+    unlocked,
+    0,
+    "the pseudo-terminal would not unlock: {}",
+    io::Error::last_os_error()
+  );
 
-    // SAFETY: as above.
-    let named = unsafe { ioctl(master.as_raw_fd(), TIOCGPTN, &mut number) };
+  #[cfg_attr(
+    dylint_lib = "explicit058_contain_unsafe",
+    expect(
+      explicit058_contain_unsafe,
+      reason = "the kernel reports the test pseudoterminal's number through the C TIOCGPTN ABI"
+    )
+  )]
+  // SAFETY: a descriptor this frame owns, and writable storage for a C int.
+  let named = unsafe { ioctl(master.as_raw_fd(), TIOCGPTN, &mut number) };
 
-    assert_eq!(named, 0, "the pseudo-terminal has no number: {}", io::Error::last_os_error());
+  assert_eq!(
+    named,
+    0,
+    "the pseudo-terminal has no number: {}",
+    io::Error::last_os_error()
+  );
 
-    Ok((master, PathBuf::from(format!("/dev/pts/{number}"))))
+  Ok((master, PathBuf::from(format!("/dev/pts/{number}"))))
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit090_no_raw_descriptor",
+  expect(
+    explicit090_no_raw_descriptor,
+    reason = "this single C TIOCGSID request borrows the terminal number while its File remains live"
+  )
+)]
 fn owned(terminal: &File) -> Result<Owned, Never> {
-    let mut session: c_int = 0;
+  let mut session: c_int = 0;
 
-    // SAFETY: a descriptor the caller owns, and a pointer to an int this frame owns.
-    let asked = unsafe { ioctl(terminal.as_raw_fd(), TIOCGSID, &mut session) };
+  #[cfg_attr(
+    dylint_lib = "explicit058_contain_unsafe",
+    expect(
+      explicit058_contain_unsafe,
+      reason = "the test observes the controlling-terminal session through the kernel's TIOCGSID request"
+    )
+  )]
+  // SAFETY: a descriptor the caller owns, and a pointer to an int this frame owns.
+  let asked = unsafe { ioctl(terminal.as_raw_fd(), TIOCGSID, &mut session) };
 
-    Ok(match asked {
-        0 => Owned::BySomebody,
-        _ => Owned::ByNobody,
-    })
+  Ok(match asked {
+    0 => Owned::BySomebody,
+    _ => Owned::ByNobody,
+  })
 }
 
 fn opened_in_a_session_of_its_own(how: &str) -> Result<Owned, io::Error> {
-    let (_master, at) = pseudo()?;
-    let this_test = std::env::current_exe()?;
-    let child = Command::new(this_test)
-        .args(["--exact", "a_session_leader_that_opens_the_console", "--test-threads=1", "--nocapture"])
-        .env(OPENING, how)
-        .env(TERMINAL, &at)
-        .status()?;
+  let (_master, at) = pseudo()?;
+  let this_test = std::env::current_exe()?;
+  let child = Command::new(this_test)
+    .args([
+      "--exact",
+      "a_session_leader_that_opens_the_console",
+      "--test-threads=1",
+      "--nocapture",
+    ])
+    .env(OPENING, how)
+    .env(TERMINAL, &at)
+    .status()?;
 
-    Ok(match child.code() {
-        Some(0) => Owned::ByNobody,
-        Some(_) | None => Owned::BySomebody,
-    })
+  Ok(match child.code() {
+    Some(0) => Owned::ByNobody,
+    Some(_) | None => Owned::BySomebody,
+  })
 }
 
 #[test]
 #[cfg_attr(
-    dylint_lib = "explicit026_env_read_once",
-    allow(
-        explicit026_env_read_once,
-        reason = "this test is its own child, and the environment it is started with is the only thing the parent can hand it"
-    )
+  dylint_lib = "explicit026_env_read_once",
+  allow(
+    explicit026_env_read_once,
+    reason = "this test is its own child, and the environment it is started with is the only thing the parent can hand it"
+  )
 )]
 #[cfg_attr(
-    dylint_lib = "explicit040_no_torn_write",
-    allow(
-        explicit040_no_torn_write,
-        reason = "the terminal is a device being opened so the kernel can be asked who owns it; nothing is written to it"
-    )
+  dylint_lib = "explicit040_no_torn_write",
+  allow(
+    explicit040_no_torn_write,
+    reason = "the terminal is a device being opened so the kernel can be asked who owns it; nothing is written to it"
+  )
 )]
 fn a_session_leader_that_opens_the_console() -> Result<(), Box<dyn Error>> {
-    let how = match std::env::var(OPENING) {
-        Ok(how) => how,
-        Err(_run_by_cargo_rather_than_by_a_test) => return Ok(()),
-    };
-    let terminal = std::env::var(TERMINAL)?;
-    let at = PathBuf::from(terminal);
+  let how = match std::env::var(OPENING) {
+    Ok(how) => how,
+    Err(_run_by_cargo_rather_than_by_a_test) => return Ok(()),
+  };
+  let terminal = std::env::var(TERMINAL)?;
+  let at = PathBuf::from(terminal);
 
-    // SAFETY: a call with no arguments, in a process nothing else shares.
-    let led = unsafe { setsid() };
+  let _new_session = rustix::process::setsid()?;
 
-    assert!(led > 0, "no session of its own: {}", io::Error::last_os_error());
+  let terminal_2 = match how.as_str() {
+    THE_WINDOW => system::console(&at)?,
+    _ => OpenOptions::new().read(true).write(true).open(&at)?,
+  };
+  let Ok(owned) = owned(&terminal_2);
 
-    let terminal = match how.as_str() {
-        THE_WINDOW => system::console(&at)?,
-        _ => OpenOptions::new().read(true).write(true).open(&at)?,
-    };
-    let Ok(owned) = owned(&terminal);
-
-    match owned {
-        Owned::ByNobody => Ok(()),
-        Owned::BySomebody => Err(Box::from("the terminal was taken")),
-    }
+  match owned {
+    Owned::ByNobody => Ok(()),
+    Owned::BySomebody => Err(Box::from("the terminal was taken")),
+  }
 }
 
 #[test]
 fn the_login_window_opens_the_console_without_taking_it() -> Result<(), io::Error> {
-    let window = opened_in_a_session_of_its_own(THE_WINDOW)?;
+  let window = opened_in_a_session_of_its_own(THE_WINDOW)?;
 
-    assert_eq!(
-        window,
-        Owned::ByNobody,
-        "the login window made the console its own terminal, and the desktop will be refused it"
-    );
-    Ok(())
+  assert_eq!(
+    window,
+    Owned::ByNobody,
+    "the login window made the console its own terminal, and the desktop will be refused it"
+  );
+  Ok(())
 }
 
 #[test]
 fn a_plain_open_would_have_taken_it() -> Result<(), io::Error> {
-    let plain = opened_in_a_session_of_its_own(PLAINLY)?;
+  let plain = opened_in_a_session_of_its_own(PLAINLY)?;
 
-    assert_eq!(
-        plain,
-        Owned::BySomebody,
-        "a plain open no longer takes the terminal, so the test beside this one proves nothing"
-    );
-    Ok(())
+  assert_eq!(
+    plain,
+    Owned::BySomebody,
+    "a plain open no longer takes the terminal, so the test beside this one proves nothing"
+  );
+  Ok(())
 }

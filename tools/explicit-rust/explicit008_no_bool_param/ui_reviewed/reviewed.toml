@@ -1,0 +1,104 @@
+[[explicit008_enum_families]]
+module = "family"
+enum = "crate::Scaling"
+when_true = "Apply"
+when_false = "Skip"
+sources = ["family.rs"]
+members = { scale = "apply_scale", forward = "apply_scale" }
+
+[[explicit008_enum_families]]
+module = "unavailable"
+enum = "crate::Scaling"
+when_true = "Apply"
+when_false = "Skip"
+sources = ["unavailable.rs"]
+members = { scale_hidden = "apply_scale" }
+
+[[explicit008_enum_families]]
+module = "unavailable"
+enum = "crate::Scaling"
+when_true = "Apply"
+when_false = "Skip"
+sources = ["unavailable.rs"]
+members = { scale_callback = "apply_scale" }
+
+[[explicit008_enum_families]]
+module = "unavailable"
+enum = "crate::Scaling"
+when_true = "Apply"
+when_false = "Skip"
+sources = ["unavailable.rs"]
+members = { scale_export = "apply_scale" }
+
+[[explicit008_enum_families]]
+module = "unavailable"
+enum = "crate::Scaling"
+when_true = "Apply"
+when_false = "Skip"
+sources = ["unavailable.rs"]
+members = { scale_conditional_body = "apply_scale" }
+
+[[explicit008_enum_families]]
+module = "methods"
+inherent_type = "crate::Tree"
+enum = "crate::TreeSize"
+when_true = "Large"
+when_false = "Small"
+sources = ["methods.rs"]
+members = { branch = "large", leaf = "large" }
+
+[[explicit008_enum_families]]
+module = "methods_blocked"
+inherent_type = "crate::Tree"
+enum = "crate::TreeSize"
+when_true = "Large"
+when_false = "Small"
+sources = ["methods_blocked.rs"]
+members = { missing_consumer = "large" }
+
+[[explicit008_enum_families]]
+module = "methods_blocked"
+inherent_type = "crate::Tree"
+enum = "crate::TreeSize"
+when_true = "Large"
+when_false = "Small"
+sources = ["methods_blocked.rs"]
+members = { as_callback = "large" }
+
+[[explicit008_enum_families]]
+module = "forwarded_decision"
+enum = "crate::Order"
+when_true = "Reversed"
+when_false = "Normal"
+sources = ["forwarded_decision.rs"]
+members = { direction = "flip" }
+target = "x86_64-unknown-linux-gnu"
+reviewed_macros = ["forwarded_decision::by_literal"]
+forwarded_macro_arguments = { "forwarded_decision::by_literal" = "flip" }
+
+[[explicit008_enum_families]]
+module = "macro_decision_blocked"
+enum = "crate::Order"
+when_true = "Reversed"
+when_false = "Normal"
+sources = ["macro_decision_blocked.rs"]
+members = { direction = "flip" }
+target = "x86_64-unknown-linux-gnu"
+reviewed_macros = ["macro_decision_blocked::used_twice"]
+forwarded_macro_arguments = { "macro_decision_blocked::used_twice" = "flip" }
+
+[[explicit008_enum_families]]
+module = "integer_decision"
+enum = "crate::Shortcut"
+when_true = "Available"
+when_false = "Unavailable"
+sources = ["integer_decision.rs"]
+members = { thresholds = "enabled" }
+
+[[explicit008_enum_families]]
+module = "integer_decision_blocked"
+enum = "crate::Shortcut"
+when_true = "Available"
+when_false = "Unavailable"
+sources = ["integer_decision_blocked.rs"]
+members = { threshold = "enabled" }

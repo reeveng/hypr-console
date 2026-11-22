@@ -14,6 +14,7 @@ name = "console-asking"
 path = "src/bin/console-asking.rs"
 
 [dependencies]
+console-compositor.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-internal-programs.workspace = true
 console-core-iteration.workspace = true

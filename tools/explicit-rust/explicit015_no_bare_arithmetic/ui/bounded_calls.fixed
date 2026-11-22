@@ -1,0 +1,26 @@
+// run-rustfix
+// edition:2024
+#![allow(unused_parens)]
+
+use std::num::NonZeroU32;
+
+fn bounded(x: u8, shift: i32, divisor: NonZeroU32) -> (u8, u32, u32, i32) {
+    let limited = ::core::primitive::u8::wrapping_add(x.min(14), 1);
+    let forced = ::core::primitive::u32::wrapping_div(64, core::cmp::max(u32::from(x), 2));
+    let nonzero = ::core::primitive::u32::wrapping_rem(64, divisor.get());
+    let shifted = ::core::primitive::i32::wrapping_shr(128, ::core::primitive::i32::unsigned_abs(Ord::clamp(shift, 0, 6)));
+    (limited, forced, nonzero, shifted)
+}
+
+fn compound(mut x: u32) -> u32 {
+    x = ::core::primitive::u32::wrapping_add(x, 0);
+    x = ::core::primitive::u32::wrapping_sub(x, 0);
+    x = ::core::primitive::u32::wrapping_mul(x, 1);
+    x
+}
+
+fn main() {
+    let Some(divisor) = NonZeroU32::new(3) else { panic!() };
+    assert_eq!(bounded(16, 8, divisor), (15, 4, 1, 2));
+    assert_eq!(compound(u32::MAX), u32::MAX);
+}

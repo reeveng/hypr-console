@@ -1,0 +1,135 @@
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/receiver.rs:9:40
+   |
+LL | fn advance(at: Position) -> Position { usize::wrapping_add(at, 1) }
+   |                                        ^^^^^
+   |
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+help: use the conversion that names this machine-width boundary
+   |
+LL - fn advance(at: Position) -> Position { usize::wrapping_add(at, 1) }
+LL + fn advance(at: Position) -> Position { at.wrapping_add(1) }
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/receiver.rs:13:17
+   |
+LL |     let _sign = usize::cast_signed(at);
+   |                 ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     let _sign = usize::cast_signed(at);
+LL +     let _sign = at.cast_signed();
+   |
+
+error: `isize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/receiver.rs:15:16
+   |
+LL |         return isize::cast_unsigned(usize::cast_signed(_step) + bias);
+   |                ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -         return isize::cast_unsigned(usize::cast_signed(_step) + bias);
+LL +         return (usize::cast_signed(_step) + bias).cast_unsigned();
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/receiver.rs:15:37
+   |
+LL |         return isize::cast_unsigned(usize::cast_signed(_step) + bias);
+   |                                     ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -         return isize::cast_unsigned(usize::cast_signed(_step) + bias);
+LL +         return isize::cast_unsigned(_step.cast_signed() + bias);
+   |
+
+error: `isize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/receiver.rs:17:5
+   |
+LL |     isize::cast_unsigned(isize::wrapping_neg(_sign))
+   |     ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     isize::cast_unsigned(isize::wrapping_neg(_sign))
+LL +     isize::wrapping_neg(_sign).cast_unsigned()
+   |
+
+error: `isize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/receiver.rs:17:26
+   |
+LL |     isize::cast_unsigned(isize::wrapping_neg(_sign))
+   |                          ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     isize::cast_unsigned(isize::wrapping_neg(_sign))
+LL +     isize::cast_unsigned(_sign.wrapping_neg())
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/receiver.rs:24:16
+   |
+LL |     _written = usize::wrapping_add(_written, 3);
+   |                ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     _written = usize::wrapping_add(_written, 3);
+LL +     _written = _written.wrapping_add(3);
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/receiver.rs:25:23
+   |
+LL |     let _from_block = usize::wrapping_add({ let (_offset, _) = wrapped(); _offset }, 1);
+   |                       ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     let _from_block = usize::wrapping_add({ let (_offset, _) = wrapped(); _offset }, 1);
+LL +     let _from_block = ({ let (_offset, _) = wrapped(); _offset }).wrapping_add(1);
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/receiver.rs:26:29
+   |
+LL |     (_written, _from_block, usize::wrapping_mul(_position, 3))
+   |                             ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     (_written, _from_block, usize::wrapping_mul(_position, 3))
+LL +     (_written, _from_block, _position.wrapping_mul(3))
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/receiver.rs:31:16
+   |
+LL |     assert_eq!(usize::wrapping_mul([1_u8, 2].len(), 3), 6);
+   |                ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     assert_eq!(usize::wrapping_mul([1_u8, 2].len(), 3), 6);
+LL +     assert_eq!([1_u8, 2].len().wrapping_mul(3), 6);
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/receiver.rs:48:5
+   |
+LL |     usize::cast_signed(view.index)
+   |     ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     usize::cast_signed(view.index)
+LL +     view.index.cast_signed()
+   |
+
+error: aborting due to 11 previous errors
+

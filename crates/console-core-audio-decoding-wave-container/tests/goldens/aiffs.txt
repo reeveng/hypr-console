@@ -1,0 +1,530 @@
+## aiff 16 stereo
+track 0 CodecType(266) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aiff 8 mono
+track 0 CodecType(268) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(3009) bits=Some(8) coded=Some(8) channels=Some(1) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=1152 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=1152 len=1152 head=[128, 135, 142, 149]
+packet track=0 ts=2304 dur=705 len=698 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: 0 2304 2304
+seek ts 3000: 0 3000 2304
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aiff 24 stereo
+track 0 CodecType(262) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(1501) bits=Some(24) coded=Some(24) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=6912 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=349 len=2088 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aiff 32 stereo
+track 0 CodecType(258) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(1126) bits=Some(32) coded=Some(32) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1126 len=9000 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: seek error: requested seek timestamp is out-of-range for stream
+seek ts 1152: seek error: requested seek timestamp is out-of-range for stream
+seek ts 1153: seek error: requested seek timestamp is out-of-range for stream
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: requested seek timestamp is out-of-range for stream
+## aiff 12 bits
+open failed: malformed stream: aiff: bits per sample for pcm must be 8, 16, 24 or 32 bits
+## aiff no channels
+open failed: malformed stream: riff: invalid channel count
+## aiff negative channels
+open failed: malformed stream: riff: invalid channel count
+## aiff negative bits
+open failed: malformed stream: aiff: bits per sample for pcm must be 8, 16, 24 or 32 bits
+## aiff rate 8000
+track 0 CodecType(266) rate=Some(8000) base=Some(TimeBase { numer: 1, denom: 8000 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aiff rate 1
+track 0 CodecType(266) rate=Some(1) base=Some(TimeBase { numer: 1, denom: 1 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: 0 0 0
+seek time Time { seconds: 1, frac: 0.5 }: 0 1 0
+unseekable forward then back: seek error: stream can only be seeked forward
+## aiff rate max
+track 0 CodecType(266) rate=Some(4294967295) base=Some(TimeBase { numer: 1, denom: 4294967295 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aiff rate past max
+track 0 CodecType(266) rate=Some(4294967295) base=Some(TimeBase { numer: 1, denom: 4294967295 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aiff rate fraction
+track 0 CodecType(266) rate=Some(22050) base=Some(TimeBase { numer: 1, denom: 22050 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aiff offset
+open failed: unsupported feature: riff: No support for AIFF block-aligned data
+## aiff block size
+open failed: unsupported feature: riff: No support for AIFF block-aligned data
+## aiff unknown chunks
+track 0 CodecType(266) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aiff no sound
+open failed: unsupported feature: aiff: missing sound chunk
+## aiff no common
+track 0 CodecType(0) rate=None base=None frames=None bits=None coded=None channels=None max=None block=None
+cues 0
+then malformed stream: riff: block size is 0
+seek ts 0: seek error: stream is not seekable
+seek ts 1: seek error: stream is not seekable
+seek ts 1151: seek error: stream is not seekable
+seek ts 1152: seek error: stream is not seekable
+seek ts 1153: seek error: stream is not seekable
+seek ts 2304: seek error: stream is not seekable
+seek ts 3000: seek error: stream is not seekable
+seek ts 100000000: seek error: stream is not seekable
+seek time Time { seconds: 0, frac: 0.0 }: seek error: stream is not seekable
+seek time Time { seconds: 0, frac: 0.25 }: seek error: stream is not seekable
+seek time Time { seconds: 1, frac: 0.5 }: seek error: stream is not seekable
+unseekable forward then back: seek error: stream is not seekable
+## aiff empty sound
+track 0 CodecType(266) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(2) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: seek error: requested seek timestamp is out-of-range for stream
+seek ts 1152: seek error: requested seek timestamp is out-of-range for stream
+seek ts 1153: seek error: requested seek timestamp is out-of-range for stream
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: requested seek timestamp is out-of-range for stream
+## aiff short common
+open failed: malformed stream: aiff: bits per sample for pcm must be 8, 16, 24 or 32 bits
+## aiff truncated
+track 0 CodecType(266) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=1946 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: end of stream
+## aiff chunk past parent
+open failed: malformed stream: riff: chunk length exceeds parent (list) chunk length
+## aifc none
+track 0 CodecType(266) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aifc none lowercase 24
+track 0 CodecType(262) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(1001) bits=Some(24) coded=Some(24) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1001 len=6000 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: seek error: requested seek timestamp is out-of-range for stream
+seek ts 1152: seek error: requested seek timestamp is out-of-range for stream
+seek ts 1153: seek error: requested seek timestamp is out-of-range for stream
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: requested seek timestamp is out-of-range for stream
+## aifc none 12 bits
+open failed: malformed stream: aiff: bits per sample for pcm must be 8, 16, 24 or 32 bits
+## aifc sowt
+track 0 CodecType(264) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aifc sowt uppercase
+track 0 CodecType(264) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aifc sowt 8 bits
+open failed: malformed stream: aiff: bits per sample for sowt must be 16 bits
+## aifc twos
+track 0 CodecType(266) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aifc twos 24 bits
+open failed: malformed stream: aiff: bits per sample for twos must be 16 bits
+## aifc fl32
+track 0 CodecType(286) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(751) bits=None coded=None channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=751 len=6000 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: seek error: requested seek timestamp is out-of-range for stream
+seek ts 1152: seek error: requested seek timestamp is out-of-range for stream
+seek ts 1153: seek error: requested seek timestamp is out-of-range for stream
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: requested seek timestamp is out-of-range for stream
+## aifc fl64
+track 0 CodecType(290) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(375) bits=None coded=None channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=375 len=6000 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: seek error: requested seek timestamp is out-of-range for stream
+seek ts 1152: seek error: requested seek timestamp is out-of-range for stream
+seek ts 1153: seek error: requested seek timestamp is out-of-range for stream
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: requested seek timestamp is out-of-range for stream
+## aifc fl32 16 bits
+open failed: malformed stream: aifc: bits per sample for fmt_ieee must be 32 or 64 bits
+## aifc alaw
+track 0 CodecType(292) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(3004) bits=None coded=None channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=2304 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=1152 len=2304 head=[0, 7, 14, 21]
+packet track=0 ts=2304 dur=700 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: 0 2304 2304
+seek ts 3000: 0 3000 2304
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aifc alaw uppercase
+track 0 CodecType(292) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(6008) bits=None coded=None channels=Some(1) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=1152 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=1152 len=1152 head=[128, 135, 142, 149]
+packet track=0 ts=2304 dur=1152 len=1152 head=[0, 7, 14, 21]
+packet track=0 ts=3456 dur=1152 len=1152 head=[128, 135, 142, 149]
+packet track=0 ts=4608 dur=1152 len=1152 head=[0, 7, 14, 21]
+packet track=0 ts=5760 dur=248 len=240 head=[128, 135, 142, 149]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: 0 2304 2304
+seek ts 3000: 0 3000 2304
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aifc ulaw
+track 0 CodecType(293) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(3004) bits=None coded=None channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=2304 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=1152 len=2304 head=[0, 7, 14, 21]
+packet track=0 ts=2304 dur=700 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: 0 2304 2304
+seek ts 3000: 0 3000 2304
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aifc ulaw uppercase
+track 0 CodecType(293) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(6008) bits=None coded=None channels=Some(1) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=1152 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=1152 len=1152 head=[128, 135, 142, 149]
+packet track=0 ts=2304 dur=1152 len=1152 head=[0, 7, 14, 21]
+packet track=0 ts=3456 dur=1152 len=1152 head=[128, 135, 142, 149]
+packet track=0 ts=4608 dur=1152 len=1152 head=[0, 7, 14, 21]
+packet track=0 ts=5760 dur=248 len=240 head=[128, 135, 142, 149]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: 0 2304 2304
+seek ts 3000: 0 3000 2304
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aifc unsupported
+open failed: unsupported feature: aifc: Compression type not implemented
+## aifc even name
+track 0 CodecType(266) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aifc empty name
+track 0 CodecType(266) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aifc long name
+track 0 CodecType(266) rate=Some(44100) base=Some(TimeBase { numer: 1, denom: 44100 }) frames=Some(1502) bits=Some(16) coded=Some(16) channels=Some(3) max=Some(1152) block=Some(1)
+cues 0
+packet track=0 ts=0 dur=1152 len=4608 head=[0, 7, 14, 21]
+packet track=0 ts=1152 dur=350 len=1392 head=[0, 7, 14, 21]
+then end of stream
+seek ts 0: 0 0 0
+seek ts 1: 0 1 0
+seek ts 1151: 0 1151 0
+seek ts 1152: 0 1152 1152
+seek ts 1153: 0 1153 1152
+seek ts 2304: seek error: requested seek timestamp is out-of-range for stream
+seek ts 3000: seek error: requested seek timestamp is out-of-range for stream
+seek ts 100000000: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 0, frac: 0.0 }: 0 0 0
+seek time Time { seconds: 0, frac: 0.25 }: seek error: requested seek timestamp is out-of-range for stream
+seek time Time { seconds: 1, frac: 0.5 }: seek error: requested seek timestamp is out-of-range for stream
+unseekable forward then back: seek error: stream can only be seeked forward
+## aifc name past chunk
+open failed: malformed stream: riff: chunk length exceeds parent (list) chunk length
+## aifc no name
+open failed: malformed stream: riff: chunk length exceeds parent (list) chunk length
+## aifc no channels
+open failed: malformed stream: riff: invalid channel count
+## form unknown
+open failed: unsupported feature: aiff: riff form is not supported
+## not form
+open failed: unsupported feature: aiff: missing riff stream marker
+## empty
+open failed: end of stream
+## marker only
+open failed: end of stream

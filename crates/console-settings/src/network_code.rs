@@ -18,167 +18,189 @@
 //! one read back.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
 
 use console_core_atomic_writes as writes;
 use console_core_external_programs::Program;
 use console_core_geometry::Size;
 use console_core_never::Never;
-use console_panel::page::{Aside, Picture, Row, Showing};
+use console_panel::page::{Aside, Picture, Row};
 
-use crate::rows::Shares;
 use crate::wifi;
-
-pub type Sharing = Arc<Mutex<Option<wifi::Network>>>;
 
 const SCALE: u32 = 12;
 
 const FOLDER: &str = "wifi code";
 
-const PASSWORD: &str = "802-11-wireless-security.psk";
+const CREDENTIAL_FIELD: &str = "802-11-wireless-security.psk";
 
 #[derive(Debug)]
 pub enum Unshared {
-    Placeless,
-    Query(std::io::Error),
-    Unsaved(String),
-    TooLong(String),
-    Making(PathBuf, std::io::Error),
-    Unwritten(writes::Unwritten),
+  Placeless,
+  Query(std::io::Error),
+  InvalidPasswordText(std::str::Utf8Error),
+  Unsaved(String),
+  TooLong(String),
+  Bitmap(console_core_qr_codes::BitmapTooLarge),
+  Making(PathBuf, std::io::Error),
+  Unwritten(writes::Unwritten),
 }
 
 impl std::fmt::Display for Unshared {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unshared::Placeless => write!(to, "There is nowhere to draw the code."),
-            Unshared::Query(fault) => write!(to, "NetworkManager did not answer: {fault}"),
-            Unshared::Unsaved(name) => write!(to, "The password for {name} is not saved on this device."),
-            Unshared::TooLong(name) => write!(to, "The name and password of {name} are too long for a code."),
-            Unshared::Making(at, fault) => write!(to, "{}: {fault}", at.display()),
-            Unshared::Unwritten(fault) => write!(to, "{fault}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unshared::Placeless => write!(to, "There is nowhere to draw the code."),
+      Unshared::Query(fault) => write!(to, "NetworkManager did not answer: {fault}"),
+      Unshared::InvalidPasswordText(fault) => write!(to, "NetworkManager did not return a UTF-8 password: {fault}"),
+      Unshared::Unsaved(name) => {
+        write!(to, "The password for {name} is not saved on this device.")
+      }
+      Unshared::TooLong(name) => write!(
+        to,
+        "The name and password of {name} are too long for a code."
+      ),
+      Unshared::Bitmap(fault) => write!(to, "{fault}"),
+      Unshared::Making(at, fault) => write!(to, "{}: {fault}", at.display()),
+      Unshared::Unwritten(fault) => write!(to, "{fault}"),
     }
+  }
 }
 
 impl std::error::Error for Unshared {}
 
-pub fn shared(sharing: &Sharing) -> Result<Option<wifi::Network>, Never> {
-    Ok(match sharing.lock() {
-        Ok(network) => network.clone(),
-        Err(_the_lock_is_poisoned) => None,
-    })
-}
+pub fn put_away() -> Result<(), Never> {
+  let Ok(folder) = folder();
 
-pub fn offered(sharing: &Sharing, network: wifi::Network) -> Result<Shares, Never> {
-    let held = Arc::clone(sharing);
+  match folder {
+    Some(path) => match std::fs::remove_dir_all(&path) {
+      Ok(()) => {}
+      Err(fault) => match (fault.kind() == std::io::ErrorKind::NotFound).then_some(()) {
+        Some(()) => {}
+        None => console_core_logging::warn!("could not remove Wi-Fi code folder {}: {fault}", path.display()),
+      },
+    },
+    None => {}
+  }
 
-    Ok(Arc::new(move |showing: &dyn Showing| {
-        match held.lock() {
-            Ok(mut shown) => *shown = Some(network.clone()),
-            Err(_the_lock_is_poisoned) => {},
-        }
-
-        showing.refresh();
-    }))
-}
-
-pub fn put_away(sharing: &Sharing) -> Result<Option<wifi::Network>, Never> {
-    let was = match sharing.lock() {
-        Ok(mut shown) => shown.take(),
-        Err(_the_lock_is_poisoned) => None,
-    };
-    let Ok(folder) = folder();
-
-    match folder {
-        Some(folder) => {
-            let _ = std::fs::remove_dir_all(folder);
-        },
-        None => {},
-    }
-
-    Ok(was)
+  Ok(())
 }
 
 pub fn rows(network: &wifi::Network) -> Result<Vec<Row>, Never> {
-    let row = match write_qr_code(network) {
-        Ok(at) => Row::picture(Picture::Showing(Some(at))),
-        Err(fault) => Row::text(&fault.to_string(), Aside("")),
-    };
-    let Ok(row) = row;
+  let row = match write_qr_code(network) {
+    Ok(at) => Row::picture(Picture::Showing(Some(at))),
+    Err(fault) => Row::text(&fault.to_string(), Aside("")),
+  };
+  let Ok(row_2) = row;
 
-    Ok(vec![row])
+  Ok(vec![row_2])
 }
 
 fn folder() -> Result<Option<PathBuf>, Never> {
-    let runtime = console_core_places::application_runtime()?;
+  let runtime = console_core_places::application_runtime()?;
 
-    Ok(runtime.map(|at| at.join(FOLDER)))
+  Ok(runtime.map(|at| at.join(FOLDER)))
 }
 
 fn password(network: &wifi::Network) -> Result<String, Unshared> {
-    let Ok(mut asking) = Program::Nmcli.command();
+  let Ok(mut asking) = Program::Nmcli.command();
 
-    let said = asking
-        .args(["--show-secrets", "--escape", "no", "--get-values", PASSWORD, "connection", "show", "id"])
-        .arg(&network.name)
-        .output()
-        .map_err(Unshared::Query)?;
+  let said = asking
+    .args([
+      "--show-secrets",
+      "--escape",
+      "no",
+      "--get-values",
+      CREDENTIAL_FIELD,
+      "connection",
+      "show",
+      "id",
+    ])
+    .arg(&network.name)
+    .output()
+    .map_err(Unshared::Query)?;
 
-    let Ok(password) = wifi::password(&String::from_utf8_lossy(&said.stdout));
+  let response = std::str::from_utf8(&said.stdout).map_err(Unshared::InvalidPasswordText)?;
+  let Ok(password) = wifi::password(response);
 
-    match (network.locked, password) {
-        (true, Some(password)) => Ok(password),
-        (true, None) => Err(Unshared::Unsaved(network.name.clone())),
-        (false, _) => Ok(String::new()),
-    }
+  match (network.locked, password) {
+    (true, Some(password_2)) => Ok(password_2),
+    (true, None) => Err(Unshared::Unsaved(network.name.clone())),
+    (false, _) => Ok(String::new()),
+  }
 }
 
-fn file_name_for(said: &str) -> Result<String, Never> {
-    let mut hashing = DefaultHasher::new();
+#[derive(Debug, PartialEq, Eq)]
+struct CodeFileName(String);
 
-    said.hash(&mut hashing);
+impl AsRef<Path> for CodeFileName {
+  fn as_ref(&self) -> &Path {
+    Path::new(&self.0)
+  }
+}
 
-    Ok(format!("{:016x}.ppm", hashing.finish()))
+fn file_name_for(said: &str) -> Result<CodeFileName, Never> {
+  let mut hashing = DefaultHasher::new();
+
+  said.hash(&mut hashing);
+
+  Ok(CodeFileName(format!("{:016x}.ppm", hashing.finish())))
 }
 
 fn write_qr_code(network: &wifi::Network) -> Result<PathBuf, Unshared> {
-    let password = password(network)?;
+  let password = password(network)?;
+  let Ok(key) = console_core_qr_codes::Password::borrowed(&password);
+  let configuration = console_core_qr_codes::Network {
+    name: &network.name,
+    password: key,
+  };
 
-    let Ok(said) = console_core_qr_codes::wifi(console_core_qr_codes::Network { name: &network.name, password: &password });
-    let Ok(code) = console_core_qr_codes::encoded(said.as_bytes());
+  let Ok(said) = console_core_qr_codes::wifi(configuration);
+  let Ok(code) = console_core_qr_codes::encoded(said.as_bytes());
 
-    let code = match code {
-        Some(code) => code,
-        None => return Err(Unshared::TooLong(network.name.clone())),
-    };
+  let code_3 = match code {
+    Some(code_2) => code_2,
+    None => return Err(Unshared::TooLong(network.name.clone())),
+  };
 
-    let Ok(drawn) = code.render(SCALE);
-    let Ok(bytes) = console_pictures::portable_pixmap(Size { width: drawn.side, height: drawn.side }, &drawn.rgb);
-    let Ok(folder) = folder();
+  let drawn = code_3.render(SCALE).map_err(Unshared::Bitmap)?;
+  let Ok(bytes) = console_pictures::portable_pixmap(
+    Size {
+      width: drawn.side,
+      height: drawn.side,
+    },
+    &drawn.rgb,
+  );
+  let Ok(folder) = folder();
 
-    let folder = match folder {
-        Some(folder) => folder,
-        None => return Err(Unshared::Placeless),
-    };
+  let folder_3 = match folder {
+    Some(folder_2) => folder_2,
+    None => return Err(Unshared::Placeless),
+  };
 
-    std::fs::create_dir_all(&folder).map_err(|fault| Unshared::Making(folder.clone(), fault))?;
+  std::fs::create_dir_all(&folder_3)
+    .map_err(|fault| Unshared::Making(folder_3.clone(), fault))?;
 
-    let Ok(name) = file_name_for(&said);
-    let at = folder.join(name);
+  let Ok(name) = file_name_for(&said);
+  let at = folder_3.join(name);
 
-    writes::whole(&at, &bytes).map_err(Unshared::Unwritten)?;
+  writes::whole(&at, &bytes).map_err(Unshared::Unwritten)?;
 
-    Ok(at)
+  Ok(at)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_code_is_named_by_what_it_says_so_a_new_password_is_a_new_picture() {
-        assert_eq!(file_name_for("WIFI:T:WPA;S:Home;P:one;;"), file_name_for("WIFI:T:WPA;S:Home;P:one;;"));
-        assert_ne!(file_name_for("WIFI:T:WPA;S:Home;P:one;;"), file_name_for("WIFI:T:WPA;S:Home;P:two;;"));
-    }
+  #[test]
+  fn a_code_is_named_by_what_it_says_so_a_new_password_is_a_new_picture() {
+    assert_eq!(
+      file_name_for("WIFI:T:WPA;S:Home;P:one;;"),
+      file_name_for("WIFI:T:WPA;S:Home;P:one;;")
+    );
+    assert_ne!(
+      file_name_for("WIFI:T:WPA;S:Home;P:one;;"),
+      file_name_for("WIFI:T:WPA;S:Home;P:two;;")
+    );
+  }
 }

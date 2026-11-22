@@ -1,0 +1,10 @@
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/width_assignment.rs:29:5
+   |
+LL |     values[index(&trace)] += amount(&Step(&trace));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: apply the selected wrapping arithmetic policy: `let ::core::result::Result::Ok(()) = ::console_core_number_conversion::wrapping_add_index(amount(&Step(&trace)), &mut values[index(&trace)])`
+   |
+   = note: `#[deny(explicit015_no_bare_arithmetic)]` on by default
+
+error: aborting due to 1 previous error
+

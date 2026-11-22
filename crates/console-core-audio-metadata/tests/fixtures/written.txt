@@ -1,0 +1,96 @@
+== written into plain.wav
+bytes 10946
+duration 600000000
+primary Id3v2
+tag Id3v2
+  AlbumArtist "Band"
+  AlbumTitle "Modal Soul"
+  Comment "Said"
+  Composer "Composer"
+  CopyrightMessage "Copyright"
+  Genre "Hip-Hop"
+  Publisher "Label"
+  RecordingDate "2005-11-11"
+  TrackArtist "Nujabes"
+  TrackSubtitle "Sub"
+  TrackTitle "Rain"
+  picture CoverBack 8 4b1dde92041b85bf
+  picture CoverFront 9 806aa5c019ad51d3
+== written into info.wav
+bytes 11088
+duration 600000000
+primary Id3v2
+tag RiffInfo
+  AlbumTitle "Wav album"
+  Comment "Wav comment"
+  CopyrightMessage "Wav copyright"
+  Genre "Wav genre"
+  RecordingDate "2017"
+  TrackArtist "Wav artist"
+  TrackTitle "Wav title"
+tag Id3v2
+  AlbumArtist "Band"
+  AlbumTitle "Modal Soul"
+  Comment "Said"
+  Composer "Composer"
+  CopyrightMessage "Copyright"
+  Genre "Hip-Hop"
+  Publisher "Label"
+  RecordingDate "2005-11-11"
+  TrackArtist "Nujabes"
+  TrackSubtitle "Sub"
+  TrackTitle "Rain"
+  picture CoverBack 8 4b1dde92041b85bf
+  picture CoverFront 9 806aa5c019ad51d3
+== written into id3-lower.wav
+bytes 11088
+duration 600000000
+primary Id3v2
+tag RiffInfo
+  AlbumTitle "Wav album"
+  Comment "Wav comment"
+  CopyrightMessage "Wav copyright"
+  Genre "Wav genre"
+  RecordingDate "2017"
+  TrackArtist "Wav artist"
+  TrackTitle "Wav title"
+tag Id3v2
+  AlbumArtist "Band"
+  AlbumTitle "Modal Soul"
+  Comment "Said"
+  Composer "Composer"
+  CopyrightMessage "Copyright"
+  Genre "Hip-Hop"
+  Publisher "Label"
+  RecordingDate "2005-11-11"
+  TrackArtist "Nujabes"
+  TrackSubtitle "Sub"
+  TrackTitle "Rain"
+  picture CoverBack 8 4b1dde92041b85bf
+  picture CoverFront 9 806aa5c019ad51d3
+== written into id3-upper.wav
+bytes 11088
+duration 600000000
+primary Id3v2
+tag RiffInfo
+  AlbumTitle "Wav album"
+  Comment "Wav comment"
+  CopyrightMessage "Wav copyright"
+  Genre "Wav genre"
+  RecordingDate "2017"
+  TrackArtist "Wav artist"
+  TrackTitle "Wav title"
+tag Id3v2
+  AlbumArtist "Band"
+  AlbumTitle "Modal Soul"
+  Comment "Said"
+  Composer "Composer"
+  CopyrightMessage "Copyright"
+  Genre "Hip-Hop"
+  Publisher "Label"
+  RecordingDate "2005-11-11"
+  TrackArtist "Nujabes"
+  TrackSubtitle "Sub"
+  TrackTitle "Rain"
+  picture CoverBack 8 4b1dde92041b85bf
+  picture CoverFront 9 806aa5c019ad51d3

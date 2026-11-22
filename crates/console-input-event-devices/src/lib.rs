@@ -5,7 +5,7 @@
 //! `evdev` crate, which is a bitset library, a system-call library, an async
 //! runtime's worth of streams and every event the kernel has, carried so that
 //! a handheld's pad could be opened, grabbed, read and faked; what is here is
-//! what that took, written against the C library std already links.
+//! what that took, using rustix for the kernel calls.
 //!
 //! `devices` and `presses` are the pad for the programs that run where
 //! nothing else is reading it: the way in runs before the controller daemon is
@@ -24,8 +24,8 @@ pub mod touches;
 pub mod virtual_device;
 
 pub use codes::{
-    AbsoluteAxisCode, BusType, EventType, ForceFeedbackCode, MiscCode, PropType, RelativeAxisCode,
-    SynchronizationCode,
+  AbsoluteAxisCode, BusType, EventType, ForceFeedbackCode, MiscCode, PropType, RelativeAxisCode,
+  SynchronizationCode,
 };
 pub use device::Device;
 pub use event::InputEvent;

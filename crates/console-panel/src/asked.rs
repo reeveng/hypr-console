@@ -28,80 +28,127 @@ use console_core_never::Never;
 const NOWHERE: i32 = -1;
 
 #[cfg_attr(
-    dylint_lib = "explicit044_no_ambient_value",
-    allow(
-        explicit044_no_ambient_value,
-        reason = "a signal handler takes nothing and is handed nothing, so where to say a signal arrived is the one thing that cannot be passed in; it is the process's own pipe and it is written once"
-    )
+  dylint_lib = "explicit044_no_ambient_value",
+  allow(
+    explicit044_no_ambient_value,
+    reason = "a signal handler takes nothing and is handed nothing, so where to say a signal arrived is the one thing that cannot be passed in; it is the process's own pipe and it is written once"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit068_no_global_mutable_state",
+  expect(
+    explicit068_no_global_mutable_state,
+    reason = "the OS signal callback must locate the process-owned pipe without allocating or taking a lock"
+  )
 )]
 static TELLING: AtomicI32 = AtomicI32::new(NOWHERE);
 
 #[cfg_attr(
-    dylint_lib = "explicit044_no_ambient_value",
-    allow(
-        explicit044_no_ambient_value,
-        reason = "the far end of that pipe, held for as long as the process is, because a closed write end would be a hangup on the loop rather than a signal"
-    )
+  dylint_lib = "explicit044_no_ambient_value",
+  allow(
+    explicit044_no_ambient_value,
+    reason = "the far end of that pipe, held for as long as the process is, because a closed write end would be a hangup on the loop rather than a signal"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit068_no_global_mutable_state",
+  expect(
+    explicit068_no_global_mutable_state,
+    reason = "the process keeps the published signal pipe owned for the full lifetime of its signal handler"
+  )
 )]
 static HELD: OnceLock<OwnedFd> = OnceLock::new();
 
 pub fn signal_pipe() -> Result<Option<OwnedFd>, Never> {
-    let (hear, tell) = match rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC) {
-        Ok(ends) => ends,
-        Err(fault) => {
-            eprintln!("console-panel: nothing to hear a signal on: {fault}");
+  let (hear, tell) = match rustix::pipe::pipe_with(
+    rustix::pipe::PipeFlags::CLOEXEC | rustix::pipe::PipeFlags::NONBLOCK,
+  ) {
+    Ok(ends) => ends,
+    Err(fault) => {
+      console_core_logging::warn!("console-panel: nothing to hear a signal on: {fault}");
 
-            return Ok(None);
-        }
-    };
-
-    let raw = tell.as_raw_fd();
-
-    match HELD.set(tell) {
-        Ok(()) => {},
-        Err(_this_process_has_already_asked) => return Ok(Some(hear)),
+      return Ok(None);
     }
+  };
 
-    TELLING.store(raw, Ordering::SeqCst);
+  #[cfg_attr(
+    dylint_lib = "explicit090_no_raw_descriptor",
+    expect(
+      explicit090_no_raw_descriptor,
+      reason = "the signal handler has no closure state; HELD owns the pipe for its lifetime and the published number is borrowed only to signal it"
+    )
+  )]
+  let raw = tell.as_raw_fd();
 
-    // SAFETY: the handler allocates nothing and writes one byte to a pipe.
-    let answering = unsafe { console_signals::install_handler(&console_signals::STOPPING, on_signal) };
+  match HELD.set(tell) {
+    Ok(()) => {}
+    Err(_this_process_has_already_asked) => return Ok(Some(hear)),
+  }
 
-    match answering {
-        Ok(()) => {},
-        Err(fault) => eprintln!("console-panel: {fault}"),
-    }
+  TELLING.store(raw, Ordering::SeqCst);
 
-    Ok(Some(hear))
+  #[cfg_attr(
+    dylint_lib = "explicit095_no_unsafe_in_a_handler",
+    expect(
+      explicit095_no_unsafe_in_a_handler,
+      reason = "the permanent pipe remains owned by HELD; BorrowedFd::borrow_raw only wraps its number on the stack"
+    )
+  )]
+  #[cfg_attr(
+    dylint_lib = "explicit058_contain_unsafe",
+    expect(
+      explicit058_contain_unsafe,
+      reason = "the OS registration takes an extern C handler; this handler only borrows the process-owned pipe and writes a nonblocking byte"
+    )
+  )]
+  let answering = {
+    // SAFETY: on_signal does one atomic load, borrows a permanent descriptor and writes a nonblocking byte.
+    unsafe { console_signals::install_handler(&console_signals::STOPPING, on_signal) }
+  };
+
+  match answering {
+    Ok(()) => {}
+    Err(fault) => console_core_logging::warn!("console-panel: {fault}"),
+  }
+
+  Ok(Some(hear))
 }
 
 extern "C" fn on_signal(_number: core::ffi::c_int) {
-    let telling = TELLING.load(Ordering::SeqCst);
+  let telling = TELLING.load(Ordering::SeqCst);
 
-    match telling {
-        NOWHERE => {},
-        fd => {
-            let said: [u8; 1] = [1];
+  match telling {
+    NOWHERE => {}
+    fd => {
+      let said: [u8; 1] = [1];
 
-            // SAFETY: a pipe this process opened and still holds, borrowed for one write.
-            let held = unsafe { BorrowedFd::borrow_raw(fd) };
-            let _ = rustix::io::write(held, &said);
-        }
+      #[cfg_attr(
+        dylint_lib = "explicit058_contain_unsafe",
+        expect(explicit058_contain_unsafe, reason = "the signal handler can borrow only the atomic descriptor number; HELD owns the write end throughout the process lifetime")
+      )]
+      // SAFETY: the pipe write end stays owned by HELD during this nonblocking write.
+      let held = unsafe { BorrowedFd::borrow_raw(fd) };
+      let _one_stop_is_enough_when_the_pipe_is_full = rustix::io::write(held, &said);
     }
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn the_signal_pipe_is_not_handed_to_the_programs_a_panel_starts() -> Result<(), Box<dyn std::error::Error>> {
-        let Ok(heard) = signal_pipe();
-        let hear = heard.ok_or("no pipe to hear a signal on")?;
-        let flags = rustix::io::fcntl_getfd(&hear)?;
+  #[test]
+  fn the_signal_pipe_is_not_handed_to_the_programs_a_panel_starts()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let Ok(heard) = signal_pipe();
+    let hear = heard.ok_or("no pipe to hear a signal on")?;
+    let flags = rustix::io::fcntl_getfd(&hear)?;
 
-        assert!(flags.contains(rustix::io::FdFlags::CLOEXEC), "every app a panel starts would keep this pipe open for its whole life");
+    assert!(
+      flags.contains(rustix::io::FdFlags::CLOEXEC),
+      "every app a panel starts would keep this pipe open for its whole life"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

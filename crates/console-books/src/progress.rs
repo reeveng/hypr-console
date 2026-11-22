@@ -35,80 +35,106 @@ pub const OPEN: &str = "books-open";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Location {
-    pub section: u32,
-    pub fraction: u32,
-    pub percent: u32,
+  pub section: u32,
+  pub fraction: u32,
+  pub percent: u32,
 }
 
 pub fn path(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = Base::State.application_under(home);
+  let Ok(ours) = Base::State.application_under(home);
 
-    Ok(ours.join(NAMED))
+  Ok(ours.join(NAMED))
 }
 
 pub fn open_path(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = Base::State.application_under(home);
+  let Ok(ours) = Base::State.application_under(home);
 
-    Ok(ours.join(OPEN))
+  Ok(ours.join(OPEN))
 }
 
 fn parse_line(text: &str) -> Result<Option<(String, Location)>, Never> {
-    let mut words = text.splitn(4, ' ');
+  let mut words = text.splitn(4, ' ');
 
-    let (percent, section, through, name) = match (words.next(), words.next(), words.next(), words.next()) {
-        (Some(percent), Some(section), Some(through), Some(name)) => (percent, section, through, name),
-        (None, _, _, _) | (_, None, _, _) | (_, _, None, _) | (_, _, _, None) => return Ok(None),
+  let (percent, section, through, name) =
+    match (words.next(), words.next(), words.next(), words.next()) {
+      (Some(percent), Some(section), Some(through), Some(name)) => {
+        (percent, section, through, name)
+      }
+      (None, _, _, _) | (_, None, _, _) | (_, _, None, _) | (_, _, _, None) => return Ok(None),
     };
 
-    Ok(match (percent.parse::<u32>(), section.parse::<u32>(), through.parse::<u32>()) {
-        (Ok(percent), Ok(section), Ok(through)) => Some((name.to_string(), Location { section, fraction: through, percent })),
-        (Err(_not_a_number), _, _) | (_, Err(_not_a_number), _) | (_, _, Err(_not_a_number)) => None,
-    })
+  Ok(
+    match (
+      percent.parse::<u32>(),
+      section.parse::<u32>(),
+      through.parse::<u32>(),
+    ) {
+      (Ok(percent_2), Ok(section_2), Ok(through_2)) => Some((
+        name.to_string(),
+        Location {
+          section: section_2,
+          fraction: through_2,
+          percent: percent_2,
+        },
+      )),
+      (Err(_not_a_number), _, _) | (_, Err(_not_a_number), _) | (_, _, Err(_not_a_number)) => {
+        None
+      }
+    },
+  )
 }
 
 pub fn parse(text: &str) -> Result<BTreeMap<String, Location>, Never> {
-    let mut found = BTreeMap::new();
+  let mut found = BTreeMap::new();
 
-    for text in text.lines() {
-        let Ok(read) = parse_line(text);
+  for text_2 in text.lines() {
+    let Ok(read) = parse_line(text_2);
 
-        match read {
-            Some((name, location)) => {
-                found.insert(name, location);
-            },
-            None => {},
-        }
+    match read {
+      Some((name, location)) => {
+        found.insert(name, location);
+      }
+      None => {}
     }
+  }
 
-    Ok(found)
+  Ok(found)
 }
 
 pub fn serialize(locations: &BTreeMap<String, Location>) -> Result<String, Never> {
-    let mut text = String::new();
+  let mut text = String::new();
 
-    for (name, location) in locations {
-        text.push_str(&format!("{} {} {} {name}\n", location.percent, location.section, location.fraction));
-    }
+  for (name, location) in locations {
+    text.push_str(&format!(
+      "{} {} {} {name}\n",
+      location.percent, location.section, location.fraction
+    ));
+  }
 
-    Ok(text)
+  Ok(text)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Position {
-    pub index: u32,
-    pub count: u32,
+  pub index: u32,
+  pub count: u32,
 }
 
 pub fn fraction(position: Position) -> Result<u32, Never> {
-    let Position { index: page, count: pages } = position;
+  let Position {
+    index: page,
+    count: pages,
+  } = position;
 
-    let through = u64::from(page).saturating_mul(u64::from(WHOLE)).checked_div(u64::from(pages));
+  let through = u64::from(page)
+    .saturating_mul(u64::from(WHOLE))
+    .checked_div(u64::from(pages));
 
-    Ok(match through.map(u32::try_from) {
-        None => 0,
-        Some(Ok(through)) => through,
-        Some(Err(_past_whole)) => WHOLE,
-    })
+  Ok(match through.map(u32::try_from) {
+    None => 0,
+    Some(Ok(through_2)) => through_2,
+    Some(Err(_past_whole)) => WHOLE,
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,100 +142,138 @@ pub struct Fraction(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reached {
-    pub before: u64,
-    pub total: u64,
+  pub before: u64,
+  pub total: u64,
 }
 
 pub fn through_text(reached: Reached) -> Result<u32, Never> {
-    let Reached { before, total } = reached;
-    let rounded_up = before.saturating_mul(u64::from(WHOLE)).saturating_add(total.saturating_sub(1)).checked_div(total);
+  let Reached { before, total } = reached;
+  let rounded_up = before
+    .saturating_mul(u64::from(WHOLE))
+    .saturating_add(total.saturating_sub(1))
+    .checked_div(total);
 
-    Ok(match rounded_up.map(u32::try_from) {
-        None => 0,
-        Some(Ok(through)) => through.min(WHOLE),
-        Some(Err(_past_whole)) => WHOLE,
-    })
+  Ok(match rounded_up.map(u32::try_from) {
+    None => 0,
+    Some(Ok(through)) => through.min(WHOLE),
+    Some(Err(_past_whole)) => WHOLE,
+  })
 }
 
 pub fn page_holding(through: Fraction, letters: &[u64]) -> Result<u32, Never> {
-    let Fraction(through) = through;
-    let total = letters.iter().fold(0_u64, |sum, page| sum.saturating_add(*page));
-    let wanted = u64::from(through).saturating_mul(total);
-    let mut start = 0_u64;
-    let mut begun = 0_u32;
+  let Fraction(through_2) = through;
+  let total = letters
+    .iter()
+    .fold(0_u64, |sum, page| sum.saturating_add(*page));
+  let wanted = u64::from(through_2).saturating_mul(total);
+  let mut start = 0_u64;
+  let mut begun = 0_u32;
 
-    for page in letters {
-        match start.saturating_mul(u64::from(WHOLE)) <= wanted {
-            true => begun = begun.saturating_add(1),
-            false => {},
-        }
-
-        start = start.saturating_add(*page);
+  for page in letters {
+    match ::core::primitive::bool::then_some(start.saturating_mul(u64::from(WHOLE)) <= wanted, ()) {
+      ::core::option::Option::Some(()) => begun = begun.saturating_add(1),
+      ::core::option::Option::None => {}
     }
 
-    Ok(begun.saturating_sub(1))
+    start = start.saturating_add(*page);
+  }
+
+  Ok(begun.saturating_sub(1))
 }
 
 pub fn percent(position: Position, through: Fraction) -> Result<u32, Never> {
-    let (Position { index: section, count: sections }, Fraction(through)) = (position, through);
-    let done = u64::from(section).saturating_mul(u64::from(WHOLE)).saturating_add(u64::from(through));
-    let whole = u64::from(sections).saturating_mul(u64::from(WHOLE));
+  let (
+    Position {
+      index: section,
+      count: sections,
+    },
+    Fraction(through_2),
+  ) = (position, through);
+  let done = u64::from(section)
+    .saturating_mul(u64::from(WHOLE))
+    .saturating_add(u64::from(through_2));
+  let whole = u64::from(sections).saturating_mul(u64::from(WHOLE));
 
-    Ok(match done.saturating_mul(100).checked_div(whole) {
-        Some(percent) => u32::try_from(percent).map_or(100, |percent| percent.min(100)),
-        None => 0,
-    })
+  Ok(match done.saturating_mul(100).checked_div(whole) {
+    Some(percent) => u32::try_from(percent).map_or(100, |percent_2| percent_2.min(100)),
+    None => 0,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_place_is_written_and_read_back_with_a_name_that_has_spaces_in_it() {
-        let mut locations = BTreeMap::new();
-        locations.insert("The Great Gatsby.epub".to_string(), Location { section: 3, fraction: 2500, percent: 18 });
+  #[test]
+  fn a_place_is_written_and_read_back_with_a_name_that_has_spaces_in_it() {
+    let mut locations = BTreeMap::new();
+    locations.insert(
+      "The Great Gatsby.epub".to_string(),
+      Location {
+        section: 3,
+        fraction: 2500,
+        percent: 18,
+      },
+    );
 
-        let Ok(text) = serialize(&locations);
+    let Ok(text) = serialize(&locations);
 
-        assert_eq!(parse(&text), Ok(locations));
+    assert_eq!(parse(&text), Ok(locations));
+  }
+
+  #[test]
+  fn a_line_nobody_can_read_is_left_out_rather_than_read_as_the_start() {
+    assert_eq!(parse("twelve 1 2 Moby Dick.epub\n"), Ok(BTreeMap::new()));
+  }
+
+  fn kept_and_found(page: u32, letters: &[u64]) -> Result<u32, Never> {
+    let Ok(page_2) = console_core_number_conversion::index(page);
+    let before = letters
+      .iter()
+      .take(page_2)
+      .fold(0_u64, |sum, page_3| sum.saturating_add(*page_3));
+    let total = letters
+      .iter()
+      .fold(0_u64, |sum, page_4| sum.saturating_add(*page_4));
+    let Ok(kept) = through_text(Reached { before, total });
+
+    page_holding(Fraction(kept), letters)
+  }
+
+  #[test]
+  fn every_page_comes_back_as_itself_when_nothing_about_the_screen_changed() {
+    let letters = [1200, 1180, 1, 1230, 900, 1215, 40];
+
+    for page in 0..7 {
+      assert_eq!(kept_and_found(page, &letters), Ok(page), "page {page}");
     }
+  }
 
-    #[test]
-    fn a_line_nobody_can_read_is_left_out_rather_than_read_as_the_start() {
-        assert_eq!(parse("twelve 1 2 Moby Dick.epub\n"), Ok(BTreeMap::new()));
-    }
+  #[test]
+  fn the_same_place_in_a_chapter_laid_out_larger_is_the_page_holding_its_first_letter() {
+    let Ok(kept) = through_text(Reached {
+      before: 2500,
+      total: 10_000,
+    });
 
-    fn kept_and_found(page: u32, letters: &[u64]) -> Result<u32, Never> {
-        let Ok(page) = console_core_number_conversion::index(page);
-        let before = letters.iter().take(page).fold(0_u64, |sum, page| sum.saturating_add(*page));
-        let total = letters.iter().fold(0_u64, |sum, page| sum.saturating_add(*page));
-        let Ok(kept) = through_text(Reached { before, total });
+    assert_eq!(
+      page_holding(Fraction(kept), &[2000, 2000, 2000, 2000, 2000]),
+      Ok(1)
+    );
+    assert_eq!(
+      page_holding(Fraction(WHOLE), &[10, 10, 10]),
+      Ok(2),
+      "the end is the last page and not one past it"
+    );
+    assert_eq!(page_holding(Fraction(0), &[]), Ok(0));
+  }
 
-        page_holding(Fraction(kept), letters)
-    }
-
-    #[test]
-    fn every_page_comes_back_as_itself_when_nothing_about_the_screen_changed() {
-        let letters = [1200, 1180, 1, 1230, 900, 1215, 40];
-
-        for page in 0..7 {
-            assert_eq!(kept_and_found(page, &letters), Ok(page), "page {page}");
-        }
-    }
-
-    #[test]
-    fn the_same_place_in_a_chapter_laid_out_larger_is_the_page_holding_its_first_letter() {
-        let Ok(kept) = through_text(Reached { before: 2500, total: 10_000 });
-
-        assert_eq!(page_holding(Fraction(kept), &[2000, 2000, 2000, 2000, 2000]), Ok(1));
-        assert_eq!(page_holding(Fraction(WHOLE), &[10, 10, 10]), Ok(2), "the end is the last page and not one past it");
-        assert_eq!(page_holding(Fraction(0), &[]), Ok(0));
-    }
-
-    #[test]
-    fn the_percent_is_the_parts_read_and_the_share_of_the_one_open() {
-        assert_eq!(percent(Position { index: 1, count: 4 }, Fraction(5000)), Ok(37));
-        assert_eq!(percent(Position { index: 0, count: 0 }, Fraction(0)), Ok(0));
-    }
+  #[test]
+  fn the_percent_is_the_parts_read_and_the_share_of_the_one_open() {
+    assert_eq!(
+      percent(Position { index: 1, count: 4 }, Fraction(5000)),
+      Ok(37)
+    );
+    assert_eq!(percent(Position { index: 0, count: 0 }, Fraction(0)), Ok(0));
+  }
 }

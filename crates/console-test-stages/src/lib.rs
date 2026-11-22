@@ -41,12 +41,16 @@
 //! moment it matters most.
 
 use console_core_geometry::{Point, Size};
+use console_core_never::Never;
 use std::fmt;
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 
 pub mod baseline;
 pub mod checking;
+mod completion;
 pub mod desktop;
+
 pub mod device;
 pub mod here;
 pub mod lasting;
@@ -60,217 +64,263 @@ pub mod watching;
 
 #[derive(Debug)]
 pub enum Error {
-    Machine(std::io::Error),
-    Scratch(console_core_temporary_directories::Unmade),
-    Unwritten(console_core_atomic_writes::Unwritten),
-    NoPointer(PathBuf),
-    AlreadyTaken(&'static str),
-    NoBus(PathBuf),
-    TookNoPicture(String),
-    NestedPictureGone,
-    NoScreenSaid(PathBuf, std::io::Error),
-    NoScreenAtAll(PathBuf),
-    NoSize(PathBuf, String),
-    NoWindowsSaid(PathBuf, std::io::Error),
-    Query(console_compositor::HyprctlError),
-    Pressing(console_input_gamepad::GamepadError),
-    Layers(serde_json::Error),
-    Read(PathBuf, std::io::Error),
-    NotAPicture(PathBuf, cairo::IoError),
-    NothingToRead(cairo::BorrowError),
-    OffTheEdge(Point<i64>, Size<u32>),
-    Hostless,
-    Unnamed(console_device_name::Unnamed),
-    DeviceWroteNoPicture,
-    DevicePictureGone,
-    Undeclared(console_screen::Undeclared),
-    NotInside(Point<i32>, String),
-    UnnamedKey,
-    NotBuilt(PathBuf),
-    Stale(PathBuf),
-    SaidNothingDrawn(String, std::io::Error, String),
-    NotNested(String, String),
-    RenderError(console_panel::description::RenderError),
-    DrewNothing(String),
-    OfferUnanswered(String, Vec<String>),
-    MarkWithoutOffer(String),
-    TooManyMarks(String, u32),
-    OutOfReach(String, (i32, i32), Vec<String>),
-    NoWayOut(String, String),
-    Hidden(String, Vec<String>),
+  Machine(std::io::Error),
+  Scratch(console_core_temporary_directories::Unmade),
+  Unwritten(console_core_atomic_writes::Unwritten),
+  NoPointer(PathBuf),
+  AlreadyTaken(&'static str),
+  NoBus(PathBuf),
+  TookNoPicture(String),
+  NestedPictureGone,
+  NoScreenSaid(PathBuf, std::io::Error),
+  NoScreenAtAll(PathBuf),
+  NoSize(PathBuf, String),
+  NoWindowsSaid(PathBuf, std::io::Error),
+  Query(console_compositor::HyprctlError),
+  Pressing(console_input_gamepad::GamepadError),
+  Layers(serde_json::Error),
+  Read(PathBuf, std::io::Error),
+  NotAPicture(PathBuf, console_core_png_files::PngError),
+  OffTheEdge(Point<i64>, Size<u32>),
+  Hostless,
+  Unnamed(console_device_name::Unnamed),
+  DeviceWroteNoPicture,
+  DevicePictureGone,
+  Undeclared(console_screen::Undeclared),
+  NotInside(Point<i32>, String),
+  UnnamedKey,
+  NotBuilt(PathBuf),
+  Stale(PathBuf),
+  SaidNothingDrawn(String, std::io::Error, String),
+  NotNested(String, String),
+  RenderError(console_panel::description::RenderError),
+  DrewNothing(String),
+  OfferUnanswered(String, Vec<String>),
+  MarkWithoutOffer(String),
+  TooManyMarks(String, u32),
+  OutOfReach(String, (i32, i32), Vec<String>),
+  NoWayOut(String, String),
+  Hidden(String, Vec<String>),
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Error::Machine(fault) => write!(to, "{fault}"),
-            Error::Scratch(fault) => write!(to, "{fault}"),
-            Error::Unwritten(fault) => write!(to, "{fault}"),
-            Error::NoPointer(at) => write!(
-                to,
-                "{} is not there, so nothing would be pressed: cargo build -p console-input-pointer",
-                at.display()
-            ),
-            Error::AlreadyTaken(what) => {
-                write!(to, "the picture has already been taken; {what} before looking")
-            }
-            Error::NoBus(at) => write!(
-                to,
-                "a bus of this check's own never listened on {}",
-                at.display()
-            ),
-            Error::TookNoPicture(last) => {
-                write!(to, "the nested desktop took no picture: {last}")
-            }
-            Error::NestedPictureGone => {
-                write!(to, "the nested desktop took a picture and then had none")
-            }
-            Error::NoScreenSaid(at, fault) => write!(
-                to,
-                "{}: the nested desktop said nothing about its screen: {fault}",
-                at.display()
-            ),
-            Error::NoScreenAtAll(at) => write!(
-                to,
-                "{}: the nested desktop had no screen at all",
-                at.display()
-            ),
-            Error::NoSize(at, named) => write!(
-                to,
-                "{} says nothing about how big {named} is",
-                at.display()
-            ),
-            Error::NoWindowsSaid(at, fault) => write!(
-                to,
-                "{}: the nested desktop said no windows: {fault}",
-                at.display()
-            ),
-            Error::Query(fault) => write!(to, "{fault}"),
-            Error::Pressing(fault) => write!(to, "{fault}"),
-            Error::Layers(fault) => write!(to, "layers: {fault}"),
-            Error::Read(at, fault) => write!(to, "{}: {fault}", at.display()),
-            Error::NotAPicture(at, fault) => {
-                write!(to, "{} is not a picture: {fault}", at.display())
-            }
-            Error::NothingToRead(fault) => write!(to, "nothing to read: {fault}"),
-            Error::OffTheEdge(spot, room) => write!(
-                to,
-                "{},{} is off the edge of a {}x{} picture",
-                spot.x, spot.y, room.width, room.height
-            ),
-            Error::Hostless => write!(
-                to,
-                "CONSOLE_HOST is not set, so there is no device to talk to. \
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Error::Machine(fault) => write!(to, "{fault}"),
+      Error::Scratch(fault) => write!(to, "{fault}"),
+      Error::Unwritten(fault) => write!(to, "{fault}"),
+      Error::NoPointer(at) => write!(
+        to,
+        "{} is not there, so nothing would be pressed: cargo build -p console-input-pointer",
+        at.display()
+      ),
+      Error::AlreadyTaken(what) => {
+        write!(
+          to,
+          "the picture has already been taken; {what} before looking"
+        )
+      }
+      Error::NoBus(at) => write!(
+        to,
+        "a bus of this check's own never listened on {}",
+        at.display()
+      ),
+      Error::TookNoPicture(last) => {
+        write!(to, "the nested desktop took no picture: {last}")
+      }
+      Error::NestedPictureGone => {
+        write!(to, "the nested desktop took a picture and then had none")
+      }
+      Error::NoScreenSaid(at, fault) => write!(
+        to,
+        "{}: the nested desktop said nothing about its screen: {fault}",
+        at.display()
+      ),
+      Error::NoScreenAtAll(at) => write!(
+        to,
+        "{}: the nested desktop had no screen at all",
+        at.display()
+      ),
+      Error::NoSize(at, named) => {
+        write!(to, "{} says nothing about how big {named} is", at.display())
+      }
+      Error::NoWindowsSaid(at, fault) => write!(
+        to,
+        "{}: the nested desktop said no windows: {fault}",
+        at.display()
+      ),
+      Error::Query(fault) => write!(to, "{fault}"),
+      Error::Pressing(fault) => write!(to, "{fault}"),
+      Error::Layers(fault) => write!(to, "layers: {fault}"),
+      Error::Read(at, fault) => write!(to, "{}: {fault}", at.display()),
+      Error::NotAPicture(at, fault) => {
+        write!(to, "{} is not a picture: {fault}", at.display())
+      }
+      Error::OffTheEdge(spot, room) => write!(
+        to,
+        "{},{} is off the edge of a {}x{} picture",
+        spot.x, spot.y, room.width, room.height
+      ),
+      Error::Hostless => write!(
+        to,
+        "CONSOLE_HOST is not set, so there is no device to talk to. \
                   Set it to the device, as in CONSOLE_HOST=root@handheld."
-            ),
-            Error::Unnamed(fault) => write!(to, "{fault}"),
-            Error::DeviceWroteNoPicture => {
-                write!(to, "the device never wrote a picture to /tmp")
-            }
-            Error::DevicePictureGone => {
-                write!(to, "the device took a picture and then had none")
-            }
-            Error::Undeclared(fault) => write!(to, "{fault}"),
-            Error::NotInside(spot, panel) => write!(
-                to,
-                "({}, {}) is not a place inside {panel}",
-                spot.x, spot.y
-            ),
-            Error::UnnamedKey => write!(to, "a key with no name"),
-            Error::NotBuilt(at) => write!(
-                to,
-                "{} is not in target/debug, so there would be nothing to open: \
+      ),
+      Error::Unnamed(fault) => write!(to, "{fault}"),
+      Error::DeviceWroteNoPicture => {
+        write!(to, "the device never wrote a picture to /tmp")
+      }
+      Error::DevicePictureGone => {
+        write!(to, "the device took a picture and then had none")
+      }
+      Error::Undeclared(fault) => write!(to, "{fault}"),
+      Error::NotInside(spot, panel) => {
+        write!(to, "({}, {}) is not a place inside {panel}", spot.x, spot.y)
+      }
+      Error::UnnamedKey => write!(to, "a key with no name"),
+      Error::NotBuilt(at) => write!(
+        to,
+        "{} is not in target/debug, so there would be nothing to open: \
                  cargo build --workspace",
-                at.display()
-            ),
-            Error::Stale(at) => write!(
-                to,
-                "{} was built before console-panel was last edited, so this would hold \
+        at.display()
+      ),
+      Error::Stale(at) => write!(
+        to,
+        "{} was built before console-panel was last edited, so this would hold \
                  today's rules against yesterday's panel: cargo build --workspace",
-                at.display()
-            ),
-            Error::SaidNothingDrawn(program, fault, why) => write!(
-                to,
-                "{program} said nothing about what it drew ({fault}):\n{why}"
-            ),
-            Error::NotNested(program, why) => write!(
-                to,
-                "the desktop {program} was opened in did not come up as it was asked to:\n{why}"
-            ),
-            Error::RenderError(fault) => write!(to, "{fault}"),
-            Error::DrewNothing(program) => write!(to, "{program} drew nothing at all"),
-            Error::OfferUnanswered(panel, missing) => write!(
-                to,
-                "{panel} offers something behind Y that no finger can reach: {}",
-                missing.join(", ")
-            ),
-            Error::MarkWithoutOffer(panel) => {
-                write!(to, "{panel} draws a mark for an offer it does not make")
-            }
-            Error::TooManyMarks(panel, marks) => write!(
-                to,
-                "{panel} draws {marks} marks for Y where a card with one subject wants one"
-            ),
-            Error::OutOfReach(panel, room, off) => write!(
-                to,
-                "{panel} draws these where a hand cannot land, in a room of {room:?}: {}",
-                off.join(", ")
-            ),
-            Error::NoWayOut(panel, tab) => {
-                write!(to, "{panel} draws no way out, on the {tab} tab")
-            }
-            Error::Hidden(panel, missing) => {
-                write!(to, "{panel} carries what it never drew: {}", missing.join("; "))
-            }
-        }
+        at.display()
+      ),
+      Error::SaidNothingDrawn(program, fault, why) => write!(
+        to,
+        "{program} said nothing about what it drew ({fault}):\n{why}"
+      ),
+      Error::NotNested(program, why) => write!(
+        to,
+        "the desktop {program} was opened in did not come up as it was asked to:\n{why}"
+      ),
+      Error::RenderError(fault) => write!(to, "{fault}"),
+      Error::DrewNothing(program) => write!(to, "{program} drew nothing at all"),
+      Error::OfferUnanswered(panel, missing) => write!(
+        to,
+        "{panel} offers something behind Y that no finger can reach: {}",
+        missing.join(", ")
+      ),
+      Error::MarkWithoutOffer(panel) => {
+        write!(to, "{panel} draws a mark for an offer it does not make")
+      }
+      Error::TooManyMarks(panel, marks) => write!(
+        to,
+        "{panel} draws {marks} marks for Y where a card with one subject wants one"
+      ),
+      Error::OutOfReach(panel, room, off) => write!(
+        to,
+        "{panel} draws these where a hand cannot land, in a room of {room:?}: {}",
+        off.join(", ")
+      ),
+      Error::NoWayOut(panel, tab) => {
+        write!(to, "{panel} draws no way out, on the {tab} tab")
+      }
+      Error::Hidden(panel, missing) => {
+        write!(
+          to,
+          "{panel} carries what it never drew: {}",
+          missing.join("; ")
+        )
+      }
     }
+  }
 }
 
 impl std::error::Error for Error {}
 
 impl From<console_compositor::HyprctlError> for Error {
-    fn from(fault: console_compositor::HyprctlError) -> Self {
-        Error::Query(fault)
-    }
+  fn from(fault: console_compositor::HyprctlError) -> Self {
+    Error::Query(fault)
+  }
 }
 
 impl From<console_input_gamepad::GamepadError> for Error {
-    fn from(fault: console_input_gamepad::GamepadError) -> Self {
-        Error::Pressing(fault)
-    }
+  fn from(fault: console_input_gamepad::GamepadError) -> Self {
+    Error::Pressing(fault)
+  }
 }
 
 impl From<console_device_name::Unnamed> for Error {
-    fn from(fault: console_device_name::Unnamed) -> Self {
-        Error::Unnamed(fault)
-    }
+  fn from(fault: console_device_name::Unnamed) -> Self {
+    Error::Unnamed(fault)
+  }
 }
 
 impl From<console_screen::Undeclared> for Error {
-    fn from(fault: console_screen::Undeclared) -> Self {
-        Error::Undeclared(fault)
-    }
+  fn from(fault: console_screen::Undeclared) -> Self {
+    Error::Undeclared(fault)
+  }
 }
 
 impl From<console_panel::description::RenderError> for Error {
-    fn from(fault: console_panel::description::RenderError) -> Self {
-        Error::RenderError(fault)
-    }
+  fn from(fault: console_panel::description::RenderError) -> Self {
+    Error::RenderError(fault)
+  }
 }
 
 pub fn screen() -> Result<console_screen::Screen, Error> {
-    let Ok(root) = root();
-    let written =
-        std::fs::read_to_string(root.join(console_screen::CONFIGURATION)).map_err(Error::Machine)?;
+  let Ok(root) = root();
+  let written =
+    std::fs::read_to_string(root.join(console_screen::CONFIGURATION)).map_err(Error::Machine)?;
 
-    console_screen::Screen::read(&written).map_err(Error::Undeclared)
+  console_screen::Screen::read(&written).map_err(Error::Undeclared)
 }
 
 pub fn root() -> Result<std::path::PathBuf, console_core_never::Never> {
-    let from = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+  let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+  let from = match manifest.ancestors().nth(2) {
+    Some(checkout) => checkout.to_path_buf(),
+    None => manifest.to_path_buf(),
+  };
 
-    Ok(match from.canonicalize() {
-        Ok(tidied) => tidied,
-        Err(_sandboxed) => from,
-    })
+  Ok(match from.canonicalize() {
+    Ok(tidied) => tidied,
+    Err(_sandboxed) => from,
+  })
+}
+
+struct RuntimeName(String);
+
+impl RuntimeName {
+  fn desktop(process: u32) -> Result<Self, Never> {
+    Ok(Self(format!("console-desktop-{process}")))
+  }
+
+  fn panel(instance: u32) -> Result<Self, Never> {
+    let process = std::process::id();
+
+    Ok(Self(format!("console-panel-{process}-{instance}")))
+  }
+}
+
+impl AsRef<Path> for RuntimeName {
+  fn as_ref(&self) -> &Path {
+    Path::new(&self.0)
+  }
+}
+
+fn missing_is_removed(action: io::Result<()>) -> io::Result<()> {
+  match action {
+    Ok(()) => Ok(()),
+    Err(fault) => match bool::then_some(fault.kind() == io::ErrorKind::NotFound, ()) {
+      Some(()) => Ok(()),
+      None => Err(fault),
+    },
+  }
+}
+
+fn remove_scratch(path: &Path) -> Result<(), Never> {
+  match missing_is_removed(std::fs::remove_dir_all(path)) {
+    Ok(()) => {}
+    Err(fault) => {
+      console_core_logging::warn!("removing stage scratch {}: {fault}", path.display());
+    }
+  }
+
+  Ok(())
 }

@@ -51,88 +51,98 @@ pub const UNITS: &str = "files/etc/systemd/user";
 
 #[derive(Debug)]
 pub enum Unread {
-    Read(PathBuf, std::io::Error),
-    Facts(facts::Unread),
-    Manifest(Unapplied),
+  Read(PathBuf, std::io::Error),
+  UnitName(PathBuf),
+  Facts(facts::Unread),
+  Manifest(Unapplied),
 }
 
 impl std::fmt::Display for Unread {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unread::Read(at, fault) => write!(to, "{}: {fault}", at.display()),
-            Unread::Facts(fault) => write!(to, "{FACTS}: {fault}"),
-            Unread::Manifest(fault) => write!(to, "{MARK}: {fault}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unread::Read(at, fault) => write!(to, "{}: {fault}", at.display()),
+      Unread::UnitName(at) => write!(to, "unit filename at {at:?} is not UTF-8"),
+      Unread::Facts(fault) => write!(to, "{FACTS}: {fault}"),
+      Unread::Manifest(fault) => write!(to, "{MARK}: {fault}"),
     }
+  }
 }
 
 impl std::error::Error for Unread {}
 
 impl From<facts::Unread> for Unread {
-    fn from(fault: facts::Unread) -> Self {
-        Unread::Facts(fault)
-    }
+  fn from(fault: facts::Unread) -> Self {
+    Unread::Facts(fault)
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Architecture {
-    pub facts: Vec<Fact>,
-    pub enabled: Vec<String>,
-    pub units: Vec<Unit>,
+  pub facts: Vec<Fact>,
+  pub enabled: Vec<String>,
+  pub units: Vec<Unit>,
 }
 
 fn text(at: &Path) -> Result<String, Unread> {
-    std::fs::read_to_string(at).map_err(|fault| Unread::Read(at.to_path_buf(), fault))
+  std::fs::read_to_string(at).map_err(|fault| Unread::Read(at.to_path_buf(), fault))
 }
 
-#[cfg_attr(
-    dylint_lib = "explicit029_no_asking_per_item",
-    allow(
-        explicit029_no_asking_per_item,
-        reason = "the unit files of one desktop are a directory of a couple of dozen, read once when the map is drawn"
-    )
-)]
 fn unit_files(at: &Path) -> Result<Vec<Unit>, Unread> {
-    let listed = std::fs::read_dir(at).map_err(|fault| Unread::Read(at.to_path_buf(), fault))?;
-    let mut units = Vec::new();
+  let listed = std::fs::read_dir(at).map_err(|fault| Unread::Read(at.to_path_buf(), fault))?;
+  let mut units = Vec::new();
 
-    for entry in listed.flatten() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
+  for found in listed {
+    let entry = found.map_err(|fault| Unread::Read(at.to_path_buf(), fault))?;
+    let path = entry.path();
+    let metadata = match path.metadata() {
+      Ok(metadata) => metadata,
+      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => continue,
+        ::core::option::Option::None => return Err(Unread::Read(path, fault)),
+      },
+    };
 
-        match path.is_file() {
-            true => {
-                let said = text(&path)?;
+    match ::core::primitive::bool::then_some(metadata.is_file(), ()) {
+      ::core::option::Option::Some(()) => {
+        let name = entry
+          .file_name()
+          .into_string()
+          .map_err(|_not_text| Unread::UnitName(path.clone()))?;
+        let said = text(&path)?;
 
-                units.push(Unit { name, text: said });
-            }
-            false => {}
-        }
+        units.push(Unit { name, text: said });
+      }
+      ::core::option::Option::None => {}
     }
+  }
 
-    units.sort();
+  units.sort();
 
-    Ok(units)
+  Ok(units)
 }
 
 impl Architecture {
-    pub fn read(root: &Path) -> Result<Self, Unread> {
-        let said = text(&root.join(FACTS))?;
-        let facts = facts::read(&said)?;
-        let manifest = text(&root.join(MARK))?;
-        let manifest = Manifest::read(&manifest).map_err(Unread::Manifest)?;
-        let units = unit_files(&root.join(UNITS))?;
-        let Ok(enabled) = manifest.of(Section::Services);
-        let enabled = enabled.to_vec();
+  pub fn read(root: &Path) -> Result<Self, Unread> {
+    let said = text(&root.join(FACTS))?;
+    let facts = facts::read(&said)?;
+    let manifest = text(&root.join(MARK))?;
+    let manifest_2 = Manifest::read(&manifest).map_err(Unread::Manifest)?;
+    let units = unit_files(&root.join(UNITS))?;
+    let Ok(enabled) = manifest_2.of(Section::Services);
+    let enabled_2 = enabled.to_vec();
 
-        Ok(Architecture { facts, enabled, units })
-    }
+    Ok(Architecture {
+      facts,
+      enabled: enabled_2,
+      units,
+    })
+  }
 
-    pub fn render(&self) -> Result<String, Never> {
-        drawing::draw(self)
-    }
+  pub fn render(&self) -> Result<String, Never> {
+    drawing::draw(self)
+  }
 
-    pub fn page(&self) -> Result<String, serde_json::Error> {
-        drawing::page(self)
-    }
+  pub fn page(&self) -> Result<String, serde_json::Error> {
+    drawing::page(self)
+  }
 }

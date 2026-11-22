@@ -30,12 +30,18 @@
 //! apart is what lets the list be asserted against with no screen in the room.
 
 pub mod fingers;
+pub mod layer_focus;
 pub mod memory;
+mod region;
 pub mod scale;
 pub mod standing;
+mod text_input;
 
+pub use console_core_highlight::Activation;
 pub use scale::Scale;
 pub use standing::{
-    Anchor, Closed, Damage, Visible, Keyboard, KeyboardEvent, KeyboardFocus, Keysym, Lock, Margin, Part, PointerEvent,
-    Room, Surface, SurfaceError, Under, Unlocked, Wanted, Window, on_the_device,
+  Anchor, Closed, Damage, Drawing, KeyPress, Keyboard, KeyboardEvent, KeyboardFocus, Keysym,
+  LayerSupport, Lock, Margin, Part, PointerEvent, Room, Surface, SurfaceError, Under, Unlocked,
+  Visible, Wanted, Window, on_the_device,
 };
+pub use text_input::{Composition, InputContent, Surrounding, TextInputChange, TextInputState};

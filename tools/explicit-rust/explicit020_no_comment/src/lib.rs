@@ -6,13 +6,13 @@
 //! Every `///` and every `//` in this workspace was deleted once, on the rule
 //! that a sentence beside a line of code is a second statement of the same
 //! thing and only one of the two is compiled. What was worth keeping was moved
-//! into `docs/`, where it is read by someone deciding something rather than
-//! by someone scrolling past. Then they came back: a `///` over a new
-//! function, three lines of argument above a `match`, a `// TODO` no one
-//! returned to. They came back because the rule was a paragraph in a document
-//! and not a thing the build could fail on, and a rule of that kind lasts
-//! exactly as long as the memory of whoever wrote it. This is that rule in the
-//! build.
+//! into the documentation, now in Orbit, where it is read by someone deciding
+//! something rather than by someone scrolling past. Then they came back: a
+//! `///` over a new function, three lines of argument above a `match`, a
+//! `// TODO` no one returned to. They came back because the rule was a
+//! paragraph in a document and not a thing the build could fail on, and a rule
+//! of that kind lasts exactly as long as the memory of whoever wrote it. This
+//! is that rule in the build.
 //!
 //! Two comments stay, and both say something the code cannot.
 //!
@@ -51,11 +51,13 @@
 //! comment would be legal in one file and not in the other.
 
 extern crate rustc_ast;
+extern crate rustc_errors;
 extern crate rustc_lexer;
 extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+use clippy_utils::diagnostics::span_lint_and_then;
 use rustc_ast::ast::Crate;
+use rustc_errors::Applicability;
 use rustc_lexer::{DocStyle, FrontmatterAllowed, TokenKind};
 use rustc_lint::{EarlyContext, EarlyLintPass, LintContext};
 use rustc_span::{BytePos, FileName, SourceFile, Span, SyntaxContext};
@@ -63,7 +65,7 @@ use rustc_span::{BytePos, FileName, SourceFile, Span, SyntaxContext};
 dylint_linting::declare_early_lint! {
     /// EXPLICIT020: no comments. A module head (`//!`) and a `// SAFETY:`
     /// reason are the two that stay; everything else the code says itself, or
-    /// belongs in `docs/`.
+    /// belongs in the documentation in Orbit.
     pub EXPLICIT020_NO_COMMENT,
     Deny,
     "a comment that is neither a module head nor a `// SAFETY:` reason"
@@ -183,6 +185,46 @@ fn allowed(run: &Run) -> bool {
     }
 }
 
+fn line_comment_fix(text: &str, run: &Run) -> Option<(u32, u32, String)> {
+    let comments = &text[run.from as usize..run.to as usize];
+    if run.style.is_some()
+        || !comments.lines().all(|line| line.trim_start().starts_with("//"))
+    {
+        return None;
+    }
+
+    // A run can begin with prose and have a safety argument further down.
+    // Leave legal notices and tool directives intact as well.
+    let lower = comments.to_ascii_lowercase();
+    if [
+        "safety:", "copyright", "spdx", "license", "licence", "(c)",
+        "©", "all rights reserved", "redistribution", "this source code form",
+        "permission is hereby granted", "rustfmt",
+        "cbindgen", "compiletest", "run-rustfix", "//@", "//~",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+    {
+        return None;
+    }
+
+    // Removing whole lines would change values produced by line!(). Keep
+    // their newlines and remove only the comment run and horizontal spacing.
+    let prefix = text[..run.from as usize].trim_end_matches([' ', '\t']);
+    let start = u32::try_from(prefix.len()).ok()?;
+    let mut end = run.to;
+    if (prefix.is_empty() || prefix.ends_with('\n')) && text[end as usize..].starts_with('\n') {
+        // rustc expands an empty whole-line deletion to include its newline.
+        // Replace that newline explicitly to keep the following lines in place.
+        end = end.checked_add(1)?;
+    }
+    let newlines = text[start as usize..end as usize]
+        .bytes()
+        .filter(|&byte| byte == b'\n')
+        .count();
+    Some((start, end, "\n".repeat(newlines)))
+}
+
 impl EarlyLintPass for Explicit020NoComment {
     fn check_crate(&mut self, cx: &EarlyContext<'_>, _: &Crate) {
         let files: Vec<_> = cx.sess().source_map().files().iter().cloned().collect();
@@ -193,22 +235,33 @@ impl EarlyLintPass for Explicit020NoComment {
             };
 
             for run in runs(text) {
-                match allowed(&run) {
-                    true => continue,
-                    false => {}
+                if allowed(&run) {
+                    continue;
                 }
 
                 let lo = file.start_pos + BytePos(run.from);
                 let hi = file.start_pos + BytePos(run.to);
                 let span = Span::new(lo, hi, SyntaxContext::root(), None);
 
-                span_lint_and_help(
+                span_lint_and_then(
                     cx,
                     EXPLICIT020_NO_COMMENT,
                     span,
                     "a comment that is neither a module head nor a `// SAFETY:` reason",
-                    None,
-                    "delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in `docs/`",
+                    |diagnostic| {
+                        if let Some((start, end, replacement)) = line_comment_fix(text, &run) {
+                            let edit = span.with_lo(file.start_pos + BytePos(start))
+                                .with_hi(file.start_pos + BytePos(end));
+                            diagnostic.span_suggestion(
+                                edit,
+                                "remove the line comments and preserve source line numbers",
+                                replacement,
+                                Applicability::MachineApplicable,
+                            );
+                        } else {
+                            diagnostic.help("delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in the documentation in Orbit");
+                        }
+                    },
                 );
             }
         }
@@ -218,4 +271,27 @@ impl EarlyLintPass for Explicit020NoComment {
 #[test]
 fn ui() {
     dylint_testing::ui_test(env!("CARGO_PKG_NAME"), "ui");
+}
+
+#[test]
+fn preserves_comment_boundaries() {
+    let source = "let x = 1; // trailing\n  // continuation\nlet y = 2;\n";
+    let run = &runs(source)[0];
+    let (start, end, replacement) = line_comment_fix(source, run).unwrap();
+    let mut fixed = source.to_owned();
+    fixed.replace_range(start as usize..end as usize, &replacement);
+    assert_eq!(fixed, "let x = 1;\n\nlet y = 2;\n");
+
+    let source = "  // standalone\nlet x = 1;\n";
+    assert_eq!(line_comment_fix(source, &runs(source)[0]), Some((0, 16, "\n".to_owned())));
+
+    for protected in [
+        "// Introduction\n// SAFETY: checking the caller's guarantee",
+        "// Introduction\n// Copyright 2026 Example",
+        "/// API documentation",
+        "/* token separator */",
+        "// rustfmt::skip",
+    ] {
+        assert!(line_comment_fix(protected, &runs(protected)[0]).is_none());
+    }
 }

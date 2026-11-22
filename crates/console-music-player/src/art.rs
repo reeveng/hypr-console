@@ -20,127 +20,150 @@
 //! with no `HOME` and this desktop would rather write no picture than write one
 //! where no one asked for it.
 
+use console_core_audio_metadata::{FileParseError, Picture, PictureType};
 use console_core_never::Never;
 use console_core_places::Base;
-use console_core_audio_metadata::picture::{Picture, PictureType};
-use console_core_audio_metadata::prelude::TaggedFileExt;
 use std::fs::{create_dir_all, read_dir, remove_file};
 use std::path::{Path, PathBuf};
 
 fn where_covers_go() -> Result<Option<PathBuf>, Never> {
-    let ours = Base::Cache.ours()?;
+  let ours = Base::Cache.ours()?;
 
-    Ok(ours.map(|ours| ours.join("covers")))
+  Ok(ours.map(|ours_2| ours_2.join("covers")))
+}
+
+struct CoverName(String);
+
+impl AsRef<Path> for CoverName {
+  fn as_ref(&self) -> &Path {
+    Path::new(&self.0)
+  }
 }
 
 pub fn of(song: &Path, turn: u64) -> Result<Option<PathBuf>, Never> {
-    let covers = where_covers_go()?;
+  let covers = where_covers_go()?;
 
-    let folder = match covers {
-        Some(folder) => folder,
-        None => {
-            eprintln!("music-player: no one's home, so the cover is not written anywhere");
+  let folder = match covers {
+    Some(folder) => folder,
+    None => {
+      eprintln!("music-player: no one's home, so the cover is not written anywhere");
 
-            return Ok(None);
-        },
-    };
-
-    match create_dir_all(&folder) {
-        Ok(()) => {},
-        Err(fault) => {
-            eprintln!("music-player: {}: {fault}", folder.display());
-
-            return Ok(None);
-        },
+      return Ok(None);
     }
+  };
 
-    let at = folder.join(format!("cover-{turn}.jpg"));
-    let Ok(picture) = picture(song);
+  match create_dir_all(&folder) {
+    Ok(()) => {}
+    Err(fault) => {
+      eprintln!("music-player: {}: {fault}", folder.display());
 
-    let bytes = match picture {
-        Some(bytes) => bytes,
-        None => return Ok(None),
-    };
-
-    match console_core_atomic_writes::whole(&at, &bytes) {
-        Ok(()) => {},
-        Err(fault) => {
-            eprintln!("music-player: {}: {fault}", at.display());
-
-            return Ok(None);
-        },
+      return Ok(None);
     }
+  }
 
-    let Ok(()) = swept(&folder, &at);
+  let at = folder.join(CoverName(format!("cover-{turn}.jpg")));
+  let Ok(picture) = picture(song);
 
-    Ok(Some(at))
+  let bytes = match picture {
+    Some(bytes) => bytes,
+    None => return Ok(None),
+  };
+
+  match console_core_atomic_writes::whole(&at, &bytes) {
+    Ok(()) => {}
+    Err(fault) => {
+      eprintln!("music-player: {}: {fault}", at.display());
+
+      return Ok(None);
+    }
+  }
+
+  let Ok(()) = swept(&folder, &at);
+
+  Ok(Some(at))
 }
 
 fn picture(song: &Path) -> Result<Option<Vec<u8>>, Never> {
-    let file = match console_core_audio_metadata::read_from_path(song) {
-        Ok(file) => file,
-        Err(fault) => {
-            eprintln!("music-player: {}: asking for the cover: {fault}", song.display());
+  let read = std::fs::File::open(song)
+    .map_err(FileParseError::Open)
+    .and_then(|mut reader| console_core_audio_metadata::read(&mut reader, song));
+  let file = match read {
+    Ok(file) => file,
+    Err(fault) => {
+      eprintln!(
+        "music-player: {}: asking for the cover: {fault}",
+        song.display()
+      );
 
-            return Ok(None);
-        },
-    };
+      return Ok(None);
+    }
+  };
 
-    let every: Vec<&Picture> = file.tags().iter().flat_map(|tag| tag.pictures()).collect();
-    let front = every.iter().find(|picture| picture.pic_type() == PictureType::CoverFront);
+  let every: Vec<&Picture> = file.tags.iter().flat_map(|tag| &tag.pictures).collect();
+  let front = every
+    .iter()
+    .find(|picture| picture.kind == PictureType::CoverFront);
 
-    Ok(front.or(every.first()).map(|picture| picture.data().to_vec()))
+  Ok(front.or(every.first()).map(|picture| picture.data.clone()))
 }
 
 fn swept(folder: &Path, keeping: &Path) -> Result<(), Never> {
-    let held = match read_dir(folder) {
-        Ok(held) => held,
-        Err(_nothing_to_sweep) => return Ok(()),
-    };
+  let held = match read_dir(folder) {
+    Ok(held) => held,
+    Err(_nothing_to_sweep) => return Ok(()),
+  };
 
-    for found in held.flatten() {
-        let at = found.path();
+  for found in held.flatten() {
+    let at = found.path();
 
-        match at == keeping {
-            true => continue,
-            false => {},
-        }
-
-        match remove_file(&at) {
-            Ok(()) => {},
-            Err(fault) => eprintln!("music-player: {}: {fault}", at.display()),
-        }
+    match ::core::primitive::bool::then_some(at == keeping, ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
     }
 
-    Ok(())
+    match remove_file(&at) {
+      Ok(()) => {}
+      Err(fault) => eprintln!("music-player: {}: {fault}", at.display()),
+    }
+  }
+
+  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use console_core_audio_metadata::config::WriteOptions;
-    use console_core_audio_metadata::picture::MimeType;
-    use console_core_audio_metadata::tag::{Tag, TagExt, TagType};
+  use super::*;
+  use console_core_audio_metadata::{MimeType, Tag, TagType};
 
-    #[test]
-    fn the_front_cover_is_the_picture_copied_out_of_a_song_that_carries_two() -> Result<(), Box<dyn std::error::Error>> {
-        let folder = console_core_temporary_directories::fresh("music-player-art")?;
-        let song = folder.join("song.wav");
-        let Ok(silence) = crate::tags::tests::a_second_of_silence();
+  #[test]
+  fn the_front_cover_is_the_picture_copied_out_of_a_song_that_carries_two()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let folder = console_core_temporary_directories::fresh("music-player-art")?;
+    let song = folder.join("song.wav");
+    let Ok(silence) = crate::tags::tests::a_second_of_silence();
 
-        console_core_atomic_writes::whole(&song, &silence)?;
+    console_core_atomic_writes::whole(&song, &silence)?;
 
-        let mut tag = Tag::new(TagType::Id3v2);
-        let back = Picture::unchecked(b"the back".to_vec()).pic_type(PictureType::CoverBack).mime_type(MimeType::Png);
-        let front = Picture::unchecked(b"the front".to_vec()).pic_type(PictureType::CoverFront).mime_type(MimeType::Png);
+    let Ok(mut tag) = Tag::new(TagType::Id3v2);
 
-        tag.push_picture(back.build());
-        tag.push_picture(front.build());
-        tag.save_to_path(&song, WriteOptions::default())?;
+    tag.pictures.push(Picture {
+      kind: PictureType::CoverBack,
+      mime_type: Some(MimeType::Png),
+      data: b"the back".to_vec(),
+    });
+    tag.pictures.push(Picture {
+      kind: PictureType::CoverFront,
+      mime_type: Some(MimeType::Png),
+      data: b"the front".to_vec(),
+    });
 
-        assert_eq!(picture(&song), Ok(Some(b"the front".to_vec())));
-        assert_eq!(picture(&folder.join("none.wav")), Ok(None));
+    let tagged = console_core_audio_metadata::tagged_wave(&silence, &tag)?;
 
-        Ok(())
-    }
+    console_core_atomic_writes::whole(&song, &tagged)?;
+
+    assert_eq!(picture(&song), Ok(Some(b"the front".to_vec())));
+    assert_eq!(picture(&folder.join("none.wav")), Ok(None));
+
+    Ok(())
+  }
 }

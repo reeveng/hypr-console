@@ -29,13 +29,12 @@
 //! day this desktop speaks a second language. A machine without `iso-codes`
 //! draws the codes instead and says why once.
 
-use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 
 use console_core_never::Never;
 
 const NOTHING_SAID: &str = "";
-
 
 pub const SUPPORTED: &str = "/usr/share/i18n/SUPPORTED";
 
@@ -49,145 +48,152 @@ const NO_ONE_CHOOSES: [&str; 2] = ["C", "POSIX"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Locale {
-    pub name: String,
-    pub charset: String,
-    pub language: String,
-    pub place: String,
-    pub how: String,
+  pub name: String,
+  pub charset: String,
+  pub language: String,
+  pub place: String,
+  pub how: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Made {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 impl Locale {
-    pub fn line(&self) -> Result<String, Never> {
-        Ok(format!("{} {}", self.name, self.charset))
-    }
+  pub fn line(&self) -> Result<String, Never> {
+    Ok(format!("{} {}", self.name, self.charset))
+  }
 
-    pub fn lang(&self) -> Result<String, Never> {
-        Ok(match self.name.contains('.') {
-            true => self.name.clone(),
-            false => format!("{}.{UTF8}", self.name),
-        })
-    }
+  pub fn lang(&self) -> Result<String, Never> {
+    Ok(match ::core::primitive::bool::then_some(self.name.contains('.'), ()) {
+      ::core::option::Option::Some(()) => self.name.clone(),
+      ::core::option::Option::None => format!("{}.{UTF8}", self.name),
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Named<'a> {
-    pub name: &'a str,
-    pub charset: &'a str,
+  pub name: &'a str,
+  pub charset: &'a str,
 }
 
 pub fn read(named: Named<'_>) -> Result<Option<Locale>, Never> {
-    let Named { name, charset } = named;
-    let stem = match name.split('.').next() {
-        Some(stem) => stem,
-        None => name,
-    };
+  let Named { name, charset } = named;
+  let stem = match name.split('.').next() {
+    Some(stem) => stem,
+    None => name,
+  };
 
-    let mut parts = stem.split('@');
+  let mut parts = stem.split('@');
 
-    let named = match parts.next() {
-        Some(named) => named,
-        None => stem,
-    };
+  let named_3 = match parts.next() {
+    Some(named_2) => named_2,
+    None => stem,
+  };
 
-    let how = match parts.next() {
-        Some(how) => how,
-        None => NOTHING_SAID,
-    };
+  let how = match parts.next() {
+    Some(how) => how,
+    None => NOTHING_SAID,
+  };
 
-    let mut halves = named.split('_');
+  let mut halves = named_3.split('_');
 
-    let language = match halves.next() {
-        Some(language) => language,
-        None => named,
-    };
+  let language = match halves.next() {
+    Some(language) => language,
+    None => named_3,
+  };
 
-    let place = match halves.next() {
-        Some(place) => place,
-        None => NOTHING_SAID,
-    };
+  let place = match halves.next() {
+    Some(place) => place,
+    None => NOTHING_SAID,
+  };
 
-    let no_one = NO_ONE_CHOOSES.contains(&language);
+  let no_one = NO_ONE_CHOOSES.contains(&language);
 
-    match language.is_empty() || no_one {
-        true => Ok(None),
-        false => Ok(Some(Locale {
-            name: name.to_string(),
-            charset: charset.to_string(),
-            language: language.to_string(),
-            place: place.to_string(),
-            how: how.to_string(),
-        })),
-    }
+  match ::core::primitive::bool::then_some(language.is_empty() || no_one, ()) {
+    ::core::option::Option::Some(()) => Ok(None),
+    ::core::option::Option::None => Ok(Some(Locale {
+      name: name.to_string(),
+      charset: charset.to_string(),
+      language: language.to_string(),
+      place: place.to_string(),
+      how: how.to_string(),
+    })),
+  }
 }
 
 pub fn supported(said: &str) -> Result<Vec<Locale>, Never> {
-    let mut kept: Vec<Locale> = Vec::new();
+  let mut kept: Vec<Locale> = Vec::new();
 
-    for line in said.lines() {
-        let mut words = line.split_whitespace();
+  for line in said.lines() {
+    let mut words = line.split_whitespace();
 
-        let (name, charset) = match (words.next(), words.next()) {
-            (Some(name), Some(charset)) => (name, charset),
-            (Some(_), None) | (None, Some(_)) | (None, None) => continue,
-        };
+    let (name, charset) = match (words.next(), words.next()) {
+      (Some(name), Some(charset)) => (name, charset),
+      (Some(_), None) | (None, Some(_)) | (None, None) => continue,
+    };
 
-        match charset == UTF8 {
-            true => {},
-            false => continue,
-        }
-
-        let one = read(Named { name, charset })?;
-
-        match one {
-            Some(locale) => kept.push(locale),
-            None => {},
-        }
+    match ::core::primitive::bool::then_some(charset == UTF8, ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => continue,
     }
 
-    Ok(kept)
+    let one = read(Named { name, charset })?;
+
+    match one {
+      Some(locale) => kept.push(locale),
+      None => {}
+    }
+  }
+
+  Ok(kept)
 }
 
 pub fn generated(said: &str) -> Result<Vec<String>, Never> {
-    Ok(said.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_string).collect())
+  Ok(
+    said
+      .lines()
+      .map(str::trim)
+      .filter(|line| !line.is_empty())
+      .map(str::to_string)
+      .collect(),
+  )
 }
 
 fn plainly(name: &str) -> Result<String, Never> {
-    Ok(name.to_lowercase().replace('-', ""))
+  Ok(name.to_lowercase().replace('-', ""))
 }
 
 pub fn generation_state(generated: &[String], locale: &Locale) -> Result<Made, Never> {
-    let Ok(lang) = locale.lang();
-    let Ok(wanted) = plainly(&lang);
+  let Ok(lang) = locale.lang();
+  let Ok(wanted) = plainly(&lang);
 
-    let found = generated.iter().any(|already| {
-        let Ok(said) = plainly(already);
+  let found = generated.iter().any(|already| {
+    let Ok(said) = plainly(already);
 
-        said == wanted
-    });
+    said == wanted
+  });
 
-    Ok(match found {
-        true => Made::Yes,
-        false => Made::No,
-    })
+  Ok(match ::core::primitive::bool::then_some(found, ()) {
+    ::core::option::Option::Some(()) => Made::Yes,
+    ::core::option::Option::None => Made::No,
+  })
 }
 
 pub fn parse_lang(said: &str) -> Result<Option<String>, Never> {
-    for line in said.lines() {
-        for word in line.split_whitespace() {
-            match word.strip_prefix("LANG=") {
-                Some(name) => return Ok(Some(name.to_string())),
-                None => {},
-            }
-        }
+  for line in said.lines() {
+    for word in line.split_whitespace() {
+      match word.strip_prefix("LANG=") {
+        Some(name) => return Ok(Some(name.to_string())),
+        None => {}
+      }
     }
+  }
 
-    Ok(None)
+  Ok(None)
 }
 
 pub const LOCALE_GEN: &str = "/etc/locale.gen";
@@ -198,223 +204,242 @@ pub const LOCALE_CONF: &str = "/etc/locale.conf";
 pub struct Line<'a>(pub &'a str);
 
 pub fn generating(said: &str, line: Line<'_>) -> Result<String, Never> {
-    let line = line.0;
-    let mut written: Vec<String> = Vec::new();
-    let mut found = Found::No;
+  let line_2 = line.0;
+  let mut written: Vec<String> = Vec::new();
+  let mut found = Found::No;
 
-    for held in said.lines() {
-        let bare = held.trim_start_matches('#').trim();
+  for held in said.lines() {
+    let bare = held.trim_start_matches('#').trim();
 
-        match bare == line {
-            true => {
-                written.push(line.to_string());
+    match ::core::primitive::bool::then_some(bare == line_2, ()) {
+      ::core::option::Option::Some(()) => {
+        written.push(line_2.to_string());
 
-                found = Found::Yes;
-            }
-            false => written.push(held.to_string()),
-        }
+        found = Found::Yes;
+      }
+      ::core::option::Option::None => written.push(held.to_string()),
     }
+  }
 
-    match found {
-        Found::Yes => {},
-        Found::No => written.push(line.to_string()),
-    }
+  match found {
+    Found::Yes => {}
+    Found::No => written.push(line_2.to_string()),
+  }
 
-    Ok(format!("{}\n", written.join("\n")))
+  Ok(format!("{}\n", written.join("\n")))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Found {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 pub struct Names {
-    languages: BTreeMap<String, String>,
-    places: BTreeMap<String, String>,
+  languages: BTreeMap<String, String>,
+  places: BTreeMap<String, String>,
 }
 
-fn table(said: &str, codes: &[&str]) -> Result<BTreeMap<String, String>, Never> {
-    let mut names: BTreeMap<String, String> = BTreeMap::new();
+enum IsoCodes {
+  Language,
+  Region,
+}
 
-    let read: serde_json::Value = match serde_json::from_str(said) {
-        Ok(read) => read,
-        Err(_the_list_is_not_the_shape_iso_codes_writes) => return Ok(names),
-    };
-
-    let holding = match read.as_object() {
-        Some(holding) => holding,
-        None => return Ok(names),
-    };
-
-    for (_, entries) in holding {
-        let entries = match entries.as_array() {
-            Some(entries) => entries,
-            None => continue,
-        };
-
-        'over_entries: for entry in entries {
-            let says = match entry.get("name").and_then(serde_json::Value::as_str) {
-                Some(says) => says,
-                None => continue 'over_entries,
-            };
-
-            for code in codes {
-                match entry.get(code).and_then(serde_json::Value::as_str) {
-                    Some(code) => {
-                        names.entry(code.to_string()).or_insert_with(|| says.to_string());
-                    }
-                    None => {},
-                }
-            }
-        }
+fn table(said: &str, codes: IsoCodes) -> Result<BTreeMap<String, String>, Never> {
+  let mut names = BTreeMap::new();
+  let holding = match serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(said) {
+    Ok(holding) => holding,
+    Err(fault) => {
+      console_core_logging::warn!("could not read the ISO code names: {fault}");
+      return Ok(names);
     }
+  };
 
-    Ok(names)
+  for (_, value) in holding {
+    let entries = match value {
+      serde_json::Value::Array(entries_2) => entries_2,
+      serde_json::Value::Null
+      | serde_json::Value::Bool(_)
+      | serde_json::Value::Number(_)
+      | serde_json::Value::String(_)
+      | serde_json::Value::Object(_) => continue,
+    };
+
+    'records: for entry in entries {
+      let record = match entry.as_object() {
+        Some(record) => record,
+        None => continue 'records,
+      };
+      let name = match record.get("name").and_then(serde_json::Value::as_str) {
+        Some(name) => name,
+        None => continue 'records,
+      };
+      let alpha_2 = record.get("alpha_2").and_then(serde_json::Value::as_str);
+      let alpha_3 = match codes {
+        IsoCodes::Language => record.get("alpha_3").and_then(serde_json::Value::as_str),
+        IsoCodes::Region => None,
+      };
+
+      for code in [alpha_2, alpha_3].into_iter().flatten() {
+        names
+          .entry(code.to_string())
+          .or_insert_with(|| name.to_string());
+      }
+    }
+  }
+
+  Ok(names)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tables<'a> {
-    pub languages: &'a str,
-    pub places: &'a str,
+  pub languages: &'a str,
+  pub places: &'a str,
 }
 
 impl Names {
-    pub fn read(tables: Tables<'_>) -> Result<Self, Never> {
-        let Ok(languages) = table(tables.languages, &["alpha_2", "alpha_3"]);
-        let Ok(places) = table(tables.places, &["alpha_2"]);
+  pub fn read(tables: Tables<'_>) -> Result<Self, Never> {
+    let Ok(languages) = table(tables.languages, IsoCodes::Language);
+    let Ok(places) = table(tables.places, IsoCodes::Region);
 
-        Ok(Names { languages, places })
+    Ok(Names { languages, places })
+  }
+
+  pub fn none() -> Result<Self, Never> {
+    Ok(Names {
+      languages: BTreeMap::new(),
+      places: BTreeMap::new(),
+    })
+  }
+
+  pub fn here() -> Result<Self, Never> {
+    let languages = std::fs::read_to_string(LANGUAGES);
+    let places = std::fs::read_to_string(PLACES);
+
+    match (languages, places) {
+      (Ok(languages_2), Ok(places_2)) => Names::read(Tables {
+        languages: &languages_2,
+        places: &places_2,
+      }),
+      (Err(fault), _) | (_, Err(fault)) => {
+        console_core_logging::warn!(
+          "could not read language or region names from {LANGUAGES} and {PLACES}: {fault}"
+        );
+
+        Names::none()
+      }
     }
+  }
 
-    pub fn none() -> Result<Self, Never> {
-        Ok(Names { languages: BTreeMap::new(), places: BTreeMap::new() })
-    }
+  pub fn language(&self, code: &str) -> Result<String, Never> {
+    Ok(match self.languages.get(code).cloned() {
+      Some(says) => says,
+      None => code.to_string(),
+    })
+  }
 
-    pub fn here() -> Result<Self, Never> {
-        let languages = std::fs::read_to_string(LANGUAGES);
-        let places = std::fs::read_to_string(PLACES);
+  pub fn place(&self, code: &str) -> Result<String, Never> {
+    Ok(match self.places.get(code).cloned() {
+      Some(says) => says,
+      None => code.to_string(),
+    })
+  }
 
-        match (languages, places) {
-            (Ok(languages), Ok(places)) => Names::read(Tables { languages: &languages, places: &places }),
-            (Err(_unreadable), _) | (_, Err(_unreadable)) => {
-                eprintln!(
-                    "settings-panel: {LANGUAGES} and {PLACES} are what a language and a country \
-                     are called, and they will not be read. The rows are drawn with the codes \
-                     instead, which are right and are not words anyone says."
-                );
+  pub fn where_(&self, locale: &Locale) -> Result<String, Never> {
+    let Ok(place) = self.place(&locale.place);
 
-                Names::none()
-            }
-        }
-    }
+    let said = match (locale.place.is_empty(), locale.how.is_empty()) {
+      (true, true) => String::new(),
+      (true, false) => locale.how.clone(),
+      (false, true) => place,
+      (false, false) => format!("{place}, {}", locale.how),
+    };
 
-    pub fn language(&self, code: &str) -> Result<String, Never> {
-        Ok(match self.languages.get(code).cloned() {
-            Some(says) => says,
-            None => code.to_string(),
-        })
-    }
+    Ok(said)
+  }
 
-    pub fn place(&self, code: &str) -> Result<String, Never> {
-        Ok(match self.places.get(code).cloned() {
-            Some(says) => says,
-            None => code.to_string(),
-        })
-    }
+  pub fn says(&self, locale: &Locale) -> Result<String, Never> {
+    let Ok(language) = self.language(&locale.language);
+    let Ok(where_) = self.where_(locale);
 
-    pub fn where_(&self, locale: &Locale) -> Result<String, Never> {
-        let Ok(place) = self.place(&locale.place);
-
-        let said = match (locale.place.is_empty(), locale.how.is_empty()) {
-            (true, true) => String::new(),
-            (true, false) => locale.how.clone(),
-            (false, true) => place,
-            (false, false) => format!("{place}, {}", locale.how),
-        };
-
-        Ok(said)
-    }
-
-    pub fn says(&self, locale: &Locale) -> Result<String, Never> {
-        let Ok(language) = self.language(&locale.language);
-        let Ok(where_) = self.where_(locale);
-
-        Ok(match where_.is_empty() {
-            true => language,
-            false => format!("{language} ({where_})"),
-        })
-    }
+    Ok(match ::core::primitive::bool::then_some(where_.is_empty(), ()) {
+      ::core::option::Option::Some(()) => language,
+      ::core::option::Option::None => format!("{language} ({where_})"),
+    })
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Language {
-    pub language: String,
-    pub says: String,
-    pub locales: Vec<Locale>,
+  pub language: String,
+  pub says: String,
+  pub locales: Vec<Locale>,
 }
 
 pub fn languages(supported: &[Locale], names: &Names) -> Result<Vec<Language>, Never> {
-    let mut standing: BTreeMap<String, Language> = BTreeMap::new();
+  let mut standing: BTreeMap<String, Language> = BTreeMap::new();
 
-    for locale in supported {
-        match standing.entry(locale.language.clone()) {
-            Entry::Occupied(mut language) => language.get_mut().locales.push(locale.clone()),
-            Entry::Vacant(nothing) => {
-                let Ok(says) = names.language(&locale.language);
+  for locale in supported {
+    match standing.entry(locale.language.clone()) {
+      Entry::Occupied(mut language) => language.get_mut().locales.push(locale.clone()),
+      Entry::Vacant(nothing) => {
+        let Ok(says) = names.language(&locale.language);
 
-                let _ = nothing.insert(Language {
-                    language: locale.language.clone(),
-                    says,
-                    locales: vec![locale.clone()],
-                });
-            }
-        }
-    }
-
-    let mut spoken: Vec<Language> = standing.into_values().collect();
-
-    for language in &mut spoken {
-        language.locales.sort_by_key(|locale| {
-            let Ok(where_) = names.where_(locale);
-
-            where_.to_lowercase()
+        let _ = nothing.insert(Language {
+          language: locale.language.clone(),
+          says,
+          locales: vec![locale.clone()],
         });
+      }
     }
+  }
 
-    spoken.sort_by_key(|language| language.says.to_lowercase());
+  let mut spoken: Vec<Language> = standing.into_values().collect();
 
-    Ok(spoken)
+  for language in &mut spoken {
+    language.locales.sort_by_key(|locale| {
+      let Ok(where_) = names.where_(locale);
+
+      where_.to_lowercase()
+    });
+  }
+
+  spoken.sort_by_key(|language| language.says.to_lowercase());
+
+  Ok(spoken)
 }
 
-pub fn current_locale(languages: &[Language], lang: Option<&str>) -> Result<Option<Locale>, Never> {
-    let said = match lang {
-        Some(said) => said,
-        None => return Ok(None),
-    };
+pub fn current_locale(
+  languages: &[Language],
+  lang: Option<&str>,
+) -> Result<Option<Locale>, Never> {
+  let said = match lang {
+    Some(said) => said,
+    None => return Ok(None),
+  };
 
-    let Ok(wanted) = plainly(said);
+  let Ok(wanted) = plainly(said);
 
-    for language in languages {
-        for locale in &language.locales {
-            let Ok(lang) = locale.lang();
-            let Ok(said) = plainly(&lang);
+  for language in languages {
+    for locale in &language.locales {
+      let Ok(lang_2) = locale.lang();
+      let Ok(said_2) = plainly(&lang_2);
 
-            match said == wanted {
-                true => return Ok(Some(locale.clone())),
-                false => {},
-            }
-        }
+      match ::core::primitive::bool::then_some(said_2 == wanted, ()) {
+        ::core::option::Option::Some(()) => return Ok(Some(locale.clone())),
+        ::core::option::Option::None => {}
+      }
     }
+  }
 
-    Ok(None)
+  Ok(None)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const SAID: &str = "\
+  const SAID: &str = "\
 C.UTF-8 UTF-8
 en_GB.UTF-8 UTF-8
 en_US.UTF-8 UTF-8
@@ -427,172 +452,206 @@ th_TH.UTF-8 UTF-8
 th_TH TIS-620
 eo UTF-8";
 
-    const NAMES: &str = r#"{"639-3":[
+  const NAMES: &str = r#"{"639-3":[
         {"alpha_2":"en","alpha_3":"eng","name":"English"},
         {"alpha_2":"nl","alpha_3":"nld","name":"Dutch"},
         {"alpha_2":"th","alpha_3":"tha","name":"Thai"},
         {"alpha_2":"sr","alpha_3":"srp","name":"Serbian"},
         {"alpha_2":"eo","alpha_3":"epo","name":"Esperanto"}]}"#;
 
-    const PLACED: &str = r#"{"3166-1":[
+  const PLACED: &str = r#"{"3166-1":[
         {"alpha_2":"GB","name":"United Kingdom"},
         {"alpha_2":"US","name":"United States"},
         {"alpha_2":"NL","name":"Netherlands"},
         {"alpha_2":"RS","name":"Serbia"},
         {"alpha_2":"TH","name":"Thailand"}]}"#;
 
-    const NOT_LISTED: &str = "a language in the list";
+  const NOT_LISTED: &str = "a language in the list";
 
-    fn names() -> Result<Names, Never> {
-        Names::read(Tables { languages: NAMES, places: PLACED })
-    }
+  fn names() -> Result<Names, Never> {
+    Names::read(Tables {
+      languages: NAMES,
+      places: PLACED,
+    })
+  }
 
-    fn sample_languages() -> Result<Vec<Language>, Never> {
-        let Ok(supported) = supported(SAID);
-        let Ok(names) = names();
+  fn sample_languages() -> Result<Vec<Language>, Never> {
+    let Ok(supported) = supported(SAID);
+    let Ok(names) = names();
 
-        languages(&supported, &names)
-    }
+    languages(&supported, &names)
+  }
 
-    fn of(language: &str) -> Result<Option<Language>, Never> {
-        let Ok(languages) = sample_languages();
+  fn of(language: &str) -> Result<Option<Language>, Never> {
+    let Ok(languages) = sample_languages();
 
-        Ok(languages.into_iter().find(|spoken| spoken.language == language))
-    }
+    Ok(
+      languages
+        .into_iter()
+        .find(|spoken| spoken.language == language),
+    )
+  }
 
-    #[test]
-    fn only_the_encoding_this_machine_draws_in_is_offered() {
-        let Ok(supported) = supported(SAID);
+  #[test]
+  fn only_the_encoding_this_machine_draws_in_is_offered() {
+    let Ok(supported) = supported(SAID);
 
-        assert!(supported.iter().all(|locale| locale.charset == UTF8));
-        assert!(!supported.iter().any(|locale| locale.name == "th_TH"));
-    }
+    assert!(supported.iter().all(|locale| locale.charset == UTF8));
+    assert!(!supported.iter().any(|locale| locale.name == "th_TH"));
+  }
 
-    #[test]
-    fn the_one_that_is_not_a_language_is_not_in_the_list() {
-        let Ok(languages) = sample_languages();
+  #[test]
+  fn the_one_that_is_not_a_language_is_not_in_the_list() {
+    let Ok(languages) = sample_languages();
 
-        assert!(!languages.iter().any(|language| language.language == "C"));
-    }
+    assert!(!languages.iter().any(|language| language.language == "C"));
+  }
 
-    #[test]
-    fn a_language_gathers_the_places_it_is_spoken() -> Result<(), &'static str> {
-        let Ok(english) = of("en");
-        let english = english.ok_or(NOT_LISTED)?;
+  #[test]
+  fn a_language_gathers_the_places_it_is_spoken() -> Result<(), &'static str> {
+    let Ok(english) = of("en");
+    let english_2 = english.ok_or(NOT_LISTED)?;
 
-        assert_eq!(english.says, "English");
-        assert_eq!(english.locales.len(), 2);
+    assert_eq!(english_2.says, "English");
+    assert_eq!(english_2.locales.len(), 2);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_language_with_nowhere_after_it_is_still_a_language() -> Result<(), &'static str> {
-        let Ok(esperanto) = of("eo");
-        let esperanto = esperanto.ok_or(NOT_LISTED)?;
-        let only = esperanto.locales.first().ok_or("the one locale")?;
-        let Ok(names) = names();
+  #[test]
+  fn a_language_with_nowhere_after_it_is_still_a_language() -> Result<(), &'static str> {
+    let Ok(esperanto) = of("eo");
+    let esperanto_2 = esperanto.ok_or(NOT_LISTED)?;
+    let only = esperanto_2.locales.first().ok_or("the one locale")?;
+    let Ok(names) = names();
 
-        assert_eq!(names.says(only), Ok("Esperanto".to_string()));
+    assert_eq!(names.says(only), Ok("Esperanto".to_string()));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn how_it_is_written_is_part_of_where_it_is_written() -> Result<(), &'static str> {
-        let Ok(serbian) = of("sr");
-        let serbian = serbian.ok_or(NOT_LISTED)?;
-        let latin = serbian.locales.iter().find(|locale| locale.how == "latin").ok_or("the latin one")?;
-        let Ok(names) = names();
+  #[test]
+  fn how_it_is_written_is_part_of_where_it_is_written() -> Result<(), &'static str> {
+    let Ok(serbian) = of("sr");
+    let serbian_2 = serbian.ok_or(NOT_LISTED)?;
+    let latin = serbian_2
+      .locales
+      .iter()
+      .find(|locale| locale.how == "latin")
+      .ok_or("the latin one")?;
+    let Ok(names) = names();
 
-        assert_eq!(names.says(latin), Ok("Serbian (Serbia, latin)".to_string()));
+    assert_eq!(names.says(latin), Ok("Serbian (Serbia, latin)".to_string()));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn the_languages_are_in_the_order_someone_would_look_for_them() {
-        let Ok(languages) = sample_languages();
-        let says: Vec<String> = languages.into_iter().map(|language| language.says).collect();
+  #[test]
+  fn the_languages_are_in_the_order_someone_would_look_for_them() {
+    let Ok(languages) = sample_languages();
+    let says: Vec<String> = languages
+      .into_iter()
+      .map(|language| language.says)
+      .collect();
 
-        assert_eq!(says, ["Dutch", "English", "Esperanto", "Serbian", "Thai"]);
-    }
+    assert_eq!(says, ["Dutch", "English", "Esperanto", "Serbian", "Thai"]);
+  }
 
-    #[test]
-    fn a_machine_with_no_iso_codes_draws_the_codes() {
-        let Ok(none) = Names::none();
-        let Ok(supported) = supported(SAID);
-        let Ok(languages) = languages(&supported, &none);
+  #[test]
+  fn a_machine_with_no_iso_codes_draws_the_codes() {
+    let Ok(none) = Names::none();
+    let Ok(supported) = supported(SAID);
+    let Ok(languages) = languages(&supported, &none);
 
-        assert!(languages.iter().any(|language| language.says == "nl"));
-    }
+    assert!(languages.iter().any(|language| language.says == "nl"));
+  }
 
-    #[test]
-    fn a_locale_glibc_spells_without_the_encoding_still_asks_for_it_by_name() -> Result<(), &'static str> {
-        let Ok(serbian) = of("sr");
-        let serbian = serbian.ok_or(NOT_LISTED)?;
-        let plain = serbian.locales.iter().find(|locale| locale.how.is_empty()).ok_or("sr_RS")?;
+  #[test]
+  fn a_locale_glibc_spells_without_the_encoding_still_asks_for_it_by_name()
+  -> Result<(), &'static str> {
+    let Ok(serbian) = of("sr");
+    let serbian_2 = serbian.ok_or(NOT_LISTED)?;
+    let plain = serbian_2
+      .locales
+      .iter()
+      .find(|locale| locale.how.is_empty())
+      .ok_or("sr_RS")?;
 
-        assert_eq!(plain.line(), Ok("sr_RS UTF-8".to_string()));
-        assert_eq!(plain.lang(), Ok("sr_RS.UTF-8".to_string()));
+    assert_eq!(plain.line(), Ok("sr_RS UTF-8".to_string()));
+    assert_eq!(plain.lang(), Ok("sr_RS.UTF-8".to_string()));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn the_ones_already_made_are_the_ones_locale_a_names_however_it_spells_them() -> Result<(), &'static str> {
-        let Ok(generated) = generated("C\nC.utf8\nen_US.utf8\nPOSIX\n");
-        let Ok(english) = of("en");
-        let english = english.ok_or(NOT_LISTED)?;
-        let american = english.locales.iter().find(|locale| locale.place == "US").ok_or("en_US")?;
-        let british = english.locales.iter().find(|locale| locale.place == "GB").ok_or("en_GB")?;
+  #[test]
+  fn the_ones_already_made_are_the_ones_locale_a_names_however_it_spells_them()
+  -> Result<(), &'static str> {
+    let Ok(generated) = generated("C\nC.utf8\nen_US.utf8\nPOSIX\n");
+    let Ok(english) = of("en");
+    let english_2 = english.ok_or(NOT_LISTED)?;
+    let american = english_2
+      .locales
+      .iter()
+      .find(|locale| locale.place == "US")
+      .ok_or("en_US")?;
+    let british = english_2
+      .locales
+      .iter()
+      .find(|locale| locale.place == "GB")
+      .ok_or("en_GB")?;
 
-        assert_eq!(generation_state(&generated, american), Ok(Made::Yes));
-        assert_eq!(generation_state(&generated, british), Ok(Made::No));
+    assert_eq!(generation_state(&generated, american), Ok(Made::Yes));
+    assert_eq!(generation_state(&generated, british), Ok(Made::No));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_language_that_is_already_named_and_commented_out_is_uncommented_where_it_stands() {
-        let said = "#en_GB.UTF-8 UTF-8  \n#nl_NL.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\n";
-        let Ok(written) = generating(said, Line("nl_NL.UTF-8 UTF-8"));
+  #[test]
+  fn a_language_that_is_already_named_and_commented_out_is_uncommented_where_it_stands() {
+    let said = "#en_GB.UTF-8 UTF-8  \n#nl_NL.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\n";
+    let Ok(written) = generating(said, Line("nl_NL.UTF-8 UTF-8"));
 
-        assert_eq!(written, "#en_GB.UTF-8 UTF-8  \nnl_NL.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\n");
-    }
+    assert_eq!(
+      written,
+      "#en_GB.UTF-8 UTF-8  \nnl_NL.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\n"
+    );
+  }
 
-    #[test]
-    fn a_language_the_file_has_never_heard_of_is_written_at_the_end() {
-        let Ok(written) = generating("en_US.UTF-8 UTF-8\n", Line("th_TH.UTF-8 UTF-8"));
+  #[test]
+  fn a_language_the_file_has_never_heard_of_is_written_at_the_end() {
+    let Ok(written) = generating("en_US.UTF-8 UTF-8\n", Line("th_TH.UTF-8 UTF-8"));
 
-        assert_eq!(written, "en_US.UTF-8 UTF-8\nth_TH.UTF-8 UTF-8\n");
-    }
+    assert_eq!(written, "en_US.UTF-8 UTF-8\nth_TH.UTF-8 UTF-8\n");
+  }
 
-    #[test]
-    fn one_already_made_is_left_exactly_as_it_was() {
-        let said = "en_US.UTF-8 UTF-8\n";
-        let Ok(written) = generating(said, Line("en_US.UTF-8 UTF-8"));
+  #[test]
+  fn one_already_made_is_left_exactly_as_it_was() {
+    let said = "en_US.UTF-8 UTF-8\n";
+    let Ok(written) = generating(said, Line("en_US.UTF-8 UTF-8"));
 
-        assert_eq!(written, said);
-    }
+    assert_eq!(written, said);
+  }
 
-    #[test]
-    fn what_the_machine_is_set_to_is_read_out_of_what_localectl_says() {
-        let said = "   System Locale: LANG=en_US.UTF-8\n       VC Keymap: us\n";
+  #[test]
+  fn what_the_machine_is_set_to_is_read_out_of_what_localectl_says() {
+    let said = "   System Locale: LANG=en_US.UTF-8\n       VC Keymap: us\n";
 
-        assert_eq!(parse_lang(said), Ok(Some("en_US.UTF-8".to_string())));
-        assert_eq!(parse_lang("System Locale: n/a"), Ok(None));
-    }
+    assert_eq!(parse_lang(said), Ok(Some("en_US.UTF-8".to_string())));
+    assert_eq!(parse_lang("System Locale: n/a"), Ok(None));
+  }
 
-    #[test]
-    fn the_row_at_the_top_says_which_of_the_five_hundred_this_machine_is_on() {
-        let Ok(languages) = sample_languages();
-        let Ok(on) = current_locale(&languages, Some("en_US.UTF-8"));
+  #[test]
+  fn the_row_at_the_top_says_which_of_the_five_hundred_this_machine_is_on() {
+    let Ok(languages) = sample_languages();
+    let Ok(on) = current_locale(&languages, Some("en_US.UTF-8"));
 
-        assert_eq!(on.map(|locale| locale.name), Some("en_US.UTF-8".to_string()));
+    assert_eq!(
+      on.map(|locale| locale.name),
+      Some("en_US.UTF-8".to_string())
+    );
 
-        let Ok(nothing) = current_locale(&languages, None);
+    let Ok(nothing) = current_locale(&languages, None);
 
-        assert_eq!(nothing, None);
-    }
+    assert_eq!(nothing, None);
+  }
 }

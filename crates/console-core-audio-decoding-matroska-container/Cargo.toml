@@ -1,0 +1,25 @@
+[package]
+name = "console-core-audio-decoding-matroska-container"
+version = "0.5.5"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Pure Rust MKV/WebM demuxer (a part of project Symphonia)."
+
+[lib]
+name = "console_core_audio_decoding_matroska_container"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-audio-decoding-interfaces = { path = "../console-core-audio-decoding-interfaces" }
+console-core-audio-decoding-flac-and-vorbis-headers = { path = "../console-core-audio-decoding-flac-and-vorbis-headers" }
+console-core-byte-streams.workspace = true
+console-core-extensible-binary-meta-language.workspace = true
+console-core-iteration.workspace = true
+console-core-matroska-blocks.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-words.workspace = true
+
+[lints]
+workspace = true

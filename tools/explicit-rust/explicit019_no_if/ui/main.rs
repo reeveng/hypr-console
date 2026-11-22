@@ -1,4 +1,5 @@
-// UI test for EXPLICIT019 — `if` is forbidden; a decision is a `match`.
+// edition:2024
+// UI test for EXPLICIT019 — decisions use enum matches.
 
 // BAD EXPLICIT019 — the false path is decided by omission.
 fn guarded(full: bool) -> u8 {
@@ -39,9 +40,9 @@ fn guarded_arm(x: Option<u8>) -> u8 {
 // GOOD — the question is asked where its answer has two names.
 fn asked(x: Option<u8>) -> u8 {
     match x {
-        Some(n) => match n > 2 {
-            true => n,
-            false => 0,
+        Some(n) => match (n > 2).then_some(()) {
+            Some(()) => n,
+            None => 0,
         },
         None => 0,
     }
@@ -52,11 +53,44 @@ fn in_a_macro(x: Option<u8>) -> bool {
     matches!(x, Some(n) if n > 2)
 }
 
-// GOOD — both outcomes on the screen, each with a name.
+// BAD EXPLICIT019 — a Boolean scrutinee still needs enum outcomes.
 fn named(full: bool) -> u8 {
+    //~v EXPLICIT019_NO_IF
     match full {
         true => 0,
         false => 1,
+    }
+}
+
+const fn constant_case(full: bool) -> u8 {
+    //~v EXPLICIT019_NO_IF
+    match full { true => 0, false => 1 }
+}
+
+fn guarded_boolean(full: bool, wide: bool) -> u8 {
+    //~v EXPLICIT019_NO_IF
+    match full {
+        //~v EXPLICIT019_NO_IF
+        true if wide => 1,
+        _ => 0,
+    }
+}
+
+fn conditional_arm(full: bool) -> u8 {
+    //~v EXPLICIT019_NO_IF
+    match full {
+        #[cfg(any())]
+        true => 2,
+        true => 1,
+        false => 0,
+    }
+}
+
+#[no_implicit_prelude]
+mod custom_prelude {
+    pub fn needs_core(full: bool) -> u8 {
+        //~v EXPLICIT019_NO_IF
+        match full { true => 1, false => 0 }
     }
 }
 
@@ -78,6 +112,10 @@ fn main() {
         asked(None),
         u8::from(in_a_macro(None)),
         named(true),
+        constant_case(false),
+        guarded_boolean(true, true),
+        conditional_arm(false),
+        custom_prelude::needs_core(false),
         drains(3),
     );
 }

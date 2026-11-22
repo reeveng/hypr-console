@@ -6,8 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+console-core-pixel-buffers.workspace = true
 console-core-geometry.workspace = true
 console-core-iteration.workspace = true
+console-core-lzw.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 

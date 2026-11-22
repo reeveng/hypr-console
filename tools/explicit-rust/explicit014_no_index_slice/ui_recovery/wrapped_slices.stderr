@@ -1,0 +1,63 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/wrapped_slices.rs:22:8
+   |
+LL |     Ok(input[i])
+   |        ^^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: return the configured failure if the element or range is absent
+   |
+LL -     Ok(input[i])
+LL +     Ok(*match <[_]>::get(&**input, i) { ::core::option::Option::Some(indexed_value) => indexed_value, ::core::option::Option::None => return ::core::result::Result::Err(crate::Fault::Bounds) })
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/wrapped_slices.rs:25:21
+   |
+LL |     let tail = &mut block.get_mut()[start..];
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: return the configured failure if the element or range is absent
+   |
+LL -     let tail = &mut block.get_mut()[start..];
+LL +     let tail = &mut *match <[_]>::get_mut(&mut **block.get_mut(), start..) { ::core::option::Option::Some(indexed_value) => indexed_value, ::core::option::Option::None => return ::core::result::Result::Err(crate::Fault::Bounds) };
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/wrapped_slices.rs:26:5
+   |
+LL |     tail[..width].fill(7);
+   |     ^^^^^^^^^^^^^
+   |
+help: return the configured failure if the element or range is absent
+   |
+LL -     tail[..width].fill(7);
+LL +     (*match <[_]>::get_mut(&mut *tail, ..width) { ::core::option::Option::Some(indexed_value) => indexed_value, ::core::option::Option::None => return ::core::result::Result::Err(crate::Fault::Bounds) }).fill(7);
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/wrapped_slices.rs:30:5
+   |
+LL |     table[1].fill(11);
+   |     ^^^^^^^^
+   |
+help: project the fixed array element with an irrefutable borrow pattern
+   |
+LL -     table[1].fill(11);
+LL +     (*match &mut **table { [_, element, ..] => element }).fill(11);
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/wrapped_slices.rs:38:8
+   |
+LL |     Ok(values[{ trace.set(trace.get() * 10 + 2); 1 }])
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: return the configured failure if the element or range is absent
+   |
+LL -     Ok(values[{ trace.set(trace.get() * 10 + 2); 1 }])
+LL +     Ok(*match <[_]>::get(&**values, { trace.set(trace.get() * 10 + 2); 1 }) { ::core::option::Option::Some(indexed_value) => indexed_value, ::core::option::Option::None => return ::core::result::Result::Err(crate::Fault::Bounds) })
+   |
+
+error: aborting due to 5 previous errors
+

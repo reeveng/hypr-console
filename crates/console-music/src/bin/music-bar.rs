@@ -24,15 +24,15 @@
 
 use std::io::Write;
 use std::process::ExitCode;
-use std::sync::mpsc::{RecvTimeoutError, channel};
+use std::sync::mpsc::{RecvTimeoutError, sync_channel};
 use std::time::Duration;
 
 use console_core_arguments::{Command, Operands, ValidationError};
-use console_music::player;
 use console_core_iteration::Step;
 use console_core_never::Never;
-use console_program_contract::EventGroup;
+use console_music::player;
 use console_panel::door::{Up, is_open};
+use console_program_contract::EventGroup;
 
 const EVERY: Duration = Duration::from_secs(10);
 
@@ -43,105 +43,139 @@ const PAUSE: &str = "\u{f03e4}";
 const ICON: [&str; 1] = ["ICON"];
 
 const COMMAND: Command = Command {
-    name: "music-bar",
-    about: "the line the bar shows for what is playing, after ICON, said again whenever it changes",
-    flags: &[],
-    operands: Operands::Named(&ICON),
+  name: "music-bar",
+  about: "the line the bar shows for what is playing, after ICON, said again whenever it changes",
+  flags: &[],
+  operands: Operands::Named(&ICON),
 };
 
 fn icon(words: &[String]) -> Result<String, ValidationError> {
-    let line = console_core_arguments::read(&COMMAND, words)?;
-    let [icon] = line.exactly(ICON)?;
+  let line = console_core_arguments::read(&COMMAND, words)?;
+  let [icon] = line.exactly(ICON)?;
 
-    Ok(icon.clone())
+  Ok(icon.clone())
 }
 
 fn main() -> ExitCode {
-    let words: Vec<String> = std::env::args().skip(1).collect();
-    let icon = match icon(&words) {
-        Ok(icon) => icon,
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
+  let words: Vec<String> = std::env::args().skip(1).collect();
+  let icon = match icon(&words) {
+    Ok(icon) => icon,
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
 
-            return ExitCode::from(code);
-        }
-    };
-
-    let Ok(opening) = subscribe();
-
-    let ended = console_core_iteration::iterate(String::new(), |last| {
-        let Ok(said) = line(&icon);
-
-        let last = match said == last {
-            true => last,
-            false => {
-                println!("{said}");
-                let _ = std::io::stdout().flush();
-
-                said
-            }
-        };
-
-        match opening.recv_timeout(EVERY) {
-            Ok(()) | Err(RecvTimeoutError::Timeout) => (),
-            #[cfg_attr(
-                dylint_lib = "explicit021_no_sleeping",
-                allow(
-                    explicit021_no_sleeping,
-                    reason = "nothing is left to say when the panel opens, so there is no longer a thing to wait for; the bar falls back to redrawing on a cadence rather than spinning on a dead channel"
-                )
-            )]
-            Err(RecvTimeoutError::Disconnected) => std::thread::sleep(EVERY),
-        }
-
-        Ok(Step::<String, Never>::Again(last))
-    });
-
-    match ended {
-        Ok(never) => match never {},
-        Err(endless) => {
-            eprintln!("music-bar: {endless}");
-
-            ExitCode::FAILURE
-        }
+      return ExitCode::from(code);
     }
+  };
+
+  let Ok(opening) = subscribe();
+
+  let ended = console_core_iteration::iterate(
+    String::new(),
+    |last| -> Result<Step<_, _>, Never> {
+      let Ok(said) = line(&icon);
+
+      let written = match bool::then_some(said == last, ()) {
+        ::core::option::Option::Some(()) => last,
+        ::core::option::Option::None => {
+          let mut out = std::io::stdout().lock();
+          let printed = writeln!(out, "{said}");
+          let flushed = match printed {
+            Ok(()) => out.flush(),
+            Err(fault) => Err(fault),
+          };
+
+          match flushed {
+            Ok(()) => {}
+            Err(fault) => {
+              let code = match ::core::primitive::bool::then_some(
+                fault.kind() == std::io::ErrorKind::BrokenPipe,
+                (),
+              ) {
+                ::core::option::Option::Some(()) => ExitCode::SUCCESS,
+                ::core::option::Option::None => {
+                  eprintln!("music-bar: could not write the playing track: {fault}");
+
+                  ExitCode::FAILURE
+                }
+              };
+
+              return Ok(Step::Halt(code));
+            }
+          }
+
+          said
+        }
+      };
+
+      let next = Step::Again(written);
+
+      match opening.recv_timeout(EVERY) {
+        Ok(()) | Err(RecvTimeoutError::Timeout) => Ok(next),
+        #[cfg_attr(
+          dylint_lib = "explicit021_no_sleeping",
+          allow(
+            explicit021_no_sleeping,
+            reason = "nothing is left to say when the panel opens, so there is no longer a thing to wait for; the bar falls back to redrawing on a cadence rather than spinning on a dead channel"
+          )
+        )]
+        Err(RecvTimeoutError::Disconnected) => {
+          std::thread::sleep(EVERY);
+
+          Ok(next)
+        }
+      }
+    },
+  );
+
+  match ended {
+    Ok(code) => code,
+    Err(endless) => {
+      eprintln!("music-bar: {endless}");
+
+      ExitCode::FAILURE
+    }
+  }
 }
 
 fn subscribe() -> Result<std::sync::mpsc::Receiver<()>, Never> {
-    let (say, heard) = channel();
+  let (say, heard) = sync_channel(1);
 
-    let Ok(()) = console_events::again::layers(say.clone());
-    let Ok(()) = console_events::again::about(&EventGroup::Player, player::worth_asking_after, say);
+  let Ok(()) = console_events::again::layers(say.clone());
+  let Ok(()) = console_events::again::about(&EventGroup::Player, player::worth_asking_after, say);
 
-    Ok(heard)
+  Ok(heard)
 }
 
 fn line(icon: &str) -> Result<String, Never> {
-    let asked = player::playing()?;
+  let asked = player::playing()?;
 
-    let playing = match asked {
-        Some(playing) => playing,
-        None => player::Playing::default(),
-    };
-    let (mark, class) = match playing.sound {
-        player::Sound::Stopped => (icon.to_string(), "stopped"),
-        player::Sound::Paused => (PAUSE.to_string(), "paused"),
-        player::Sound::Playing => (icon.to_string(), "playing"),
-    };
-    let lit = match is_open(PANEL) {
-        Ok(Up::OnScreen) => Some("open"),
-        Ok(Up::NotThere) => None,
-        Err(fault) => {
-            eprintln!("music-bar: {fault}");
-            None
-        }
-    };
-    let worn: Vec<&str> = std::iter::once(class).chain(lit).collect();
-    let quoted = json_string(&mark)?;
+  let playing = match asked {
+    Some(playing) => playing,
+    None => player::Playing::default(),
+  };
+  let (mark, class) = match playing.sound {
+    player::Sound::Stopped => (icon.to_string(), "stopped"),
+    player::Sound::Paused => (PAUSE.to_string(), "paused"),
+    player::Sound::Playing => (icon.to_string(), "playing"),
+  };
+  let lit = match is_open(PANEL) {
+    Ok(Up::OnScreen) => Some("open"),
+    Ok(Up::NotThere) => None,
+    Err(fault) => {
+      eprintln!("music-bar: {fault}");
+      None
+    }
+  };
+  let worn: Vec<&str> = std::iter::once(class).chain(lit).collect();
+  let quoted = json_string(&mark)?;
 
-    Ok(format!(r#"{{"text": {}, "class": {}}}"#, quoted, serde_json::Value::from(worn)))
+  Ok(format!(
+    r#"{{"text": {}, "class": {}}}"#,
+    quoted,
+    serde_json::Value::from(worn)
+  ))
 }
 
 fn json_string(said: &str) -> Result<String, Never> {
-    Ok(serde_json::Value::String(said.to_string()).to_string())
+  Ok(serde_json::Value::String(said.to_string()).to_string())
 }

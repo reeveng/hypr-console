@@ -8,121 +8,180 @@
 //! crossing is noticed here, where the reading already happens. What a crossing
 //! is is `console_battery`, which can be asked without a
 //! machine; what is done about one is `console-battery`, which is a program of
-//! its own because the last of the three stops the machine and a bar module is
+//! its own because the protection steps can stop the machine and a bar module is
 //! not a thing that should be holding still for that.
 
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
-use console_program_lifetime::{Detached, Still, let_go};
-use console_battery::{Charge, Levels, Step, alert};
+use console_battery::{Action, Cable, Charge, Levels, alert};
 use console_core_never::Never;
 use console_notifications::saying::StatePath;
+use console_program_lifetime::{Detached, Still, let_go};
 
 pub const SAID: &str = "battery-said";
 
 pub const DOES: &str = "console-battery";
 
+const NEAR_EMPTY: i32 = 5;
+const QUICK_POLL: Duration = Duration::from_secs(2);
+
 #[derive(Debug, Default)]
 pub struct Watching {
-    doing: Option<Detached>,
+  doing: Option<(Action, Detached)>,
+  reading: Charge,
 }
 
 impl Watching {
-    pub fn record(&mut self, said: &str) -> Result<(), Never> {
-        let Ok(()) = self.reap();
-        let reading = Charge::of(said)?;
+  pub fn record(&mut self, said: &str) -> Result<(), Never> {
+    let Ok(completed) = self.reap();
+    let reading = Charge::of(said)?;
+    self.reading = reading;
 
-        let charge = match reading.percent {
-            Some(charge) => charge,
-            None => return Ok(()),
-        };
+    let charge = match reading.percent {
+      Some(charge) => charge,
+      None => return Ok(()),
+    };
 
-        let Ok(kept) = StatePath::new(SAID);
-        let Ok(read) = kept.read();
+    let Ok(kept) = StatePath::new(SAID);
+    let Ok(read) = kept.read();
 
-        let told = match read {
-            Some(number) => Step::of_number(number)?,
-            None => None,
-        };
+    let told = match (completed, read) {
+      (Some(action), _) => Some(action),
+      (None, Some(number)) => Action::of_number(number)?,
+      (None, None) => None,
+    };
 
-        let levels = Levels::here()?;
-        let said = alert(levels, charge, reading.filling, told)?;
+    let levels = Levels::here()?;
+    let said_2 = alert(levels, charge, reading.filling, told)?;
 
-        let number = match said.told {
-            Some(step) => step.number()?,
-            None => 0,
-        };
+    let number = match said_2.told {
+      Some(action) => action.number()?,
+      None => 0,
+    };
 
-        match said.act {
-            Some(step) => match self.doing.is_some() {
-                true => (),
-                false => {
-                    let Ok(started) = run(step);
-
-                    self.doing = started;
-
-                    let Ok(()) = kept.write(number);
-                }
-            },
-            None => {
-                let Ok(()) = kept.write(number);
-            }
-        }
-
-        Ok(())
+    match (
+      said_2.act,
+      &self.doing,
+      (read != Some(number)).then_some(()),
+    ) {
+      (Some(action), None, _) => self.start(action, number, &kept),
+      (Some(_), Some(_), _) | (None, _, None) => Ok(()),
+      (None, _, Some(())) => kept.write(number),
     }
+  }
 
-    fn reap(&mut self) -> Result<(), Never> {
-        let doing = match &mut self.doing {
-            Some(doing) => doing,
-            None => return Ok(()),
-        };
+  fn start(&mut self, action: Action, number: u32, kept: &StatePath) -> Result<(), Never> {
+    let Ok(started) = run(action);
 
-        let Ok(still) = doing.still();
+    match started {
+      Some(child) => {
+        self.doing = Some((action, child));
 
-        match still {
-            Still::Ended => self.doing = None,
-            Still::Running => {}
+        match action {
+          Action::Emergency => Ok(()),
+          Action::Configured(_level) => kept.write(number),
         }
-
-        Ok(())
+      }
+      None => Ok(()),
     }
+  }
+
+  pub fn quick_poll(&self) -> Result<Option<Duration>, Never> {
+    let Ok(cable) = self.reading.filling.cable();
+
+    Ok(match cable {
+      Cable::Connected => None,
+      Cable::Disconnected => self
+        .reading
+        .percent
+        .filter(|percent| *percent <= NEAR_EMPTY)
+        .map(|_| QUICK_POLL),
+    })
+  }
+
+  fn reap(&mut self) -> Result<Option<Action>, Never> {
+    let (action, mut doing) = match self.doing.take() {
+      Some(running) => running,
+      None => return Ok(None),
+    };
+
+    let Ok(still) = doing.still();
+
+    Ok(match (still, action) {
+      (Still::Running, _) => {
+        self.doing = Some((action, doing));
+
+        None
+      }
+      (Still::Ended, Action::Emergency) => match doing.wait() {
+        Ok(status) => status.success().then_some(action),
+        Err(fault) => {
+          console_core_logging::warn!("could not collect the emergency battery action: {fault}");
+          None
+        }
+      },
+      (Still::Ended, _) => None,
+    })
+  }
 }
 
-fn run(step: Step) -> Result<Option<Detached>, Never> {
-    let word = step.word()?;
-    let mut starting = Command::new(DOES);
+fn run(action: Action) -> Result<Option<Detached>, Never> {
+  let word = action.word()?;
+  let mut starting = Command::new(DOES);
 
-    starting.arg(word).stdout(Stdio::null()).stderr(Stdio::null());
+  starting
+    .arg(word)
+    .stdout(Stdio::null())
+    .stderr(Stdio::null());
 
-    Ok(match let_go(&mut starting) {
-        Ok(child) => Some(child),
-        Err(fault) => {
-            eprintln!("{DOES} would not start for {word}: {fault}");
-            None
-        },
-    })
+  Ok(match let_go(&mut starting) {
+    Ok(child) => Some(child),
+    Err(fault) => {
+      console_core_logging::warn!("{DOES} would not start for {word}: {fault}");
+      None
+    }
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_machine_with_no_battery_is_left_alone() {
-        let mut watching = Watching::default();
-        let Ok(()) = watching.record("");
-        assert!(watching.doing.is_none());
+  #[test]
+  fn a_machine_with_no_battery_is_left_alone() {
+    let mut watching = Watching::default();
+    let Ok(()) = watching.record("");
+    assert!(watching.doing.is_none());
+  }
+
+  #[test]
+  fn every_step_is_asked_for_by_its_own_word() {
+    for step in console_battery::EVERY {
+      let Ok(word) = Action::Configured(step).word();
+
+      assert!(!word.is_empty());
     }
 
-    #[test]
-    fn every_step_is_asked_for_by_its_own_word() {
-        for step in console_battery::EVERY {
-            let Ok(word) = step.word();
+    assert_eq!(Action::Emergency.word(), Ok("emergency"));
+    assert_eq!(DOES, "console-battery");
+  }
 
-            assert!(!word.is_empty());
-        }
+  #[test]
+  fn only_an_unplugged_battery_near_empty_is_polled_faster() {
+    for (said, expected) in [
+      ("", None),
+      ("6 unplugged Discharging", None),
+      ("5 unplugged Discharging", Some(QUICK_POLL)),
+      ("1 plugged Not charging", None),
+    ] {
+      let Ok(reading) = Charge::of(said);
+      let watching = Watching {
+        reading,
+        ..Watching::default()
+      };
 
-        assert_eq!(DOES, "console-battery");
+      assert_eq!(watching.quick_poll(), Ok(expected));
     }
+  }
 }

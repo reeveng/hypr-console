@@ -39,60 +39,78 @@ const PREFIX: &str = "KEY_";
 const JOINED: &str = "+";
 
 pub const MODIFIERS: [(&str, &str, u64, KeyCode, KeyCode); 4] = [
-    ("super", "SUPER", 64, KeyCode::KEY_LEFTMETA, KeyCode::KEY_RIGHTMETA),
-    ("ctrl", "CTRL", 4, KeyCode::KEY_LEFTCTRL, KeyCode::KEY_RIGHTCTRL),
-    ("shift", "SHIFT", 1, KeyCode::KEY_LEFTSHIFT, KeyCode::KEY_RIGHTSHIFT),
-    ("alt", "ALT", 8, KeyCode::KEY_LEFTALT, KeyCode::KEY_RIGHTALT),
+  (
+    "super",
+    "SUPER",
+    64,
+    KeyCode::KEY_LEFTMETA,
+    KeyCode::KEY_RIGHTMETA,
+  ),
+  (
+    "ctrl",
+    "CTRL",
+    4,
+    KeyCode::KEY_LEFTCTRL,
+    KeyCode::KEY_RIGHTCTRL,
+  ),
+  (
+    "shift",
+    "SHIFT",
+    1,
+    KeyCode::KEY_LEFTSHIFT,
+    KeyCode::KEY_RIGHTSHIFT,
+  ),
+  ("alt", "ALT", 8, KeyCode::KEY_LEFTALT, KeyCode::KEY_RIGHTALT),
 ];
 
 const NAMED: [&str; 35] = [
-    "space",
-    "enter",
-    "tab",
-    "escape",
-    "backspace",
-    "delete",
-    "insert",
-    "home",
-    "end",
-    "pageup",
-    "pagedown",
-    "up",
-    "down",
-    "left",
-    "right",
-    "minus",
-    "equal",
-    "leftbrace",
-    "rightbrace",
-    "semicolon",
-    "apostrophe",
-    "grave",
-    "backslash",
-    "comma",
-    "period",
-    "slash",
-    "capslock",
-    "print",
-    "power",
-    "mute",
-    "volume-up",
-    "volume-down",
-    "brightness-up",
-    "brightness-down",
-    "calculator",
+  "space",
+  "enter",
+  "tab",
+  "escape",
+  "backspace",
+  "delete",
+  "insert",
+  "home",
+  "end",
+  "pageup",
+  "pagedown",
+  "up",
+  "down",
+  "left",
+  "right",
+  "minus",
+  "equal",
+  "leftbrace",
+  "rightbrace",
+  "semicolon",
+  "apostrophe",
+  "grave",
+  "backslash",
+  "comma",
+  "period",
+  "slash",
+  "capslock",
+  "print",
+  "power",
+  "mute",
+  "volume-up",
+  "volume-down",
+  "brightness-up",
+  "brightness-down",
+  "calculator",
 ];
 
 const CALLED: [(&str, &str); 9] = [
-    ("escape", "esc"),
-    ("period", "dot"),
-    ("return", "enter"),
-    ("print", "sysrq"),
-    ("volume-up", "volumeup"),
-    ("volume-down", "volumedown"),
-    ("brightness-up", "brightnessup"),
-    ("brightness-down", "brightnessdown"),
-    ("calculator", "calc"),
+  ("escape", "esc"),
+  ("period", "dot"),
+  ("return", "enter"),
+  ("print", "sysrq"),
+  ("volume-up", "volumeup"),
+  ("volume-down", "volumedown"),
+  ("brightness-up", "brightnessup"),
+  ("brightness-down", "brightnessdown"),
+  ("calculator", "calc"),
 ];
 
 const LETTERS: &str = "abcdefghijklmnopqrstuvwxyz";
@@ -103,214 +121,237 @@ const FUNCTIONS: u32 = 12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyKind {
-    AModifier,
-    AKey,
+  AModifier,
+  AKey,
 }
 
 pub fn every() -> Result<Vec<String>, Never> {
-    let mut said: Vec<String> = LETTERS.chars().map(|letter| letter.to_string()).collect();
+  let mut said: Vec<String> = LETTERS.chars().map(|letter| letter.to_string()).collect();
 
-    said.extend(DIGITS.chars().map(|digit| digit.to_string()));
-    said.extend((1..=FUNCTIONS).map(|which| format!("f{which}")));
-    said.extend(NAMED.iter().map(|word| (*word).to_string()));
+  said.extend(DIGITS.chars().map(|digit| digit.to_string()));
+  said.extend((1..=FUNCTIONS).map(|which| format!("f{which}")));
+  said.extend(NAMED.iter().map(|word| (*word).to_string()));
 
-    Ok(said)
+  Ok(said)
 }
 
 pub fn is_a_modifier(word: &str) -> Result<KeyKind, Never> {
-    Ok(match MODIFIERS.iter().any(|(spoken, _, _, _, _)| *spoken == word) {
-        true => KeyKind::AModifier,
-        false => KeyKind::AKey,
-    })
+  Ok(
+    match ::core::primitive::bool::then_some(MODIFIERS.iter().any(|(spoken, _, _, _, _)| *spoken == word), ()) {
+      ::core::option::Option::Some(()) => KeyKind::AModifier,
+      ::core::option::Option::None => KeyKind::AKey,
+    },
+  )
 }
 
 pub fn modifier_of(code: KeyCode) -> Result<Option<&'static str>, Never> {
-    Ok(MODIFIERS
-        .iter()
-        .find(|(_, _, _, left, right)| *left == code || *right == code)
-        .map(|(spoken, _, _, _, _)| *spoken))
+  Ok(
+    MODIFIERS
+      .iter()
+      .find(|(_, _, _, left, right)| *left == code || *right == code)
+      .map(|(spoken, _, _, _, _)| *spoken),
+  )
 }
 
 pub fn held_as(word: &str) -> Result<Option<&'static str>, Never> {
-    Ok(MODIFIERS
-        .iter()
-        .find(|(spoken, _, _, _, _)| *spoken == word)
-        .map(|(_, hyprland, _, _, _)| *hyprland))
+  Ok(
+    MODIFIERS
+      .iter()
+      .find(|(spoken, _, _, _, _)| *spoken == word)
+      .map(|(_, hyprland, _, _, _)| *hyprland),
+  )
 }
 
 pub fn code(word: &str) -> Result<Option<KeyCode>, Never> {
-    let Ok(every) = every();
+  let Ok(every) = every();
 
-    match every.iter().any(|said| said == word) {
-        true => {},
-        false => return Ok(None),
-    }
+  match ::core::primitive::bool::then_some(every.iter().any(|said| said == word), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => return Ok(None),
+  }
 
-    let tail = CALLED
-        .iter()
-        .find(|(spoken, _)| *spoken == word)
-        .map_or(word, |(_, kernel)| *kernel);
+  let tail = CALLED
+    .iter()
+    .find(|(spoken, _)| *spoken == word)
+    .map_or(word, |(_, kernel)| *kernel);
 
-    let named = format!("{PREFIX}{}", tail.to_uppercase());
+  let named = format!("{PREFIX}{}", tail.to_uppercase());
 
-    Ok(match KeyCode::from_str(&named) {
-        Ok(code) => Some(code),
-        Err(_unknown) => {
-            eprintln!(
-                "console-input-bindings: {word:?} is a word this desktop uses and the kernel \
+  Ok(match KeyCode::from_str(&named) {
+    Ok(code) => Some(code),
+    Err(_unknown) => {
+      eprintln!(
+        "console-input-bindings: {word:?} is a word this desktop uses and the kernel \
                  has no {named}, so nothing can be bound to it"
-            );
+      );
 
-            None
-        }
-    })
+      None
+    }
+  })
 }
 
 pub fn key_name(code: KeyCode) -> Result<Option<String>, Never> {
-    let Ok(every) = every();
+  let Ok(every) = every();
 
-    Ok(every.into_iter().find(|word| {
-        let Ok(found) = self::code(word);
+  Ok(every.into_iter().find(|word| {
+    let Ok(found) = self::code(word);
 
-        found == Some(code)
-    }))
+    found == Some(code)
+  }))
 }
 
 pub fn key_named(word: &str) -> Result<KeyCode, Unbound> {
-    let Ok(found) = code(word);
+  let Ok(found) = code(word);
 
-    found.ok_or_else(|| Unbound::NoSuchKey(word.to_string()))
+  found.ok_or_else(|| Unbound::NoSuchKey(word.to_string()))
 }
 
 pub fn bind(held: &[String], pressed: &str) -> Result<Option<String>, Never> {
-    let Ok(code) = code(pressed);
+  let Ok(decoded) = code(pressed);
 
-    let code = match code {
-        Some(code) => code,
-        None => return Ok(None),
-    };
-    let mut words: Vec<&str> = Vec::new();
+  let code = match decoded {
+    Some(key) => key,
+    None => return Ok(None),
+  };
+  let mut words: Vec<&str> = Vec::new();
 
-    for word in held {
-        let Ok(hyprland) = held_as(word);
+  for word in held {
+    let Ok(hyprland) = held_as(word);
 
-        match hyprland {
-            Some(hyprland) => words.push(hyprland),
-            None => return Ok(None),
-        }
+    match hyprland {
+      Some(hyprland_2) => words.push(hyprland_2),
+      None => return Ok(None),
     }
+  }
 
-    let mut said = words.join(JOINED);
+  let mut said = words.join(JOINED);
 
-    match said.is_empty() {
-        true => {},
-        false => said.push_str(JOINED),
-    }
+  match ::core::primitive::bool::then_some(said.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => said.push_str(JOINED),
+  }
 
-    Ok(Some(format!("{said}code:{}", code.0.saturating_add(X11))))
+  Ok(Some(format!("{said}code:{}", code.0.saturating_add(X11))))
 }
 
 pub fn mask(held: &[String]) -> Result<Option<u64>, Never> {
-    let mut said: u64 = 0;
+  let mut said: u64 = 0;
 
-    for word in held {
-        let found = MODIFIERS.iter().find(|(spoken, _, _, _, _)| *spoken == word);
+  for word in held {
+    let found = MODIFIERS
+      .iter()
+      .find(|(spoken, _, _, _, _)| *spoken == word);
 
-        match found {
-            Some((_, _, mask, _, _)) => said |= mask,
-            None => return Ok(None),
-        }
+    match found {
+      Some((_, _, mask, _, _)) => said |= mask,
+      None => return Ok(None),
     }
+  }
 
-    Ok(Some(said))
+  Ok(Some(said))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    use std::error::Error;
+  use std::error::Error;
 
-    #[test]
-    fn a_letter_is_the_key_of_that_name() {
-        assert_eq!(code("i"), Ok(Some(KeyCode::KEY_I)));
-        assert_eq!(code("f5"), Ok(Some(KeyCode::KEY_F5)));
-        assert_eq!(code("space"), Ok(Some(KeyCode::KEY_SPACE)));
+  #[test]
+  fn a_letter_is_the_key_of_that_name() {
+    assert_eq!(code("i"), Ok(Some(KeyCode::KEY_I)));
+    assert_eq!(code("f5"), Ok(Some(KeyCode::KEY_F5)));
+    assert_eq!(code("space"), Ok(Some(KeyCode::KEY_SPACE)));
+  }
+
+  #[test]
+  fn the_words_a_person_uses_are_not_always_the_kernels() {
+    assert_eq!(code("escape"), Ok(Some(KeyCode::KEY_ESC)));
+    assert_eq!(code("period"), Ok(Some(KeyCode::KEY_DOT)));
+  }
+
+  #[test]
+  fn every_word_this_desktop_uses_is_a_key_the_kernel_has() {
+    let Ok(every) = every();
+
+    for word in &every {
+      let Ok(found) = code(word);
+
+      assert!(
+        found.is_some(),
+        "{word:?} is a word here and no key on any keyboard"
+      );
+    }
+  }
+
+  #[test]
+  fn a_key_is_said_back_the_way_it_was_written() -> Result<(), Box<dyn Error>> {
+    let Ok(every) = every();
+
+    for word in every {
+      let Ok(found) = code(&word);
+      let code = found.ok_or_else(|| format!("{word} is offered and is no key"))?;
+
+      assert_eq!(key_name(code), Ok(Some(word.clone())), "{word}");
     }
 
-    #[test]
-    fn the_words_a_person_uses_are_not_always_the_kernels() {
-        assert_eq!(code("escape"), Ok(Some(KeyCode::KEY_ESC)));
-        assert_eq!(code("period"), Ok(Some(KeyCode::KEY_DOT)));
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn every_word_this_desktop_uses_is_a_key_the_kernel_has() {
-        let Ok(every) = every();
+  #[test]
+  fn what_is_held_is_a_number_the_compositor_says_back() {
+    assert_eq!(mask(&[]), Ok(Some(0)));
+    assert_eq!(mask(&["super".to_string()]), Ok(Some(64)));
+    assert_eq!(
+      mask(&["super".to_string(), "shift".to_string()]),
+      mask(&["shift".to_string(), "super".to_string()]),
+      "a mask is what is held and not the order it was written in"
+    );
+    assert_eq!(mask(&["nonesuch".to_string()]), Ok(None));
+  }
 
-        for word in &every {
-            let Ok(found) = code(word);
+  #[test]
+  fn nothing_this_desktop_cannot_say_is_a_key() {
+    assert_eq!(
+      code("leftmeta"),
+      Ok(None),
+      "a modifier is held, not pressed"
+    );
+    assert_eq!(code("nonesuch"), Ok(None));
+    assert!(
+      matches!(key_named("nonesuch"), Err(Unbound::NoSuchKey(ref said)) if said == "nonesuch")
+    );
+  }
 
-            assert!(found.is_some(), "{word:?} is a word here and no key on any keyboard");
-        }
-    }
+  #[test]
+  fn a_modifier_is_held_and_the_compositor_has_its_own_word_for_it() {
+    assert_eq!(is_a_modifier("super"), Ok(KeyKind::AModifier));
+    assert_eq!(is_a_modifier("i"), Ok(KeyKind::AKey));
+    assert_eq!(held_as("ctrl"), Ok(Some("CTRL")));
+    assert_eq!(modifier_of(KeyCode::KEY_RIGHTSHIFT), Ok(Some("shift")));
+  }
 
-    #[test]
-    fn a_key_is_said_back_the_way_it_was_written() -> Result<(), Box<dyn Error>> {
-        let Ok(every) = every();
+  #[test]
+  fn a_bind_names_the_key_by_where_it_is_and_not_by_what_it_types() {
+    let held = vec!["super".to_string()];
 
-        for word in every {
-            let Ok(code) = code(&word);
-            let code = code.ok_or_else(|| format!("{word} is offered and is no key"))?;
+    assert_eq!(
+      bind(&held, "i"),
+      Ok(Some(format!(
+        "SUPER+code:{}",
+        KeyCode::KEY_I.0.saturating_add(X11)
+      )))
+    );
+  }
 
-            assert_eq!(key_name(code), Ok(Some(word.clone())), "{word}");
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn what_is_held_is_a_number_the_compositor_says_back() {
-        assert_eq!(mask(&[]), Ok(Some(0)));
-        assert_eq!(mask(&["super".to_string()]), Ok(Some(64)));
-        assert_eq!(
-            mask(&["super".to_string(), "shift".to_string()]),
-            mask(&["shift".to_string(), "super".to_string()]),
-            "a mask is what is held and not the order it was written in"
-        );
-        assert_eq!(mask(&["nonesuch".to_string()]), Ok(None));
-    }
-
-    #[test]
-    fn nothing_this_desktop_cannot_say_is_a_key() {
-        assert_eq!(code("leftmeta"), Ok(None), "a modifier is held, not pressed");
-        assert_eq!(code("nonesuch"), Ok(None));
-        assert!(matches!(key_named("nonesuch"), Err(Unbound::NoSuchKey(ref said)) if said == "nonesuch"));
-    }
-
-    #[test]
-    fn a_modifier_is_held_and_the_compositor_has_its_own_word_for_it() {
-        assert_eq!(is_a_modifier("super"), Ok(KeyKind::AModifier));
-        assert_eq!(is_a_modifier("i"), Ok(KeyKind::AKey));
-        assert_eq!(held_as("ctrl"), Ok(Some("CTRL")));
-        assert_eq!(modifier_of(KeyCode::KEY_RIGHTSHIFT), Ok(Some("shift")));
-    }
-
-    #[test]
-    fn a_bind_names_the_key_by_where_it_is_and_not_by_what_it_types() {
-        let held = vec!["super".to_string()];
-
-        assert_eq!(
-            bind(&held, "i"),
-            Ok(Some(format!("SUPER+code:{}", KeyCode::KEY_I.0.saturating_add(X11))))
-        );
-    }
-
-    #[test]
-    fn a_key_on_its_own_is_a_bind_with_nothing_in_front_of_it() {
-        assert_eq!(
-            bind(&[], "f5"),
-            Ok(Some(format!("code:{}", KeyCode::KEY_F5.0.saturating_add(X11))))
-        );
-    }
+  #[test]
+  fn a_key_on_its_own_is_a_bind_with_nothing_in_front_of_it() {
+    assert_eq!(
+      bind(&[], "f5"),
+      Ok(Some(format!(
+        "code:{}",
+        KeyCode::KEY_F5.0.saturating_add(X11)
+      )))
+    );
+  }
 }

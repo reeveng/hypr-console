@@ -37,321 +37,372 @@ use crate::pruning;
 use crate::unapplied::Unapplied;
 
 pub fn attic() -> Result<PathBuf, Unapplied> {
-    let Ok(date) = Program::Date.name();
+  let Ok(date) = Program::Date.name();
 
-    let said = Command::new(date)
-        .args(["+%Y%m%d-%H%M%S"])
-        .output()
-        .map_err(Unapplied::WhatTimeItIs)?;
+  let said = Command::new(date)
+    .args(["+%Y%m%d-%H%M%S"])
+    .output()
+    .map_err(Unapplied::WhatTimeItIs)?;
 
-    let when = String::from_utf8_lossy(&said.stdout).trim().to_string();
+  match ::core::primitive::bool::then_some(said.status.success(), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      return Err(Unapplied::WhatTimeItIs(std::io::Error::other(format!(
+        "date exited with {}",
+        said.status
+      ))));
+    }
+  }
 
-    let Ok(attic) = done::attic(&when);
+  let when = std::str::from_utf8(&said.stdout).map_err(|fault| {
+    Unapplied::WhatTimeItIs(std::io::Error::new(std::io::ErrorKind::InvalidData, fault))
+  })?;
+  let Ok(attic) = done::attic(when.trim());
 
-    Ok(attic)
+  Ok(attic)
 }
 
 pub fn outstanding() -> Result<Outstanding, Unapplied> {
-    let applied = done::already(Path::new(KEPT))?;
-    let Ok(pending) = done::pending(EVERY, &applied);
+  let applied = done::already(Path::new(KEPT))?;
+  let Ok(pending) = done::pending(EVERY, &applied);
 
-    Ok(pending)
+  Ok(pending)
 }
 
 pub fn run(user: User<'_>) -> Result<(), Unapplied> {
-    let pending = outstanding()?;
+  let pending = outstanding()?;
 
-    let outstanding = match pending {
-        Outstanding::Run(migrations) => migrations,
-        Outstanding::Remember(migrations) => return remembered(&migrations),
-    };
+  let outstanding = match pending {
+    Outstanding::Run(migrations) => migrations,
+    Outstanding::Remember(migrations) => return remembered(&migrations),
+  };
 
-    match outstanding.is_empty() {
-        true => return Ok(()),
-        false => {},
+  match ::core::primitive::bool::then_some(outstanding.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return Ok(()),
+    ::core::option::Option::None => {}
+  }
+
+  let attic = attic()?;
+
+  for migration in &outstanding {
+    println!("migration {}: {}", migration.moment, migration.says);
+
+    for step in migration.steps {
+      carried_out(step, &attic, user)
+        .map_err(|fault| Unapplied::MigrationStopped(migration.moment, Box::new(fault)))?;
     }
 
-    let attic = attic()?;
+    done::remember(Path::new(KEPT), migration.moment)?;
+  }
 
-    for migration in &outstanding {
-        println!("migration {}: {}", migration.moment, migration.says);
+  let saved = probe(&attic)?;
 
-        for step in migration.steps {
-            carried_out(step, &attic, user)
-                .map_err(|fault| Unapplied::MigrationStopped(migration.moment, Box::new(fault)))?;
-        }
+  match saved {
+    Found::There => println!("what was swept is under {}", attic.display()),
+    Found::Absent => {}
+  }
 
-        done::remember(Path::new(KEPT), migration.moment)?;
-    }
-
-    match attic.exists() {
-        true => println!("what was swept is under {}", attic.display()),
-        false => {},
-    }
-
-    Ok(())
+  Ok(())
 }
 
 fn carried_out(step: &Step, attic: &Path, user: User<'_>) -> Result<(), Unapplied> {
-    match step {
-        Step::Attic(declared) => {
-            let Ok(on) = install::on_machine(declared, user);
+  match step {
+    Step::Attic(declared) => {
+      let Ok(on) = install::on_machine(declared, user);
 
-            into_the_attic(Path::new(&on), attic)
-        }
-        Step::AtticEach(each) => every_one(Path::new(each.under), each.named, attic),
-        Step::Stop(unit) => {
-            let Ok(said) = machine::user_systemctl(&["stop", unit]);
-
-            match said.ran {
-                Ran::Fine => println!("  stopped {unit}"),
-                Ran::Badly => println!("  {unit} was not running"),
-            }
-
-            Ok(())
-        }
-        Step::Disable(unit) => {
-            let Ok(said) = machine::user_systemctl(&["disable", "--now", unit]);
-
-            match said.ran {
-                Ran::Fine => println!("  stopped and disabled {unit}"),
-                Ran::Badly => println!("  {unit} was not enabled"),
-            }
-
-            Ok(())
-        }
-        Step::DisableGlobally(unit) => {
-            let Ok(systemctl) = Program::Systemctl.name();
-            let Ok(said) = machine::run_captured(&[systemctl, "--user", "--global", "disable", unit]);
-
-            match said.ran {
-                Ran::Fine => println!("  disabled {unit}"),
-                Ran::Badly => println!("  {unit} was not enabled"),
-            }
-
-            Ok(())
-        }
-        Step::Terminate(program) => {
-            let Ok(pkill) = Program::Pkill.name();
-            let Ok(said) = machine::run_captured(&[pkill, "-x", program]);
-
-            match said.ran {
-                Ran::Fine => println!("  ended {program}"),
-                Ran::Badly => {},
-            }
-
-            Ok(())
-        }
-        Step::RemoveIfEmpty(declared) => {
-            let Ok(on) = install::on_machine(declared, user);
-
-            match std::fs::remove_dir(&on) {
-                Ok(()) => println!("  {on} was left empty"),
-                Err(_not_there_or_not_empty) => {},
-            }
-
-            Ok(())
-        }
-        Step::Rewrite(rewrite) => rewritten(rewrite),
-        Step::CopySetting(copy) => copied(copy, user),
+      into_the_attic(Path::new(&on), attic)
     }
+    Step::AtticEach(each) => every_one(Path::new(each.under), each.named, attic),
+    Step::Stop(unit) => {
+      let Ok(said) = machine::user_systemctl(&["stop", unit]);
+
+      match said.ran {
+        Ran::Fine => println!("  stopped {unit}"),
+        Ran::Badly => println!("  {unit} was not running"),
+      }
+
+      Ok(())
+    }
+    Step::Disable(unit) => {
+      let Ok(said) = machine::user_systemctl(&["disable", "--now", unit]);
+
+      match said.ran {
+        Ran::Fine => println!("  stopped and disabled {unit}"),
+        Ran::Badly => println!("  {unit} was not enabled"),
+      }
+
+      Ok(())
+    }
+    Step::DisableGlobally(unit) => {
+      let Ok(systemctl) = Program::Systemctl.name();
+      let Ok(said) = machine::run_captured(&[systemctl, "--user", "--global", "disable", unit]);
+
+      match said.ran {
+        Ran::Fine => println!("  disabled {unit}"),
+        Ran::Badly => println!("  {unit} was not enabled"),
+      }
+
+      Ok(())
+    }
+    Step::Terminate(program) => {
+      let Ok(pkill) = Program::Pkill.name();
+      let Ok(said) = machine::run_captured(&[pkill, "-x", program]);
+
+      match said.ran {
+        Ran::Fine => println!("  ended {program}"),
+        Ran::Badly => {}
+      }
+
+      Ok(())
+    }
+    Step::RemoveIfEmpty(declared) => {
+      let Ok(on) = install::on_machine(declared, user);
+
+      remove_if_empty(on)
+    }
+    Step::Rewrite(rewrite) => rewritten(rewrite),
+    Step::CopySetting(copy) => copied(copy, user),
+  }
+}
+
+fn remove_if_empty(on: String) -> Result<(), Unapplied> {
+  match std::fs::remove_dir(&on) {
+    Ok(()) => {
+      println!("  {on} was left empty");
+
+      Ok(())
+    }
+    Err(fault) => {
+      let can_continue = matches!(
+        fault.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
+      );
+
+      match can_continue.then_some(()) {
+        Some(()) => Ok(()),
+        None => Err(Unapplied::Directory(PathBuf::from(on), fault)),
+      }
+    }
+  }
 }
 
 fn into_the_attic(on: &Path, attic: &Path) -> Result<(), Unapplied> {
-    let there = probe(on)?;
+  let there = probe(on)?;
 
-    match there {
-        Found::There => {
-            let under = pruning::take(on, attic)?;
+  match there {
+    Found::There => {
+      let under = pruning::take(on, attic)?;
 
-            println!("  {} -> {}", on.display(), under.display());
+      println!("  {} -> {}", on.display(), under.display());
 
-            Ok(())
-        }
-        Found::Absent => Ok(()),
+      Ok(())
     }
+    Found::Absent => Ok(()),
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Found {
-    There,
-    Absent,
+  There,
+  Absent,
 }
 
 fn probe(at: &Path) -> Result<Found, Unapplied> {
-    match std::fs::symlink_metadata(at) {
-        Ok(_metadata) => Ok(Found::There),
-        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
-            true => Ok(Found::Absent),
-            false => Err(Unapplied::Read(at.to_path_buf(), fault)),
-        },
-    }
+  match std::fs::symlink_metadata(at) {
+    Ok(_metadata) => Ok(Found::There),
+    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+      ::core::option::Option::Some(()) => Ok(Found::Absent),
+      ::core::option::Option::None => Err(Unapplied::Read(at.to_path_buf(), fault)),
+    },
+  }
 }
 
 fn every_one(under: &Path, named: &str, attic: &Path) -> Result<(), Unapplied> {
-    let entries = match std::fs::read_dir(under) {
-        Ok(entries) => entries,
-        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
-            true => return Ok(()),
-            false => return Err(Unapplied::Read(under.to_path_buf(), fault)),
-        },
-    };
+  let named_file = pruning::AtticEntry::from_live(Path::new(named))?;
+  let entries = match std::fs::read_dir(under) {
+    Ok(entries) => entries,
+    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+      ::core::option::Option::Some(()) => return Ok(()),
+      ::core::option::Option::None => return Err(Unapplied::Read(under.to_path_buf(), fault)),
+    },
+  };
 
-    for entry in entries.flatten() {
-        into_the_attic(&entry.path().join(named), attic)?;
-    }
+  for entry in entries.flatten() {
+    into_the_attic(&entry.path().join(&named_file), attic)?;
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn read(at: &Path) -> Result<Option<String>, Unapplied> {
-    match std::fs::read_to_string(at) {
-        Ok(said) => Ok(Some(said)),
-        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
-            true => Ok(None),
-            false => Err(Unapplied::Read(at.to_path_buf(), fault)),
-        },
-    }
+  match std::fs::read_to_string(at) {
+    Ok(said) => Ok(Some(said)),
+    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+      ::core::option::Option::Some(()) => Ok(None),
+      ::core::option::Option::None => Err(Unapplied::Read(at.to_path_buf(), fault)),
+    },
+  }
 }
 
 fn rewritten(rewrite: &Rewrite) -> Result<(), Unapplied> {
-    let at = Path::new(rewrite.at);
+  let at = Path::new(rewrite.at);
 
-    let held = read(at)?;
+  let held = read(at)?;
 
-    let said = match held {
-        Some(said) => said,
-        None => return Ok(()),
-    };
+  let said = match held {
+    Some(said) => said,
+    None => return Ok(()),
+  };
 
-    let Ok(becomes) = sweeping::rewrite(&said, rewrite);
+  let Ok(becomes) = sweeping::rewrite(&said, rewrite);
 
-    match becomes {
-        Some(becomes) => {
-            console_core_atomic_writes::whole(at, becomes.as_bytes())?;
+  match becomes {
+    Some(updated) => {
+      console_core_atomic_writes::whole(at, updated.as_bytes())?;
 
-            println!("  {} now says {}", at.display(), rewrite.becomes);
+      println!("  {} now says {}", at.display(), rewrite.becomes);
 
-            Ok(())
-        }
-        None => Ok(()),
+      Ok(())
     }
+    None => Ok(()),
+  }
 }
 
 fn copied(copy: &CopySetting, user: User<'_>) -> Result<(), Unapplied> {
-    let Ok(from) = install::on_machine(copy.from, user);
-    let Ok(into) = install::on_machine(copy.into, user);
-    let into = Path::new(&into);
+  let Ok(from) = install::on_machine(copy.from, user);
+  let Ok(into) = install::on_machine(copy.into, user);
+  let into_2 = Path::new(&into);
 
-    let already = probe(into)?;
+  let already = probe(into_2)?;
 
-    let held = read(Path::new(&from))?;
+  let held = read(Path::new(&from))?;
 
-    let said = match (already, held) {
-        (Found::Absent, Some(said)) => said,
-        (Found::There, _) | (Found::Absent, None) => return Ok(()),
-    };
+  let said = match (already, held) {
+    (Found::Absent, Some(said)) => said,
+    (Found::There, _) | (Found::Absent, None) => return Ok(()),
+  };
 
-    let Ok(setting) = sweeping::setting(&said, copy);
+  let Ok(setting) = sweeping::setting(&said, copy);
 
-    let setting = match setting {
-        Some(setting) => setting,
-        None => return Ok(()),
-    };
+  let setting_3 = match setting {
+    Some(setting_2) => setting_2,
+    None => return Ok(()),
+  };
 
-    match into.parent() {
-        Some(holding) => std::fs::create_dir_all(holding)
-            .map_err(|fault| Unapplied::Making(holding.to_path_buf(), fault))?,
-        None => {},
-    }
+  match into_2.parent() {
+    Some(holding) => std::fs::create_dir_all(holding)
+      .map_err(|fault| Unapplied::Making(holding.to_path_buf(), fault))?,
+    None => {}
+  }
 
-    console_core_atomic_writes::whole(into, format!("{setting}\n").as_bytes())?;
-    machine::handed_over(into)?;
+  console_core_atomic_writes::whole(
+    into_2,
+    format!("{setting}\n", setting = setting_3).as_bytes(),
+  )?;
+  machine::handed_over(into_2)?;
 
-    println!("  {} now holds what {from} said: {setting}", into.display());
+  println!(
+    "  {} now holds what {from} said: {setting}",
+    into_2.display(),
+    setting = setting_3
+  );
 
-    Ok(())
+  Ok(())
 }
 
 fn remembered(migrations: &[Migration]) -> Result<(), Unapplied> {
-    match migrations.is_empty() {
-        true => return Ok(()),
-        false => {},
-    }
+  match ::core::primitive::bool::then_some(migrations.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return Ok(()),
+    ::core::option::Option::None => {}
+  }
 
-    println!(
-        "this machine has never applied, so the {} migrations in the history are marked done \
+  println!(
+    "this machine has never applied, so the {} migrations in the history are marked done \
          rather than run: each of them moves aside what an older manifest installed here, and \
          nothing here was installed by one",
-        migrations.len()
-    );
+    migrations.len()
+  );
 
-    for migration in migrations {
-        done::remember(Path::new(KEPT), migration.moment)?;
-    }
+  for migration in migrations {
+    done::remember(Path::new(KEPT), migration.moment)?;
+  }
 
-    Ok(())
+  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::pruning::tests::{Failure, a_machine, place_file};
+  use super::*;
+  use crate::pruning::tests::{Failure, a_machine, place_file};
 
-    #[test]
-    fn a_path_that_is_there_goes_to_the_attic_and_one_that_is_not_is_nothing() -> Result<(), Failure> {
-        let machine = a_machine("attic")?;
-        let on = machine.join("usr/local/bin/files-thumbs");
-        let gone = machine.join("usr/local/bin/never-here");
-        let attic = machine.join("attic");
+  #[test]
+  fn a_path_that_is_there_goes_to_the_attic_and_one_that_is_not_is_nothing() -> Result<(), Failure>
+  {
+    let machine = a_machine("attic")?;
+    let on = machine.join("usr/local/bin/files-thumbs");
+    let gone = machine.join("usr/local/bin/never-here");
+    let attic = machine.join("attic");
 
-        place_file(&on, b"old\n")?;
+    place_file(&on, b"old\n")?;
 
-        into_the_attic(&on, &attic)?;
-        into_the_attic(&gone, &attic)?;
+    into_the_attic(&on, &attic)?;
+    into_the_attic(&gone, &attic)?;
 
-        let inside = match on.strip_prefix("/") {
-            Ok(inside) => inside,
-            Err(_relative) => on.as_path(),
-        };
+    let inside = pruning::AtticEntry::from_live(&on)?;
+    let left = probe(&on)?;
 
-        assert!(!on.exists(), "{} is still where it was", on.display());
-        assert!(attic.join(inside).exists(), "nothing reached the attic");
+    assert_eq!(
+      left,
+      Found::Absent,
+      "{} is still where it was",
+      on.display()
+    );
+    let archived = std::fs::metadata(attic.join(inside))?;
 
-        let _ = std::fs::remove_dir_all(&machine);
+    assert!(archived.is_file(), "nothing reached the attic");
 
-        Ok(())
-    }
+    std::fs::remove_dir_all(&machine)?;
 
-    #[test]
-    fn every_directory_under_the_one_named_gives_up_its_copy() -> Result<(), Failure> {
-        let machine = a_machine("each")?;
-        let run = machine.join("run/user");
-        let attic = machine.join("attic");
+    Ok(())
+  }
 
-        place_file(&run.join("1000/console/notices.json"), b"old\n")?;
-        place_file(&run.join("1001/console/notices.json"), b"old\n")?;
-        place_file(&run.join("1001/console/notifications.json"), b"old\n")?;
+  #[test]
+  fn every_directory_under_the_one_named_gives_up_its_copy() -> Result<(), Failure> {
+    let machine = a_machine("each")?;
+    let run = machine.join("run/user");
+    let attic = machine.join("attic");
 
-        every_one(&run, "console/notices.json", &attic)?;
+    place_file(&run.join("1000/console/notices.json"), b"old\n")?;
+    place_file(&run.join("1001/console/notices.json"), b"old\n")?;
+    place_file(&run.join("1001/console/notifications.json"), b"old\n")?;
 
-        assert!(!run.join("1000/console/notices.json").exists());
-        assert!(!run.join("1001/console/notices.json").exists());
-        assert!(run.join("1001/console/notifications.json").exists(), "the live store went too");
+    every_one(&run, "console/notices.json", &attic)?;
 
-        let _ = std::fs::remove_dir_all(&machine);
+    let first = probe(&run.join("1000/console/notices.json"))?;
+    let second = probe(&run.join("1001/console/notices.json"))?;
 
-        Ok(())
-    }
+    assert_eq!((first, second), (Found::Absent, Found::Absent));
+    let notifications = std::fs::metadata(run.join("1001/console/notifications.json"))?;
 
-    #[test]
-    fn a_directory_to_look_under_that_is_not_there_is_nothing_to_sweep() -> Result<(), Failure> {
-        let machine = a_machine("nowhere")?;
+    assert!(notifications.is_file(), "the live store went too");
 
-        every_one(&machine.join("run/user"), "console/notices.json", &machine.join("attic"))?;
+    std::fs::remove_dir_all(&machine)?;
 
-        let _ = std::fs::remove_dir_all(&machine);
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn a_directory_to_look_under_that_is_not_there_is_nothing_to_sweep() -> Result<(), Failure> {
+    let machine = a_machine("nowhere")?;
+
+    every_one(
+      &machine.join("run/user"),
+      "console/notices.json",
+      &machine.join("attic"),
+    )?;
+
+    std::fs::remove_dir_all(&machine)?;
+
+    Ok(())
+  }
 }

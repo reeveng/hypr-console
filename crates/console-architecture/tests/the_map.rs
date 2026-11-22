@@ -19,64 +19,114 @@ use console_architecture::{Architecture, MAP, PAGE};
 
 type Failure = Box<dyn std::error::Error>;
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Elements {
+  nodes: Box<[Element<Node>]>,
+  edges: Box<[Element<Edge>]>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Element<T> {
+  data: T,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Node {
+  id: Box<str>,
+  #[serde(rename = "label")]
+  _label: Box<str>,
+  #[serde(rename = "type")]
+  _kind: Box<str>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Edge {
+  #[serde(rename = "id")]
+  _id: Box<str>,
+  source: Box<str>,
+  target: Box<str>,
+  #[serde(rename = "label")]
+  _label: Box<str>,
+  #[serde(rename = "type")]
+  _kind: Box<str>,
+}
+
 #[test]
 fn the_map_is_the_one_the_tree_draws() -> Result<(), Failure> {
-    let root = console_repository::root()?;
-    let architecture = Architecture::read(&root)?;
-    let Ok(drawn) = architecture.render();
-    let held = std::fs::read_to_string(root.join(MAP))?;
+  let root = console_repository::root()?;
+  let architecture = Architecture::read(&root)?;
+  let Ok(drawn) = architecture.render();
+  let held = std::fs::read_to_string(root.join(MAP))?;
 
-    assert!(held == drawn, "{MAP} is not what the tree draws today: run `just map` and commit what it writes");
+  assert!(
+    held == drawn,
+    "{MAP} is not what the tree draws today: run `just map` and commit what it writes"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn every_unit_the_manifest_enables_is_on_the_map() -> Result<(), Failure> {
-    let root = console_repository::root()?;
-    let architecture = Architecture::read(&root)?;
-    let Ok(drawn) = architecture.render();
-    let missing: Vec<&String> =
-        architecture.enabled.iter().filter(|unit| !drawn.contains(&format!("\"unit:{unit}\""))).collect();
+  let root = console_repository::root()?;
+  let architecture = Architecture::read(&root)?;
+  let Ok(drawn) = architecture.render();
+  let missing: Vec<&String> = architecture
+    .enabled
+    .iter()
+    .filter(|unit| !drawn.contains(&format!("\"unit:{unit}\"")))
+    .collect();
 
-    assert!(missing.is_empty(), "enabled in desktop.conf and not drawn: {missing:?}");
+  assert!(
+    missing.is_empty(),
+    "enabled in desktop.conf and not drawn: {missing:?}"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn the_page_is_the_one_the_tree_draws() -> Result<(), Failure> {
-    let root = console_repository::root()?;
-    let architecture = Architecture::read(&root)?;
-    let drawn = architecture.page()?;
-    let held = std::fs::read_to_string(root.join(PAGE))?;
+  let root = console_repository::root()?;
+  let architecture = Architecture::read(&root)?;
+  let drawn = architecture.page()?;
+  let held = std::fs::read_to_string(root.join(PAGE))?;
 
-    assert!(held == drawn, "{PAGE} is not what the tree draws today: run `just map` and commit what it writes");
+  assert!(
+    held == drawn,
+    "{PAGE} is not what the tree draws today: run `just map` and commit what it writes"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn every_edge_on_the_page_ends_at_a_node_it_declares() -> Result<(), Failure> {
-    let root = console_repository::root()?;
-    let architecture = Architecture::read(&root)?;
-    let written = console_architecture::drawing::elements(&architecture)?;
-    let elements: serde_json::Value = serde_json::from_str(&written)?;
-    let id = |element: &serde_json::Value, field: &str| element.pointer(&format!("/data/{field}")).and_then(serde_json::Value::as_str).map(str::to_string);
-    let nodes: BTreeSet<String> =
-        elements.get("nodes").and_then(serde_json::Value::as_array).into_iter().flatten().filter_map(|node| id(node, "id")).collect();
-    let dangling: Vec<String> = elements
-        .get("edges")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .flat_map(|edge| [id(edge, "source"), id(edge, "target")])
-        .flatten()
-        .filter(|end| !nodes.contains(end))
-        .collect();
+  let root = console_repository::root()?;
+  let architecture = Architecture::read(&root)?;
+  let written = console_architecture::drawing::elements(&architecture)?;
+  let elements: Elements = serde_json::from_str(&written)?;
+  let nodes: BTreeSet<&str> = elements
+    .nodes
+    .iter()
+    .map(|node| node.data.id.as_ref())
+    .collect();
+  let dangling: Vec<&str> = elements
+    .edges
+    .iter()
+    .flat_map(|edge| [edge.data.source.as_ref(), edge.data.target.as_ref()])
+    .filter(|end| !nodes.contains(end))
+    .collect();
 
-    assert!(!nodes.is_empty(), "the page declares no nodes at all");
-    assert!(dangling.is_empty(), "edges end at nodes the page never declares: {dangling:?}");
+  assert!(!nodes.is_empty(), "the page declares no nodes at all");
+  assert!(
+    dangling.is_empty(),
+    "edges end at nodes the page never declares: {dangling:?}"
+  );
 
-    Ok(())
+  Ok(())
 }

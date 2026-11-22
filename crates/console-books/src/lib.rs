@@ -7,8 +7,8 @@
 //! the browser's own engine -- a JavaScript runtime and a web view carried to
 //! draw paragraphs. What is here instead is the same library drawn out of the
 //! shapes every surface on this machine is drawn out of, and a book read as
-//! what it is: a zip of pages, read by `console-core-zip-files`, cut into
-//! paragraphs by [`flow`] and into pages by [`pages`], with Pango breaking the
+//! what it is: a zip of pages, read by `console-core-epub-files`, cut into
+//! paragraphs by [`flow`] and into pages by [`pages`], with the text engine breaking the
 //! lines.
 //!
 //! Three kinds of book open. An EPUB is text and is laid out here, at a size
@@ -23,15 +23,16 @@
 
 pub mod annotating;
 pub mod appearance;
-pub mod publication;
 pub mod flow;
+pub mod grid;
 pub mod library;
 pub mod live_text;
-pub mod markup;
 pub mod notes;
 pub mod open;
 pub mod pages;
 pub mod portable_document;
 pub mod progress;
 pub mod reading;
-pub mod grid;
+
+pub use console_core_epub_files::publication;
+pub use console_core_markup_tokens as markup;

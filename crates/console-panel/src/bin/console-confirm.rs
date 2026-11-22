@@ -64,117 +64,107 @@
 //! is wanted here is a card that answers and goes.
 
 use std::process::ExitCode;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
 
 use console_core_arguments::{Command, Operands, Reason, ValidationError, read};
-use console_core_never::Never;
 use console_core_internal_programs::{CONFIRM_DOES, CONFIRM_UNASKED};
+use console_core_never::Never;
 use console_panel::marks;
-use console_panel::page::{Aside, Handler, Page, Row, Rows};
+use console_panel::page::{ActionOutcome, Aside, Handler, Page, Row, Rows};
 use console_panel::surface;
-
-const NO: u8 = 0;
-
-const YES: u8 = 1;
 
 const WIDE: i32 = 0;
 
 const QUESTION: [&str; 1] = ["QUESTION"];
 
 const COMMAND: Command = Command {
-    name: "console-confirm",
-    about: "put QUESTION to whoever holds the device, the row that goes ahead named in the environment, and answer with the status",
-    flags: &[],
-    operands: Operands::Named(&QUESTION),
+  name: "console-confirm",
+  about: "put QUESTION to whoever holds the device, the row that goes ahead named in the environment, and answer with the status",
+  flags: &[],
+  operands: Operands::Named(&QUESTION),
 };
 
 fn question(words: &[String]) -> Result<String, ValidationError> {
-    let read = read(&COMMAND, words);
-    let line = read?;
-    let operands = line.exactly(QUESTION);
-    let [asks] = operands?;
+  let read = read(&COMMAND, words);
+  let line = read?;
+  let operands = line.exactly(QUESTION);
+  let [asks] = operands?;
 
-    match asks.trim().is_empty() {
-        true => {
-            let Ok(refusal) = line.refusal(Reason::MissingOperands(QUESTION.to_vec()));
+  match ::core::primitive::bool::then_some(asks.trim().is_empty(), ()) {
+    ::core::option::Option::Some(()) => {
+      let Ok(refusal) = line.refusal(Reason::MissingOperands(QUESTION.to_vec()));
 
-            Err(refusal)
-        }
-        false => Ok(asks.clone()),
+      Err(refusal)
     }
+    ::core::option::Option::None => Ok(asks.clone()),
+  }
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit026_env_read_once",
-    allow(
-        explicit026_env_read_once,
-        reason = "CONSOLE_CONFIRM_DOES is this card's own word for the row that goes ahead, and this is the card"
-    )
+  dylint_lib = "explicit026_env_read_once",
+  allow(
+    explicit026_env_read_once,
+    reason = "CONSOLE_CONFIRM_DOES is this card's own word for the row that goes ahead, and this is the card"
+  )
 )]
 fn word() -> Result<Option<String>, Never> {
-    let said = match std::env::var(CONFIRM_DOES) {
-        Ok(said) => said,
-        Err(std::env::VarError::NotPresent | std::env::VarError::NotUnicode(_)) => String::new(),
-    };
+  let said = match std::env::var(CONFIRM_DOES) {
+    Ok(said) => said,
+    Err(std::env::VarError::NotPresent | std::env::VarError::NotUnicode(_)) => String::new(),
+  };
 
-    Ok(match said.trim().is_empty() {
-        true => None,
-        false => Some(said.trim().to_string()),
-    })
+  Ok(match ::core::primitive::bool::then_some(said.trim().is_empty(), ()) {
+    ::core::option::Option::Some(()) => None,
+    ::core::option::Option::None => Some(said.trim().to_string()),
+  })
 }
 
 fn main() -> ExitCode {
-    let words: Vec<String> = std::env::args().skip(1).collect();
+  let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let asks = match question(&words) {
-        Ok(asks) => asks,
-        Err(refusal) => {
-            let Ok(_usage_or_refusal) = refusal.print();
+  let asks = match question(&words) {
+    Ok(asks) => asks,
+    Err(refusal) => {
+      let Ok(_usage_or_refusal) = refusal.print();
 
-            return ExitCode::from(CONFIRM_UNASKED);
-        }
-    };
-
-    let does = match word() {
-        Ok(Some(does)) => does,
-        Ok(None) => {
-            eprintln!("console-confirm: {CONFIRM_DOES} names no word for the row that goes ahead");
-
-            return ExitCode::from(CONFIRM_UNASKED);
-        }
-    };
-
-    let chose = Arc::new(AtomicU8::new(NO));
-    let asked = Arc::clone(&chose);
-
-    let build = Arc::new(move || {
-        let asked = Arc::clone(&asked);
-        let word = does.clone();
-
-        let Ok(rows) = Rows::computed(move || {
-            let said = Arc::clone(&asked);
-
-            let Ok(stores) = Handler::call(move |_| {
-                said.store(YES, Ordering::SeqCst);
-
-                true
-            });
-            let Ok(leaves) = Handler::call(|_| true);
-            let Ok(ahead) = Row::new(&word, Aside(""), stores);
-            let Ok(cancel) = Row::new(marks::CANCEL, Aside(""), leaves);
-
-            vec![ahead, cancel]
-        });
-        let Ok(page) = Page::new(&asks, rows);
-
-        vec![page]
-    });
-
-    let Ok(()) = surface::show(build, WIDE, None);
-
-    match chose.load(Ordering::SeqCst) {
-        YES => ExitCode::SUCCESS,
-        _ => ExitCode::FAILURE,
+      return ExitCode::from(CONFIRM_UNASKED);
     }
+  };
+
+  let does = match word() {
+    Ok(Some(does)) => does,
+    Ok(None) => {
+      eprintln!("console-confirm: {CONFIRM_DOES} names no word for the row that goes ahead");
+
+      return ExitCode::from(CONFIRM_UNASKED);
+    }
+  };
+
+  let (confirmed, chose) = std::sync::mpsc::sync_channel(1);
+
+  let build = move || {
+    let Ok(rows) = Rows::computed(move || {
+      let answer = confirmed.clone();
+
+      let Ok(stores) = Handler::call(move |_| {
+        let _confirmation_is_reported_only_once = answer.try_send(());
+
+        ActionOutcome::Close
+      });
+      let Ok(leaves) = Handler::call(|_| ActionOutcome::Close);
+      let Ok(ahead) = Row::new(&does, Aside(""), stores);
+      let Ok(cancel) = Row::new(marks::CANCEL, Aside(""), leaves);
+
+      vec![ahead, cancel]
+    });
+    let Ok(page) = Page::new(&asks, rows);
+
+    vec![page]
+  };
+
+  let Ok(()) = surface::show(build, WIDE, None);
+
+  match chose.try_iter().next() {
+    Some(()) => ExitCode::SUCCESS,
+    None => ExitCode::FAILURE,
+  }
 }

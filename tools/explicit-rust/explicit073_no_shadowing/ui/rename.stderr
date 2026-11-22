@@ -1,0 +1,113 @@
+warning: this name is already bound outside the scope being entered
+  --> $DIR/rename.rs:20:9
+   |
+LL |     let value = value + value_2;
+   |         ^^^^^
+   |
+   = note: `#[warn(explicit073_no_shadowing)]` on by default
+help: rename this binding to `value_3`
+   |
+LL ~     let value_3 = value + value_2;
+LL ~     let read = || value_3;
+   |
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/rename.rs:22:13
+   |
+LL |     let mut value = read();
+   |             ^^^^^
+   |
+help: rename this binding to `value_4`
+   |
+LL ~     let mut value_4 = read();
+LL ~     value_4 += 1;
+LL ~     value_4
+   |
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/rename.rs:29:20
+   |
+LL |     let Pair { ref value } = pair;
+   |                    ^^^^^
+   |
+help: rename this binding to `value_2`
+   |
+LL ~     let Pair { value: ref value_2 } = pair;
+LL ~     let value = *value_2;
+   |
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/rename.rs:30:9
+   |
+LL |     let value = *value;
+   |         ^^^^^
+   |
+help: rename this binding to `value_3`
+   |
+LL ~     let value_3 = *value;
+LL ~     Pair { value: value_3 }
+   |
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/rename.rs:36:22
+   |
+LL |         Either::Left(value) | Either::Right(value) => value,
+   |                      ^^^^^
+   |
+help: rename this binding to `value_2`
+   |
+LL |         Either::Left(value_2) | Either::Right(value_2) => value_2,
+   |                           ++                       ++          ++
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/rename.rs:41:9
+   |
+LL |     let r#type = r#type + 1;
+   |         ^^^^^^
+   |
+help: rename this binding to `type_2`
+   |
+LL ~     let type_2 = r#type + 1;
+LL ~     type_2
+   |
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/rename.rs:46:9
+   |
+LL |     let limit = limit + 1;
+   |         ^^^^^
+   |
+help: rename this binding to `limit_3`
+   |
+LL ~     let limit_3 = limit + 1;
+LL ~     limit_3
+   |
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/rename.rs:52:9
+   |
+LL |     let value = value + limit_2;
+   |         ^^^^^
+   |
+help: rename this binding to `value_2`
+   |
+LL ~     let value_2 = value + limit_2;
+LL ~     assert_eq!(vec![value_2], vec![7]);
+LL ~     debug_assert_ne!(value_2, 0);
+LL ~     assert_eq!(matches!(Some(value_2), Some(7)), true);
+LL ~     (value_2, format!("{:02}", value_2))
+   |
+
+warning: this name is already bound outside the scope being entered
+  --> $DIR/rename.rs:60:17
+   |
+LL |     match { let value = value + 1; value } {
+   |                 ^^^^^
+   |
+help: rename this binding to `value_2`
+   |
+LL |     match { let value_2 = value + 1; value_2 } {
+   |                      ++                   ++
+
+warning: 9 warnings emitted
+

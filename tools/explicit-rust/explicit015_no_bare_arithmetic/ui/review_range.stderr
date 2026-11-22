@@ -1,0 +1,67 @@
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_range.rs:6:26
+   |
+LL |     std::hint::black_box(step + 1);
+   |                          ^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+   = note: `#[deny(explicit015_no_bare_arithmetic)]` on by default
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_range.rs:9:30
+   |
+LL |         std::hint::black_box(x + 1);
+   |                              ^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_range.rs:12:30
+   |
+LL |         std::hint::black_box(x + 1);
+   |                              ^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_range.rs:15:30
+   |
+LL |         std::hint::black_box(x * 2);
+   |                              ^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_range.rs:18:30
+   |
+LL |         std::hint::black_box(x + 1);
+   |                              ^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_range.rs:22:30
+   |
+LL |         std::hint::black_box(x * 2);
+   |                              ^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_range.rs:32:26
+   |
+LL |     std::hint::black_box(value + 1);
+   |                          ^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_range.rs:36:34
+   |
+LL | fn configured(value: u8) -> u8 { value.min(LIMIT) + 1 }
+   |                                  ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: aborting due to 8 previous errors
+

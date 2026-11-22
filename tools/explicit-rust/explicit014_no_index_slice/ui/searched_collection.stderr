@@ -1,0 +1,51 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/searched_collection.rs:7:74
+   |
+LL |     ENTITIES.binary_search_by_key(&key, |&(name, _)| name).ok().map(|at| ENTITIES[at].1)
+   |                                                                          ^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: get the element from the same collection that the search checked
+   |
+LL -     ENTITIES.binary_search_by_key(&key, |&(name, _)| name).ok().map(|at| ENTITIES[at].1)
+LL +     ENTITIES.binary_search_by_key(&key, |&(name, _)| name).ok().and_then(|at| <[_]>::get(&ENTITIES, at).map(|searched_entry| searched_entry.1))
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/searched_collection.rs:14:74
+   |
+LL |         self.0.binary_search_by_key(&key, |(key, _)| *key).ok().map(|at| self.0[at].1.as_str())
+   |                                                                          ^^^^^^^^^^
+   |
+help: get the element from the same collection that the search checked
+   |
+LL -         self.0.binary_search_by_key(&key, |(key, _)| *key).ok().map(|at| self.0[at].1.as_str())
+LL +         self.0.binary_search_by_key(&key, |(key, _)| *key).ok().and_then(|at| <[_]>::get(&self.0, at).map(|searched_entry| searched_entry.1.as_str()))
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/searched_collection.rs:18:80
+   |
+LL |         self.0.binary_search_by(|entry| entry.0.cmp(&key)).ok().map(|at| (at, &self.0[at]))
+   |                                                                                ^^^^^^^^^^
+   |
+help: get the element from the same collection that the search checked
+   |
+LL -         self.0.binary_search_by(|entry| entry.0.cmp(&key)).ok().map(|at| (at, &self.0[at]))
+LL +         self.0.binary_search_by(|entry| entry.0.cmp(&key)).ok().and_then(|at| <[_]>::get(&self.0, at).map(|searched_entry| (at, searched_entry)))
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/searched_collection.rs:24:24
+   |
+LL |         Ok(at) => Some(table[at]),
+   |                        ^^^^^^^^^
+   |
+help: get the element from the same collection that the search checked
+   |
+LL -         Ok(at) => Some(table[at]),
+LL +         Ok(at) => <[_]>::get(&*table, at).copied(),
+   |
+
+error: aborting due to 4 previous errors
+

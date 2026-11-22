@@ -1,39 +1,126 @@
 error: `if` leaves an outcome implicit: the path not taken has no name here
-  --> $DIR/main.rs:6:5
+  --> $DIR/main.rs:7:5
    |
 LL | /     if full {
 LL | |         return 0;
 LL | |     }
    | |_____^
    |
-   = help: write the decision as a `match` -- `match cond { true => …, false => … }`, or `match value { … }` for what an `if let` asks
    = note: `#[deny(explicit019_no_if)]` on by default
+help: name both outcomes in a match
+   |
+LL ~     match ::core::primitive::bool::then_some(full, ()) {
+LL +         ::core::option::Option::Some(()) => {
+LL +             return 0;
+LL +         },
+LL +         ::core::option::Option::None => {},
+LL +     }
+   |
 
 error: `if` leaves an outcome implicit: the path not taken has no name here
-  --> $DIR/main.rs:16:17
+  --> $DIR/main.rs:17:17
    |
 LL |     let width = if wide { 3 } else { 1 };
    |                 ^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = help: write the decision as a `match` -- `match cond { true => …, false => … }`, or `match value { … }` for what an `if let` asks
+help: name both outcomes in a match
+   |
+LL ~     let width = match ::core::primitive::bool::then_some(wide, ()) {
+LL +         ::core::option::Option::Some(()) => { 3 },
+LL +         ::core::option::Option::None => { 1 },
+LL ~     };
+   |
 
 error: `if` leaves an outcome implicit: the path not taken has no name here
-  --> $DIR/main.rs:23:5
+  --> $DIR/main.rs:24:5
    |
 LL | /     if let Some(n) = x {
 LL | |         return n;
 LL | |     }
    | |_____^
    |
-   = help: write the decision as a `match` -- `match cond { true => …, false => … }`, or `match value { … }` for what an `if let` asks
+help: name both outcomes in a match
+   |
+LL ~     match x {
+LL +         Some(n) => {
+LL +             return n;
+LL +         },
+LL +         ::core::option::Option::None => {},
+LL +     }
+   |
 
 error: a guard is an `if` on an arm: its false answer falls through to the next arm without a name
-  --> $DIR/main.rs:34:20
+  --> $DIR/main.rs:35:20
    |
 LL |         Some(n) if n > 2 => n,
    |                    ^^^^^
    |
-   = help: put the question in the pattern, or match on its answer -- `match a == b { true => …, false => … }`
+   = help: put the question in the pattern, or match on an enum that names its outcomes
 
-error: aborting due to 4 previous errors
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/main.rs:59:5
+   |
+LL | /     match full {
+LL | |         true => 0,
+LL | |         false => 1,
+LL | |     }
+   | |_____^
+   |
+help: match the outcomes directly
+   |
+LL ~     match ::core::primitive::bool::then_some(full, ()) {
+LL ~         ::core::option::Option::Some(()) => 0,
+LL ~         ::core::option::Option::None => 1,
+   |
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/main.rs:67:5
+   |
+LL |     match full { true => 0, false => 1 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on an enum that names the outcomes
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/main.rs:72:5
+   |
+LL | /     match full {
+LL | |         //~v EXPLICIT019_NO_IF
+LL | |         true if wide => 1,
+LL | |         _ => 0,
+LL | |     }
+   | |_____^
+   |
+   = help: match on an enum that names the outcomes
+
+error: a guard is an `if` on an arm: its false answer falls through to the next arm without a name
+  --> $DIR/main.rs:74:17
+   |
+LL |         true if wide => 1,
+   |                 ^^^^
+   |
+   = help: put the question in the pattern, or match on an enum that names its outcomes
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/main.rs:81:5
+   |
+LL | /     match full {
+LL | |         #[cfg(any())]
+LL | |         true => 2,
+LL | |         true => 1,
+LL | |         false => 0,
+LL | |     }
+   | |_____^
+   |
+   = help: match on an enum that names the outcomes
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/main.rs:93:9
+   |
+LL |         match full { true => 1, false => 0 }
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on an enum that names the outcomes
+
+error: aborting due to 10 previous errors
 

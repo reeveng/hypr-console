@@ -14,6 +14,10 @@
 //! interface goes, and every listener would have filed the change under an
 //! interface nobody has.
 //!
+//! `call_set` is the other side of the same call: a `Set` written for somebody
+//! else's service, with the value already in the variant the property is
+//! declared as, because only the service knows that shape.
+//!
 //! A `Set` that is answered changes the value held here and hands back what
 //! changed, rather than saying the signal itself: a service usually has
 //! something to do about a write before anybody should hear about it.
@@ -23,7 +27,7 @@ use std::collections::BTreeMap;
 use console_core_never::Never;
 
 use crate::introspection::{self, Access};
-use crate::messages::{Message, Signal, ValidationError, Value};
+use crate::messages::{Message, Signal, ValidationError, Value, Whom};
 
 pub const INTERFACE: &str = "org.freedesktop.DBus.Properties";
 
@@ -46,414 +50,622 @@ pub struct PropertyName<'a>(pub &'a str);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Property {
-    pub declared: introspection::Property,
-    pub value: Value,
+  pub declared: introspection::Property,
+  pub value: Value,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Properties {
-    held: BTreeMap<String, BTreeMap<String, Property>>,
+  held: BTreeMap<String, BTreeMap<String, Property>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropertyChange {
-    pub interface: String,
-    pub name: String,
-    pub value: Value,
+  pub interface: String,
+  pub name: String,
+  pub value: Value,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Response {
-    pub reply: Message,
-    pub changed: Option<PropertyChange>,
+  pub reply: Message,
+  pub changed: Option<PropertyChange>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum May {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 fn readable(access: Access) -> Result<May, Never> {
-    Ok(match access {
-        Access::Read | Access::ReadWrite => May::Yes,
-        Access::Write => May::No,
-    })
+  Ok(match access {
+    Access::Read | Access::ReadWrite => May::Yes,
+    Access::Write => May::No,
+  })
 }
 
 fn writable(access: Access) -> Result<May, Never> {
-    Ok(match access {
-        Access::Write | Access::ReadWrite => May::Yes,
-        Access::Read => May::No,
-    })
+  Ok(match access {
+    Access::Write | Access::ReadWrite => May::Yes,
+    Access::Read => May::No,
+  })
 }
 
 impl Properties {
-    pub fn add(&mut self, interface: &str, property: Property) -> Result<(), Never> {
-        let _replaced = self
-            .held
-            .entry(interface.to_string())
-            .or_default()
-            .insert(property.declared.name.clone(), property);
+  pub fn add(&mut self, interface: &str, property: Property) -> Result<(), Never> {
+    let _replaced = self
+      .held
+      .entry(interface.to_string())
+      .or_default()
+      .insert(property.declared.name.clone(), property);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    pub fn value(&self, interface: InterfaceName<'_>, name: PropertyName<'_>) -> Result<Option<&Value>, Never> {
-        Ok(self
-            .held
-            .get(interface.0)
-            .and_then(|named| named.get(name.0))
-            .map(|property| &property.value))
-    }
+  pub fn value(
+    &self,
+    interface: InterfaceName<'_>,
+    name: PropertyName<'_>,
+  ) -> Result<Option<&Value>, Never> {
+    Ok(
+      self
+        .held
+        .get(interface.0)
+        .and_then(|named| named.get(name.0))
+        .map(|property| &property.value),
+    )
+  }
 
-    pub fn declared(&self, interface: &str) -> Result<Vec<introspection::Property>, Never> {
-        Ok(match self.held.get(interface) {
-            Some(named) => named.values().map(|property| property.declared.clone()).collect(),
-            None => Vec::new(),
-        })
-    }
+  pub fn declared(&self, interface: &str) -> Result<Vec<introspection::Property>, Never> {
+    Ok(match self.held.get(interface) {
+      Some(named) => named
+        .values()
+        .map(|property| property.declared.clone())
+        .collect(),
+      None => Vec::new(),
+    })
+  }
 
-    fn find(&self, interface: InterfaceName<'_>, name: PropertyName<'_>) -> Result<Option<(&str, &Property)>, Never> {
-        let (interface, name) = (interface.0, name.0);
+  fn find(
+    &self,
+    interface: InterfaceName<'_>,
+    name: PropertyName<'_>,
+  ) -> Result<Option<(&str, &Property)>, Never> {
+    let (interface_2, name_2) = (interface.0, name.0);
 
-        Ok(match interface.is_empty() {
-            true => self.held.iter().find_map(|(on, named)| {
-                named.get(name).map(|property| (on.as_str(), property))
-            }),
-            false => self
-                .held
-                .get_key_value(interface)
-                .and_then(|(on, named)| named.get(name).map(|property| (on.as_str(), property))),
-        })
-    }
+    Ok(match ::core::primitive::bool::then_some(interface_2.is_empty(), ()) {
+      ::core::option::Option::Some(()) => self
+        .held
+        .iter()
+        .find_map(|(on, named)| named.get(name_2).map(|property| (on.as_str(), property))),
+      ::core::option::Option::None => self
+        .held
+        .get_key_value(interface_2)
+        .and_then(|(on, named)| named.get(name_2).map(|property| (on.as_str(), property))),
+    })
+  }
 }
 
 fn wrapped(property: &Property) -> Result<Value, Never> {
-    Value::variant(&property.declared.shape, property.value.clone())
+  Value::variant(&property.declared.shape, property.value.clone())
 }
 
 fn complaint(message: &Message, fault: ValidationError, why: &str) -> Result<Response, Never> {
-    let Ok(reply) = message.complaining(fault, why);
+  let Ok(reply) = message.complaining(fault, why);
 
-    Ok(Response { reply, changed: None })
+  Ok(Response {
+    reply,
+    changed: None,
+  })
 }
 
 fn words(message: &Message) -> Result<(Option<&str>, Option<&str>), Never> {
-    let Ok(interface) = match message.values.first() {
-        Some(value) => value.text(),
-        None => Ok(None),
-    };
-    let Ok(name) = match message.values.get(1) {
-        Some(value) => value.text(),
-        None => Ok(None),
-    };
+  let Ok(interface) = match message.values.first() {
+    Some(value) => value.text(),
+    None => Ok(None),
+  };
+  let Ok(name) = match message.values.get(1) {
+    Some(value) => value.text(),
+    None => Ok(None),
+  };
 
-    Ok((interface, name))
+  Ok((interface, name))
 }
 
 fn get(message: &Message, properties: &Properties) -> Result<Response, Never> {
-    let Ok(said) = words(message);
+  let Ok(said) = words(message);
 
-    let (interface, name) = match said {
-        (Some(interface), Some(name)) => (interface, name),
-        (Some(_), None) | (None, Some(_)) | (None, None) => {
-            return complaint(message, ValidationError::InvalidArgs, "Get takes an interface and a name");
-        }
-    };
-
-    let Ok(found) = properties.find(InterfaceName(interface), PropertyName(name));
-
-    let (_on, property) = match found {
-        Some(found) => found,
-        None => return complaint(message, ValidationError::UnknownProperty, name),
-    };
-
-    let Ok(may) = readable(property.declared.access);
-
-    match may {
-        May::Yes => {}
-        May::No => return complaint(message, ValidationError::InvalidArgs, "that property is written, not read"),
+  let (interface, name) = match said {
+    (Some(interface), Some(name)) => (interface, name),
+    (Some(_), None) | (None, Some(_)) | (None, None) => {
+      return complaint(
+        message,
+        ValidationError::InvalidArgs,
+        "Get takes an interface and a name",
+      );
     }
+  };
 
-    let Ok(value) = wrapped(property);
-    let Ok(reply) = message.answering();
-    let Ok(reply) = reply.carrying("v", vec![value]);
+  let Ok(found) = properties.find(InterfaceName(interface), PropertyName(name));
 
-    Ok(Response { reply, changed: None })
+  let (_on, property) = match found {
+    Some(found_2) => found_2,
+    None => return complaint(message, ValidationError::UnknownProperty, name),
+  };
+
+  let Ok(may) = readable(property.declared.access);
+
+  match may {
+    May::Yes => {}
+    May::No => {
+      return complaint(
+        message,
+        ValidationError::InvalidArgs,
+        "that property is written, not read",
+      );
+    }
+  }
+
+  let Ok(value) = wrapped(property);
+  let Ok(reply) = message.answering();
+  let Ok(reply_2) = reply.carrying("v", vec![value]);
+
+  Ok(Response {
+    reply: reply_2,
+    changed: None,
+  })
 }
 
 fn get_all(message: &Message, properties: &Properties) -> Result<Response, Never> {
-    let Ok(said) = words(message);
+  let Ok(said) = words(message);
 
-    let interface = match said {
-        (Some(interface), _) => interface,
-        (None, _) => return complaint(message, ValidationError::InvalidArgs, "GetAll takes an interface"),
-    };
+  let interface = match said {
+    (Some(interface), _) => interface,
+    (None, _) => {
+      return complaint(
+        message,
+        ValidationError::InvalidArgs,
+        "GetAll takes an interface",
+      );
+    }
+  };
 
-    let named = match properties.held.get(interface) {
-        Some(named) => named,
-        None => return complaint(message, ValidationError::UnknownInterface, interface),
-    };
+  let named = match properties.held.get(interface) {
+    Some(named) => named,
+    None => return complaint(message, ValidationError::UnknownInterface, interface),
+  };
 
-    let listed: Vec<Value> = named
-        .values()
-        .filter(|property| {
-            let Ok(may) = readable(property.declared.access);
+  let listed: Vec<Value> = named
+    .values()
+    .filter(|property| {
+      let Ok(may) = readable(property.declared.access);
 
-            may == May::Yes
-        })
-        .map(|property| {
-            let Ok(value) = wrapped(property);
+      may == May::Yes
+    })
+    .map(|property| {
+      let Ok(value) = wrapped(property);
 
-            Value::Group(vec![Value::Word(property.declared.name.clone()), value])
-        })
-        .collect();
+      Value::Group(vec![Value::Word(property.declared.name.clone()), value])
+    })
+    .collect();
 
-    let Ok(reply) = message.answering();
-    let Ok(reply) = reply.carrying("a{sv}", vec![Value::List(listed)]);
+  let Ok(reply) = message.answering();
+  let Ok(reply_2) = reply.carrying("a{sv}", vec![Value::List(listed)]);
 
-    Ok(Response { reply, changed: None })
+  Ok(Response {
+    reply: reply_2,
+    changed: None,
+  })
 }
 
 fn set(message: &Message, properties: &mut Properties) -> Result<Response, Never> {
-    let Ok(said) = words(message);
+  let Ok(said) = words(message);
 
-    let (interface, name) = match said {
-        (Some(interface), Some(name)) => (interface.to_string(), name.to_string()),
-        (Some(_), None) | (None, Some(_)) | (None, None) => {
-            return complaint(message, ValidationError::InvalidArgs, "Set takes an interface, a name and a value");
-        }
-    };
-
-    let (shape, value) = match message.values.get(2) {
-        Some(Value::Variant { shape, value }) => (shape.clone(), (**value).clone()),
-        Some(_) | None => return complaint(message, ValidationError::InvalidArgs, "Set takes a variant"),
-    };
-
-    let Ok(found) = properties.find(InterfaceName(&interface), PropertyName(&name));
-
-    let (on, declared) = match found {
-        Some((on, property)) => (on.to_string(), property.declared.clone()),
-        None => return complaint(message, ValidationError::UnknownProperty, &name),
-    };
-
-    let Ok(may) = writable(declared.access);
-
-    match may {
-        May::Yes => {}
-        May::No => return complaint(message, ValidationError::PropertyReadOnly, &name),
+  let (interface, name) = match said {
+    (Some(interface), Some(name)) => (interface.to_string(), name.to_string()),
+    (Some(_), None) | (None, Some(_)) | (None, None) => {
+      return complaint(
+        message,
+        ValidationError::InvalidArgs,
+        "Set takes an interface, a name and a value",
+      );
     }
+  };
 
-    match shape == declared.shape {
-        true => {}
-        false => {
-            return complaint(
-                message,
-                ValidationError::InvalidArgs,
-                &format!("{name} is {}, and {shape} was sent", declared.shape),
-            );
-        }
+  let (shape, value) = match message.values.get(2) {
+    Some(Value::Variant { shape, value }) => (shape.clone(), (**value).clone()),
+    Some(_) | None => {
+      return complaint(message, ValidationError::InvalidArgs, "Set takes a variant");
     }
+  };
 
-    let Ok(()) = properties.add(&on, Property { declared, value: value.clone() });
-    let Ok(reply) = message.answering();
+  let Ok(found) = properties.find(InterfaceName(&interface), PropertyName(&name));
 
-    Ok(Response { reply, changed: Some(PropertyChange { interface: on, name, value }) })
+  let (on, declared) = match found {
+    Some((on, property)) => (on.to_string(), property.declared.clone()),
+    None => return complaint(message, ValidationError::UnknownProperty, &name),
+  };
+
+  let Ok(may) = writable(declared.access);
+
+  match may {
+    May::Yes => {}
+    May::No => return complaint(message, ValidationError::PropertyReadOnly, &name),
+  }
+
+  match ::core::primitive::bool::then_some(shape == declared.shape, ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      return complaint(
+        message,
+        ValidationError::InvalidArgs,
+        &format!("{name} is {}, and {shape} was sent", declared.shape),
+      );
+    }
+  }
+
+  let Ok(()) = properties.add(
+    &on,
+    Property {
+      declared,
+      value: value.clone(),
+    },
+  );
+  let Ok(reply) = message.answering();
+
+  Ok(Response {
+    reply,
+    changed: Some(PropertyChange {
+      interface: on,
+      name,
+      value,
+    }),
+  })
 }
 
 pub fn answer(message: &Message, properties: &mut Properties) -> Result<Response, Never> {
-    match message.member.as_deref() {
-        Some(GET) => get(message, properties),
-        Some(GET_ALL) => get_all(message, properties),
-        Some(SET) => set(message, properties),
-        Some(_) | None => complaint(message, ValidationError::UnknownMethod, "Properties answers Get, GetAll and Set"),
-    }
+  match message.member.as_deref() {
+    Some(GET) => get(message, properties),
+    Some(GET_ALL) => get_all(message, properties),
+    Some(SET) => set(message, properties),
+    Some(_) | None => complaint(
+      message,
+      ValidationError::UnknownMethod,
+      "Properties answers Get, GetAll and Set",
+    ),
+  }
 }
 
-pub fn changed(at: ObjectPath<'_>, interface: InterfaceName<'_>, changes: &[&Property]) -> Result<Message, Never> {
-    let Ok(signal) = Message::signal(&Signal { at: at.0, on: INTERFACE, name: CHANGED });
+pub fn changed(
+  at: ObjectPath<'_>,
+  interface: InterfaceName<'_>,
+  changes: &[&Property],
+) -> Result<Message, Never> {
+  let Ok(signal) = Message::signal(&Signal {
+    at: at.0,
+    on: INTERFACE,
+    name: CHANGED,
+  });
 
-    let listed: Vec<Value> = changes
-        .iter()
-        .map(|property| {
-            let Ok(value) = wrapped(property);
+  let listed: Vec<Value> = changes
+    .iter()
+    .map(|property| {
+      let Ok(value) = wrapped(property);
 
-            Value::Group(vec![Value::Word(property.declared.name.clone()), value])
-        })
-        .collect();
+      Value::Group(vec![Value::Word(property.declared.name.clone()), value])
+    })
+    .collect();
 
-    signal.carrying(
-        "sa{sv}as",
-        vec![Value::Word(interface.0.to_string()), Value::List(listed), Value::List(Vec::new())],
-    )
+  signal.carrying(
+    "sa{sv}as",
+    vec![
+      Value::Word(interface.0.to_string()),
+      Value::List(listed),
+      Value::List(Vec::new()),
+    ],
+  )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Setting<'a> {
+  pub to: &'a str,
+  pub at: ObjectPath<'a>,
+  pub interface: InterfaceName<'a>,
+  pub name: PropertyName<'a>,
+}
+
+pub fn call_set(setting: &Setting<'_>, value: Value) -> Result<Message, Never> {
+  let Ok(calling) = Message::call(&Whom {
+    to: setting.to,
+    at: setting.at.0,
+    on: INTERFACE,
+    calling: SET,
+  });
+  let Ok(interface) = Value::word(setting.interface.0);
+  let Ok(name) = Value::word(setting.name.0);
+
+  calling.carrying("ssv", vec![interface, name, value])
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::messages::{Error, Kind, Whom};
+  use super::*;
+  use crate::messages::{Error, Kind};
 
-    const PLAYER: &str = "org.mpris.MediaPlayer2.Player";
+  const PLAYER: &str = "org.mpris.MediaPlayer2.Player";
 
-    fn property((name, shape): (&str, &str), access: Access, value: Value) -> Result<Property, Never> {
-        Ok(Property {
-            declared: introspection::Property { name: name.to_string(), shape: shape.to_string(), access },
-            value,
+  fn property(
+    (name, shape): (&str, &str),
+    access: Access,
+    value: Value,
+  ) -> Result<Property, Never> {
+    Ok(Property {
+      declared: introspection::Property {
+        name: name.to_string(),
+        shape: shape.to_string(),
+        access,
+      },
+      value,
+    })
+  }
+
+  fn held() -> Result<Properties, Never> {
+    let mut properties = Properties::default();
+    let Ok(status) = property(
+      ("PlaybackStatus", "s"),
+      Access::Read,
+      Value::Word("Playing".to_string()),
+    );
+    let Ok(volume) = property(("Volume", "d"), Access::ReadWrite, Value::Fraction(0.5));
+    let Ok(secret) = property(
+      ("Secret", "s"),
+      Access::Write,
+      Value::Word("hidden".to_string()),
+    );
+    let Ok(()) = properties.add(PLAYER, status);
+    let Ok(()) = properties.add(PLAYER, volume);
+    let Ok(()) = properties.add(PLAYER, secret);
+
+    Ok(properties)
+  }
+
+  fn calling(member: &str, values: Vec<Value>) -> Result<Message, Never> {
+    let Ok(call) = Message::call(&Whom {
+      to: "org.example",
+      at: "/org/example",
+      on: INTERFACE,
+      calling: member,
+    });
+
+    Ok(Message {
+      serial: 7,
+      sender: Some(":1.9".to_string()),
+      values,
+      ..call
+    })
+  }
+
+  fn fault(answered: &Response) -> Result<Option<&str>, Never> {
+    Ok(answered.reply.fault.as_deref())
+  }
+
+  #[test]
+  fn get_answers_the_value_in_its_declared_shape() {
+    let Ok(mut properties) = held();
+    let Ok(call) = calling(
+      GET,
+      vec![
+        Value::Word(PLAYER.to_string()),
+        Value::Word("Volume".to_string()),
+      ],
+    );
+    let Ok(answered) = answer(&call, &mut properties);
+
+    assert_eq!(answered.reply.kind, Kind::Answer);
+    assert_eq!(answered.reply.reply_to, Some(7));
+    assert_eq!(answered.reply.shape, "v");
+    assert_eq!(
+      answered.reply.values,
+      vec![Value::Variant {
+        shape: "d".to_string(),
+        value: Box::new(Value::Fraction(0.5))
+      }]
+    );
+  }
+
+  #[test]
+  fn a_property_nobody_has_is_the_fault_the_specification_names() {
+    let Ok(mut properties) = held();
+    let Ok(call) = calling(
+      GET,
+      vec![
+        Value::Word(PLAYER.to_string()),
+        Value::Word("Nothing".to_string()),
+      ],
+    );
+    let Ok(answered) = answer(&call, &mut properties);
+
+    assert_eq!(
+      fault(&answered),
+      Ok(Some("org.freedesktop.DBus.Error.UnknownProperty"))
+    );
+  }
+
+  #[test]
+  fn an_empty_interface_finds_the_name_wherever_it_is() {
+    let Ok(mut properties) = held();
+    let Ok(call) = calling(
+      GET,
+      vec![
+        Value::Word("".to_string()),
+        Value::Word("PlaybackStatus".to_string()),
+      ],
+    );
+    let Ok(answered) = answer(&call, &mut properties);
+
+    assert_eq!(fault(&answered), Ok(None));
+  }
+
+  #[test]
+  fn get_all_leaves_out_what_may_only_be_written() {
+    let Ok(mut properties) = held();
+    let Ok(call) = calling(GET_ALL, vec![Value::Word(PLAYER.to_string())]);
+    let Ok(answered) = answer(&call, &mut properties);
+
+    let listed = match answered.reply.values.first() {
+      Some(Value::List(listed)) => listed.clone(),
+      Some(_) | None => Vec::new(),
+    };
+    let names: Vec<&str> = listed
+      .iter()
+      .filter_map(|entry| {
+        let Ok(pair) = entry.pair();
+
+        pair.and_then(|(name, _)| {
+          let Ok(text) = name.text();
+
+          text
         })
-    }
+      })
+      .collect();
 
-    fn held() -> Result<Properties, Never> {
-        let mut properties = Properties::default();
-        let Ok(status) = property(("PlaybackStatus", "s"), Access::Read, Value::Word("Playing".to_string()));
-        let Ok(volume) = property(("Volume", "d"), Access::ReadWrite, Value::Fraction(0.5));
-        let Ok(secret) = property(("Secret", "s"), Access::Write, Value::Word("hidden".to_string()));
-        let Ok(()) = properties.add(PLAYER, status);
-        let Ok(()) = properties.add(PLAYER, volume);
-        let Ok(()) = properties.add(PLAYER, secret);
+    assert_eq!(answered.reply.shape, "a{sv}");
+    assert_eq!(names, vec!["PlaybackStatus", "Volume"]);
+  }
 
-        Ok(properties)
-    }
+  #[test]
+  fn get_all_of_an_interface_nobody_has_says_so() {
+    let Ok(mut properties) = held();
+    let Ok(call) = calling(
+      GET_ALL,
+      vec![Value::Word("org.example.Nothing".to_string())],
+    );
+    let Ok(answered) = answer(&call, &mut properties);
 
-    fn calling(member: &str, values: Vec<Value>) -> Result<Message, Never> {
-        let Ok(call) = Message::call(&Whom { to: "org.example", at: "/org/example", on: INTERFACE, calling: member });
+    assert_eq!(
+      fault(&answered),
+      Ok(Some("org.freedesktop.DBus.Error.UnknownInterface"))
+    );
+  }
 
-        Ok(Message { serial: 7, sender: Some(":1.9".to_string()), values, ..call })
-    }
+  #[test]
+  fn set_writes_the_value_and_says_what_changed() {
+    let Ok(mut properties) = held();
+    let sent = Value::Variant {
+      shape: "d".to_string(),
+      value: Box::new(Value::Fraction(0.8)),
+    };
+    let Ok(call) = calling(
+      SET,
+      vec![
+        Value::Word(PLAYER.to_string()),
+        Value::Word("Volume".to_string()),
+        sent,
+      ],
+    );
+    let Ok(answered) = answer(&call, &mut properties);
 
-    fn fault(answered: &Response) -> Result<Option<&str>, Never> {
-        Ok(answered.reply.fault.as_deref())
-    }
+    assert_eq!(fault(&answered), Ok(None));
+    assert_eq!(
+      answered.changed,
+      Some(PropertyChange {
+        interface: PLAYER.to_string(),
+        name: "Volume".to_string(),
+        value: Value::Fraction(0.8)
+      })
+    );
+    assert_eq!(
+      properties.value(InterfaceName(PLAYER), PropertyName("Volume")),
+      Ok(Some(&Value::Fraction(0.8)))
+    );
+  }
 
-    #[test]
-    fn get_answers_the_value_in_its_declared_shape() {
-        let Ok(mut properties) = held();
-        let Ok(call) = calling(GET, vec![Value::Word(PLAYER.to_string()), Value::Word("Volume".to_string())]);
-        let Ok(answered) = answer(&call, &mut properties);
+  #[test]
+  fn set_on_a_property_that_is_only_read_is_refused_and_changes_nothing() {
+    let Ok(mut properties) = held();
+    let sent = Value::Variant {
+      shape: "s".to_string(),
+      value: Box::new(Value::Word("Stopped".to_string())),
+    };
+    let Ok(call) = calling(
+      SET,
+      vec![
+        Value::Word(PLAYER.to_string()),
+        Value::Word("PlaybackStatus".to_string()),
+        sent,
+      ],
+    );
+    let Ok(answered) = answer(&call, &mut properties);
 
-        assert_eq!(answered.reply.kind, Kind::Answer);
-        assert_eq!(answered.reply.reply_to, Some(7));
-        assert_eq!(answered.reply.shape, "v");
-        assert_eq!(
-            answered.reply.values,
-            vec![Value::Variant { shape: "d".to_string(), value: Box::new(Value::Fraction(0.5)) }]
-        );
-    }
+    assert_eq!(
+      fault(&answered),
+      Ok(Some("org.freedesktop.DBus.Error.PropertyReadOnly"))
+    );
+    assert_eq!(answered.changed, None);
+    assert_eq!(
+      properties.value(InterfaceName(PLAYER), PropertyName("PlaybackStatus")),
+      Ok(Some(&Value::Word("Playing".to_string())))
+    );
+  }
 
-    #[test]
-    fn a_property_nobody_has_is_the_fault_the_specification_names() {
-        let Ok(mut properties) = held();
-        let Ok(call) = calling(GET, vec![Value::Word(PLAYER.to_string()), Value::Word("Nothing".to_string())]);
-        let Ok(answered) = answer(&call, &mut properties);
+  #[test]
+  fn set_in_the_wrong_shape_is_refused_and_changes_nothing() {
+    let Ok(mut properties) = held();
+    let sent = Value::Variant {
+      shape: "s".to_string(),
+      value: Box::new(Value::Word("loud".to_string())),
+    };
+    let Ok(call) = calling(
+      SET,
+      vec![
+        Value::Word(PLAYER.to_string()),
+        Value::Word("Volume".to_string()),
+        sent,
+      ],
+    );
+    let Ok(answered) = answer(&call, &mut properties);
 
-        assert_eq!(fault(&answered), Ok(Some("org.freedesktop.DBus.Error.UnknownProperty")));
-    }
+    assert_eq!(
+      fault(&answered),
+      Ok(Some("org.freedesktop.DBus.Error.InvalidArgs"))
+    );
+    assert_eq!(
+      properties.value(InterfaceName(PLAYER), PropertyName("Volume")),
+      Ok(Some(&Value::Fraction(0.5)))
+    );
+  }
 
-    #[test]
-    fn an_empty_interface_finds_the_name_wherever_it_is() {
-        let Ok(mut properties) = held();
-        let Ok(call) = calling(GET, vec![Value::Word("".to_string()), Value::Word("PlaybackStatus".to_string())]);
-        let Ok(answered) = answer(&call, &mut properties);
+  #[test]
+  fn the_signal_names_the_interface_first_and_not_the_object() {
+    let Ok(volume) = property(("Volume", "d"), Access::ReadWrite, Value::Fraction(0.8));
+    let Ok(said) = changed(
+      ObjectPath("/org/mpris/MediaPlayer2"),
+      InterfaceName(PLAYER),
+      &[&volume],
+    );
 
-        assert_eq!(fault(&answered), Ok(None));
-    }
+    assert_eq!(said.kind, Kind::Signal);
+    assert_eq!(said.path.as_deref(), Some("/org/mpris/MediaPlayer2"));
+    assert_eq!(said.interface.as_deref(), Some(INTERFACE));
+    assert_eq!(said.member.as_deref(), Some(CHANGED));
+    assert_eq!(said.shape, "sa{sv}as");
+    assert_eq!(said.values.first(), Some(&Value::Word(PLAYER.to_string())));
+  }
 
-    #[test]
-    fn get_all_leaves_out_what_may_only_be_written() {
-        let Ok(mut properties) = held();
-        let Ok(call) = calling(GET_ALL, vec![Value::Word(PLAYER.to_string())]);
-        let Ok(answered) = answer(&call, &mut properties);
+  #[test]
+  fn the_signal_is_bytes_a_bus_would_take() -> Result<(), Error> {
+    let Ok(volume) = property(("Volume", "d"), Access::ReadWrite, Value::Fraction(0.8));
+    let Ok(said) = changed(
+      ObjectPath("/org/mpris/MediaPlayer2"),
+      InterfaceName(PLAYER),
+      &[&volume],
+    );
 
-        let listed = match answered.reply.values.first() {
-            Some(Value::List(listed)) => listed.clone(),
-            Some(_) | None => Vec::new(),
-        };
-        let names: Vec<&str> = listed
-            .iter()
-            .filter_map(|entry| {
-                let Ok(pair) = entry.pair();
+    let bytes = said.bytes(1)?;
 
-                pair.and_then(|(name, _)| {
-                    let Ok(text) = name.text();
+    assert!(!bytes.is_empty());
 
-                    text
-                })
-            })
-            .collect();
-
-        assert_eq!(answered.reply.shape, "a{sv}");
-        assert_eq!(names, vec!["PlaybackStatus", "Volume"]);
-    }
-
-    #[test]
-    fn get_all_of_an_interface_nobody_has_says_so() {
-        let Ok(mut properties) = held();
-        let Ok(call) = calling(GET_ALL, vec![Value::Word("org.example.Nothing".to_string())]);
-        let Ok(answered) = answer(&call, &mut properties);
-
-        assert_eq!(fault(&answered), Ok(Some("org.freedesktop.DBus.Error.UnknownInterface")));
-    }
-
-    #[test]
-    fn set_writes_the_value_and_says_what_changed() {
-        let Ok(mut properties) = held();
-        let sent = Value::Variant { shape: "d".to_string(), value: Box::new(Value::Fraction(0.8)) };
-        let Ok(call) = calling(SET, vec![Value::Word(PLAYER.to_string()), Value::Word("Volume".to_string()), sent]);
-        let Ok(answered) = answer(&call, &mut properties);
-
-        assert_eq!(fault(&answered), Ok(None));
-        assert_eq!(
-            answered.changed,
-            Some(PropertyChange { interface: PLAYER.to_string(), name: "Volume".to_string(), value: Value::Fraction(0.8) })
-        );
-        assert_eq!(properties.value(InterfaceName(PLAYER), PropertyName("Volume")), Ok(Some(&Value::Fraction(0.8))));
-    }
-
-    #[test]
-    fn set_on_a_property_that_is_only_read_is_refused_and_changes_nothing() {
-        let Ok(mut properties) = held();
-        let sent = Value::Variant { shape: "s".to_string(), value: Box::new(Value::Word("Stopped".to_string())) };
-        let Ok(call) = calling(SET, vec![Value::Word(PLAYER.to_string()), Value::Word("PlaybackStatus".to_string()), sent]);
-        let Ok(answered) = answer(&call, &mut properties);
-
-        assert_eq!(fault(&answered), Ok(Some("org.freedesktop.DBus.Error.PropertyReadOnly")));
-        assert_eq!(answered.changed, None);
-        assert_eq!(properties.value(InterfaceName(PLAYER), PropertyName("PlaybackStatus")), Ok(Some(&Value::Word("Playing".to_string()))));
-    }
-
-    #[test]
-    fn set_in_the_wrong_shape_is_refused_and_changes_nothing() {
-        let Ok(mut properties) = held();
-        let sent = Value::Variant { shape: "s".to_string(), value: Box::new(Value::Word("loud".to_string())) };
-        let Ok(call) = calling(SET, vec![Value::Word(PLAYER.to_string()), Value::Word("Volume".to_string()), sent]);
-        let Ok(answered) = answer(&call, &mut properties);
-
-        assert_eq!(fault(&answered), Ok(Some("org.freedesktop.DBus.Error.InvalidArgs")));
-        assert_eq!(properties.value(InterfaceName(PLAYER), PropertyName("Volume")), Ok(Some(&Value::Fraction(0.5))));
-    }
-
-    #[test]
-    fn the_signal_names_the_interface_first_and_not_the_object() {
-        let Ok(volume) = property(("Volume", "d"), Access::ReadWrite, Value::Fraction(0.8));
-        let Ok(said) = changed(ObjectPath("/org/mpris/MediaPlayer2"), InterfaceName(PLAYER), &[&volume]);
-
-        assert_eq!(said.kind, Kind::Signal);
-        assert_eq!(said.path.as_deref(), Some("/org/mpris/MediaPlayer2"));
-        assert_eq!(said.interface.as_deref(), Some(INTERFACE));
-        assert_eq!(said.member.as_deref(), Some(CHANGED));
-        assert_eq!(said.shape, "sa{sv}as");
-        assert_eq!(said.values.first(), Some(&Value::Word(PLAYER.to_string())));
-    }
-
-    #[test]
-    fn the_signal_is_bytes_a_bus_would_take() -> Result<(), Error> {
-        let Ok(volume) = property(("Volume", "d"), Access::ReadWrite, Value::Fraction(0.8));
-        let Ok(said) = changed(ObjectPath("/org/mpris/MediaPlayer2"), InterfaceName(PLAYER), &[&volume]);
-
-        let bytes = said.bytes(1)?;
-
-        assert!(!bytes.is_empty());
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

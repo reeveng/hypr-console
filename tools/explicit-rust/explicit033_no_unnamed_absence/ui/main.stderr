@@ -23,5 +23,21 @@ LL |     of.unwrap_or_else(|| "untitled").to_string()
    |
    = help: `match` both ways, or hand the absence on as an `Option` or a named fault
 
-error: aborting due to 3 previous errors
+error: `unwrap_or_else` answers a `None` without saying what it meant
+  --> $DIR/main.rs:23:5
+   |
+LL |     of.unwrap_or_else(move || other)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: `match` both ways, or hand the absence on as an `Option` or a named fault
+
+error: `unwrap_or_else` answers a `None` without saying what it meant
+  --> $DIR/main.rs:28:5
+   |
+LL |     of.unwrap_or_else(|| return String::new())
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: `match` both ways, or hand the absence on as an `Option` or a named fault
+
+error: aborting due to 5 previous errors
 

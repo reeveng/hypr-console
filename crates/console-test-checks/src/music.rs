@@ -33,54 +33,54 @@
 
 use std::collections::BTreeSet;
 
-use console_core_never::Never;
-use console_music_player::answers::{NAME, OBJECT, PLAYER, Status};
-use console_core_places::{Base, APPLICATION};
-use console_music_player::bookmark::NOTE;
 use console_awake::InhibitReason;
+use console_core_never::Never;
+use console_core_places::{APPLICATION, Base};
+use console_music_player::answers::{NAME, OBJECT, PLAYER, Status};
+use console_music_player::bookmark::NOTE;
 use console_test_stages::checking::{Body, Check, CheckResult, Why, cannot, failed};
 use console_test_stages::device::{Device, Outcome, PATIENCE, Ready};
 
 pub const LIBRARY: Check = Check {
-    name: "280-a-song-pressed-plays-the-library",
-    about: "A song pressed plays, and what follows it is the rest of the library, once each.",
-    feature: "music",
-    since: "2026-09-03",
-    bodies: &[Body::Device(there)],
+  name: "280-a-song-pressed-plays-the-library",
+  about: "A song pressed plays, and what follows it is the rest of the library, once each.",
+  feature: "music",
+  since: "2026-09-03",
+  bodies: &[Body::Device(there)],
 };
 
 pub const QUIET: Check = Check {
-    name: "281-music-paused-lets-the-sound-go",
-    about: "Paused, the player lets the sink go, so a machine holding a paused song is at rest.",
-    feature: "music",
-    since: "2026-09-08",
-    bodies: &[Body::Device(quiet)],
+  name: "281-music-paused-lets-the-sound-go",
+  about: "Paused, the player lets the sink go, so a machine holding a paused song is at rest.",
+  feature: "music",
+  since: "2026-09-08",
+  bodies: &[Body::Device(quiet)],
 };
 
 pub const AGAIN: Check = Check {
-    name: "282-a-player-started-again-is-holding-the-last-song",
-    about: "A player started again holds the song it was left on, paused, so nothing opens empty.",
-    feature: "music",
-    since: "2026-09-08",
-    bodies: &[Body::Device(again)],
+  name: "282-a-player-started-again-is-holding-the-last-song",
+  about: "A player started again holds the song it was left on, paused, so nothing opens empty.",
+  feature: "music",
+  since: "2026-09-08",
+  bodies: &[Body::Device(again)],
 };
 
 pub const AWAKE: Check = Check {
-    name: "283-a-song-playing-keeps-the-machine-from-sleeping",
-    about: "Playing, the player holds a sleep lock; paused, it lets it go, so a dark screen \
+  name: "283-a-song-playing-keeps-the-machine-from-sleeping",
+  about: "Playing, the player holds a sleep lock; paused, it lets it go, so a dark screen \
             over a running track is not a suspend five minutes later.",
-    feature: "music",
-    since: "2026-09-21",
-    bodies: &[Body::Device(awake)],
+  feature: "music",
+  since: "2026-09-21",
+  bodies: &[Body::Device(awake)],
 };
 
 pub const SLEEP: Check = Check {
-    name: "284-sleep-pressed-over-a-song-stops-it",
-    about: "Sleep pressed while a song plays pauses the song, so the song's sleep lock is not \
+  name: "284-sleep-pressed-over-a-song-stops-it",
+  about: "Sleep pressed while a song plays pauses the song, so the song's sleep lock is not \
             what refuses the suspend a person asked for.",
-    feature: "music",
-    since: "2026-09-26",
-    bodies: &[Body::Device(sleep_over_a_song)],
+  feature: "music",
+  since: "2026-09-26",
+  bodies: &[Body::Device(sleep_over_a_song)],
 };
 
 const ON_BATTERY: &str = "settings-panel Battery";
@@ -96,519 +96,541 @@ const KINDS: &str = "flac mp3 opus m4a ogg wav";
 const PROGRAM: &str = "music-player";
 
 fn answering(seen: &mut Device) -> Result<Ready, Never> {
-    let Ok(said) = shuffle(seen);
+  let Ok(said) = shuffle(seen);
 
-    Ok(match said.trim().starts_with("b ") {
-        true => Ready::Yes,
-        false => Ready::NotYet,
-    })
+  Ok(match ::core::primitive::bool::then_some(said.trim().starts_with("b "), ()) {
+    ::core::option::Option::Some(()) => Ready::Yes,
+    ::core::option::Option::None => Ready::NotYet,
+  })
 }
 
 fn shuffling(seen: &mut Device) -> Result<Ready, Never> {
-    let Ok(said) = shuffle(seen);
+  let Ok(said) = shuffle(seen);
 
-    Ok(match said.trim() == "b true" {
-        true => Ready::Yes,
-        false => Ready::NotYet,
-    })
+  Ok(match ::core::primitive::bool::then_some(said.trim() == "b true", ()) {
+    ::core::option::Option::Some(()) => Ready::Yes,
+    ::core::option::Option::None => Ready::NotYet,
+  })
 }
 
 fn shuffle(seen: &mut Device) -> Result<String, Never> {
-    seen.user(&format!("busctl --user get-property {NAME} {OBJECT} {PLAYER} Shuffle"))
+  seen.user(&format!(
+    "busctl --user get-property {NAME} {OBJECT} {PLAYER} Shuffle"
+  ))
 }
 
 fn there(stage: &mut Device) -> CheckResult {
-    let Ok(playing) = playing(stage);
+  let Ok(playing) = playing(stage);
 
-    match playing {
-        Ready::Yes => {
-            return cannot(
-                "this machine is already playing something, and the check would have to stop it",
-            );
-        }
-        Ready::NotYet => {},
+  match playing {
+    Ready::Yes => {
+      return cannot(
+        "this machine is already playing something, and the check would have to stop it",
+      );
+    }
+    Ready::NotYet => {}
+  }
+
+  let Ok(songs) = library(stage);
+
+  match ::core::primitive::bool::then_some(songs.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return cannot("this machine has no music on it to play"),
+    ::core::option::Option::None => {}
+  }
+
+  let Ok(many) = console_core_number_conversion::fitted::<_, u32>(songs.len());
+  let far = many.min(WALK);
+
+  let first = songs.first().ok_or(Why::Cannot("no songs".to_string()))?;
+
+  playing_the_library(stage, first)?;
+
+  let asked = [
+    ("as the press left it", false),
+    ("with shuffle pressed", true),
+    ("with shuffle pressed back", true),
+  ];
+
+  for (when, press) in asked {
+    match ::core::primitive::bool::then_some(press, ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(_) = stage.user(&format!(
+          "busctl --user set-property {NAME} {OBJECT} {PLAYER} Shuffle b true"
+        ));
+        let Ok(_) = stage.until(shuffling, SWITCH);
+      }
+      ::core::option::Option::None => {}
     }
 
-    let Ok(songs) = library(stage);
+    let Ok(walked) = walk(stage, far);
+    let different: BTreeSet<&String> = walked.iter().collect();
 
-    match songs.is_empty() {
-        true => return cannot("this machine has no music on it to play"),
-        false => {}
+    match ::core::primitive::bool::then_some(walked.iter().any(String::is_empty), ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(()) = ended(stage);
+        return failed(format!(
+          "{when}, the player stopped saying what it was playing"
+        ));
+      }
+      ::core::option::Option::None => {}
     }
 
-    let Ok(many) = console_core_number_conversion::fitted::<_, u32>(songs.len());
-    let far = many.min(WALK);
-
-    let first = songs.first().ok_or(Why::Cannot("no songs".to_string()))?;
-
-    playing_the_library(stage, first)?;
-
-    let asked = [
-        ("as the press left it", false),
-        ("with shuffle pressed", true),
-        ("with shuffle pressed back", true),
-    ];
-
-    for (when, press) in asked {
-        match press {
-            true => {
-                let Ok(_) = stage.user(&format!(
-                    "busctl --user set-property {NAME} {OBJECT} {PLAYER} Shuffle b true"
-                ));
-                let Ok(_) = stage.until(shuffling, SWITCH);
-            }
-            false => {}
-        }
-
-        let Ok(walked) = walk(stage, far);
-        let different: BTreeSet<&String> = walked.iter().collect();
-
-        match walked.iter().any(String::is_empty) {
-            true => {
-                let Ok(()) = ended(stage);
-                return failed(format!("{when}, the player stopped saying what it was playing"));
-            }
-            false => {}
-        }
-
-        match different.len() == walked.len() {
-            true => {}
-            false => {
-                let Ok(()) = ended(stage);
-                return failed(format!(
-                    "{when}, {} presses of next played {} different songs: {walked:?}",
-                    walked.len(),
-                    different.len()
-                ));
-            }
-        }
+    match ::core::primitive::bool::then_some(different.len() == walked.len(), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => {
+        let Ok(()) = ended(stage);
+        return failed(format!(
+          "{when}, {} presses of next played {} different songs: {walked:?}",
+          walked.len(),
+          different.len()
+        ));
+      }
     }
+  }
 
-    let Ok(()) = ended(stage);
-    Ok(())
+  let Ok(()) = ended(stage);
+  Ok(())
 }
 
 fn quiet(stage: &mut Device) -> CheckResult {
-    let Ok(playing) = playing(stage);
+  let Ok(playing) = playing(stage);
 
-    match playing {
-        Ready::Yes => {
-            return cannot(
-                "this machine is already playing something, and the check would have to stop it",
-            );
-        }
-        Ready::NotYet => {},
+  match playing {
+    Ready::Yes => {
+      return cannot(
+        "this machine is already playing something, and the check would have to stop it",
+      );
     }
+    Ready::NotYet => {}
+  }
 
-    let Ok(rested) = at_rest(stage);
+  let Ok(rested) = at_rest(stage);
 
-    match rested {
-        Ready::Yes => {},
-        Ready::NotYet => {
-            return cannot("something else on this machine is already holding the sound open");
-        }
+  match rested {
+    Ready::Yes => {}
+    Ready::NotYet => {
+      return cannot("something else on this machine is already holding the sound open");
     }
+  }
 
-    let Ok(songs) = library(stage);
+  let Ok(songs) = library(stage);
 
-    match songs.is_empty() {
-        true => return cannot("this machine has no music on it to play"),
-        false => {}
+  match ::core::primitive::bool::then_some(songs.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return cannot("this machine has no music on it to play"),
+    ::core::option::Option::None => {}
+  }
+
+  let first = songs.first().ok_or(Why::Cannot("no songs".to_string()))?;
+
+  playing_the_library(stage, first)?;
+
+  let Ok(_) = stage.until(sounding, PATIENCE);
+  let Ok(heard) = sounding(stage);
+
+  match heard {
+    Ready::Yes => {}
+    Ready::NotYet => {
+      let Ok(()) = ended(stage);
+
+      return cannot("nothing came out of this machine while a song was playing");
     }
+  }
 
-    let first = songs.first().ok_or(Why::Cannot("no songs".to_string()))?;
+  let Ok(_) = stage.user(&format!(
+    "busctl --user call {NAME} {OBJECT} {PLAYER} Pause"
+  ));
+  let Ok(_) = stage.until(at_rest, SETTLING);
+  let Ok(rested_2) = at_rest(stage);
 
-    playing_the_library(stage, first)?;
+  let Ok(()) = ended(stage);
 
-    let Ok(_) = stage.until(sounding, PATIENCE);
-    let Ok(heard) = sounding(stage);
-
-    match heard {
-        Ready::Yes => {}
-        Ready::NotYet => {
-            let Ok(()) = ended(stage);
-
-            return cannot("nothing came out of this machine while a song was playing");
-        }
-    }
-
-    let Ok(_) = stage.user(&format!("busctl --user call {NAME} {OBJECT} {PLAYER} Pause"));
-    let Ok(_) = stage.until(at_rest, SETTLING);
-    let Ok(rested) = at_rest(stage);
-
-    let Ok(()) = ended(stage);
-
-    match rested {
-        Ready::Yes => Ok(()),
-        Ready::NotYet => failed(format!(
-            "the song was paused and a sink was still running {SETTLING} seconds later, \
+  match rested_2 {
+    Ready::Yes => Ok(()),
+    Ready::NotYet => failed(format!(
+      "the song was paused and a sink was still running {SETTLING} seconds later, \
              so the machine goes on driving the speakers with nothing to play"
-        )),
-    }
+    )),
+  }
 }
 
 fn a_song_of_our_own(stage: &mut Device) -> CheckResult {
-    let Ok(playing) = playing(stage);
+  let Ok(playing) = playing(stage);
 
-    match playing {
-        Ready::Yes => {
-            return cannot(
-                "this machine is already playing something, and the check would have to stop it",
-            );
-        }
-        Ready::NotYet => {},
+  match playing {
+    Ready::Yes => {
+      return cannot(
+        "this machine is already playing something, and the check would have to stop it",
+      );
     }
+    Ready::NotYet => {}
+  }
 
-    let Ok(already) = locked(stage);
+  let Ok(already) = locked(stage);
 
-    match already {
-        Ready::Yes => {
-            return cannot("something on this machine is already holding a sleep lock");
-        }
-        Ready::NotYet => {},
+  match already {
+    Ready::Yes => {
+      return cannot("something on this machine is already holding a sleep lock");
     }
+    Ready::NotYet => {}
+  }
 
-    let Ok(songs) = library(stage);
+  let Ok(songs) = library(stage);
 
-    match songs.is_empty() {
-        true => return cannot("this machine has no music on it to play"),
-        false => {}
-    }
+  match ::core::primitive::bool::then_some(songs.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return cannot("this machine has no music on it to play"),
+    ::core::option::Option::None => {}
+  }
 
-    let first = songs.first().ok_or(Why::Cannot("no songs".to_string()))?;
+  let first = songs.first().ok_or(Why::Cannot("no songs".to_string()))?;
 
-    playing_the_library(stage, first)
+  playing_the_library(stage, first)
 }
 
 fn sleep_over_a_song(stage: &mut Device) -> CheckResult {
-    a_song_of_our_own(stage)?;
+  a_song_of_our_own(stage)?;
 
-    let Ok(_) = stage.until(locked, PATIENCE);
-    let Ok(_) = stage.exec_cmd(ON_BATTERY);
-    let Ok(up) = stage.wait_for_menu(PATIENCE);
+  let Ok(_) = stage.until(locked, PATIENCE);
+  let Ok(_) = stage.exec_cmd(ON_BATTERY);
+  let Ok(up) = stage.wait_for_menu(PATIENCE);
 
-    match up {
-        Outcome::Happened => {},
-        Outcome::RanOut => {
-            let Ok(()) = ended(stage);
+  match up {
+    Outcome::Happened => {}
+    Outcome::RanOut => {
+      let Ok(()) = ended(stage);
 
-            return failed(format!("{ON_BATTERY} never came up to press Sleep on"));
-        }
+      return failed(format!("{ON_BATTERY} never came up to press Sleep on"));
     }
+  }
 
-    let Ok(()) = stage.press("a");
-    let Ok(_) = stage.until(paused, SETTLING);
-    let Ok(stopped) = paused(stage);
-    let Ok(held) = locked(stage);
+  let Ok(()) = stage.press("a");
+  let Ok(_) = stage.until(paused, SETTLING);
+  let Ok(stopped) = paused(stage);
+  let Ok(held) = locked(stage);
 
-    let Ok(()) = ended(stage);
+  let Ok(()) = ended(stage);
 
-    let Ok(what) = InhibitReason::FromSleeping.what();
+  let Ok(what) = InhibitReason::FromSleeping.what();
 
-    match (stopped, held) {
-        (Ready::Yes, Ready::NotYet) => Ok(()),
-        (Ready::NotYet, _) => failed(format!(
-            "Sleep was pressed over a playing song and the song went on, so its {what} lock \
+  match (stopped, held) {
+    (Ready::Yes, Ready::NotYet) => Ok(()),
+    (Ready::NotYet, _) => failed(format!(
+      "Sleep was pressed over a playing song and the song went on, so its {what} lock \
              refused the suspend and the button closed the panel over a machine still awake"
-        )),
-        (Ready::Yes, Ready::Yes) => failed(format!(
-            "Sleep paused the song and a {what} lock was still held {SETTLING} seconds later, \
+    )),
+    (Ready::Yes, Ready::Yes) => failed(format!(
+      "Sleep paused the song and a {what} lock was still held {SETTLING} seconds later, \
              so the suspend it asked for was refused all the same"
-        )),
-    }
+    )),
+  }
 }
 
 fn awake(stage: &mut Device) -> CheckResult {
-    a_song_of_our_own(stage)?;
+  a_song_of_our_own(stage)?;
 
-    let Ok(_) = stage.until(locked, PATIENCE);
-    let Ok(held) = locked(stage);
+  let Ok(_) = stage.until(locked, PATIENCE);
+  let Ok(held) = locked(stage);
 
-    match held {
-        Ready::Yes => {}
-        Ready::NotYet => {
-            let Ok(()) = ended(stage);
+  match held {
+    Ready::Yes => {}
+    Ready::NotYet => {
+      let Ok(()) = ended(stage);
 
-            let Ok(what) = InhibitReason::FromSleeping.what();
+      let Ok(what) = InhibitReason::FromSleeping.what();
 
-            return failed(format!(
-                "a song was playing and nothing held a {what} lock, so the desktop will suspend \
+      return failed(format!(
+        "a song was playing and nothing held a {what} lock, so the desktop will suspend \
                  out from under it once the screen has been dark long enough"
-            ));
-        }
+      ));
     }
+  }
 
-    let Ok(_) = stage.user(&format!("busctl --user call {NAME} {OBJECT} {PLAYER} Pause"));
-    let Ok(_) = stage.until(unlocked, SETTLING);
-    let Ok(after) = locked(stage);
+  let Ok(_) = stage.user(&format!(
+    "busctl --user call {NAME} {OBJECT} {PLAYER} Pause"
+  ));
+  let Ok(_) = stage.until(unlocked, SETTLING);
+  let Ok(after) = locked(stage);
 
-    let Ok(()) = ended(stage);
+  let Ok(()) = ended(stage);
 
-    let Ok(what) = InhibitReason::FromSleeping.what();
+  let Ok(what) = InhibitReason::FromSleeping.what();
 
-    match after {
-        Ready::NotYet => Ok(()),
-        Ready::Yes => failed(format!(
-            "the song was paused and a {what} lock was still held {SETTLING} seconds later, \
+  match after {
+    Ready::NotYet => Ok(()),
+    Ready::Yes => failed(format!(
+      "the song was paused and a {what} lock was still held {SETTLING} seconds later, \
              so a machine holding a paused song can no longer be put to sleep at all"
-        )),
-    }
+    )),
+  }
 }
 
 fn locked(stage: &mut Device) -> Result<Ready, Never> {
-    let Ok(who) = InhibitReason::FromSleeping.who();
-    let Ok(said) = stage.user(&format!(
-        "systemd-inhibit --list --no-legend --no-pager 2>/dev/null | grep -c '{who}' || true"
-    ));
+  let Ok(who) = InhibitReason::FromSleeping.who();
+  let Ok(said) = stage.user(&format!(
+    "systemd-inhibit --list --no-legend --no-pager 2>/dev/null | grep -c '{who}' || true"
+  ));
 
-    Ok(match said.trim() == "0" {
-        true => Ready::NotYet,
-        false => Ready::Yes,
-    })
+  Ok(match ::core::primitive::bool::then_some(said.trim() == "0", ()) {
+    ::core::option::Option::Some(()) => Ready::NotYet,
+    ::core::option::Option::None => Ready::Yes,
+  })
 }
 
 fn unlocked(stage: &mut Device) -> Result<Ready, Never> {
-    let Ok(held) = locked(stage);
+  let Ok(held) = locked(stage);
 
-    Ok(match held {
-        Ready::Yes => Ready::NotYet,
-        Ready::NotYet => Ready::Yes,
-    })
+  Ok(match held {
+    Ready::Yes => Ready::NotYet,
+    Ready::NotYet => Ready::Yes,
+  })
 }
 
 fn again(stage: &mut Device) -> CheckResult {
-    let Ok(playing) = playing(stage);
+  let Ok(playing) = playing(stage);
 
-    match playing {
-        Ready::Yes => {
-            return cannot(
-                "this machine is already playing something, and the check would have to stop it",
-            );
+  match playing {
+    Ready::Yes => {
+      return cannot(
+        "this machine is already playing something, and the check would have to stop it",
+      );
+    }
+    Ready::NotYet => {}
+  }
+
+  let Ok(songs) = library(stage);
+
+  match ::core::primitive::bool::then_some(songs.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return cannot("this machine has no music on it to play"),
+    ::core::option::Option::None => {}
+  }
+
+  let first = songs.first().ok_or(Why::Cannot("no songs".to_string()))?;
+  let Ok(note) = note(stage);
+
+  playing_the_library(stage, first)?;
+
+  let Ok(was) = song_playing(stage);
+  let Ok(()) = ended(stage);
+  let Ok(()) = started(stage);
+
+  let Ok(now) = song_playing(stage);
+  let Ok(held) = paused(stage);
+
+  let Ok(()) = ended(stage);
+  let Ok(()) = put_back(stage, &note);
+
+  match ::core::primitive::bool::then_some(now == was, ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      return failed(format!(
+        "the player was left on {was} and came up holding {}, so the panel opens on                  nothing until someone goes and finds a song",
+        match now.as_str() {
+          "" => "nothing at all",
+          track => track,
         }
-        Ready::NotYet => {},
+      ));
     }
+  }
 
-    let Ok(songs) = library(stage);
-
-    match songs.is_empty() {
-        true => return cannot("this machine has no music on it to play"),
-        false => {}
-    }
-
-    let first = songs.first().ok_or(Why::Cannot("no songs".to_string()))?;
-    let Ok(note) = note(stage);
-
-    playing_the_library(stage, first)?;
-
-    let Ok(was) = song_playing(stage);
-    let Ok(()) = ended(stage);
-    let Ok(()) = started(stage);
-
-    let Ok(now) = song_playing(stage);
-    let Ok(held) = paused(stage);
-
-    let Ok(()) = ended(stage);
-    let Ok(()) = put_back(stage, &note);
-
-    match now == was {
-        true => {}
-        false => {
-            return failed(format!(
-                "the player was left on {was} and came up holding {}, so the panel opens on                  nothing until someone goes and finds a song",
-                match now.is_empty() {
-                    true => "nothing at all".to_string(),
-                    false => now,
-                }
-            ));
-        }
-    }
-
-    match held {
-        Ready::Yes => Ok(()),
-        Ready::NotYet => failed(format!(
-            "the player came up holding {was} and not paused on it, so a device switched on in              a bag decides for itself what the room hears"
-        )),
-    }
+  match held {
+    Ready::Yes => Ok(()),
+    Ready::NotYet => failed(format!(
+      "the player came up holding {was} and not paused on it, so a device switched on in              a bag decides for itself what the room hears"
+    )),
+  }
 }
 
 fn started(stage: &mut Device) -> Result<(), Never> {
-    let Ok(_) = stage.user(&format!(
-        "systemd-run --user --collect --unit={UNIT} --quiet {PROGRAM} \"$HOME/Music\""
-    ));
-    let Ok(_) = stage.until(answering, PATIENCE);
+  let Ok(_) = stage.user(&format!(
+    "systemd-run --user --collect --unit={UNIT} --quiet {PROGRAM} \"$HOME/Music\""
+  ));
+  let Ok(_) = stage.until(answering, PATIENCE);
 
-    Ok(())
+  Ok(())
 }
 
 fn status_is(stage: &mut Device, status: Status) -> Result<Ready, Never> {
-    let Ok(word) = status.said();
-    let Ok(said) = stage.user(&format!(
-        "busctl --user get-property {NAME} {OBJECT} {PLAYER} PlaybackStatus 2>&1"
-    ));
+  let Ok(word) = status.said();
+  let Ok(said) = stage.user(&format!(
+    "busctl --user get-property {NAME} {OBJECT} {PLAYER} PlaybackStatus 2>&1"
+  ));
 
-    Ok(match said.trim() == format!("s \"{word}\"") {
-        true => Ready::Yes,
-        false => Ready::NotYet,
-    })
+  Ok(match ::core::primitive::bool::then_some(said.trim() == format!("s \"{word}\""), ()) {
+    ::core::option::Option::Some(()) => Ready::Yes,
+    ::core::option::Option::None => Ready::NotYet,
+  })
 }
 
 fn paused(stage: &mut Device) -> Result<Ready, Never> {
-    status_is(stage, Status::Paused)
+  status_is(stage, Status::Paused)
 }
 
 fn note_path() -> Result<String, Never> {
-    let Ok(state) = Base::State.usual();
+  let Ok(state) = Base::State.usual();
 
-    Ok(format!("\"$HOME/{state}/{APPLICATION}/{NOTE}\""))
+  Ok(format!("\"$HOME/{state}/{APPLICATION}/{NOTE}\""))
 }
 
 fn note(stage: &mut Device) -> Result<String, Never> {
-    let Ok(at) = note_path();
+  let Ok(at) = note_path();
 
-    stage.user(&format!("cat {at} 2>/dev/null"))
+  stage.user(&format!("cat {at} 2>/dev/null"))
 }
 
 fn put_back(stage: &mut Device, note: &str) -> Result<(), Never> {
-    let Ok(at) = note_path();
+  let Ok(at) = note_path();
 
-    let Ok(_) = match note.is_empty() {
-        true => stage.user(&format!("rm -f {at}")),
-        false => {
-            let Ok(quoted) = single_quoted(note);
+  let Ok(_) = match ::core::primitive::bool::then_some(note.is_empty(), ()) {
+    ::core::option::Option::Some(()) => stage.user(&format!("rm -f {at}")),
+    ::core::option::Option::None => {
+      let Ok(quoted) = single_quoted(note);
 
-            stage.user(&format!("printf '%s' {quoted} > {at}"))
-        }
-    };
+      stage.user(&format!("printf '%s' {quoted} > {at}"))
+    }
+  };
 
-    Ok(())
+  Ok(())
 }
 
 fn sounding(stage: &mut Device) -> Result<Ready, Never> {
-    let Ok(said) = stage.user("pactl list short sinks");
+  let Ok(said) = stage.user("pactl list short sinks");
 
-    Ok(match said.contains("RUNNING") {
-        true => Ready::Yes,
-        false => Ready::NotYet,
-    })
+  Ok(match ::core::primitive::bool::then_some(said.contains("RUNNING"), ()) {
+    ::core::option::Option::Some(()) => Ready::Yes,
+    ::core::option::Option::None => Ready::NotYet,
+  })
 }
 
 fn at_rest(stage: &mut Device) -> Result<Ready, Never> {
-    let Ok(heard) = sounding(stage);
+  let Ok(heard) = sounding(stage);
 
-    Ok(match heard {
-        Ready::Yes => Ready::NotYet,
-        Ready::NotYet => Ready::Yes,
-    })
+  Ok(match heard {
+    Ready::Yes => Ready::NotYet,
+    Ready::NotYet => Ready::Yes,
+  })
 }
 
 fn playing(stage: &mut Device) -> Result<Ready, Never> {
-    status_is(stage, Status::Playing)
+  status_is(stage, Status::Playing)
 }
 
 fn library(stage: &mut Device) -> Result<Vec<String>, Never> {
-    let named =
-        KINDS.split(' ').map(|kind| format!("-iname '*.{kind}'")).collect::<Vec<_>>().join(" -o ");
-    let Ok(found) =
-        stage.user(&format!("find \"$HOME/Music\" -type f \\( {named} \\) 2>/dev/null | sort"));
+  let named = KINDS
+    .split(' ')
+    .map(|kind| format!("-iname '*.{kind}'"))
+    .collect::<Vec<_>>()
+    .join(" -o ");
+  let Ok(found) = stage.user(&format!(
+    "find \"$HOME/Music\" -type f \\( {named} \\) 2>/dev/null | sort"
+  ));
 
-    Ok(found.lines().map(str::trim).filter(|line| !line.is_empty()).map(String::from).collect())
+  Ok(
+    found
+      .lines()
+      .map(str::trim)
+      .filter(|line| !line.is_empty())
+      .map(String::from)
+      .collect(),
+  )
 }
 
 fn playing_the_library(stage: &mut Device, song: &str) -> CheckResult {
-    let Ok(quoted) = single_quoted(song);
+  let Ok(quoted) = single_quoted(song);
 
-    let Ok(()) = ended(stage);
+  let Ok(()) = ended(stage);
 
-    let Ok(_) = stage.user(&format!(
-        "systemd-run --user --collect --unit={UNIT} --quiet {PROGRAM} \"$HOME/Music\""
-    ));
-    let Ok(_) = stage.until(answering, PATIENCE);
-    let Ok(answered) = shuffle(stage);
+  let Ok(_) = stage.user(&format!(
+    "systemd-run --user --collect --unit={UNIT} --quiet {PROGRAM} \"$HOME/Music\""
+  ));
+  let Ok(_) = stage.until(answering, PATIENCE);
+  let Ok(answered) = shuffle(stage);
 
-    match answered.trim().starts_with("b ") {
-        true => {}
-        false => {
-            return failed(format!("the player did not start: it said {}", answered.trim()));
-        }
+  match ::core::primitive::bool::then_some(answered.trim().starts_with("b "), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      return failed(format!(
+        "the player did not start: it said {}",
+        answered.trim()
+      ));
     }
+  }
 
-    let Ok(was) = song_playing(stage);
-    let Ok(_) = stage.user(&format!("music-onward {quoted}"));
-    let Ok(_) = stage.changed(song_playing, &was, SWITCH);
+  let Ok(was) = song_playing(stage);
+  let Ok(_) = stage.user(&format!("music-onward {quoted}"));
+  let Ok(_) = stage.changed(song_playing, &was, SWITCH);
 
-    Ok(())
+  Ok(())
 }
 
 const UNIT: &str = "console-check-music-player";
 
 fn ended(stage: &mut Device) -> Result<(), Never> {
-    let Ok(_) =
-        stage.user(&format!(
-            "systemctl --user stop {UNIT}.service 2>/dev/null; pkill -x {PROGRAM}"
-        ));
+  let Ok(_) = stage.user(&format!(
+    "systemctl --user stop {UNIT}.service 2>/dev/null; pkill -x {PROGRAM}"
+  ));
 
-    Ok(())
+  Ok(())
 }
 
 fn walk(stage: &mut Device, far: u32) -> Result<Vec<String>, Never> {
-    let mut played = Vec::new();
+  let mut played = Vec::new();
 
-    for _ in 0..far {
-        let Ok(playing) = song_playing(stage);
+  for _ in 0..far {
+    let Ok(playing) = song_playing(stage);
 
-        played.push(playing.clone());
+    played.push(playing.clone());
 
-        let Ok(_) = stage.user(&format!("busctl --user call {NAME} {OBJECT} {PLAYER} Next"));
-        let Ok(_) = stage.changed(song_playing, &playing, SWITCH);
-    }
+    let Ok(_) = stage.user(&format!("busctl --user call {NAME} {OBJECT} {PLAYER} Next"));
+    let Ok(_) = stage.changed(song_playing, &playing, SWITCH);
+  }
 
-    Ok(played)
+  Ok(played)
 }
 
 fn song_playing(stage: &mut Device) -> Result<String, Never> {
-    let Ok(said) =
-        stage.user(&format!("busctl --user get-property {NAME} {OBJECT} {PLAYER} Metadata"));
+  let Ok(said) = stage.user(&format!(
+    "busctl --user get-property {NAME} {OBJECT} {PLAYER} Metadata"
+  ));
 
-    title_in(&said)
+  title_in(&said)
 }
 
 fn title_in(said: &str) -> Result<String, Never> {
-    let after = match said.split_once("\"xesam:title\"") {
-        Some(after) => after,
-        None => return Ok(String::new()),
-    };
+  let after = match said.split_once("\"xesam:title\"") {
+    Some(after) => after,
+    None => return Ok(String::new()),
+  };
 
-    let mut quoted = after.1.split('"');
-    quoted.next();
+  let mut quoted = after.1.split('"');
+  quoted.next();
 
-    Ok(match quoted.next() {
-        Some(inside) => inside.to_string(),
-        None => String::new(),
-    })
+  Ok(match quoted.next() {
+    Some(inside) => inside.to_string(),
+    None => String::new(),
+  })
 }
 
 fn single_quoted(word: &str) -> Result<String, Never> {
-    Ok(format!("'{}'", word.replace('\'', r"'\''")))
+  Ok(format!("'{}'", word.replace('\'', r"'\''")))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn the_file_playing_is_read_out_of_what_the_bus_said() {
-        let said = r#"a{sv} 2 "xesam:title" s "A Song" "mpris:length" x 1"#;
-        assert_eq!(title_in(said), Ok("A Song".to_string()));
-    }
+  #[test]
+  fn the_file_playing_is_read_out_of_what_the_bus_said() {
+    let said = r#"a{sv} 2 "xesam:title" s "A Song" "mpris:length" x 1"#;
+    assert_eq!(title_in(said), Ok("A Song".to_string()));
+  }
 
-    #[test]
-    fn a_player_that_will_not_say_the_file_says_nothing() {
-        assert_eq!(title_in(r#"a{sv} 1 "mpris:length" x 1"#), Ok(String::new()));
-        assert_eq!(title_in(""), Ok(String::new()));
-    }
+  #[test]
+  fn a_player_that_will_not_say_the_file_says_nothing() {
+    assert_eq!(title_in(r#"a{sv} 1 "mpris:length" x 1"#), Ok(String::new()));
+    assert_eq!(title_in(""), Ok(String::new()));
+  }
 
-    #[test]
-    fn a_name_with_a_quote_in_it_is_still_one_word() {
-        assert_eq!(single_quoted("don't"), Ok(r"'don'\''t'".to_string()));
-    }
+  #[test]
+  fn a_name_with_a_quote_in_it_is_still_one_word() {
+    assert_eq!(single_quoted("don't"), Ok(r"'don'\''t'".to_string()));
+  }
 }

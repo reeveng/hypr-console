@@ -26,119 +26,139 @@ use crate::up_to_date::UpToDate;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum PackageState {
-    #[words(name = "ok")]
-    Ok,
-    #[words(name = "held as a dependency")]
-    Borrowed,
-    #[words(name = "missing")]
-    NotFound,
+  #[words(name = "ok")]
+  Ok,
+  #[words(name = "held as a dependency")]
+  Borrowed,
+  #[words(name = "missing")]
+  NotFound,
 }
 
 impl PackageState {
-    pub fn up_to_date(self) -> Result<UpToDate, Never> {
-        Ok(match self == PackageState::Ok {
-            true => UpToDate::Yes,
-            false => UpToDate::No,
-        })
-    }
+  pub fn up_to_date(self) -> Result<UpToDate, Never> {
+    Ok(match ::core::primitive::bool::then_some(self == PackageState::Ok, ()) {
+      ::core::option::Option::Some(()) => UpToDate::Yes,
+      ::core::option::Option::None => UpToDate::No,
+    })
+  }
 }
 
-pub fn package_state(installed: &[String], asked_for: &[String], package: &str) -> Result<PackageState, Never> {
-    let said = |names: &[String]| names.iter().any(|name| name == package);
+pub fn package_state(
+  installed: &[String],
+  asked_for: &[String],
+  package: &str,
+) -> Result<PackageState, Never> {
+  let said = |names: &[String]| names.iter().any(|name| name == package);
 
-    Ok(match (said(installed), said(asked_for)) {
-        (_, true) => PackageState::Ok,
-        (true, false) => PackageState::Borrowed,
-        (false, false) => PackageState::NotFound,
-    })
+  Ok(match (said(installed), said(asked_for)) {
+    (_, true) => PackageState::Ok,
+    (true, false) => PackageState::Borrowed,
+    (false, false) => PackageState::NotFound,
+  })
 }
 
 pub fn borrowed<'a>(
-    named: &'a [String],
-    installed: &[String],
-    asked_for: &[String],
+  named: &'a [String],
+  installed: &[String],
+  asked_for: &[String],
 ) -> Result<Vec<&'a str>, Never> {
-    Ok(named
-        .iter()
-        .filter(|package| {
-            let Ok(held) = package_state(installed, asked_for, package);
+  Ok(
+    named
+      .iter()
+      .filter(|package| {
+        let Ok(held) = package_state(installed, asked_for, package);
 
-            held == PackageState::Borrowed
-        })
-        .map(String::as_str)
-        .collect())
+        held == PackageState::Borrowed
+      })
+      .map(String::as_str)
+      .collect(),
+  )
 }
 
-pub fn missing_packages<'a>(named: &'a [String], installed: &[String]) -> Result<Vec<&'a str>, Never> {
-    let known: HashSet<&str> = installed.iter().map(String::as_str).collect();
+pub fn missing_packages<'a>(
+  named: &'a [String],
+  installed: &[String],
+) -> Result<Vec<&'a str>, Never> {
+  let known: HashSet<&str> = installed.iter().map(String::as_str).collect();
 
-    Ok(named
-        .iter()
-        .filter(|package| !known.contains(package.as_str()))
-        .map(String::as_str)
-        .collect())
+  Ok(
+    named
+      .iter()
+      .filter(|package| !known.contains(package.as_str()))
+      .map(String::as_str)
+      .collect(),
+  )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn names(said: &[&str]) -> Result<Vec<String>, Never> {
-        Ok(said.iter().map(|name| name.to_string()).collect())
-    }
+  fn names(said: &[&str]) -> Result<Vec<String>, Never> {
+    Ok(said.iter().map(|name| name.to_string()).collect())
+  }
 
-    #[test]
-    fn a_package_someone_asked_for_is_held() {
-        let Ok(installed) = names(&["glib2", "gtk4"]);
-        let Ok(asked_for) = names(&["gtk4"]);
+  #[test]
+  fn a_package_someone_asked_for_is_held() {
+    let Ok(installed) = names(&["glib2", "gtk4"]);
+    let Ok(asked_for) = names(&["gtk4"]);
 
-        assert_eq!(package_state(&installed, &asked_for, "gtk4"), Ok(PackageState::Ok));
-    }
+    assert_eq!(
+      package_state(&installed, &asked_for, "gtk4"),
+      Ok(PackageState::Ok)
+    );
+  }
 
-    #[test]
-    fn a_package_that_came_in_with_something_else_is_only_borrowed() {
-        let Ok(installed) = names(&["glib2", "gtk4"]);
-        let Ok(asked_for) = names(&["gtk4"]);
+  #[test]
+  fn a_package_that_came_in_with_something_else_is_only_borrowed() {
+    let Ok(installed) = names(&["glib2", "gtk4"]);
+    let Ok(asked_for) = names(&["gtk4"]);
 
-        assert_eq!(package_state(&installed, &asked_for, "glib2"), Ok(PackageState::Borrowed));
-    }
+    assert_eq!(
+      package_state(&installed, &asked_for, "glib2"),
+      Ok(PackageState::Borrowed)
+    );
+  }
 
-    #[test]
-    fn a_package_nothing_has_is_missing() {
-        assert_eq!(package_state(&[], &[], "wtype"), Ok(PackageState::NotFound));
-    }
+  #[test]
+  fn a_package_nothing_has_is_missing() {
+    assert_eq!(package_state(&[], &[], "wtype"), Ok(PackageState::NotFound));
+  }
 
-    #[test]
-    fn only_a_package_someone_asked_for_is_settled() {
-        let Ok(asked_for) = PackageState::Ok.up_to_date();
-        let Ok(borrowed) = PackageState::Borrowed.up_to_date();
-        let Ok(missing) = PackageState::NotFound.up_to_date();
+  #[test]
+  fn only_a_package_someone_asked_for_is_settled() {
+    let Ok(asked_for) = PackageState::Ok.up_to_date();
+    let Ok(borrowed) = PackageState::Borrowed.up_to_date();
+    let Ok(missing) = PackageState::NotFound.up_to_date();
 
-        assert_eq!(asked_for, UpToDate::Yes);
-        assert_eq!(borrowed, UpToDate::No);
-        assert_eq!(missing, UpToDate::No);
-    }
+    assert_eq!(asked_for, UpToDate::Yes);
+    assert_eq!(borrowed, UpToDate::No);
+    assert_eq!(missing, UpToDate::No);
+  }
 
-    #[test]
-    fn what_apply_installs_and_what_it_claims_are_different_lists() {
-        let Ok(named) = names(&["glib2", "gtk4", "wtype"]);
-        let Ok(installed) = names(&["glib2", "gtk4"]);
-        let Ok(asked_for) = names(&["gtk4"]);
+  #[test]
+  fn what_apply_installs_and_what_it_claims_are_different_lists() {
+    let Ok(named) = names(&["glib2", "gtk4", "wtype"]);
+    let Ok(installed) = names(&["glib2", "gtk4"]);
+    let Ok(asked_for) = names(&["gtk4"]);
 
-        assert_eq!(missing_packages(&named, &installed), Ok(vec!["wtype"]));
-        assert_eq!(borrowed(&named, &installed, &asked_for), Ok(vec!["glib2"]));
-    }
+    assert_eq!(missing_packages(&named, &installed), Ok(vec!["wtype"]));
+    assert_eq!(borrowed(&named, &installed, &asked_for), Ok(vec!["glib2"]));
+  }
 
-    #[test]
-    fn nothing_is_both_missing_and_borrowed() {
-        let Ok(named) = names(&["glib2", "wtype"]);
-        let Ok(installed) = names(&["glib2"]);
-        let Ok(asked_for) = names(&[]);
-        let Ok(missing) = missing_packages(&named, &installed);
-        let Ok(borrowed) = borrowed(&named, &installed, &asked_for);
-        let missing: HashSet<&str> = missing.into_iter().collect();
-        let borrowed: HashSet<&str> = borrowed.into_iter().collect();
+  #[test]
+  fn nothing_is_both_missing_and_borrowed() {
+    let Ok(named) = names(&["glib2", "wtype"]);
+    let Ok(installed) = names(&["glib2"]);
+    let Ok(asked_for) = names(&[]);
+    let Ok(missing) = missing_packages(&named, &installed);
+    let Ok(borrowed) = borrowed(&named, &installed, &asked_for);
+    let missing_set: HashSet<&str> = missing.into_iter().collect();
+    let borrowed_set: HashSet<&str> = borrowed.into_iter().collect();
 
-        assert!(missing.is_disjoint(&borrowed), "{missing:?} and {borrowed:?}");
-    }
+    assert!(
+      missing_set.is_disjoint(&borrowed_set),
+      "{missing_set:?} and {borrowed_set:?}"
+    );
+  }
 }

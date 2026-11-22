@@ -30,43 +30,63 @@ pub const PROFILE: &str = ".librewolf/console";
 pub const PALETTE: &str = ".librewolf/console/chrome/palette.css";
 
 pub fn xpi(home: &Path) -> Result<PathBuf, Never> {
-    Ok(home.join(PROFILE).join("extensions").join(format!("{ID}.xpi")))
+  #[cfg_attr(
+    dylint_lib = "explicit086_no_climbing_join",
+    expect(
+      explicit086_no_climbing_join,
+      reason = "the extension filename comes from the fixed add-on ID and .xpi suffix"
+    )
+  )]
+  let path = home
+    .join(PROFILE)
+    .join("extensions")
+    .join(format!("{ID}.xpi"));
+
+  Ok(path)
 }
 
 pub fn stamp(home: &Path) -> Result<PathBuf, Never> {
-    Ok(home.join(PROFILE).join("console-web.stamp"))
+  Ok(home.join(PROFILE).join("console-web.stamp"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    #[test]
-    fn the_add_on_is_named_where_the_browser_looks_for_it() {
-        let home = Path::new("/home/someone");
+  #[test]
+  fn the_add_on_is_named_where_the_browser_looks_for_it() {
+    let home = Path::new("/home/someone");
 
-        assert_eq!(
-            xpi(home),
-            Ok(PathBuf::from("/home/someone/.librewolf/console/extensions/web@console.xpi"))
-        );
-    }
+    assert_eq!(
+      xpi(home),
+      Ok(PathBuf::from(
+        "/home/someone/.librewolf/console/extensions/web@console.xpi"
+      ))
+    );
+  }
 
-    #[test]
-    fn the_note_is_not_left_among_the_add_ons() -> Result<(), Box<dyn Error>> {
-        let home = Path::new("/home/someone");
-        let Ok(note) = stamp(home);
-        let Ok(add_on) = xpi(home);
-        let add_ons = add_on.parent().ok_or("a directory")?;
+  #[test]
+  fn the_note_is_not_left_among_the_add_ons() -> Result<(), Box<dyn Error>> {
+    let home = Path::new("/home/someone");
+    let Ok(note) = stamp(home);
+    let Ok(add_on) = xpi(home);
+    let add_ons = add_on.parent().ok_or("a directory")?;
 
-        assert!(!note.starts_with(add_ons), "{}", note.display());
-        assert_eq!(note, PathBuf::from("/home/someone/.librewolf/console/console-web.stamp"));
+    assert!(!note.starts_with(add_ons), "{}", note.display());
+    assert_eq!(
+      note,
+      PathBuf::from("/home/someone/.librewolf/console/console-web.stamp")
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn the_palette_and_the_add_on_are_in_one_profile() {
-        assert!(PALETTE.starts_with(PROFILE), "{PALETTE} is not under {PROFILE}");
-    }
+  #[test]
+  fn the_palette_and_the_add_on_are_in_one_profile() {
+    assert!(
+      PALETTE.starts_with(PROFILE),
+      "{PALETTE} is not under {PROFILE}"
+    );
+  }
 }

@@ -1,0 +1,11 @@
+warning: `std::fs::set_permissions` changes whatever is at this name now, after it has already existed with another mode
+  --> $DIR/main.rs:9:5
+   |
+LL |     std::fs::set_permissions(at, Permissions::from_mode(0o600))?;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: say the mode in the call that makes the file -- `OpenOptions::mode` beside `create_new` -- so it is never wrong, and change one later on the open file with `File::set_permissions`, which follows no name. Where the file was not made here and cannot be opened, allow this rule and let the reason say whose it is
+   = note: `#[warn(explicit102_no_mode_after_making)]` on by default
+
+warning: 1 warning emitted
+

@@ -1,0 +1,17 @@
+// run-rustfix
+// edition:2024
+#![allow(dead_code)]
+
+fn apply(mut offset: i32, delta: i32, shift: i32) -> (i32, i32) {
+    offset = ::core::primitive::i32::wrapping_add(offset, 9);
+    let sum = ::core::primitive::i32::wrapping_add(offset, delta);
+    let shifted = ::core::primitive::i32::wrapping_shl(sum, ::core::primitive::i32::cast_unsigned(shift));
+    let reflected = ::core::primitive::i32::wrapping_neg(shifted);
+    (offset, reflected)
+}
+
+fn advance(start: usize, count: usize) -> usize {
+    (::core::num::Wrapping(start) + ::core::num::Wrapping(count)).0
+}
+
+fn main() {}

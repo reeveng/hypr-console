@@ -1,0 +1,123 @@
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/option_binding.rs:6:5
+   |
+LL | /     let Some((mut left, right)) = input else {
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+   = note: `#[deny(explicit023_no_let_else)]` on by default
+help: name the matching and failed cases
+   |
+LL ~     let (mut left, right) = match input {
+LL +         Some((matched_left, matched_right)) => (matched_left, matched_right),
+LL +         ::core::option::Option::None => return 0,
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/option_binding.rs:14:5
+   |
+LL | /     let Ok(Some(word)) = input else {
+LL | |         return String::new();
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     let word = match input {
+LL +         Ok(Some(matched_word)) => matched_word,
+LL +         ::core::result::Result::Ok(::core::option::Option::None) | ::core::result::Result::Err(_) => return String::new(),
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/option_binding.rs:21:5
+   |
+LL | /     let Ok(number) = input.ok_or(()) else {
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     let number = {
+LL +         let outcome_number = input.ok_or(());
+LL +
+LL +         match outcome_number {
+LL +             Ok(matched_number) => matched_number,
+LL +             ::core::result::Result::Err(_) => return 0,
+LL +         }
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/option_binding.rs:31:5
+   |
+LL | /     let Available(mut word) = input else {
+LL | |         return String::new();
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     let mut word = match input {
+LL +         Available(matched_word) => matched_word,
+LL +         ::core::option::Option::None => return String::new(),
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/option_binding.rs:39:5
+   |
+LL | /     let Some(word) = input else {
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     let word = match input {
+LL +         Some(matched_word) => matched_word,
+LL +         ::core::option::Option::None => return 0,
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/option_binding.rs:46:5
+   |
+LL | /     let Some(&copied) = input else {
+LL | |         return [0; 2];
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     let copied = match input {
+LL +         Some(&matched_copied) => matched_copied,
+LL +         ::core::option::Option::None => return [0; 2],
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/option_binding.rs:67:5
+   |
+LL | /     let Some(value) = Probe(dropped).read(succeeds) else {
+LL | |         return u32::from(dropped.get());
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     let value = {
+LL +         let optional_value = Probe(dropped).read(succeeds);
+LL +
+LL +         match optional_value {
+LL +             Some(matched_value) => matched_value,
+LL +             ::core::option::Option::None => return u32::from(dropped.get()),
+LL +         }
+LL +     };
+   |
+
+error: aborting due to 7 previous errors
+

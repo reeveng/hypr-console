@@ -13,32 +13,39 @@ use console_test_stages::device::{Device, OPENING, PATIENCE};
 use console_test_stages::here::{Here, TURNS};
 
 pub const CLOSE: Check = Check {
-    name: "030-close-the-window",
-    about: "The top right paddle closes what is in front of you.",
-    feature: "close",
-    since: "2026-08-24",
-    bodies: &[Body::Here(here), Body::Device(there)],
+  name: "030-close-the-window",
+  about: "The top right paddle closes what is in front of you.",
+  feature: "close",
+  since: "2026-08-24",
+  bodies: &[Body::Here(here), Body::Device(there)],
 };
 
 fn here(stage: &mut Here) -> CheckResult {
-    stage.press("right-paddle-top")?;
+  stage.press("right-paddle-top")?;
 
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(asked) = stage.names();
+  let Ok(()) = stage.settle(TURNS);
+  let Ok(asked) = stage.names();
 
-    same(&asked, &["console-put-away"], || format!("it asked for {asked:?}"))
+  same(&asked, &["console-put-away"], || {
+    format!("it asked for {asked:?}")
+  })
 }
 
 fn there(stage: &mut Device) -> CheckResult {
-    let Ok(ours) = stage.opening("alacritty", OPENING);
+  let Ok(ours) = stage.opening("alacritty", OPENING);
 
-    let ours = match ours {
-        Some(ours) => ours,
-        None => return failed("nothing would open on the device to be closed".to_string()),
-    };
+  let ours_3 = match ours {
+    Some(ours_2) => ours_2,
+    None => return failed("nothing would open on the device to be closed".to_string()),
+  };
 
-    let Ok(()) = stage.press("right-paddle-top");
-    let Ok(went) = stage.window_gone(&ours, PATIENCE);
+  let Ok(()) = stage.press("right-paddle-top");
+  let Ok(went) = stage.window_gone(&ours_3, PATIENCE);
 
-    happened(went, || format!("the paddle left the window at {ours} where it was"))
+  happened(went, || {
+    format!(
+      "the paddle left the window at {ours} where it was",
+      ours = ours_3
+    )
+  })
 }

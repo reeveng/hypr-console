@@ -1,0 +1,23 @@
+error: `index` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/float_boundary.rs:8:9
+   |
+LL |     let index = value as usize;
+   |         ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/float_boundary.rs:8:26
+   |
+LL |     let index = value as usize;
+   |                          ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     let index = value as usize;
+LL +     let ::core::result::Result::Ok(index) = ::console_core_number_conversion::toward_zero_usize(<::core::primitive::f64 as ::core::convert::From<::core::primitive::f32>>::from(value));
+   |
+
+error: aborting due to 2 previous errors
+

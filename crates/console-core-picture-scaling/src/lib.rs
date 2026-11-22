@@ -30,299 +30,395 @@
 //! filter over one plane of single samples, so each plane is drawn at the size
 //! it is shown at first, and only the pixels that are shown are coloured.
 
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+use alloc::vec::Vec;
 use console_core_geometry::{Rectangle, Size};
 use console_core_never::Never;
-use console_core_number_conversion::{fitted, index, toward_zero_u32, whole_i32};
+use console_core_number_conversion::{fitted, index, toward_zero_i32, toward_zero_u32};
+
+mod chroma;
+#[cfg(feature = "std")]
+mod cubic;
+pub use chroma::{
+  ChromaRounding, MismatchedChromaRows, chroma_2x_rows, upsample_chroma_2x_bilinear,
+};
+#[cfg(feature = "std")]
+pub use cubic::{Channels, ResizeError, catmull_rom};
 
 const WEIGHT_BITS: u32 = 14;
 
 const WHOLE_WEIGHT: f64 = 16384.0;
 
+enum Scanline {
+  Visible,
+  Clipped,
+}
+
+impl From<bool> for Scanline {
+  fn from(visible: bool) -> Self {
+    match bool::then_some(visible, ()) {
+      Some(()) => Self::Visible,
+      None => Self::Clipped,
+    }
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Source<'a> {
-    pub rgba: &'a [u8],
-    pub width: u32,
-    pub region: Rectangle<u32>,
+  pub rgba: &'a [u8],
+  pub width: u32,
+  pub region: Rectangle<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Plane<'a> {
-    pub samples: &'a [u8],
-    pub stride: u32,
-    pub size: Size<u32>,
+  pub samples: &'a [u8],
+  pub stride: u32,
+  pub size: Size<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Span {
-    from: u32,
-    to: u32,
+  from: u32,
+  to: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Taps {
-    first: u32,
-    weights: Vec<i32>,
+  first: u32,
+  weights: Vec<i32>,
 }
 
 #[derive(Debug)]
 pub struct Scaling {
-    width: u32,
-    region: Rectangle<u32>,
-    made: Size<u32>,
-    columns: Vec<Taps>,
-    rows: Vec<Taps>,
-    narrowed: Vec<[u8; 4]>,
-    next: u32,
+  width: u32,
+  region: Rectangle<u32>,
+  made: Size<u32>,
+  columns: Vec<Taps>,
+  rows: Vec<Taps>,
+  narrowed: Vec<[u8; 4]>,
+  next: u32,
 }
 
 impl Scaling {
-    pub fn new(width: u32, region: Rectangle<u32>, to: Size<u32>) -> Result<Scaling, Never> {
-        let Ok(columns) = taps(Span { from: region.size.width, to: to.width });
-        let Ok(rows) = taps(Span { from: region.size.height, to: to.height });
+  pub fn new(width: u32, region: Rectangle<u32>, to: Size<u32>) -> Result<Scaling, Never> {
+    let Ok(columns) = taps(Span {
+      from: region.size.width,
+      to: to.width,
+    });
+    let Ok(rows) = taps(Span {
+      from: region.size.height,
+      to: to.height,
+    });
 
-        let Ok(area) = index(u64::from(to.width).saturating_mul(u64::from(region.size.height)));
+    Ok(Scaling {
+      width,
+      region,
+      made: to,
+      columns,
+      rows,
+      narrowed: Vec::new(),
+      next: 0,
+    })
+  }
 
-        Ok(Scaling { width, region, made: to, columns, rows, narrowed: vec![[0; 4]; area], next: 0 })
+  pub fn received(&mut self, rgba: &[u8]) -> Result<(), Never> {
+    let Ok(width) = index(self.width);
+    let Ok(left) = index(self.region.origin.x);
+    let top = self.region.origin.y;
+    let bottom = top.saturating_add(self.region.size.height);
+
+    for line in rgba.as_chunks::<4>().0.chunks_exact(width.max(1)) {
+      match Scanline::from(self.next >= top && self.next < bottom) {
+        Scanline::Visible => {
+          let part = match line.get(left..) {
+            Some(part) => part,
+            None => &[],
+          };
+
+          let Ok(start) = index(self.narrowed.len());
+          self.narrowed.extend(self.columns.iter().map(|_| [0; 4]));
+
+          match self.narrowed.get_mut(start..) {
+            Some(into) => {
+              let Ok(()) = horizontally(part, (&self.columns, into));
+            }
+            None => {}
+          }
+        }
+        Scanline::Clipped => {}
+      }
+
+      self.next = self.next.saturating_add(1);
     }
 
-    pub fn received(&mut self, rgba: &[u8]) -> Result<(), Never> {
-        let Ok(width) = index(self.width);
-        let Ok(left) = index(self.region.origin.x);
-        let top = self.region.origin.y;
-        let bottom = top.saturating_add(self.region.size.height);
+    Ok(())
+  }
 
-        for line in rgba.as_chunks::<4>().0.chunks_exact(width.max(1)) {
-            match (self.next >= top, self.next < bottom) {
-                (true, true) => {
-                    let part = match line.get(left..) {
-                        Some(part) => part,
-                        None => &[],
-                    };
+  pub fn finished(self) -> Result<Vec<u8>, Never> {
+    let Ok(made_width) = index(self.made.width);
 
-                    let Ok(made_width) = index(self.made.width);
-                    let Ok(row) = index(self.next.saturating_sub(top));
-
-                    match self.narrowed.chunks_exact_mut(made_width.max(1)).nth(row) {
-                        Some(into) => {
-                            let Ok(()) = horizontally(part, (&self.columns, into));
-                        },
-                        None => {},
-                    }
-                },
-                (_, _) => {},
-            }
-
-            self.next = self.next.saturating_add(1);
-        }
-
-        Ok(())
+    match (self.width, made_width, self.made.height) {
+      (0, _, _) | (_, 0, _) | (_, _, 0) => return Ok(Vec::new()),
+      (_, _, _) => {}
     }
 
-    pub fn finished(self) -> Result<Vec<u8>, Never> {
-        let Ok(made_width) = index(self.made.width);
+    let mut made = Vec::new();
+    let mut sums: Vec<[i32; 4]> = self.columns.iter().map(|_| [0; 4]).collect();
 
-        match (self.width, made_width, self.made.height) {
-            (0, _, _) | (_, 0, _) | (_, _, 0) => return Ok(Vec::new()),
-            (_, _, _) => {},
+    for row in &self.rows {
+      let Ok(first) = index(row.first);
+
+      sums.fill([0; 4]);
+
+      for (line, weight) in self
+        .narrowed
+        .chunks(made_width.max(1))
+        .skip(first)
+        .zip(&row.weights)
+      {
+        for (sum, pixel) in sums.iter_mut().zip(line) {
+          let Ok(()) = added(sum, pixel, *weight);
         }
+      }
 
-        let mut made = Vec::new();
+      for sum in &sums {
+        let Ok(pixel) = descaled(*sum);
 
-        for row in &self.rows {
-            let mut sums = vec![[0i32; 4]; made_width];
-            let Ok(first) = index(row.first);
-
-            for (line, weight) in self.narrowed.chunks(made_width).skip(first).zip(&row.weights) {
-                for (sum, pixel) in sums.iter_mut().zip(line) {
-                    let Ok(()) = added(sum, pixel, *weight);
-                }
-            }
-
-            for sum in sums {
-                let Ok(pixel) = descaled(sum);
-
-                made.extend_from_slice(&pixel);
-            }
-        }
-
-        Ok(made)
+        made.extend_from_slice(&pixel);
+      }
     }
+
+    Ok(made)
+  }
 }
 
 pub fn scaled(source: Source<'_>, to: Size<u32>) -> Result<Vec<u8>, Never> {
-    let Ok(mut scaling) = Scaling::new(source.width, source.region, to);
-    let Ok(()) = scaling.received(source.rgba);
+  let Ok(mut scaling) = Scaling::new(source.width, source.region, to);
+  let Ok(()) = scaling.received(source.rgba);
 
-    scaling.finished()
+  scaling.finished()
 }
 
 pub fn scaled_plane(plane: Plane<'_>, to: Size<u32>) -> Result<Vec<u8>, Never> {
-    let Ok(columns) = taps(Span { from: plane.size.width, to: to.width });
-    let Ok(rows) = taps(Span { from: plane.size.height, to: to.height });
-    let widest = columns.iter().map(|column| {
-        let Ok(count) = fitted::<_, u32>(column.weights.len());
+  let Ok(columns) = taps(Span {
+    from: plane.size.width,
+    to: to.width,
+  });
+  let Ok(rows) = taps(Span {
+    from: plane.size.height,
+    to: to.height,
+  });
+  let widest = columns
+    .iter()
+    .map(|column| {
+      let Ok(count) = fitted::<_, u32>(column.weights.len());
 
-        count
-    }).max();
+      count
+    })
+    .max();
 
-    let widest = match widest {
-        Some(widest) => widest,
-        None => 0,
-    };
+  let widest_3 = match widest {
+    Some(widest_2) => widest_2,
+    None => 0,
+  };
 
-    match (plane.stride, plane.size.width, plane.size.height, to.width, to.height) {
-        (0, _, _, _, _) | (_, 0, _, _, _) | (_, _, 0, _, _) | (_, _, _, 0, _) | (_, _, _, _, 0) => return Ok(Vec::new()),
-        (_, _, _, _, _) => {},
+  match (
+    plane.stride,
+    plane.size.width,
+    plane.size.height,
+    to.width,
+    to.height,
+  ) {
+    (0, _, _, _, _) | (_, 0, _, _, _) | (_, _, 0, _, _) | (_, _, _, 0, _) | (_, _, _, _, 0) => {
+      return Ok(Vec::new());
     }
+    (_, _, _, _, _) => {}
+  }
 
-    let taps = Both { columns: &columns, rows: &rows };
+  let taps = Both {
+    columns: &columns,
+    rows: &rows,
+  };
 
-    match widest {
-        0..=4 => planed::<4>(plane, taps, to),
-        5..=8 => planed::<8>(plane, taps, to),
-        9..=16 => planed::<16>(plane, taps, to),
-        17..=32 => planed::<32>(plane, taps, to),
-        _ => planed::<128>(plane, taps, to),
-    }
+  match widest_3 {
+    0..=4 => planed::<4>(plane, taps),
+    5..=8 => planed::<8>(plane, taps),
+    9..=16 => planed::<16>(plane, taps),
+    17..=32 => planed::<32>(plane, taps),
+    _ => planed::<128>(plane, taps),
+  }
 }
 
 #[derive(Clone, Copy)]
 struct Both<'a> {
-    columns: &'a [Taps],
-    rows: &'a [Taps],
+  columns: &'a [Taps],
+  rows: &'a [Taps],
 }
 
-fn planed<const WIDEST: usize>(plane: Plane<'_>, taps: Both<'_>, to: Size<u32>) -> Result<Vec<u8>, Never> {
-    let Ok(stride) = index(plane.stride);
-    let Ok(wide) = index(plane.size.width);
-    let Ok(tall) = index(plane.size.height);
-    let Ok(made_wide) = index(to.width);
-    let Ok(made_tall) = index(to.height);
+fn planed<const WIDEST: usize>(plane: Plane<'_>, taps: Both<'_>) -> Result<Vec<u8>, Never> {
+  let Ok(stride) = index(plane.stride);
+  let Ok(wide) = index(plane.size.width);
+  let Ok(tall) = index(plane.size.height);
 
-    let lines: Vec<&[u8]> = plane.samples.chunks(stride).take(tall).map(|line| match line.get(..wide) {
-        Some(line) => line,
-        None => line,
-    }).collect();
+  let lines: Vec<&[u8]> = plane
+    .samples
+    .chunks(stride.max(1))
+    .take(tall)
+    .map(|line| match line.get(..wide) {
+      Some(line_2) => line_2,
+      None => line,
+    })
+    .collect();
 
-    let across: Vec<(u32, [i32; WIDEST])> = taps.columns.iter().map(|column| {
-        let mut fixed = [0i32; WIDEST];
+  let across: Vec<(u32, [i32; WIDEST])> = taps
+    .columns
+    .iter()
+    .map(|column| {
+      let mut fixed = [0i32; WIDEST];
 
-        for (slot, weight) in fixed.iter_mut().zip(&column.weights) {
-            *slot = *weight;
-        }
+      for (slot, weight) in fixed.iter_mut().zip(&column.weights) {
+        *slot = *weight;
+      }
 
-        (column.first, fixed)
-    }).collect();
+      (column.first, fixed)
+    })
+    .collect();
 
-    let mut sums = vec![0i32; wide];
-    let mut down = vec![0u8; wide.saturating_add(WIDEST)];
-    let mut made = Vec::with_capacity(made_wide.saturating_mul(made_tall));
+  let mut sums: Vec<i32> = lines
+    .first()
+    .copied()
+    .into_iter()
+    .flatten()
+    .map(|_| 0)
+    .collect();
+  let mut down: Vec<u8> = sums.iter().map(|_| 0).chain([0; WIDEST]).collect();
+  let mut made = Vec::new();
 
-    for row in taps.rows {
-        let Ok(first) = index(row.first);
+  for row in taps.rows {
+    let Ok(first) = index(row.first);
 
-        sums.fill(0);
+    sums.fill(0);
 
-        for (line, weight) in lines.iter().skip(first).zip(&row.weights) {
-            for (sum, sample) in sums.iter_mut().zip(line.iter()) {
-                *sum = sum.wrapping_add(weight.wrapping_mul(i32::from(*sample)));
-            }
-        }
-
-        for (into, sum) in down.iter_mut().zip(&sums) {
-            let Ok(sample) = descaled_one(*sum);
-
-            *into = sample;
-        }
-
-        for (first, weights) in &across {
-            let Ok(first) = index(*first);
-
-            let sum = match down.get(first..).and_then(<[u8]>::first_chunk::<WIDEST>) {
-                Some(window) => window.iter().zip(weights).fold(0i32, |sum, (sample, weight)| sum.wrapping_add(weight.wrapping_mul(i32::from(*sample)))),
-                None => 0,
-            };
-
-            let Ok(sample) = descaled_one(sum);
-
-            made.push(sample);
-        }
+    for (line, weight) in lines.iter().skip(first).zip(&row.weights) {
+      for (sum, sample) in sums.iter_mut().zip(line.iter()) {
+        *sum = sum.wrapping_add(weight.wrapping_mul(i32::from(*sample)));
+      }
     }
 
-    Ok(made)
+    for (into, sum) in down.iter_mut().zip(&sums) {
+      let Ok(sample) = descaled_one(*sum);
+
+      *into = sample;
+    }
+
+    for (first_2, weights) in &across {
+      let Ok(first_3) = index(*first_2);
+
+      let sum = match down.get(first_3..).and_then(<[u8]>::first_chunk::<WIDEST>) {
+        Some(window) => window
+          .iter()
+          .zip(weights)
+          .fold(0i32, |sum, (sample, weight)| {
+            sum.wrapping_add(weight.wrapping_mul(i32::from(*sample)))
+          }),
+        None => 0,
+      };
+
+      let Ok(sample) = descaled_one(sum);
+
+      made.push(sample);
+    }
+  }
+
+  Ok(made)
 }
 
 #[inline(always)]
 fn descaled_one(sum: i32) -> Result<u8, Never> {
-    let [low, ..] = sum.wrapping_add(1i32.wrapping_shl(WEIGHT_BITS.saturating_sub(1))).wrapping_shr(WEIGHT_BITS).clamp(0, 255).to_le_bytes();
+  let [low, ..] = sum
+    .wrapping_add(1i32.wrapping_shl(WEIGHT_BITS.saturating_sub(1)))
+    .wrapping_shr(WEIGHT_BITS)
+    .clamp(0, 255)
+    .to_le_bytes();
 
-    Ok(low)
+  Ok(low)
 }
 
 fn horizontally(part: &[[u8; 4]], made: (&[Taps], &mut [[u8; 4]])) -> Result<(), Never> {
-    let (columns, across) = made;
+  let (columns, across) = made;
 
-    for (column, into) in columns.iter().zip(across) {
-        let mut sum = [0i32; 4];
-        let Ok(first) = index(column.first);
+  for (column, into) in columns.iter().zip(across) {
+    let mut sum = [0i32; 4];
+    let Ok(first) = index(column.first);
 
-        for (pixel, weight) in part.iter().skip(first).zip(&column.weights) {
-            let Ok(()) = added(&mut sum, pixel, *weight);
-        }
-
-        let Ok(pixel) = descaled(sum);
-
-        *into = pixel;
+    for (pixel, weight) in part.iter().skip(first).zip(&column.weights) {
+      let Ok(()) = added(&mut sum, pixel, *weight);
     }
 
-    Ok(())
+    let Ok(pixel) = descaled(sum);
+
+    *into = pixel;
+  }
+
+  Ok(())
 }
 
 fn added(sum: &mut [i32; 4], pixel: &[u8; 4], weight: i32) -> Result<(), Never> {
-    for (channel, value) in sum.iter_mut().zip(pixel) {
-        *channel = channel.wrapping_add(weight.wrapping_mul(i32::from(*value)));
-    }
+  for (channel, value) in sum.iter_mut().zip(pixel) {
+    *channel = channel.wrapping_add(weight.wrapping_mul(i32::from(*value)));
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn descaled(sum: [i32; 4]) -> Result<[u8; 4], Never> {
-    Ok(sum.map(|channel| {
-        let Ok(value) = fitted::<i32, u8>(channel.wrapping_add(1i32.wrapping_shl(WEIGHT_BITS.saturating_sub(1))).wrapping_shr(WEIGHT_BITS));
+  Ok(sum.map(|channel| {
+    let Ok(value) = fitted::<i32, u8>(
+      channel
+        .wrapping_add(1i32.wrapping_shl(WEIGHT_BITS.saturating_sub(1)))
+        .wrapping_shr(WEIGHT_BITS),
+    );
 
-        value
-    }))
+    value
+  }))
 }
 
 fn taps(span: Span) -> Result<Vec<Taps>, Never> {
-    let scale = f64::from(span.from) / f64::from(span.to.max(1));
-    let reach = scale.max(1.0);
+  let scale = f64::from(span.from) / f64::from(span.to.max(1));
+  let reach = scale.max(1.0);
 
-    Ok((0..span.to)
-        .map(|at| {
-            let middle = (f64::from(at) + 0.5) * scale;
-            let Ok(first) = toward_zero_u32((middle - reach).floor().max(0.0));
-            let Ok(last) = toward_zero_u32((middle + reach).ceil());
-            let last = last.min(span.from);
+  Ok(
+    (0..span.to)
+      .map(|at| {
+        let middle = (f64::from(at) + 0.5) * scale;
+        let Ok(first) = toward_zero_u32(middle - reach);
+        let right = middle + reach;
+        let Ok(whole) = toward_zero_u32(right);
+        let last = whole.saturating_add(u32::from(f64::from(whole) < right));
+        let last_2 = last.min(span.from);
 
-            let near: Vec<f64> = (first..last)
-                .map(|source| (1.0 - ((f64::from(source) + 0.5 - middle) / reach).abs()).max(0.0))
-                .collect();
-            let total: f64 = near.iter().sum();
-            let total = match total > 0.0 {
-                true => total,
-                false => 1.0,
-            };
+        let near: Vec<f64> = (first..last_2)
+          .map(|source| (1.0 - ((f64::from(source) + 0.5 - middle) / reach).abs()).max(0.0))
+          .collect();
+        let total: f64 = near.iter().sum();
+        let total_2 = match total.partial_cmp(&0.0) {
+          Some(core::cmp::Ordering::Greater) => total,
+          Some(core::cmp::Ordering::Less | core::cmp::Ordering::Equal) | None => 1.0,
+        };
 
-            let weights = near
-                .iter()
-                .map(|weight| {
-                    let Ok(weight) = whole_i32(weight / total * WHOLE_WEIGHT);
+        let weights = near
+          .iter()
+          .map(|weight| {
+            let Ok(weight_2) = toward_zero_i32(weight / total_2 * WHOLE_WEIGHT + 0.5);
 
-                    weight
-                })
-                .collect();
-            Taps { first, weights }
-        })
-        .collect())
+            weight_2
+          })
+          .collect();
+        Taps { first, weights }
+      })
+      .collect(),
+  )
 }

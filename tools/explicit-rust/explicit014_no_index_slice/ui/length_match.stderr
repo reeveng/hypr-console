@@ -1,0 +1,51 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/length_match.rs:10:34
+   |
+LL |         1 => { let Point { x } = points[0]; x }
+   |                                  ^^^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: bind the elements in the slice patterns that establish their bounds
+   |
+LL ~     match points {
+LL ~         [] => 0,
+LL ~         [points_0] => { let Point { x } = *points_0; x }
+LL ~         [points_0, points_1] => points_0.x + points_1.x,
+LL ~         [points_0, ..] if points.len() & 1 != 0 => points_0.x,
+LL ~         [_, points_1, ..] => points_1.x,
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/length_match.rs:11:14
+   |
+LL |         2 => points[0].x + points[1].x,
+   |              ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/length_match.rs:11:28
+   |
+LL |         2 => points[0].x + points[1].x,
+   |                            ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/length_match.rs:12:28
+   |
+LL |         n if n & 1 != 0 => points[0].x,
+   |                            ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/length_match.rs:13:14
+   |
+LL |         _ => points[1].x,
+   |              ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: aborting due to 5 previous errors
+

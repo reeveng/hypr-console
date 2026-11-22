@@ -7,6 +7,7 @@
 //! own. These were bash in the justfile, where none of the rules the rest of
 //! the tree keeps could reach them.
 
-pub mod ready;
 pub mod reached;
+pub mod ready;
+pub mod rules;
 pub mod task;

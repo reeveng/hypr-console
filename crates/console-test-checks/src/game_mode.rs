@@ -27,38 +27,38 @@ use console_test_stages::here::{Here, TURNS};
 
 const NOTHING_SAID: &str = "";
 
-
 pub const GAME_MODE: Check = Check {
-    name: "190-game-mode",
-    about: "Legion left leaves the desktop for Game Mode.",
-    feature: "game-mode",
-    since: "2026-08-28",
-    bodies: &[Body::Here(here), Body::Device(there)],
+  name: "190-game-mode",
+  about: "Legion left leaves the desktop for Game Mode.",
+  feature: "game-mode",
+  since: "2026-08-28",
+  bodies: &[Body::Here(here), Body::Device(there)],
 };
 
 const DAEMON: &str = "controller-desktop";
 
 fn here(stage: &mut Here) -> CheckResult {
-    stage.press("legion-left")?;
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(ran) = stage.names();
+  stage.press("legion-left")?;
+  let Ok(()) = stage.settle(TURNS);
+  let Ok(ran) = stage.names();
 
-    same(&ran, &["session-game"], || format!("it ran {ran:?}"))
+  same(&ran, &["session-game"], || format!("it ran {ran:?}"))
 }
 
 fn there(stage: &mut Device) -> CheckResult {
-    let Ok(named) = comm(DAEMON);
-    let Ok(said) =
-        stage.user(&format!("grep NoNewPrivs /proc/$(pgrep -x {named})/status || true"));
-    let bit = match said.split_whitespace().last() {
-        Some(bit) => bit,
-        None => NOTHING_SAID,
-    };
+  let Ok(named) = comm(DAEMON);
+  let Ok(said) = stage.user(&format!(
+    "grep NoNewPrivs /proc/$(pgrep -x {named})/status || true"
+  ));
+  let bit = match said.split_whitespace().last() {
+    Some(bit) => bit,
+    None => NOTHING_SAID,
+  };
 
-    same(bit, "0", || {
-        format!(
-            "the daemon the button runs from is {DAEMON} and its no-new-privileges bit is {bit:?}, \
+  same(bit, "0", || {
+    format!(
+      "the daemon the button runs from is {DAEMON} and its no-new-privileges bit is {bit:?}, \
              so the pkexec that records the session will be refused and the button will do nothing"
-        )
-    })
+    )
+  })
 }

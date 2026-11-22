@@ -48,23 +48,25 @@ use console_core_number_conversion::fitted;
 use console_panel::description::{Description, Standing};
 use console_settings::hours;
 use console_settings::rows::{configuration, where_you_are};
-use console_test_stages::checking::{Body, Check, CheckResult, cannot, failed, happened, happened_handed};
-use console_test_stages::device::{Device, PATIENCE, Ready, Outcome};
+use console_test_stages::checking::{
+  Body, Check, CheckResult, cannot, failed, happened, happened_handed,
+};
+use console_test_stages::device::{Device, Outcome, PATIENCE, Ready};
 
 pub const HOUR: Check = Check {
-    name: "390-the-hour-is-chosen-on-the-panel",
-    about: "The time zone is chosen on the General tab, and the machine moves.",
-    feature: "language",
-    since: "2026-09-07",
-    bodies: &[Body::Device(there)],
+  name: "390-the-hour-is-chosen-on-the-panel",
+  about: "The time zone is chosen on the General tab, and the machine moves.",
+  feature: "language",
+  since: "2026-09-07",
+  bodies: &[Body::Device(there)],
 };
 
 pub const FIRST_ROW: Check = Check {
-    name: "391-a-panel-opens-on-its-first-row",
-    about: "Settings opens with its first row highlighted, wherever the pointer is resting.",
-    feature: "panel",
-    since: "2026-09-25",
-    bodies: &[Body::Device(first_row)],
+  name: "391-a-panel-opens-on-its-first-row",
+  about: "Settings opens with its first row highlighted, wherever the pointer is resting.",
+  feature: "panel",
+  since: "2026-09-25",
+  bodies: &[Body::Device(first_row)],
 };
 
 const MIDDLE: (u32, u32) = (512, 320);
@@ -78,253 +80,285 @@ const TOLD: &str = "$XDG_RUNTIME_DIR/console-check-hour.jsonl";
 const STEPS: u32 = 200;
 
 fn zone(stage: &mut Device) -> Result<String, Never> {
-    let Ok(said) = stage.user("timedatectl show --property=Timezone --value");
+  let Ok(said) = stage.user("timedatectl show --property=Timezone --value");
 
-    Ok(said.trim().to_string())
+  Ok(said.trim().to_string())
 }
 
 fn latest(seen: &mut Device) -> Result<(u32, Option<Description>), Never> {
-    let Ok(mut drawn) = seen.read_descriptions(TOLD);
-    let Ok(many) = fitted::<_, u32>(drawn.len());
+  let Ok(mut drawn) = seen.read_descriptions(TOLD);
+  let Ok(many) = fitted::<_, u32>(drawn.len());
 
-    Ok((many, drawn.pop()))
+  Ok((many, drawn.pop()))
 }
 
 fn highlighted(card: &Description) -> Result<Option<(u32, &str)>, Never> {
-    Ok(card
-        .lines
-        .iter()
-        .find(|line| line.standing == Standing::On)
-        .map(|line| (line.at, line.says.as_str())))
+  Ok(
+    card
+      .lines
+      .iter()
+      .find(|line| line.standing == Standing::On)
+      .map(|line| (line.at, line.says.as_str())),
+  )
 }
 
 fn drawn_again(stage: &mut Device, since: u32) -> Result<Outcome, Never> {
-    stage.until(
-        |seen| {
-            let Ok((now, _)) = latest(seen);
+  stage.until(
+    |seen| {
+      let Ok((now, _)) = latest(seen);
 
-            Ok(match now > since {
-                true => Ready::Yes,
-                false => Ready::NotYet,
-            })
-        },
-        PATIENCE,
-    )
+      Ok(match ::core::primitive::bool::then_some(now > since, ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      })
+    },
+    PATIENCE,
+  )
 }
 
 fn wait_for_highlight_to_move(stage: &mut Device, says: &str) -> Result<Outcome, Never> {
-    stage.until(
-        |seen| {
-            let Ok((_, card)) = latest(seen);
-            let Ok(on) = match card.as_ref() {
-                Some(card) => highlighted(card),
-                None => Ok(None),
-            };
+  stage.until(
+    |seen| {
+      let Ok((_, card)) = latest(seen);
+      let Ok(on) = match card.as_ref() {
+        Some(card_2) => highlighted(card_2),
+        None => Ok(None),
+      };
 
-            Ok(match on.is_some_and(|(_, on)| on != says) {
-                true => Ready::Yes,
-                false => Ready::NotYet,
-            })
-        },
-        PATIENCE,
-    )
+      Ok(match ::core::primitive::bool::then_some(on.is_some_and(|(_, on_2)| on_2 != says), ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      })
+    },
+    PATIENCE,
+  )
 }
 
 enum Next {
-    Arrived,
-    Button(&'static str),
+  Arrived,
+  Button(&'static str),
 }
 
 fn toward(card: &Description, says: &str) -> Result<Next, Never> {
-    let Ok(on) = highlighted(card);
-    let wanted = card.lines.iter().find(|line| line.says == says).map(|line| line.at);
+  let Ok(on) = highlighted(card);
+  let wanted = card
+    .lines
+    .iter()
+    .find(|line| line.says == says)
+    .map(|line| line.at);
 
-    Ok(match (on, wanted) {
-        (Some((at, on)), wanted) => match (on == says, wanted.is_some_and(|wanted| wanted < at)) {
-            (true, _) => Next::Arrived,
-            (false, true) => Next::Button("dpad-up"),
-            (false, false) => Next::Button("dpad-down"),
-        },
-        (None, _) => Next::Button("dpad-down"),
-    })
+  Ok(match (on, wanted) {
+    (Some((at, on_2)), wanted_2) => {
+      match (on_2 == says, wanted_2.is_some_and(|wanted_3| wanted_3 < at)) {
+        (true, _) => Next::Arrived,
+        (false, true) => Next::Button("dpad-up"),
+        (false, false) => Next::Button("dpad-down"),
+      }
+    }
+    (None, _) => Next::Button("dpad-down"),
+  })
 }
 
 fn walked_to(stage: &mut Device, says: &str) -> Result<Outcome, Never> {
-    for _ in 0..STEPS {
-        let Ok((drawn, card)) = latest(stage);
+  for _ in 0..STEPS {
+    let Ok((drawn, card)) = latest(stage);
 
-        let card = match card {
-            Some(card) => card,
-            None => return Ok(Outcome::RanOut),
-        };
+    let card_3 = match card {
+      Some(card_2) => card_2,
+      None => return Ok(Outcome::RanOut),
+    };
 
-        let Ok(next) = toward(&card, says);
+    let Ok(next) = toward(&card_3, says);
 
-        let way = match next {
-            Next::Arrived => {
-                let Ok(()) = stage.press("a");
+    let way = match next {
+      Next::Arrived => {
+        let Ok(()) = stage.press("a");
 
-                return wait_for_highlight_to_move(stage, says);
-            }
-            Next::Button(way) => way,
-        };
+        return wait_for_highlight_to_move(stage, says);
+      }
+      Next::Button(way) => way,
+    };
 
-        let Ok(()) = stage.press(way);
-        let Ok(moved) = drawn_again(stage, drawn);
+    let Ok(()) = stage.press(way);
+    let Ok(moved) = drawn_again(stage, drawn);
 
-        match moved {
-            Outcome::Happened => {},
-            Outcome::RanOut => return Ok(Outcome::RanOut),
-        }
+    match moved {
+      Outcome::Happened => {}
+      Outcome::RanOut => return Ok(Outcome::RanOut),
     }
+  }
 
-    Ok(Outcome::RanOut)
+  Ok(Outcome::RanOut)
 }
 
 fn console_put_away(stage: &mut Device) -> Result<(), Never> {
-    let Ok(()) = stage.press("b");
-    let Ok(_) = stage.wait_for_close(PATIENCE);
+  let Ok(()) = stage.press("b");
+  let Ok(_) = stage.wait_for_close(PATIENCE);
 
-    Ok(())
+  Ok(())
 }
 
 fn asked_for(stage: &mut Device, tab: &str) -> Result<Outcome, Never> {
-    let Ok(_) = stage.in_session(&format!("rm -f {TOLD}"));
-    let Ok(_) = stage.exec_cmd(&format!("CONSOLE_PANEL_TELLS={TOLD} {} {tab}", console_settings::WHO));
+  let Ok(_) = stage.in_session(&format!("rm -f {TOLD}"));
+  let Ok(_) = stage.exec_cmd(&format!(
+    "CONSOLE_PANEL_TELLS={TOLD} {} {tab}",
+    console_settings::WHO
+  ));
 
-    stage.until(
-        |seen| {
-            let Ok(where_) = seen.layer(console_settings::WHO);
+  stage.until(
+    |seen| {
+      let Ok(where_) = seen.layer(console_settings::WHO);
 
-            Ok(match where_ {
-                Some(_) => Ready::Yes,
-                None => Ready::NotYet,
-            })
-        },
-        PATIENCE,
-    )
+      Ok(match where_ {
+        Some(_) => Ready::Yes,
+        None => Ready::NotYet,
+      })
+    },
+    PATIENCE,
+  )
 }
 
 fn put_back(stage: &mut Device, was: &str) -> Result<(), Never> {
-    let Ok(_) = stage.user(&format!("sudo -n console-machine hour {was}"));
+  let Ok(_) = stage.user(&format!("sudo -n console-machine hour {was}"));
 
-    Ok(())
+  Ok(())
 }
 
 fn there(stage: &mut Device) -> CheckResult {
-    let Ok(was) = zone(stage);
-    let Ok(listed) = stage.user("timedatectl list-timezones");
-    let Ok(zones) = hours::zones(&listed);
+  let Ok(was) = zone(stage);
+  let Ok(listed) = stage.user("timedatectl list-timezones");
+  let Ok(zones) = hours::zones(&listed);
 
-    match zones.is_empty() {
-        true => return cannot("this machine will not say what zones it has"),
-        false => {},
+  match ::core::primitive::bool::then_some(zones.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return cannot("this machine will not say what zones it has"),
+    ::core::option::Option::None => {}
+  }
+
+  let going = OFFERED
+    .into_iter()
+    .find(|zone| *zone != was && zones.iter().any(|known| known == zone));
+
+  let going_3 = match going {
+    Some(going_2) => going_2,
+    None => return cannot("neither of the two zones this presses is one this machine has"),
+  };
+
+  let Ok(part) = hours::part_of(going_3);
+  let Ok(places) = hours::places(&zones, &part);
+
+  let place = match places.into_iter().find(|place| place.zone == going_3) {
+    Some(place) => place.says,
+    None => {
+      return failed(format!(
+        "{going} is in the list and not in the pages built from it",
+        going = going_3
+      ));
     }
+  };
 
-    let going = OFFERED
-        .into_iter()
-        .find(|zone| *zone != was && zones.iter().any(|known| known == zone));
+  let Ok(tab) = configuration();
+  let Ok(opened) = asked_for(stage, &tab);
 
-    let going = match going {
-        Some(going) => going,
-        None => return cannot("neither of the two zones this presses is one this machine has"),
-    };
-
-    let Ok(part) = hours::part_of(going);
-    let Ok(places) = hours::places(&zones, &part);
-
-    let place = match places.into_iter().find(|place| place.zone == going) {
-        Some(place) => place.says,
-        None => return failed(format!("{going} is in the list and not in the pages built from it")),
-    };
-
-    let Ok(tab) = configuration();
-    let Ok(opened) = asked_for(stage, &tab);
-
-    match opened {
-        Outcome::RanOut => {
-            let Ok(()) = console_put_away(stage);
-        },
-        Outcome::Happened => {},
+  match opened {
+    Outcome::RanOut => {
+      let Ok(()) = console_put_away(stage);
     }
+    Outcome::Happened => {}
+  }
 
-    happened(opened, || format!("the settings panel did not draw on {tab}"))?;
+  happened(opened, || {
+    format!("the settings panel did not draw on {tab}")
+  })?;
 
-    let Ok(zone_row) = where_you_are();
+  let Ok(zone_row) = where_you_are();
 
-    for row in [zone_row.as_str(), part.as_str(), place.as_str()] {
-        let Ok(walked) = walked_to(stage, row);
+  for row in [zone_row.as_str(), part.as_str(), place.as_str()] {
+    let Ok(walked) = walked_to(stage, row);
 
-        match walked {
-            Outcome::Happened => {},
-            Outcome::RanOut => {
-                let Ok((_, card)) = latest(stage);
-                let on = match card.as_ref().map(highlighted) {
-                    Some(Ok(Some((_, on)))) => on.to_string(),
-                    Some(Ok(None)) | None => "nothing".to_string(),
-                };
-                let Ok(()) = console_put_away(stage);
-                let Ok(()) = put_back(stage, &was);
+    match walked {
+      Outcome::Happened => {}
+      Outcome::RanOut => {
+        let Ok((_, card)) = latest(stage);
+        let on = match card.as_ref().map(highlighted) {
+          Some(Ok(Some((_, on)))) => on.to_string(),
+          Some(Ok(None)) | None => "nothing".to_string(),
+        };
+        let Ok(()) = console_put_away(stage);
+        let Ok(()) = put_back(stage, &was);
 
-                return failed(format!("walking to {row} on {tab} for {going}, the highlight stopped on {on}"));
-            }
-        }
+        return failed(format!(
+          "walking to {row} on {tab} for {going}, the highlight stopped on {on}",
+          going = going_3
+        ));
+      }
     }
+  }
 
-    let there = |seen: &mut Device| -> Result<Ready, Never> {
-        let Ok(now) = zone(seen);
+  let there = |seen: &mut Device| -> Result<Ready, Never> {
+    let Ok(now) = zone(seen);
 
-        Ok(match now == going {
-            true => Ready::Yes,
-            false => Ready::NotYet,
-        })
-    };
-
-    let Ok(moved) = stage.until(there, ANSWERS);
-
-    let Ok(()) = console_put_away(stage);
-    let Ok(()) = put_back(stage, &was);
-
-    happened_handed(moved, stage, |stage| {
-        let Ok(now) = zone(stage);
-
-        format!(
-            "{going} was chosen on the panel and the machine is still in {now}. It was asked for \
-             on {tab} and walked to as {part} and then {place}."
-        )
+    Ok(match ::core::primitive::bool::then_some(now == going_3, ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
     })
+  };
+
+  let Ok(moved) = stage.until(there, ANSWERS);
+
+  let Ok(()) = console_put_away(stage);
+  let Ok(()) = put_back(stage, &was);
+
+  happened_handed(moved, stage, |stage_2| {
+    let Ok(now) = zone(stage_2);
+
+    format!(
+      "{going} was chosen on the panel and the machine is still in {now}. It was asked for \
+             on {tab} and walked to as {part} and then {place}.",
+      going = going_3
+    )
+  })
 }
 
 fn first_row(stage: &mut Device) -> CheckResult {
-    stage.point(MIDDLE)?;
+  stage.point(MIDDLE)?;
 
-    let Ok(tab) = configuration();
-    let Ok(opened) = asked_for(stage, &tab);
-    let Ok(drawn) = drawn_again(stage, 0);
-    let Ok((_, card)) = latest(stage);
-    let Ok(()) = console_put_away(stage);
+  let Ok(tab) = configuration();
+  let Ok(opened) = asked_for(stage, &tab);
+  let Ok(drawn) = drawn_again(stage, 0);
+  let Ok((_, card)) = latest(stage);
+  let Ok(()) = console_put_away(stage);
 
-    happened(opened, || format!("the settings panel did not draw on {tab}"))?;
-    happened(drawn, || "the settings panel did not say what it drew".to_string())?;
+  happened(opened, || {
+    format!("the settings panel did not draw on {tab}")
+  })?;
+  happened(drawn, || {
+    "the settings panel did not say what it drew".to_string()
+  })?;
 
-    let card = match card {
-        Some(card) => card,
-        None => return failed("the settings panel did not say what it drew".to_string()),
-    };
+  let card_3 = match card {
+    Some(card_2) => card_2,
+    None => return failed("the settings panel did not say what it drew".to_string()),
+  };
 
-    let first = card.lines.iter().find(|line| line.heading == console_panel::description::Heading::No);
-    let Ok(on) = highlighted(&card);
+  let first = card_3
+    .lines
+    .iter()
+    .find(|line| line.heading == console_panel::description::Heading::No);
+  let Ok(on) = highlighted(&card_3);
 
-    match (first, on) {
-        (Some(first), Some((at, _))) => match first.at == at {
-            true => Ok(()),
-            false => failed(format!(
-                "{tab} opened with {} highlighted and not {}, the row under a pointer resting in the middle of the screen",
-                on.map_or("nothing", |(_, says)| says),
-                first.says
-            )),
-        },
-        (Some(first), None) => failed(format!("{tab} opened with nothing highlighted rather than {}", first.says)),
-        (None, _) => failed(format!("{tab} drew no row a highlight could stand on")),
-    }
+  match (first, on) {
+    (Some(first_2), Some((at, _))) => match ::core::primitive::bool::then_some(first_2.at == at, ()) {
+      ::core::option::Option::Some(()) => Ok(()),
+      ::core::option::Option::None => failed(format!(
+        "{tab} opened with {} highlighted and not {}, the row under a pointer resting in the middle of the screen",
+        on.map_or("nothing", |(_, says)| says),
+        first_2.says
+      )),
+    },
+    (Some(first_3), None) => failed(format!(
+      "{tab} opened with nothing highlighted rather than {}",
+      first_3.says
+    )),
+    (None, _) => failed(format!("{tab} drew no row a highlight could stand on")),
+  }
 }

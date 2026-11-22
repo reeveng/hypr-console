@@ -5,7 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[package.metadata.console]
+portable = true
+
 [dependencies]
+console-core-picture-scaling.workspace = true
+console-core-pixel-buffers.workspace = true
+console-core-boolean-decoding.workspace = true
 console-core-geometry.workspace = true
 console-core-iteration.workspace = true
 console-core-never.workspace = true

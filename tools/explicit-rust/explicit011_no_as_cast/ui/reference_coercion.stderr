@@ -1,0 +1,22 @@
+error: `as` cast is forbidden
+  --> $DIR/reference_coercion.rs:11:35
+   |
+LL |     fn trait_value(&self) -> u8 { (self as &dyn Read).read() }
+   |                                   ^^^^^^^^^^^^^^^^^^^ help: coerce the shared reference to the written type: `::core::convert::identity::<&dyn Read>(self)`
+   |
+   = note: `#[deny(explicit011_no_as_cast)]` on by default
+
+error: `as` cast is forbidden
+  --> $DIR/reference_coercion.rs:14:34
+   |
+LL | fn erased(n: &u8) -> &dyn Read { n as &dyn Read }
+   |                                  ^^^^^^^^^^^^^^ help: coerce the shared reference to the written type: `::core::convert::identity::<&dyn Read>(n)`
+
+error: `as` cast is forbidden
+  --> $DIR/reference_coercion.rs:15:43
+   |
+LL | const fn slice(data: &[u8; 2]) -> &[u8] { data as &[u8] }
+   |                                           ^^^^^^^^^^^^^ help: coerce the shared reference to the written type: `::core::convert::identity::<&[u8]>(data)`
+
+error: aborting due to 3 previous errors
+

@@ -1,0 +1,37 @@
+error: a comment that is neither a module head nor a `// SAFETY:` reason
+  --> $DIR/remove_lines.rs:4:5
+   |
+LL | /     // Repeats the code.
+LL | |     // A second line.
+   | |_____________________^
+   |
+   = note: `#[deny(explicit020_no_comment)]` on by default
+help: remove the line comments and preserve source line numbers
+   |
+LL -     // Repeats the code.
+LL -     // A second line.
+LL -     assert_eq!(line!(), 6);
+   |
+
+error: a comment that is neither a module head nor a `// SAFETY:` reason
+  --> $DIR/remove_lines.rs:7:5
+   |
+LL |     // Standalone line.
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+help: remove the line comments and preserve source line numbers
+   |
+LL -     // Standalone line.
+LL -     assert_eq!(line!(), 8); // One more.
+   |
+
+error: a comment that is neither a module head nor a `// SAFETY:` reason
+  --> $DIR/remove_lines.rs:8:29
+   |
+LL |     assert_eq!(line!(), 8); // One more.
+   |                            -^^^^^^^^^^^^
+   |                            |
+   |                            help: remove the line comments and preserve source line numbers
+
+error: aborting due to 3 previous errors
+

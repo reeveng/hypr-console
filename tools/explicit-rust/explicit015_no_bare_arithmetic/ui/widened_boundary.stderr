@@ -1,0 +1,36 @@
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/widened_boundary.rs:10:5
+   |
+LL |     ({ let Ok(widened) = wrapped::<_, u32>(glyph); widened }) + 1
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_add({ let Ok(widened) = wrapped::<_, u32>(glyph); widened }, 1)`
+   |
+   = note: `#[deny(explicit015_no_bare_arithmetic)]` on by default
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/widened_boundary.rs:15:5
+   |
+LL | /     i32::wrapping_sub(
+LL | |         i32::wrapping_mul(
+LL | |             i32::wrapping_neg(i32::wrapping_sub(
+LL | |                 { let Ok(first) = wrapped::<_, i32>(first); first },
+...  |
+LL | |         second,
+LL | |     ) - 108
+   | |___________^
+   |
+help: the operand bounds preserve this operation in every profile
+   |
+LL ~     ::core::primitive::i32::wrapping_sub(i32::wrapping_sub(
+LL +         i32::wrapping_mul(
+LL +             i32::wrapping_neg(i32::wrapping_sub(
+LL +                 { let Ok(first) = wrapped::<_, i32>(first); first },
+LL +                 251,
+LL +             )),
+LL +             256,
+LL +         ),
+LL +         second,
+LL +     ), 108)
+   |
+
+error: aborting due to 2 previous errors
+

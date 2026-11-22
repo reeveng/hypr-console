@@ -1,0 +1,11 @@
+error: this function cannot say it succeeded
+  --> $DIR/shadowed_core.rs:5:34
+   |
+LL | fn trimmed_length(text: &str) -> usize { text.trim().len() }
+   |                                  ^^^^^
+   |
+   = help: return `Result<T, Never>` so that every call site reads the same whether or not it can fail
+   = note: `#[deny(explicit002_infallible_result)]` on by default
+
+error: aborting due to 1 previous error
+

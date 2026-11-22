@@ -1,0 +1,15 @@
+warning: this name is already bound outside the scope being entered
+  --> $DIR/authored.rs:10:9
+   |
+LL |     let value = value + 1;
+   |         ^^^^^
+   |
+   = note: `#[warn(explicit073_no_shadowing)]` on by default
+help: rename this binding to `value_2`
+   |
+LL ~     let value_2 = value + 1;
+LL ~     value_2
+   |
+
+warning: 1 warning emitted
+

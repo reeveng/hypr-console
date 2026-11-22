@@ -1,0 +1,183 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:18:11
+   |
+LL |         &*(<[_]>::get(&*src, off..len).ok_or(())?),
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+help: bind the checked slice directly
+   |
+LL ~     let checked_value = <[_]>::get(&*src, off..len).ok_or(())?;
+LL ~     let width = load!(
+LL ~         checked_value,
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:21:18
+   |
+LL |     store!(&mut *(<[_]>::get_mut(&mut *dst, off..len).ok_or(())?), width);
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: bind the checked slice directly
+   |
+LL ~     let checked_value_2 = <[_]>::get_mut(&mut *dst, off..len).ok_or(())?;
+LL ~     store!(checked_value_2, width);
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:25:17
+   |
+LL |     let row = &*(<[_]>::get(&*src, 1..)?);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: bind the checked slice directly
+   |
+LL -     let row = &*(<[_]>::get(&*src, 1..)?);
+LL +     let row = <[_]>::get(&*src, 1..)?;
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:26:24
+   |
+LL |     let target = &mut *(<[_]>::get_mut(&mut *dst, 1..)?);
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: bind the checked slice directly
+   |
+LL -     let target = &mut *(<[_]>::get_mut(&mut *dst, 1..)?);
+LL +     let target = <[_]>::get_mut(&mut *dst, 1..)?;
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:32:32
+   |
+LL |         <&[u8; 4]>::try_from(&*(src.get(..end).ok_or(())?)).unwrap(),
+   |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: bind the checked slice directly
+   |
+LL ~     let checked_value = src.get(..end).ok_or(())?;
+LL ~     let width = load!(
+LL ~         <&[u8; 4]>::try_from(checked_value).unwrap(),
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:35:43
+   |
+LL |     store!(<&mut [u8; 4]>::try_from(&mut *(dst.get_mut(..end).ok_or(())?)).unwrap(),
+   |                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: bind the checked slice directly
+   |
+LL ~     let checked_value_2 = dst.get_mut(..end).ok_or(())?;
+LL ~     store!(<&mut [u8; 4]>::try_from(checked_value_2).unwrap(),
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:40:56
+   |
+LL |     let width = u32::from(load!(<&[u8; 4]>::try_from(&*(src.get(..end)?)).unwrap(), [u8; 4]));
+   |                                                        ^^^^^^^^^^^^^^^^^
+   |
+help: bind the checked slice directly
+   |
+LL ~     let checked_value = src.get(..end)?;
+LL ~     let width = u32::from(load!(<&[u8; 4]>::try_from(checked_value).unwrap(), [u8; 4]));
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:48:29
+   |
+LL |     let width = load_array!(src.get(..end).ok_or(()).and_then(|slice| <&[u8; 4]>::try_from(slice).map_err(|_| ()))?);
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: bind the checked slice directly
+   |
+LL ~     let checked_value = src.get(..end).ok_or(()).and_then(|slice| <&[u8; 4]>::try_from(slice).map_err(|_| ()))?;
+LL ~     let width = load_array!(checked_value);
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:49:18
+   |
+LL |     store_array!(<&mut [u8; 4]>::try_from(dst).map_err(|_| ())?, { *calls += 1; width });
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: bind the checked slice directly
+   |
+LL ~     let checked_value_2 = <&mut [u8; 4]>::try_from(dst).map_err(|_| ())?;
+LL ~     store_array!(checked_value_2, { *calls += 1; width });
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:54:9
+   |
+LL |         src.get(..4).ok_or("bounds").and_then(|slice| <&[u8; 4]>::try_from(slice).map_err(|_| "length"))?
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: bind the checked slice directly
+   |
+LL ~         {
+LL +           let checked_value = src.get(..4).ok_or("bounds").and_then(|slice| <&[u8; 4]>::try_from(slice).map_err(|_| "length"))?;
+LL +           checked_value
+LL +         }
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:60:9
+   |
+LL |         <&mut [u8; 4]>::try_from(dst).map_err(|_| ())?,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: bind the checked slice directly
+   |
+LL ~         {
+LL +           let checked_value = <&mut [u8; 4]>::try_from(dst).map_err(|_| ())?;
+LL +           checked_value
+LL ~         },
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:66:6
+   |
+LL |       *<[_]>::get_mut(&mut *{
+   |  ______^
+LL | |         let held = rows.get_mut(row)?;
+LL | |         held
+LL | |     }, column)? = 9;
+   | |_______________^
+   |
+help: bind the fallible operand where it is evaluated
+   |
+LL ~     *{ let checked_value = <[_]>::get_mut(&mut *{
+LL +         let held = rows.get_mut(row)?;
+LL +         held
+LL ~     }, column)?; checked_value } = 9;
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:75:18
+   |
+LL |       let part = &*(<[_]>::get(
+   |  __________________^
+LL | |         &*(<[u8]>::get(view(&TABLE), start..)?),
+LL | |         ..end,
+LL | |     )?);
+   | |_______^
+   |
+help: bind the checked slice directly
+   |
+LL ~     let part = <[_]>::get(
+LL |         &*(<[u8]>::get(view(&TABLE), start..)?),
+LL |         ..end,
+LL ~     )?;
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_macro.rs:76:11
+   |
+LL |         &*(<[u8]>::get(view(&TABLE), start..)?),
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = <[u8]>::get(view(&TABLE), start..)?; checked_value }`
+
+error: aborting due to 14 previous errors
+

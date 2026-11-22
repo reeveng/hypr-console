@@ -15,49 +15,52 @@ use console_core_never::Never;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Range {
-    pub low: i32,
-    pub high: i32,
+  pub low: i32,
+  pub high: i32,
 }
 
 pub fn part(value: i32, range: Range) -> Result<f64, Never> {
-    let Range { low, high } = range;
+  let Range { low, high } = range;
 
-    let half = match high > low {
-        true => (f64::from(high) - f64::from(low)) / 2.0,
-        false => return Ok(0.0),
-    };
-    let middle = f64::from(low) + half;
+  let half = match ::core::primitive::bool::then_some(high > low, ()) {
+    ::core::option::Option::Some(()) => (f64::from(high) - f64::from(low)) / 2.0,
+    ::core::option::Option::None => return Ok(0.0),
+  };
+  let middle = f64::from(low) + half;
 
-    Ok(((f64::from(value) - middle) / half).clamp(-1.0, 1.0))
+  Ok(((f64::from(value) - middle) / half).clamp(-1.0, 1.0))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const EITHER_SIDE: Range = Range { low: -32768, high: 32767 };
+  const EITHER_SIDE: Range = Range {
+    low: -32768,
+    high: 32767,
+  };
 
-    const FROM_ZERO: Range = Range { low: 0, high: 255 };
+  const FROM_ZERO: Range = Range { low: 0, high: 255 };
 
-    #[test]
-    fn a_stick_at_rest_is_not_pushed_whichever_way_its_range_runs() {
-        let Ok(centred) = part(0, EITHER_SIDE);
-        let Ok(from_zero) = part(128, FROM_ZERO);
+  #[test]
+  fn a_stick_at_rest_is_not_pushed_whichever_way_its_range_runs() {
+    let Ok(centred) = part(0, EITHER_SIDE);
+    let Ok(from_zero) = part(128, FROM_ZERO);
 
-        assert!(centred.abs() < 0.001, "{centred}");
-        assert!(from_zero.abs() < 0.01, "{from_zero}");
-    }
+    assert!(centred.abs() < 0.001, "{centred}");
+    assert!(from_zero.abs() < 0.01, "{from_zero}");
+  }
 
-    #[test]
-    fn the_ends_of_a_range_are_all_the_way_either_way() {
-        assert_eq!(part(255, FROM_ZERO), Ok(1.0));
-        assert_eq!(part(0, FROM_ZERO), Ok(-1.0));
-        assert_eq!(part(32767, EITHER_SIDE), Ok(1.0));
-        assert_eq!(part(-32768, EITHER_SIDE), Ok(-1.0));
-    }
+  #[test]
+  fn the_ends_of_a_range_are_all_the_way_either_way() {
+    assert_eq!(part(255, FROM_ZERO), Ok(1.0));
+    assert_eq!(part(0, FROM_ZERO), Ok(-1.0));
+    assert_eq!(part(32767, EITHER_SIDE), Ok(1.0));
+    assert_eq!(part(-32768, EITHER_SIDE), Ok(-1.0));
+  }
 
-    #[test]
-    fn a_range_with_no_width_says_nothing_is_pushed_rather_than_dividing_by_it() {
-        assert_eq!(part(5, Range { low: 5, high: 5 }), Ok(0.0));
-    }
+  #[test]
+  fn a_range_with_no_width_says_nothing_is_pushed_rather_than_dividing_by_it() {
+    assert_eq!(part(5, Range { low: 5, high: 5 }), Ok(0.0));
+  }
 }

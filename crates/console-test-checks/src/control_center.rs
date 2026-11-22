@@ -14,61 +14,81 @@ use console_test_stages::checking::{Body, Check, CheckResult, failed, happened};
 use console_test_stages::device::{Device, PATIENCE, Ready};
 
 pub const PULLED: Check = Check {
-    name: "480-a-pull-from-the-top-edge-brings-the-control-center",
-    about: "A finger drawn down from the top edge opens the control center, and a tap outside it puts it away.",
-    feature: "control-center",
-    since: "2026-09-24",
-    bodies: &[Body::Device(pulled)],
+  name: "480-a-pull-from-the-top-edge-brings-the-control-center",
+  about: "A finger drawn down from the top edge opens the control center, and a tap outside it puts it away.",
+  feature: "control-center",
+  since: "2026-09-24",
+  bodies: &[Body::Device(pulled)],
 };
 
 const EDGE: u32 = 10;
 
 fn height(seen: &mut Device) -> Result<Option<u32>, Never> {
-    let Ok(layer) = seen.layer(console_onscreen::CONTROL_CENTER);
+  let Ok(open) = seen.layer(console_onscreen::CONTROL_CENTER_PANEL);
 
-    Ok(layer.map(|(_, _, _, height)| height))
+  match open {
+      Some((_, _, _, height)) => {
+        return Ok(Some(height));
+      },
+      ::core::option::Option::None => {},
+  }
+
+  let Ok(layer) = seen.layer(console_onscreen::CONTROL_CENTER);
+
+  Ok(layer.map(|(_, _, _, height)| height))
 }
 
 fn opened(seen: &mut Device) -> Result<Ready, Never> {
-    let Ok(now) = height(seen);
+  let Ok(now) = height(seen);
 
-    Ok(match now.is_some_and(|height| height > EDGE) {
-        true => Ready::Yes,
-        false => Ready::NotYet,
-    })
+  Ok(match ::core::primitive::bool::then_some(now.is_some_and(|height| height > EDGE), ()) {
+    ::core::option::Option::Some(()) => Ready::Yes,
+    ::core::option::Option::None => Ready::NotYet,
+  })
 }
 
 fn put_away(seen: &mut Device) -> Result<Ready, Never> {
-    let Ok(now) = height(seen);
+  let Ok(now) = height(seen);
 
-    Ok(match now == Some(EDGE) {
-        true => Ready::Yes,
-        false => Ready::NotYet,
-    })
+  Ok(match ::core::primitive::bool::then_some(now == Some(EDGE), ()) {
+    ::core::option::Option::Some(()) => Ready::Yes,
+    ::core::option::Option::None => Ready::NotYet,
+  })
 }
 
 fn pulled(stage: &mut Device) -> CheckResult {
-    let Ok(before) = height(stage);
+  let Ok(before) = height(stage);
 
-    match before {
-        Some(EDGE) => {},
-        Some(other) => return failed(format!("the control center was {other} tall before anything pulled it, not the {EDGE} of its edge")),
-        None => return failed("the control center has no edge on the screen to pull".to_string()),
+  match before {
+    Some(EDGE) => {}
+    Some(other) => {
+      return failed(format!(
+        "the control center was {other} tall before anything pulled it, not the {EDGE} of its edge"
+      ));
     }
+    None => return failed("the control center has no edge on the screen to pull".to_string()),
+  }
 
-    let middle = 512;
+  let middle = 512;
 
-    stage.swipe((middle, 4), (middle, 300))?;
+  stage.swipe((middle, 4), (middle, 300))?;
 
-    let Ok(came) = stage.until::<Never>(opened, PATIENCE);
-    let Ok(now) = height(stage);
+  let Ok(came) = stage.until::<Never>(opened, PATIENCE);
+  let Ok(now) = height(stage);
 
-    happened(came, || format!("a finger drawn down from the top edge left the control center {now:?} tall"))?;
+  happened(came, || {
+    format!("a finger drawn down from the top edge left the control center {now:?} tall")
+  })?;
 
-    stage.touch((middle, 600))?;
+  stage.touch((middle, 600))?;
 
-    let Ok(went) = stage.until::<Never>(put_away, PATIENCE);
-    let Ok(now) = height(stage);
+  let Ok(went) = stage.until::<Never>(put_away, PATIENCE);
+  let Ok(now_2) = height(stage);
 
-    happened(went, || format!("a tap outside the sheet left the control center {now:?} tall"))
+  happened(went, || {
+    format!(
+      "a tap outside the sheet left the control center {now:?} tall",
+      now = now_2
+    )
+  })
 }

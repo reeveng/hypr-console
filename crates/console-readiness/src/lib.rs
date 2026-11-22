@@ -19,27 +19,27 @@ use std::os::unix::net::{SocketAddr, UnixDatagram};
 const READY: &[u8] = b"READY=1";
 
 #[cfg_attr(
-    dylint_lib = "explicit026_env_read_once",
-    allow(
-        explicit026_env_read_once,
-        reason = "NOTIFY_SOCKET is systemd's handed to this unit alone, read once at the one moment it is answered, and this is the one place the tree speaks the notify protocol"
-    )
+  dylint_lib = "explicit026_env_read_once",
+  allow(
+    explicit026_env_read_once,
+    reason = "NOTIFY_SOCKET is systemd's handed to this unit alone, read once at the one moment it is answered, and this is the one place the tree speaks the notify protocol"
+  )
 )]
 pub fn ready() -> io::Result<()> {
-    let socket = match env::var_os("NOTIFY_SOCKET") {
-        Some(socket) => socket,
-        None => return Ok(()),
-    };
-    let named = match socket.as_encoded_bytes().split_first() {
-        Some((b'@', name)) => SocketAddr::from_abstract_name(name),
-        Some(_) => SocketAddr::from_pathname(&socket),
-        None => return Ok(()),
-    };
-    let address = named?;
-    let made = UnixDatagram::unbound();
-    let sender = made?;
+  let socket = match env::var_os("NOTIFY_SOCKET") {
+    Some(socket) => socket,
+    None => return Ok(()),
+  };
+  let named = match socket.as_encoded_bytes().split_first() {
+    Some((b'@', name)) => SocketAddr::from_abstract_name(name),
+    Some(_) => SocketAddr::from_pathname(&socket),
+    None => return Ok(()),
+  };
+  let address = named?;
+  let made = UnixDatagram::unbound();
+  let sender = made?;
 
-    sender.send_to_addr(READY, &address)?;
+  sender.send_to_addr(READY, &address)?;
 
-    Ok(())
+  Ok(())
 }

@@ -22,17 +22,20 @@ pub const ABOUT: &str = "Search for a song or video";
 
 pub const ABOUT_BOOKS: &str = "Search Free Books";
 
-pub const ONLY_FREE_BOOKS: &str = "Only books old enough to be free are here, from Standard Ebooks and Project Gutenberg";
+pub const ONLY_FREE_BOOKS: &str =
+  "Only books old enough to be free are here, from Standard Ebooks and Project Gutenberg";
 
 pub fn about(kind: Kind) -> Result<&'static str, Never> {
-    Ok(match kind {
-        Kind::Sound | Kind::Film => ABOUT,
-        Kind::Book => ABOUT_BOOKS,
-    })
+  Ok(match kind {
+    Kind::Sound | Kind::Film => ABOUT,
+    Kind::Book => ABOUT_BOOKS,
+  })
 }
 
 pub const LOOK_FOR: &str = "Search for";
 pub const LOOKING: &str = "Searching for";
+
+pub const DOWNLOADING: &str = "Downloading";
 
 pub const NOTHING_YET: &str = "No Recent Searches";
 pub const NOTHING_CAME_BACK: &str = "No Results for";
@@ -44,291 +47,322 @@ pub const LINE: u32 = 1;
 pub const WAYS_START: u32 = 1;
 
 pub fn rows(
-    typed: &str,
-    asking: Option<&str>,
-    looked: &Looked,
-    look: Handler,
-    each: &dyn Fn(u32, &Found) -> Row,
+  typed: &str,
+  asking: Option<&str>,
+  looked: &Looked,
+  look: Handler,
+  each: &dyn Fn(u32, &Found) -> Row,
 ) -> Result<Vec<Row>, Never> {
-    let mut rows: Vec<Row> = Vec::new();
-    let word = typed.trim();
+  let mut rows: Vec<Row> = Vec::new();
+  let word = typed.trim();
 
-    match asking {
-        Some(out) => {
-            let Ok(row) = Row::text(&format!("{LOOKING} {out}"), Aside(YET));
+  let can_search = match asking {
+    Some(out) => word != out,
+    None => word != looked.asked || !looked.fault.is_empty(),
+  };
 
-            rows.push(row);
-        }
-        None => match !word.is_empty() && word != looked.asked {
-            true => {
-                let Ok(row) = Row::new(&format!("{LOOK_FOR} {word}"), Aside(""), look);
+  match ::core::primitive::bool::then_some(can_search && !word.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {
+      let Ok(row) = Row::new(&format!("{LOOK_FOR} {word}"), Aside(""), look);
 
-                rows.push(row);
-            }
-            false => {}
-        },
+      rows.push(row);
     }
+    ::core::option::Option::None => {}
+  }
 
-    match looked.found.is_empty() {
-        true => {},
-        false => {
-            let Ok(naming) = Row::naming(&looked.asked, Aside(""));
+  match asking {
+    Some(out) => {
+      let Ok(row) = Row::text(&format!("{LOOKING} {out}"), Aside(YET));
 
-            rows.push(naming);
-
-            for found in &looked.found {
-                let Ok(many) = console_core_number_conversion::fitted::<_, u32>(rows.len());
-
-                rows.push(each(many.saturating_add(LINE), found));
-            }
-
-            return Ok(rows);
-        }
+      rows.push(row);
     }
+    ::core::option::Option::None => {}
+  }
 
-    match (looked.fault.is_empty(), looked.asked.is_empty(), rows.is_empty()) {
-        (false, _, _) => {
-            let Ok(row) = Row::placeholder(&looked.fault);
+  match ::core::primitive::bool::then_some(looked.found.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      let Ok(naming) = Row::naming(&looked.asked, Aside(""));
 
-            rows.push(row);
-        }
-        (true, false, _) => {
-            let Ok(row) = Row::placeholder(&format!("{NOTHING_CAME_BACK} {}", looked.asked));
+      rows.push(naming);
 
-            rows.push(row);
-        }
-        (true, true, true) => {
-            let Ok(row) = Row::placeholder(NOTHING_YET);
+      for found in &looked.found {
+        let Ok(many) = console_core_number_conversion::fitted::<_, u32>(rows.len());
 
-            rows.push(row);
-        }
-        (true, true, false) => {},
+        rows.push(each(many.saturating_add(LINE), found));
+      }
+
+      return Ok(rows);
     }
+  }
 
-    Ok(rows)
+  match (
+    looked.fault.is_empty(),
+    looked.asked.is_empty(),
+    rows.is_empty(),
+  ) {
+    (false, _, _) => {
+      let Ok(row) = Row::placeholder(&looked.fault);
+
+      rows.push(row);
+    }
+    (true, false, _) => {
+      let Ok(row) = Row::placeholder(&format!("{NOTHING_CAME_BACK} {}", looked.asked));
+
+      rows.push(row);
+    }
+    (true, true, true) => {
+      let Ok(row) = Row::placeholder(NOTHING_YET);
+
+      rows.push(row);
+    }
+    (true, true, false) => {}
+  }
+
+  Ok(rows)
 }
 
 pub fn noted(kind: Kind, rows: Vec<Row>) -> Result<Vec<Row>, Never> {
-    let mut rows = rows;
+  let mut rows_2 = rows;
 
-    match kind {
-        Kind::Sound | Kind::Film => {},
-        Kind::Book => {
-            let Ok(note) = Row::placeholder(ONLY_FREE_BOOKS);
+  match kind {
+    Kind::Sound | Kind::Film => {}
+    Kind::Book => {
+      let Ok(note) = Row::placeholder(ONLY_FREE_BOOKS);
 
-            rows.push(note);
-        },
+      rows_2.push(note);
     }
+  }
 
-    Ok(rows)
+  Ok(rows_2)
 }
 
 pub fn ways(
-    found: &Found,
-    back: impl Fn(&dyn Showing) + Send + Sync + 'static,
-    other: Option<(Kind, Handler)>,
+  found: &Found,
+  back: impl Fn(&dyn Showing) + Send + Sync + 'static,
+  other: Option<(Kind, Handler)>,
 ) -> Result<Vec<Row>, Never> {
-    let Ok(way_back) = Row::back(&found.title, back);
-    let Ok(in_a_browser) = Program::XdgOpen.name();
-    let Ok(opens) = Handler::run(&[in_a_browser, &found.url]);
-    let Ok(browser) = Row::new(IN_A_BROWSER, Aside(""), opens);
+  let Ok(way_back) = Row::back(&found.title, back);
+  let Ok(in_a_browser) = Program::XdgOpen.name();
+  let Ok(opens) = Handler::run(&[in_a_browser, &found.url]);
+  let Ok(browser) = Row::new(IN_A_BROWSER, Aside(""), opens);
 
-    let getting = match other {
-        Some((other, get)) => {
-            let Ok(as_well) = as_well(other);
+  let getting = match other {
+    Some((other_2, get)) => {
+      let Ok(as_well) = as_well(other_2);
 
-            as_well.map(|as_well| Row::new(as_well, Aside(""), get))
-        },
-        None => None,
-    };
+      as_well.map(|as_well_2| Row::new(as_well_2, Aside(""), get))
+    }
+    None => None,
+  };
 
-    Ok(match getting {
-        Some(Ok(getting)) => vec![way_back, getting, browser],
-        None => vec![way_back, browser],
-    })
+  Ok(match getting {
+    Some(Ok(getting_2)) => vec![way_back, getting_2, browser],
+    None => vec![way_back, browser],
+  })
 }
 
 pub fn as_well(other: Kind) -> Result<Option<&'static str>, Never> {
-    Ok(match other {
-        Kind::Sound => Some("Download Audio Too"),
-        Kind::Film => Some("Download Video Too"),
-        Kind::Book => None,
-    })
+  Ok(match other {
+    Kind::Sound => Some("Download Audio Too"),
+    Kind::Film => Some("Download Video Too"),
+    Kind::Book => None,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use console_panel::page::{Action, Heading};
-    use super::*;
+  use super::*;
+  use console_panel::page::{Action, Heading};
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    fn found() -> Result<Vec<Found>, Never> {
-        Ok(vec![Found {
-            id: "FTQbiNvZqaY".to_string(),
-            title: "Toto - Africa".to_string(),
-            ..Found::default()
-        }])
-    }
+  fn found() -> Result<Vec<Found>, Never> {
+    Ok(vec![Found {
+      id: "FTQbiNvZqaY".to_string(),
+      title: "Toto - Africa".to_string(),
+      ..Found::default()
+    }])
+  }
 
-    fn looked(asked: &str) -> Result<Looked, Never> {
-        let Ok(found) = found();
+  fn looked(asked: &str) -> Result<Looked, Never> {
+    let Ok(found) = found();
 
-        Ok(Looked { asked: asked.to_string(), fault: String::new(), found })
-    }
+    Ok(Looked {
+      asked: asked.to_string(),
+      fault: String::new(),
+      found,
+    })
+  }
 
-    fn nothing() -> Result<Handler, Never> {
-        Handler::and_stay(|_| {})
-    }
+  fn nothing() -> Result<Handler, Never> {
+    Handler::and_stay(|_| {})
+  }
 
-    fn plain() -> Result<impl Fn(u32, &Found) -> Row, Never> {
-        Ok(|at: u32, found: &Found| {
-            let Ok(row) = Row::text(&found.title, Aside(&at.to_string()));
+  fn plain() -> Result<impl Fn(u32, &Found) -> Row, Never> {
+    Ok(|at: u32, found: &Found| {
+      let Ok(row) = Row::text(&found.title, Aside(&at.to_string()));
 
-            row
-        })
-    }
+      row
+    })
+  }
 
-    fn said(rows: &[Row]) -> Result<Vec<String>, Never> {
-        Ok(rows.iter().map(|row| row.says.clone()).collect())
-    }
+  fn said(rows: &[Row]) -> Result<Vec<String>, Never> {
+    Ok(rows.iter().map(|row| row.says.clone()).collect())
+  }
 
-    fn first(rows: &[Row]) -> Result<&Row, Failure> {
-        let first = rows.first().ok_or("no rows at all")?;
+  fn first(rows: &[Row]) -> Result<&Row, Failure> {
+    let first = rows.first().ok_or("no rows at all")?;
 
-        Ok(first)
-    }
+    Ok(first)
+  }
 
-    #[test]
-    fn a_tab_nothing_has_been_typed_into_says_so() {
-        let Ok(nothing) = nothing();
-        let Ok(plain) = plain();
-        let Ok(rows) = rows("", None, &Looked::default(), nothing, &plain);
-        let Ok(said) = said(&rows);
+  #[test]
+  fn a_tab_nothing_has_been_typed_into_says_so() {
+    let Ok(nothing) = nothing();
+    let Ok(plain) = plain();
+    let Ok(rows) = rows("", None, &Looked::default(), nothing, &plain);
+    let Ok(said) = said(&rows);
 
-        assert_eq!(said, [NOTHING_YET]);
-    }
+    assert_eq!(said, [NOTHING_YET]);
+  }
 
-    #[test]
-    fn a_word_that_has_not_been_looked_for_puts_the_row_that_looks_for_it_first() -> Result<(), Failure> {
-        let Ok(nothing) = nothing();
-        let Ok(plain) = plain();
-        let Ok(rows) = rows("africa", None, &Looked::default(), nothing, &plain);
-        let first = first(&rows)?;
+  #[test]
+  fn a_word_that_has_not_been_looked_for_puts_the_row_that_looks_for_it_first()
+  -> Result<(), Failure> {
+    let Ok(nothing) = nothing();
+    let Ok(plain) = plain();
+    let Ok(rows) = rows("africa", None, &Looked::default(), nothing, &plain);
+    let first = first(&rows)?;
 
-        assert_eq!(first.says, "Search for africa");
-        assert_eq!(first.acts(), Ok(Action::Yes));
+    assert_eq!(first.says, "Search for africa");
+    assert_eq!(first.acts(), Ok(Action::Yes));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_word_that_has_already_been_looked_for_asks_for_nothing() -> Result<(), Failure> {
-        let Ok(nothing) = nothing();
-        let Ok(plain) = plain();
-        let Ok(africa) = looked("africa");
-        let Ok(rows) = rows("africa", None, &africa, nothing, &plain);
-        let Ok(said) = said(&rows);
-        let first = first(&rows)?;
+  #[test]
+  fn a_word_that_has_already_been_looked_for_asks_for_nothing() -> Result<(), Failure> {
+    let Ok(nothing) = nothing();
+    let Ok(plain) = plain();
+    let Ok(africa) = looked("africa");
+    let Ok(rows) = rows("africa", None, &africa, nothing, &plain);
+    let Ok(said) = said(&rows);
+    let first = first(&rows)?;
 
-        assert_eq!(said, ["africa", "Toto - Africa"]);
-        assert_eq!(first.heading(), Ok(Heading::Yes), "what a list is about is not one of its rows");
+    assert_eq!(said, ["africa", "Toto - Africa"]);
+    assert_eq!(
+      first.heading(),
+      Ok(Heading::Yes),
+      "what a list is about is not one of its rows"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn while_a_search_is_out_the_row_says_so_and_the_last_one_stays_up() -> Result<(), Failure> {
-        let Ok(nothing) = nothing();
-        let Ok(plain) = plain();
-        let Ok(toto) = looked("toto");
-        let Ok(rows) = rows("africa", Some("africa"), &toto, nothing, &plain);
-        let Ok(said) = said(&rows);
-        let first = first(&rows)?;
+  #[test]
+  fn while_a_search_is_out_the_row_says_so_and_the_last_one_stays_up() -> Result<(), Failure> {
+    let Ok(nothing) = nothing();
+    let Ok(plain) = plain();
+    let Ok(toto) = looked("toto");
+    let Ok(rows) = rows("africa", Some("africa"), &toto, nothing, &plain);
+    let Ok(said) = said(&rows);
+    let first = first(&rows)?;
 
-        assert_eq!(first.says, "Searching for africa");
-        assert_eq!(first.aside, YET);
-        assert!(said.contains(&"Toto - Africa".to_string()));
+    assert_eq!(first.says, "Searching for africa");
+    assert_eq!(first.aside, YET);
+    assert!(said.contains(&"Toto - Africa".to_string()));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_thing_is_told_which_row_it_will_be_drawn_on() -> Result<(), Failure> {
-        let Ok(nothing) = nothing();
-        let Ok(plain) = plain();
-        let Ok(africa) = looked("africa");
-        let Ok(rows) = rows("", None, &africa, nothing, &plain);
-        let second = rows.get(1).ok_or("no second row")?;
+  #[test]
+  fn a_thing_is_told_which_row_it_will_be_drawn_on() -> Result<(), Failure> {
+    let Ok(nothing) = nothing();
+    let Ok(plain) = plain();
+    let Ok(africa) = looked("africa");
+    let Ok(rows) = rows("", None, &africa, nothing, &plain);
+    let second = rows.get(1).ok_or("no second row")?;
 
-        assert_eq!(second.aside, LINE.saturating_add(1).to_string());
+    assert_eq!(second.aside, LINE.saturating_add(1).to_string());
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_search_that_answered_nothing_says_which_word_it_was_about() {
-        let Ok(nothing) = nothing();
-        let Ok(plain) = plain();
-        let empty = Looked { asked: "asdfgh".to_string(), ..Looked::default() };
-        let Ok(rows) = rows("asdfgh", None, &empty, nothing, &plain);
-        let Ok(said) = said(&rows);
+  #[test]
+  fn a_search_that_answered_nothing_says_which_word_it_was_about() {
+    let Ok(nothing) = nothing();
+    let Ok(plain) = plain();
+    let empty = Looked {
+      asked: "asdfgh".to_string(),
+      ..Looked::default()
+    };
+    let Ok(rows) = rows("asdfgh", None, &empty, nothing, &plain);
+    let Ok(said) = said(&rows);
 
-        assert_eq!(said, [format!("{NOTHING_CAME_BACK} asdfgh")]);
-    }
+    assert_eq!(said, [format!("{NOTHING_CAME_BACK} asdfgh")]);
+  }
 
-    #[test]
-    fn a_book_tab_says_that_newer_books_are_not_there_and_the_others_do_not() {
-        let Ok(plain) = plain();
-        let Ok(meditations) = looked("meditations");
-        let Ok(africa) = looked("africa");
-        let Ok(for_books) = nothing();
-        let Ok(for_songs) = nothing();
-        let Ok(book_rows) = rows("", None, &meditations, for_books, &plain);
-        let Ok(song_rows) = rows("", None, &africa, for_songs, &plain);
-        let Ok(books) = noted(Kind::Book, book_rows);
-        let Ok(songs) = noted(Kind::Sound, song_rows);
-        let Ok(said_of_songs) = said(&songs);
+  #[test]
+  fn a_book_tab_says_that_newer_books_are_not_there_and_the_others_do_not() {
+    let Ok(plain) = plain();
+    let Ok(meditations) = looked("meditations");
+    let Ok(africa) = looked("africa");
+    let Ok(for_books) = nothing();
+    let Ok(for_songs) = nothing();
+    let Ok(book_rows) = rows("", None, &meditations, for_books, &plain);
+    let Ok(song_rows) = rows("", None, &africa, for_songs, &plain);
+    let Ok(books) = noted(Kind::Book, book_rows);
+    let Ok(songs) = noted(Kind::Sound, song_rows);
+    let Ok(said_of_songs) = said(&songs);
 
-        assert_eq!(books.last().map(|row| row.says.as_str()), Some(ONLY_FREE_BOOKS));
-        assert!(books.last().is_some_and(|row| row.nothing), "the note is read, not pressed");
-        assert!(!said_of_songs.contains(&ONLY_FREE_BOOKS.to_string()));
-    }
+    assert_eq!(
+      books.last().map(|row| row.says.as_str()),
+      Some(ONLY_FREE_BOOKS)
+    );
+    assert!(
+      books.last().is_some_and(|row| row.nothing),
+      "the note is read, not pressed"
+    );
+    assert!(!said_of_songs.contains(&ONLY_FREE_BOOKS.to_string()));
+  }
 
-    #[test]
-    fn what_went_wrong_is_a_row_like_anything_else() -> Result<(), Failure> {
-        let Ok(nothing) = nothing();
-        let Ok(plain) = plain();
-        let fault = Looked {
-            asked: "africa".to_string(),
-            fault: "There is no yt-dlp on this machine".to_string(),
-            found: Vec::new(),
-        };
-        let Ok(rows) = rows("africa", None, &fault, nothing, &plain);
-        let first = first(&rows)?;
+  #[test]
+  fn what_went_wrong_is_a_row_like_anything_else() -> Result<(), Failure> {
+    let Ok(nothing) = nothing();
+    let Ok(plain) = plain();
+    let fault = Looked {
+      asked: "africa".to_string(),
+      fault: "There is no yt-dlp on this machine".to_string(),
+      found: Vec::new(),
+    };
+    let Ok(rows) = rows("africa", None, &fault, nothing, &plain);
+    let first = first(&rows)?;
+    let Ok(said) = said(&rows);
 
-        assert_eq!(first.says, "There is no yt-dlp on this machine");
+    assert_eq!(first.says, "Search for africa");
+    assert!(said.contains(&"There is no yt-dlp on this machine".to_string()));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn y_offers_the_other_kind_of_the_same_thing_and_the_way_back() -> Result<(), Failure> {
-        let Ok(nothing) = nothing();
-        let Ok(found) = found();
-        let one = found.first().ok_or("nothing found")?;
-        let Ok(rows) = ways(one, |_| {}, Some((Kind::Sound, nothing)));
-        let Ok(start) = console_core_number_conversion::index(WAYS_START);
-        let back = first(&rows)?;
-        let other = rows.get(start).ok_or("no row for the other kind")?;
-        let Ok(as_well) = as_well(Kind::Sound);
-        let as_well = as_well.ok_or("nothing offered as well")?;
-        let browser = rows.get(2).ok_or("no row for a browser")?;
+  #[test]
+  fn y_offers_the_other_kind_of_the_same_thing_and_the_way_back() -> Result<(), Failure> {
+    let Ok(nothing) = nothing();
+    let Ok(found) = found();
+    let one = found.first().ok_or("nothing found")?;
+    let Ok(rows) = ways(one, |_| {}, Some((Kind::Sound, nothing)));
+    let Ok(start) = console_core_number_conversion::index(WAYS_START);
+    let back = first(&rows)?;
+    let other = rows.get(start).ok_or("no row for the other kind")?;
+    let Ok(as_well) = as_well(Kind::Sound);
+    let as_well_2 = as_well.ok_or("nothing offered as well")?;
+    let browser = rows.get(2).ok_or("no row for a browser")?;
 
-        assert!(back.says.ends_with(&one.title), "row zero is the way back");
-        assert_eq!(other.says, as_well);
-        assert_eq!(browser.says, IN_A_BROWSER);
+    assert!(back.says.ends_with(&one.title), "row zero is the way back");
+    assert_eq!(other.says, as_well_2);
+    assert_eq!(browser.says, IN_A_BROWSER);
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

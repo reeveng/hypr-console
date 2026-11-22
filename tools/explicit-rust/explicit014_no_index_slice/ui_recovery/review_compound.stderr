@@ -1,0 +1,31 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_compound.rs:13:20
+   |
+LL |     counters[0] += counters[0].0;
+   |                    ^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: project the fixed array element with an irrefutable borrow pattern
+   |
+LL -     counters[0] += counters[0].0;
+LL +     counters[0] += (*match &counters { [element, ..] => element }).0;
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_compound.rs:13:5
+   |
+LL |     counters[0] += counters[0].0;
+   |     ^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_compound.rs:16:18
+   |
+LL |     let _first = counters[0].0;
+   |                  ^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: aborting due to 3 previous errors
+

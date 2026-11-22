@@ -10,6 +10,7 @@ name = "console_core_shapes"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-pixel-buffers.workspace = true
 console-core-color.workspace = true
 console-core-fonts.workspace = true
 console-core-geometry.workspace = true

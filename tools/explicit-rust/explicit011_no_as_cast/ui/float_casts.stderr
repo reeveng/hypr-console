@@ -1,0 +1,51 @@
+error: `as` cast is forbidden
+  --> $DIR/float_casts.rs:8:19
+   |
+LL |     let mut int = float as u8;
+   |                   ^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit011_no_as_cast)]` on by default
+help: name the rounding policy and keep the cast's numeric behavior
+   |
+LL -     let mut int = float as u8;
+LL +     let ::core::result::Result::Ok(mut int) = ::console_core_number_conversion::toward_zero_u8(<::core::primitive::f64 as ::core::convert::From<::core::primitive::f32>>::from(float));
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/float_casts.rs:12:27
+   |
+LL |     let (narrow, free) = (input.borrow().clone() as f32, input.try_borrow_mut().is_ok());
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: name the rounding policy and keep the cast's numeric behavior
+   |
+LL -     let (narrow, free) = (input.borrow().clone() as f32, input.try_borrow_mut().is_ok());
+LL +     let (narrow, free) = (match ::console_core_number_conversion::nearest_f32_from_f64(input.borrow().clone()) { ::core::result::Result::Ok(_converted_number) => _converted_number }, input.try_borrow_mut().is_ok());
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/float_casts.rs:16:20
+   |
+LL |     let negative = (signed as f32).is_sign_negative();
+   |                    ^^^^^^^^^^^^^^^
+   |
+help: name the rounding policy and keep the cast's numeric behavior
+   |
+LL -     let negative = (signed as f32).is_sign_negative();
+LL +     let negative = match ::console_core_number_conversion::nearest_f32_from_i64(<::core::primitive::i64 as ::core::convert::From<::core::primitive::i32>>::from(signed)) { ::core::result::Result::Ok(_converted_number) => _converted_number }.is_sign_negative();
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/float_casts.rs:18:15
+   |
+LL |     let sum = unsigned as f32 + 1.0;
+   |               ^^^^^^^^^^^^^^^
+   |
+help: name the rounding policy and keep the cast's numeric behavior
+   |
+LL -     let sum = unsigned as f32 + 1.0;
+LL +     let sum = (match ::console_core_number_conversion::nearest_f32_from_u64(unsigned) { ::core::result::Result::Ok(_converted_number) => _converted_number }) + 1.0;
+   |
+
+error: aborting due to 4 previous errors
+

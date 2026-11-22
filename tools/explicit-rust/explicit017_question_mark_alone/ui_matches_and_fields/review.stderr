@@ -1,0 +1,27 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/review.rs:10:19
+   |
+LL |     Some(inspect!(read()?))
+   |                   ^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/review.rs:14:19
+   |
+LL |     Some(matches!(read()?, ref byte if *byte == 3))
+   |                   ^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/review.rs:18:19
+   |
+LL |     Some(matches!(Some(*read.borrow())?, 3))
+   |                   ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: aborting due to 3 previous errors
+

@@ -1,0 +1,30 @@
+[package]
+name = "console-core-audio-decoding-vorbis"
+version = "0.5.5"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Pure Rust Vorbis decoder (a part of project Symphonia)."
+
+[lib]
+name = "console_core_audio_decoding_vorbis"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-logging = { workspace = true, features = ["std"] }
+console-core-frequency-transforms.workspace = true
+console-core-audio-windows.workspace = true
+console-core-audio-decoding-interfaces = { path = "../console-core-audio-decoding-interfaces" }
+console-core-audio-decoding-flac-and-vorbis-headers = { path = "../console-core-audio-decoding-flac-and-vorbis-headers" }
+console-core-byte-streams.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+
+[dev-dependencies]
+console-core-audio-decoding-ogg-container = { path = "../console-core-audio-decoding-ogg-container" }
+
+[lints]
+workspace = true
+
+[dev-dependencies.console-core-checksums]
+path = "../console-core-checksums"

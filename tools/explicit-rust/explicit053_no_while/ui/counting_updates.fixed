@@ -1,0 +1,43 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_number_conversion.rs
+
+extern crate console_core_number_conversion;
+
+use console_core_number_conversion::{wrapping_add_index, wrapping_sub_offset};
+
+fn saved_place(mut index: i32, end: i32, stop: i32) -> i32 {
+    'walk: for _ in (::core::ops::Range { start: index, end: core::cmp::min(end, i32::MAX) }) {
+        if index == stop {
+            break 'walk;
+        }
+        {
+            let amount = 1;
+            let target = &mut index;
+            *target = i32::wrapping_add(*target, amount);
+        };
+    }
+    index
+}
+
+fn index_boundary(mut index: usize, limit: usize) -> usize {
+    for _ in (::core::ops::Range { start: index, end: limit }) {
+        let Ok(()) = wrapping_add_index(1, &mut index);
+    }
+    index
+}
+
+fn offset_boundary(mut offset: isize, limit: isize) -> isize {
+    for _ in (::core::ops::Range { start: limit, end: offset }).rev() {
+        let Ok(()) = wrapping_sub_offset(1, &mut offset);
+    }
+    offset
+}
+
+fn main() {
+    assert_eq!(saved_place(3, 9, 5), 5);
+    assert_eq!(saved_place(9, 3, 5), 9);
+    assert_eq!(saved_place(i32::MAX - 1, i32::MAX, 0), i32::MAX);
+    assert_eq!(index_boundary(usize::MAX - 1, usize::MAX), usize::MAX);
+    assert_eq!(offset_boundary(isize::MIN + 1, isize::MIN), isize::MIN);
+}

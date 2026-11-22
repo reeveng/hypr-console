@@ -1,0 +1,63 @@
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/literals.rs:5:5
+   |
+LL |     x == -0.0 && 0.0 == y
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(explicit071_no_float_pitfalls)]` on by default
+help: compare this literal explicitly, preserving signed zero and NaN behavior
+   |
+LL -     x == -0.0 && 0.0 == y
+LL +     ::core::matches!(::core::primitive::f32::classify(x), ::core::num::FpCategory::Zero) && 0.0 == y
+   |
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/literals.rs:5:18
+   |
+LL |     x == -0.0 && 0.0 == y
+   |                  ^^^^^^^^
+   |
+help: compare this literal explicitly, preserving signed zero and NaN behavior
+   |
+LL -     x == -0.0 && 0.0 == y
+LL +     x == -0.0 && ::core::matches!(::core::primitive::f32::classify(y), ::core::num::FpCategory::Zero)
+   |
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/literals.rs:9:5
+   |
+LL |     (rotation != 0.0).then_some(true)
+   |     ^^^^^^^^^^^^^^^^^
+   |
+help: compare this literal explicitly, preserving signed zero and NaN behavior
+   |
+LL -     (rotation != 0.0).then_some(true)
+LL +     (!::core::matches!(::core::primitive::f64::classify(rotation), ::core::num::FpCategory::Zero)).then_some(true)
+   |
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/literals.rs:13:5
+   |
+LL |     scale != 1.0 || -2.5 == read()
+   |     ^^^^^^^^^^^^
+   |
+help: compare this literal explicitly, preserving signed zero and NaN behavior
+   |
+LL -     scale != 1.0 || -2.5 == read()
+LL +     ::core::primitive::f64::to_bits(scale) != ::core::primitive::f64::to_bits(1.0) || -2.5 == read()
+   |
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/literals.rs:13:21
+   |
+LL |     scale != 1.0 || -2.5 == read()
+   |                     ^^^^^^^^^^^^^^
+   |
+help: compare this literal explicitly, preserving signed zero and NaN behavior
+   |
+LL -     scale != 1.0 || -2.5 == read()
+LL +     scale != 1.0 || ::core::primitive::f32::to_bits(-2.5) == ::core::primitive::f32::to_bits(read())
+   |
+
+warning: 5 warnings emitted
+

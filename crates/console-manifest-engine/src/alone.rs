@@ -54,102 +54,108 @@ pub const NAME: &str = "console/apply";
 
 #[derive(Debug)]
 pub struct Alone {
-    _holding: UnixListener,
+  _holding: UnixListener,
 }
 
 pub fn taking() -> Result<Alone, Unapplied> {
-    claim(NAME)
+  claim(NAME)
 }
 
 pub fn claim(name: &str) -> Result<Alone, Unapplied> {
-    let who = SocketAddr::from_abstract_name(name.as_bytes())
-        .map_err(|fault| Unapplied::NoKernelName(name.to_string(), fault))?;
+  let who = SocketAddr::from_abstract_name(name.as_bytes())
+    .map_err(|fault| Unapplied::NoKernelName(name.to_string(), fault))?;
 
-    match UnixListener::bind_addr(&who) {
-        Ok(holding) => Ok(Alone { _holding: holding }),
-        Err(_) => Err(Unapplied::AlreadyRunning),
-    }
+  match UnixListener::bind_addr(&who) {
+    Ok(holding) => Ok(Alone { _holding: holding }),
+    Err(_) => Err(Unapplied::AlreadyRunning),
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use console_core_never::Never;
+  use super::*;
+  use console_core_never::Never;
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    fn a_name_of_our_own(what: &str) -> Result<String, Never> {
-        Ok(format!("console/test-{}-{what}", std::process::id()))
-    }
+  fn a_name_of_our_own(what: &str) -> Result<String, Never> {
+    Ok(format!("console/test-{}-{what}", std::process::id()))
+  }
 
-    #[test]
-    fn a_second_writer_is_refused() -> Result<(), Failure> {
-        let Ok(name) = a_name_of_our_own("refused");
-        let _first = claim(&name)?;
+  #[test]
+  fn a_second_writer_is_refused() -> Result<(), Failure> {
+    let Ok(name) = a_name_of_our_own("refused");
+    let _first = claim(&name)?;
 
-        assert!(matches!(claim(&name), Err(Unapplied::AlreadyRunning)));
+    assert!(matches!(claim(&name), Err(Unapplied::AlreadyRunning)));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn giving_it_back_lets_the_next_one_in() -> Result<(), Failure> {
-        let Ok(name) = a_name_of_our_own("again");
-        let first = claim(&name)?;
+  #[test]
+  fn giving_it_back_lets_the_next_one_in() -> Result<(), Failure> {
+    let Ok(name) = a_name_of_our_own("again");
+    let first = claim(&name)?;
 
-        drop(first);
+    drop(first);
 
-        let _again = claim(&name)?;
+    let _again = claim(&name)?;
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn two_different_names_are_two_different_locks() -> Result<(), Failure> {
-        let Ok(one) = a_name_of_our_own("one");
-        let Ok(other) = a_name_of_our_own("other");
-        let _one = claim(&one)?;
-        let _other = claim(&other).map_err(|fault| format!("an unrelated name was refused: {fault}"))?;
+  #[test]
+  fn two_different_names_are_two_different_locks() -> Result<(), Failure> {
+    let Ok(one) = a_name_of_our_own("one");
+    let Ok(other) = a_name_of_our_own("other");
+    let _one = claim(&one)?;
+    let _other =
+      claim(&other).map_err(|fault| format!("an unrelated name was refused: {fault}"))?;
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn the_refusal_says_what_is_actually_happening() -> Result<(), Failure> {
-        let Ok(name) = a_name_of_our_own("said");
-        let _first = claim(&name)?;
-        let said = match claim(&name) {
-            Ok(_) => return Err(Failure::from("the second one was let in")),
-            Err(said) => said,
-        };
+  #[test]
+  fn the_refusal_says_what_is_actually_happening() -> Result<(), Failure> {
+    let Ok(name) = a_name_of_our_own("said");
+    let _first = claim(&name)?;
+    let said = match claim(&name) {
+      Ok(_) => return Err(Failure::from("the second one was let in")),
+      Err(said) => said,
+    };
 
-        assert!(
-            said.to_string().contains("another console apply is running"),
-            "the refusal does not say another apply is running: {said:?}"
-        );
-        assert!(!said.to_string().contains("os error"), "the refusal hands over an errno: {said:?}");
+    assert!(
+      said
+        .to_string()
+        .contains("another console apply is running"),
+      "the refusal does not say another apply is running: {said:?}"
+    );
+    assert!(
+      !said.to_string().contains("os error"),
+      "the refusal hands over an errno: {said:?}"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn the_lock_is_not_a_file_anyone_can_remove() -> Result<(), Failure> {
-        let Ok(name) = a_name_of_our_own("nofile");
-        let _held = claim(&name)?;
+  #[test]
+  fn the_lock_is_not_a_file_anyone_can_remove() -> Result<(), Failure> {
+    let Ok(name) = a_name_of_our_own("nofile");
+    let _held = claim(&name)?;
 
-        for was in ["/run/console/apply.lock", "/run/console"] {
-            assert!(
-                !std::path::Path::new(was).exists(),
-                "{was} is on the filesystem again, and a lock someone can rm is a lock two \
+    for was in ["/run/console/apply.lock", "/run/console"] {
+      assert!(
+        matches!(std::fs::symlink_metadata(was), Err(fault) if fault.kind() == std::io::ErrorKind::NotFound),
+        "{was} is on the filesystem again, and a lock someone can rm is a lock two \
                  applies can hold at once"
-            );
-        }
-
-        assert!(
-            matches!(claim(&name), Err(Unapplied::AlreadyRunning)),
-            "the name stopped excluding once nothing named it"
-        );
-
-        Ok(())
+      );
     }
+
+    assert!(
+      matches!(claim(&name), Err(Unapplied::AlreadyRunning)),
+      "the name stopped excluding once nothing named it"
+    );
+
+    Ok(())
+  }
 }

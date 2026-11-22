@@ -1,0 +1,99 @@
+error: `isize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/public.rs:7:34
+   |
+LL | pub struct Surface { pub stride: isize }
+   |                                  ^^^^^
+   |
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+help: retain the public interface's native width through the compatibility crate
+   |
+LL - pub struct Surface { pub stride: isize }
+LL + pub struct Surface { pub stride: ::console_core_api_compatibility::NativeOffset }
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/public.rs:8:35
+   |
+LL | pub fn row(pixels: &[u8], offset: usize) -> Option<&u8> { pixels.get(offset) }
+   |                                   ^^^^^
+   |
+help: retain the public interface's native width through the compatibility crate
+   |
+LL - pub fn row(pixels: &[u8], offset: usize) -> Option<&u8> { pixels.get(offset) }
+LL + pub fn row(pixels: &[u8], offset: ::console_core_api_compatibility::NativeSize) -> Option<&u8> { pixels.get(offset) }
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/public.rs:9:43
+   |
+LL | pub trait PixelRows { fn height(&self) -> usize; }
+   |                                           ^^^^^
+   |
+help: retain the public interface's native width through the compatibility crate
+   |
+LL - pub trait PixelRows { fn height(&self) -> usize; }
+LL + pub trait PixelRows { fn height(&self) -> ::console_core_api_compatibility::NativeSize; }
+   |
+
+error: `isize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/public.rs:11:30
+   |
+LL |     pub fn step(&self, rows: isize) -> isize { self.stride.wrapping_mul(rows) }
+   |                              ^^^^^
+   |
+help: retain the public interface's native width through the compatibility crate
+   |
+LL -     pub fn step(&self, rows: isize) -> isize { self.stride.wrapping_mul(rows) }
+LL +     pub fn step(&self, rows: ::console_core_api_compatibility::NativeOffset) -> isize { self.stride.wrapping_mul(rows) }
+   |
+
+error: `isize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/public.rs:11:40
+   |
+LL |     pub fn step(&self, rows: isize) -> isize { self.stride.wrapping_mul(rows) }
+   |                                        ^^^^^
+   |
+help: retain the public interface's native width through the compatibility crate
+   |
+LL -     pub fn step(&self, rows: isize) -> isize { self.stride.wrapping_mul(rows) }
+LL +     pub fn step(&self, rows: isize) -> ::console_core_api_compatibility::NativeOffset { self.stride.wrapping_mul(rows) }
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/public.rs:13:64
+   |
+LL | unsafe extern "C" { pub fn consume_pixels(ptr: *const u8, len: usize); }
+   |                                                                ^^^^^
+   |
+help: retain the public interface's native width through the compatibility crate
+   |
+LL - unsafe extern "C" { pub fn consume_pixels(ptr: *const u8, len: usize); }
+LL + unsafe extern "C" { pub fn consume_pixels(ptr: *const u8, len: ::console_core_api_compatibility::NativeSize); }
+   |
+
+error: `isize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/public.rs:14:41
+   |
+LL | pub type OffsetCallback = extern "C" fn(isize) -> usize;
+   |                                         ^^^^^
+   |
+help: retain the public interface's native width through the compatibility crate
+   |
+LL - pub type OffsetCallback = extern "C" fn(isize) -> usize;
+LL + pub type OffsetCallback = extern "C" fn(::console_core_api_compatibility::NativeOffset) -> usize;
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/public.rs:14:51
+   |
+LL | pub type OffsetCallback = extern "C" fn(isize) -> usize;
+   |                                                   ^^^^^
+   |
+help: retain the public interface's native width through the compatibility crate
+   |
+LL - pub type OffsetCallback = extern "C" fn(isize) -> usize;
+LL + pub type OffsetCallback = extern "C" fn(isize) -> ::console_core_api_compatibility::NativeSize;
+   |
+
+error: aborting due to 8 previous errors
+

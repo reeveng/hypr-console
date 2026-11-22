@@ -27,11 +27,11 @@
 //! A name a migration claims, or that `left-on-purpose` answers for, is not
 //! taken here: somebody said what to do with it, and a migration that carried
 //! a setting forward before moving the file is exactly the judgement this
-//! arithmetic cannot make. `docs/migrations.md` is the rest, including what is
-//! still written by hand.
+//! arithmetic cannot make. The `migrations.md` note in Orbit is the rest,
+//! including what is still written by hand.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use console_core_external_programs::Program;
@@ -49,643 +49,876 @@ use crate::unapplied::Unapplied;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Left {
-    Program(String),
-    File { declared: String, written: Written },
-    Enabled(String),
-    Masked(String),
+  Program(String),
+  File { declared: String, written: Written },
+  Enabled(String),
+  Masked(String),
 }
 
 impl Left {
-    pub fn about(&self) -> Result<&str, Never> {
-        Ok(match self {
-            Left::Program(live) => live,
-            Left::File { declared, .. } => declared,
-            Left::Enabled(unit) | Left::Masked(unit) => unit,
-        })
-    }
+  pub fn about(&self) -> Result<&str, Never> {
+    Ok(match self {
+      Left::Program(live) => live,
+      Left::File { declared, .. } => declared,
+      Left::Enabled(unit) | Left::Masked(unit) => unit,
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Standing {
-    #[words(name = "left")]
-    Left,
-    #[words(name = "gone")]
-    Gone,
-    #[words(name = "edited, kept")]
-    Edited,
-    #[words(name = "written once, kept")]
-    WrittenOnce,
-    #[words(name = "a package's, kept")]
-    Packaged,
-    #[words(name = "cannot read, kept")]
-    Invalid,
-    #[words(name = "owner unknown, kept")]
-    OwnerUnknown,
+  #[words(name = "left")]
+  Left,
+  #[words(name = "gone")]
+  Gone,
+  #[words(name = "edited, kept")]
+  Edited,
+  #[words(name = "written once, kept")]
+  WrittenOnce,
+  #[words(name = "a package's, kept")]
+  Packaged,
+  #[words(name = "cannot read, kept")]
+  Invalid,
+  #[words(name = "owner unknown, kept")]
+  OwnerUnknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ownership {
-    Owned,
-    Unowned,
-    Unknown,
+  Owned,
+  Unowned,
+  Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Known<'a> {
-    Versions(&'a [Vec<u8>]),
-    Compiled,
+  Versions(&'a [Vec<u8>]),
+  Compiled,
 }
 
 #[derive(Debug, Clone)]
 pub struct Recorded {
-    pub commit: String,
-    pub manifest: Manifest,
+  pub commit: String,
+  pub manifest: Manifest,
 }
 
 pub fn leftovers(
-    recorded: &[Recorded],
-    now: &Manifest,
-    answered: &BTreeSet<String>,
+  recorded: &[Recorded],
+  now: &Manifest,
+  answered: &BTreeSet<String>,
 ) -> Result<Vec<Left>, Never> {
-    let Ok(held_now) = current_entries(now);
-    let mut ever: BTreeMap<String, Left> = BTreeMap::new();
+  let Ok(held_now) = current_entries(now);
+  let mut ever: BTreeMap<String, Left> = BTreeMap::new();
 
-    for one in recorded {
-        let Ok(held) = current_entries(&one.manifest);
+  for one in recorded {
+    let Ok(held) = current_entries(&one.manifest);
 
-        for (holds, placed) in held {
-            let once = placed == Left::File { declared: holds.clone(), written: Written::Once };
+    for (holds, placed) in held {
+      let once = placed
+        == Left::File {
+          declared: holds.clone(),
+          written: Written::Once,
+        };
 
-            match (ever.contains_key(&holds), once) {
-                (false, _) | (true, true) => {
-                    ever.insert(holds, placed);
-                }
-                (true, false) => {},
-            }
+      match (ever.contains_key(&holds), once) {
+        (false, _) | (true, true) => {
+          ever.insert(holds, placed);
         }
+        (true, false) => {}
+      }
     }
+  }
 
-    Ok(ever
-        .into_iter()
-        .filter(|(holds, _)| !held_now.contains_key(holds))
-        .filter(|(holds, _)| !answered.contains(holds))
-        .map(|(_, placed)| placed)
-        .collect())
+  Ok(
+    ever
+      .into_iter()
+      .filter(|(holds, _)| !held_now.contains_key(holds))
+      .filter(|(holds, _)| !answered.contains(holds))
+      .map(|(_, placed)| placed)
+      .collect(),
+  )
 }
 
 fn current_entries(manifest: &Manifest) -> Result<BTreeMap<String, Left>, Never> {
-    let mut found = BTreeMap::new();
+  let mut found = BTreeMap::new();
 
-    for section in [Section::Build, Section::Files, Section::Services, Section::Masked] {
-        let Ok(entries) = manifest.of(section);
+  for section in [
+    Section::Build,
+    Section::Files,
+    Section::Services,
+    Section::Masked,
+  ] {
+    let Ok(entries) = manifest.of(section);
 
-        'over_entries: for entry in entries {
-            let Ok(holds) = holds(section, entry);
+    'over_entries: for entry in entries {
+      let Ok(holds) = holds(section, entry);
 
-            let holds = match holds {
-                Some(holds) => holds,
-                None => continue 'over_entries,
-            };
+      let holds_3 = match holds {
+        Some(holds_2) => holds_2,
+        None => continue 'over_entries,
+      };
 
-            let placed = match section {
-                Section::Build => Left::Program(holds.clone()),
-                Section::Files => {
-                    let Ok(written) = manifest.write_policy(entry);
+      let placed = match section {
+        Section::Build => Left::Program(holds_3.clone()),
+        Section::Files => {
+          let Ok(written) = manifest.write_policy(entry);
 
-                    Left::File { declared: holds.clone(), written }
-                }
-                Section::Services => Left::Enabled(entry.clone()),
-                Section::Masked => Left::Masked(entry.clone()),
-                Section::Packages | Section::Elsewhere => continue 'over_entries,
-            };
-
-            found.insert(holds, placed);
+          Left::File {
+            declared: holds_3.clone(),
+            written,
+          }
         }
-    }
+        Section::Services => Left::Enabled(entry.clone()),
+        Section::Masked => Left::Masked(entry.clone()),
+        Section::Packages | Section::Elsewhere => continue 'over_entries,
+      };
 
-    Ok(found)
+      found.insert(holds_3, placed);
+    }
+  }
+
+  Ok(found)
 }
 
-pub fn status(on: &Path, known: Known<'_>, written: Written, owned: Ownership, user: User<'_>) -> Result<Standing, Never> {
-    let there = match std::fs::symlink_metadata(on) {
-        Ok(_there) => Standing::Left,
-        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
-            true => Standing::Gone,
-            false => Standing::Invalid,
-        },
-    };
+pub fn status(
+  on: &Path,
+  known: Known<'_>,
+  written: Written,
+  owned: Ownership,
+  user: User<'_>,
+) -> Result<Standing, Never> {
+  let there = match std::fs::symlink_metadata(on) {
+    Ok(_there) => Standing::Left,
+    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+      ::core::option::Option::Some(()) => Standing::Gone,
+      ::core::option::Option::None => Standing::Invalid,
+    },
+  };
 
-    match there {
-        Standing::Left => {},
-        Standing::Gone
-        | Standing::Edited
-        | Standing::WrittenOnce
-        | Standing::Packaged
-        | Standing::Invalid
-        | Standing::OwnerUnknown => {
-            return Ok(there);
-        }
+  match there {
+    Standing::Left => {}
+    Standing::Gone
+    | Standing::Edited
+    | Standing::WrittenOnce
+    | Standing::Packaged
+    | Standing::Invalid
+    | Standing::OwnerUnknown => {
+      return Ok(there);
     }
+  }
 
-    match (owned, written) {
-        (Ownership::Owned, _) => return Ok(Standing::Packaged),
-        (Ownership::Unknown, _) => return Ok(Standing::OwnerUnknown),
-        (Ownership::Unowned, Written::Once) => return Ok(Standing::WrittenOnce),
-        (Ownership::Unowned, Written::Always) => {},
+  match (owned, written) {
+    (Ownership::Owned, _) => return Ok(Standing::Packaged),
+    (Ownership::Unknown, _) => return Ok(Standing::OwnerUnknown),
+    (Ownership::Unowned, Written::Once) => return Ok(Standing::WrittenOnce),
+    (Ownership::Unowned, Written::Always) => {}
+  }
+
+  let versions = match known {
+    Known::Compiled => return Ok(Standing::Left),
+    Known::Versions(versions) => versions,
+  };
+
+  let held = match std::fs::read(on) {
+    Ok(held) => held,
+    Err(_unreadable) => return Ok(Standing::Invalid),
+  };
+
+  let shipped = versions.iter().any(|version| {
+    let Ok(content) = install::content_on_machine(version, user);
+
+    content == held
+  });
+
+  Ok(match ::core::primitive::bool::then_some(shipped, ()) {
+    ::core::option::Option::Some(()) => Standing::Left,
+    ::core::option::Option::None => Standing::Edited,
+  })
+}
+
+pub(crate) struct AtticEntry<'a>(&'a Path);
+
+impl<'a> AtticEntry<'a> {
+  pub(crate) fn from_live(on: &'a Path) -> Result<Self, Unapplied> {
+    let relative = match on.strip_prefix("/") {
+      Ok(inside) => inside,
+      Err(_relative) => on,
+    };
+
+    match ::core::primitive::bool::then_some(relative.file_name().is_some()
+      && relative
+        .components()
+        .all(|part| matches!(part, Component::Normal(_)))
+      && !relative.as_os_str().as_encoded_bytes().contains(&0), ())
+    {
+      ::core::option::Option::Some(()) => Ok(Self(relative)),
+      ::core::option::Option::None => Err(Unapplied::Pruning(
+        on.to_path_buf(),
+        "the path must name a file beneath the attic".to_string(),
+      )),
     }
+  }
+}
 
-    let versions = match known {
-        Known::Compiled => return Ok(Standing::Left),
-        Known::Versions(versions) => versions,
-    };
-
-    let held = match std::fs::read(on) {
-        Ok(held) => held,
-        Err(_unreadable) => return Ok(Standing::Invalid),
-    };
-
-    let live = on.to_string_lossy();
-    let shipped = versions.iter().any(|version| {
-        let Ok(content) = install::content_on_machine(version, user, &live);
-
-        content == held
-    });
-
-    Ok(match shipped {
-        true => Standing::Left,
-        false => Standing::Edited,
-    })
+impl AsRef<Path> for AtticEntry<'_> {
+  fn as_ref(&self) -> &Path {
+    self.0
+  }
 }
 
 pub fn take(on: &Path, attic: &Path) -> Result<PathBuf, Unapplied> {
-    let inside = match on.strip_prefix("/") {
-        Ok(inside) => inside,
-        Err(_relative) => on,
-    };
-    let under = attic.join(inside);
+  let inside = AtticEntry::from_live(on)?;
+  let under = attic.join(inside);
 
-    match under.parent() {
-        Some(holding) => std::fs::create_dir_all(holding)
-            .map_err(|fault| Unapplied::Making(holding.to_path_buf(), fault))?,
-        None => {},
+  match under.parent() {
+    Some(holding) => std::fs::create_dir_all(holding)
+      .map_err(|fault| Unapplied::Making(holding.to_path_buf(), fault))?,
+    None => {}
+  }
+
+  let Ok(mut moving) = Program::Mv.command();
+  let moved = moving
+    .args(["--no-target-directory", "--"])
+    .arg(on)
+    .arg(&under)
+    .output()
+    .map_err(|fault| Unapplied::Pruning(on.to_path_buf(), fault.to_string()))?;
+
+  match ::core::primitive::bool::then_some(moved.status.success(), ()) {
+    ::core::option::Option::Some(()) => Ok(under),
+    ::core::option::Option::None => {
+      let said = match std::str::from_utf8(&moved.stderr) {
+        Ok(diagnostic) => diagnostic.trim().to_owned(),
+        Err(fault) => format!("mv returned a diagnostic in invalid UTF-8: {fault}"),
+      };
+
+      Err(Unapplied::Pruning(on.to_path_buf(), said))
     }
-
-    let Ok(mv) = Program::Mv.name();
-    let from = on.display().to_string();
-    let to = under.display().to_string();
-    let Ok(moved) = machine::run_captured(&[mv, &from, &to]);
-
-    match moved.ran {
-        Ran::Fine => Ok(under),
-        Ran::Badly => Err(Unapplied::Pruning(on.to_path_buf(), moved.said)),
-    }
+  }
 }
 
 pub struct Pending {
-    pub left: Vec<(Left, Standing)>,
-    pub unread: Vec<Unread>,
+  pub left: Vec<(Left, Standing)>,
+  pub unread: Vec<Unread>,
 }
 
 pub fn pending(root: &Path, now: &Manifest, user: User<'_>) -> Result<Pending, Unapplied> {
-    let (recorded, unread) = recorded(root)?;
-    let Ok(under) = sweeping::beside(root);
-    let Ok(mut answered) = sweeping::all_claimed(EVERY);
+  let (recorded, unread) = recorded(root)?;
+  let Ok(under) = sweeping::beside(root);
+  let Ok(mut answered) = sweeping::all_claimed(EVERY);
 
-    match std::fs::read_to_string(under.join(sweeping::ON_PURPOSE)) {
-        Ok(said) => {
-            let Ok(on_purpose) = sweeping::on_purpose(&said);
+  match std::fs::read_to_string(under.join(sweeping::ON_PURPOSE)) {
+    Ok(said) => {
+      let Ok(on_purpose) = sweeping::on_purpose(&said);
 
-            answered.extend(on_purpose);
-        }
-        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
-            true => {},
-            false => return Err(Unapplied::Read(under.join(sweeping::ON_PURPOSE), fault)),
-        },
+      answered.extend(on_purpose);
     }
+    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => return Err(Unapplied::Read(under.join(sweeping::ON_PURPOSE), fault)),
+    },
+  }
 
-    let Ok(left) = leftovers(&recorded, now, &answered);
-    let mut standing_of = Vec::new();
+  let Ok(left) = leftovers(&recorded, now, &answered);
+  let mut standing_of = Vec::new();
 
-    for placed in left {
-        let Ok(stands) = status_of(root, &recorded, &placed, user);
+  for placed in left {
+    let Ok(stands) = status_of(root, &recorded, &placed, user);
 
-        standing_of.push((placed, stands));
-    }
+    standing_of.push((placed, stands));
+  }
 
-    Ok(Pending { left: standing_of, unread })
+  Ok(Pending {
+    left: standing_of,
+    unread,
+  })
 }
 
-fn status_of(root: &Path, recorded: &[Recorded], placed: &Left, user: User<'_>) -> Result<Standing, Never> {
-    Ok(match placed {
-        Left::Program(live) => {
-            let Ok(owned) = owned(Path::new(live));
-            let Ok(stands) = status(Path::new(live), Known::Compiled, Written::Always, owned, user);
+fn status_of(
+  root: &Path,
+  recorded: &[Recorded],
+  placed: &Left,
+  user: User<'_>,
+) -> Result<Standing, Never> {
+  Ok(match placed {
+    Left::Program(live) => {
+      let Ok(owned) = owned(Path::new(live));
+      let Ok(stands) = status(
+        Path::new(live),
+        Known::Compiled,
+        Written::Always,
+        owned,
+        user,
+      );
 
-            stands
-        }
-        Left::File { declared, written } => {
-            let Ok(on) = install::on_machine(declared, user);
-            let Ok(owned) = owned(Path::new(&on));
-            let Ok(versions) = versions(root, recorded, declared);
-            let Ok(stands) = status(Path::new(&on), Known::Versions(&versions), *written, owned, user);
+      stands
+    }
+    Left::File { declared, written } => {
+      let Ok(on) = install::on_machine(declared, user);
+      let Ok(owned) = owned(Path::new(&on));
+      let Ok(versions) = versions(root, recorded, declared);
+      let Ok(stands) = status(
+        Path::new(&on),
+        Known::Versions(&versions),
+        *written,
+        owned,
+        user,
+      );
 
-            stands
-        }
-        Left::Enabled(unit) => {
-            let Ok((enabled, _active)) = machine::unit_state(unit);
+      stands
+    }
+    Left::Enabled(unit) => {
+      let Ok((enabled, _active)) = machine::unit_state(unit);
 
-            match enabled == "enabled" {
-                true => Standing::Left,
-                false => Standing::Gone,
-            }
-        }
-        Left::Masked(unit) => {
-            let Ok((enabled, _active)) = machine::unit_state(unit);
+      match ::core::primitive::bool::then_some(enabled == "enabled", ()) {
+        ::core::option::Option::Some(()) => Standing::Left,
+        ::core::option::Option::None => Standing::Gone,
+      }
+    }
+    Left::Masked(unit) => {
+      let Ok((enabled, _active)) = machine::unit_state(unit);
 
-            match enabled == "masked" {
-                true => Standing::Left,
-                false => Standing::Gone,
-            }
-        }
-    })
+      match ::core::primitive::bool::then_some(enabled == "masked", ()) {
+        ::core::option::Option::Some(()) => Standing::Left,
+        ::core::option::Option::None => Standing::Gone,
+      }
+    }
+  })
 }
 
 fn owned(on: &Path) -> Result<Ownership, Never> {
-    let Ok(env) = Program::Env.name();
-    let Ok(pacman) = Program::Pacman.name();
-    let at = on.display().to_string();
-    let Ok(asked) = machine::run_captured(&[env, "LC_ALL=C", pacman, "-Qoq", &at]);
+  let Ok(env) = Program::Env.name();
+  let Ok(pacman) = Program::Pacman.name();
+  let at = on.display().to_string();
+  let Ok(asked) = machine::run_captured(&[env, "LC_ALL=C", pacman, "-Qoq", &at]);
 
-    read_owner(&asked)
+  read_owner(&asked)
 }
 
 const NOBODY_OWNS: &str = "No package owns";
 
 pub fn read_owner(asked: &machine::CommandOutput) -> Result<Ownership, Never> {
-    let machine::CommandOutput { out, said, ran } = asked;
-    let named = !out.trim().is_empty();
-    let disowned = said.contains(NOBODY_OWNS);
+  let machine::CommandOutput { out, said, ran } = asked;
+  let named = !out.trim().is_empty();
+  let disowned = said.contains(NOBODY_OWNS);
 
-    Ok(match (*ran, named, disowned) {
-        (Ran::Fine, true, false) => Ownership::Owned,
-        (Ran::Badly, false, true) => Ownership::Unowned,
-        (Ran::Fine, false, _) | (Ran::Fine, true, true) | (Ran::Badly, _, false) | (Ran::Badly, true, true) => {
-            Ownership::Unknown
-        }
-    })
+  Ok(match (*ran, named, disowned) {
+    (Ran::Fine, true, false) => Ownership::Owned,
+    (Ran::Badly, false, true) => Ownership::Unowned,
+    (Ran::Fine, false, _)
+    | (Ran::Fine, true, true)
+    | (Ran::Badly, _, false)
+    | (Ran::Badly, true, true) => Ownership::Unknown,
+  })
 }
 
 #[derive(Debug)]
 pub enum Unread {
-    NotShown(String),
-    NotAManifest(String, Unapplied),
+  NotShown(String),
+  NotAManifest(String, Unapplied),
 }
 
 impl std::fmt::Display for Unread {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unread::NotShown(commit) => write!(
-                to,
-                "generation {commit} is a commit this tree cannot show, so what it placed is not known"
-            ),
-            Unread::NotAManifest(commit, fault) => {
-                write!(to, "generation {commit} carried a manifest this cannot read: {fault}")
-            }
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unread::NotShown(commit) => write!(
+        to,
+        "generation {commit} is a commit this tree cannot show, so what it placed is not known"
+      ),
+      Unread::NotAManifest(commit, fault) => {
+        write!(
+          to,
+          "generation {commit} carried a manifest this cannot read: {fault}"
+        )
+      }
     }
+  }
 }
 
 fn recorded(root: &Path) -> Result<(Vec<Recorded>, Vec<Unread>), Unapplied> {
-    let kept = generations::read(Path::new(generations::KEPT))?;
-    let commits: BTreeSet<String> = kept.into_iter().map(|one| one.commit).collect();
-    let mut recorded = Vec::new();
-    let mut unread = Vec::new();
+  let kept = generations::read(Path::new(generations::KEPT))?;
+  let commits: BTreeSet<String> = kept.into_iter().map(|one| one.commit).collect();
+  let mut recorded = Vec::new();
+  let mut unread = Vec::new();
 
-    for commit in commits {
-        let Ok(desktop) = shown(root, generations::Commit(&commit), crate::manifest::MARK);
-        let Ok(quirks) = shown(root, generations::Commit(&commit), machines::AT);
+  for commit in commits {
+    let Ok(desktop) = shown(root, generations::Commit(&commit), crate::manifest::MARK);
+    let Ok(quirks) = shown(root, generations::Commit(&commit), machines::AT);
 
-        match desktop {
-            Some(desktop) => match as_manifest(&desktop, quirks.as_deref()) {
-                Ok(manifest) => recorded.push(Recorded { commit, manifest }),
-                Err(fault) => unread.push(Unread::NotAManifest(commit, fault)),
-            },
-            None => unread.push(Unread::NotShown(commit)),
-        }
+    match desktop {
+      Some(desktop_2) => match as_manifest(&desktop_2, quirks.as_deref()) {
+        Ok(manifest) => recorded.push(Recorded { commit, manifest }),
+        Err(fault) => unread.push(Unread::NotAManifest(commit, fault)),
+      },
+      None => unread.push(Unread::NotShown(commit)),
     }
+  }
 
-    Ok((recorded, unread))
+  Ok((recorded, unread))
 }
 
 fn as_manifest(desktop: &[u8], quirks: Option<&[u8]>) -> Result<Manifest, Unapplied> {
-    let read = Manifest::read_as(&String::from_utf8_lossy(desktop), Reading::Recorded)?;
+  let decode = |path: &str, fault| {
+    Unapplied::Read(
+      PathBuf::from(path),
+      std::io::Error::new(std::io::ErrorKind::InvalidData, fault),
+    )
+  };
+  let desktop_text =
+    std::str::from_utf8(desktop).map_err(|fault| decode(crate::manifest::MARK, fault))?;
+  let read = Manifest::read_as(desktop_text, Reading::Recorded)?;
 
-    let mine = match quirks {
-        Some(quirks) => machines::here(&String::from_utf8_lossy(quirks), Path::new(machines::FIRMWARE))?,
-        None => String::new(),
-    };
+  let mine = match quirks {
+    Some(held) => {
+      let text = std::str::from_utf8(held).map_err(|fault| decode(machines::AT, fault))?;
+      let applicable = machines::here(text, Path::new(machines::FIRMWARE))?;
 
-    read.and_as(Configuration(machines::AT), &mine, Reading::Recorded)
+      applicable
+    }
+    None => String::new(),
+  };
+
+  read.and_as(Configuration(machines::AT), &mine, Reading::Recorded)
 }
 
 fn versions(root: &Path, recorded: &[Recorded], declared: &str) -> Result<Vec<Vec<u8>>, Never> {
-    let mut found = Vec::new();
+  let mut found = Vec::new();
 
-    for one in recorded {
-        let Ok(files) = one.manifest.of(Section::Files);
+  for one in recorded {
+    let Ok(files) = one.manifest.of(Section::Files);
 
-        for entry in files {
-            let Ok(same) = whoevers(entry);
+    'files: for entry in files {
+      let Ok(same) = whoevers(entry);
 
-            match same == declared {
-                true => {
-                    let source = format!("files/{}", entry.trim_start_matches('/'));
-                    let Ok(shipped) = shown(root, generations::Commit(&one.commit), &source);
+      match ::core::primitive::bool::then_some(same == declared, ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => continue 'files,
+      }
 
-                    match shipped {
-                        Some(shipped) => found.push(shipped),
-                        None => {},
-                    }
-                }
-                false => {},
-            }
-        }
+      let source = format!("files/{}", entry.trim_start_matches('/'));
+      let Ok(shipped) = shown(root, generations::Commit(&one.commit), &source);
+
+      found.extend(shipped);
     }
+  }
 
-    Ok(found)
+  Ok(found)
 }
 
-fn shown(root: &Path, commit: generations::Commit<'_>, path: &str) -> Result<Option<Vec<u8>>, Never> {
-    let Ok(git) = Program::Git.name();
+fn shown(
+  root: &Path,
+  commit: generations::Commit<'_>,
+  path: &str,
+) -> Result<Option<Vec<u8>>, Never> {
+  let Ok(git) = Program::Git.name();
 
-    #[cfg_attr(
-        dylint_lib = "explicit029_no_asking_per_item",
-        allow(
-            explicit029_no_asking_per_item,
-            reason = "each generation is its own commit and each file its own blob; the handful a machine has recorded is the whole of the loop, and a batch reader would be a second git protocol to hold for it"
-        )
-    )]
-    let said = Command::new(git)
-        .arg("-C")
-        .arg(root)
-        .args(["show", &format!("{}:{path}", commit.0)])
-        .output();
+  #[cfg_attr(
+    dylint_lib = "explicit029_no_asking_per_item",
+    allow(
+      explicit029_no_asking_per_item,
+      reason = "each generation is its own commit and each file its own blob; the handful a machine has recorded is the whole of the loop, and a batch reader would be a second git protocol to hold for it"
+    )
+  )]
+  let said = Command::new(git)
+    .arg("-C")
+    .arg(root)
+    .args(["show", &format!("{}:{path}", commit.0)])
+    .output();
 
-    Ok(match said {
-        Ok(said) => match said.status.success() {
-            true => Some(said.stdout),
-            false => None,
-        },
-        Err(_would_not_start) => None,
-    })
+  Ok(match said {
+    Ok(answer) => match ::core::primitive::bool::then_some(answer.status.success(), ()) {
+      ::core::option::Option::Some(()) => Some(answer.stdout),
+      ::core::option::Option::None => None,
+    },
+    Err(_would_not_start) => None,
+  })
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
-
-    pub(crate) type Failure = Box<dyn std::error::Error>;
-
-    fn manifest(said: &str) -> Result<Manifest, Failure> {
-        let manifest = Manifest::read(said)?;
-
-        Ok(manifest)
-    }
-
-    fn recorded(said: &str) -> Result<Recorded, Failure> {
-        let manifest = manifest(said)?;
+  use super::*;
+
+  pub(crate) type Failure = Box<dyn std::error::Error>;
+
+  fn manifest(said: &str) -> Result<Manifest, Failure> {
+    let manifest = Manifest::read(said)?;
+
+    Ok(manifest)
+  }
+
+  fn recorded(said: &str) -> Result<Recorded, Failure> {
+    let manifest = manifest(said)?;
+
+    Ok(Recorded {
+      commit: "a1b2c3d".to_string(),
+      manifest,
+    })
+  }
+
+  pub(crate) fn a_machine(named: &str) -> Result<PathBuf, Failure> {
+    let at = console_core_temporary_directories::fresh(&format!("pruning-{named}"))?;
+
+    Ok(at)
+  }
+
+  pub(crate) fn place_file(at: &Path, held: &[u8]) -> Result<(), Failure> {
+    console_core_atomic_writes::whole_with_folders(at, held)?;
+
+    Ok(())
+  }
+
+  fn status_with(
+    on: &Path,
+    versions: &[Vec<u8>],
+    written: Written,
+    owned: Ownership,
+  ) -> Result<Standing, Never> {
+    super::status(on, Known::Versions(versions), written, owned, User("ada"))
+  }
+
+  #[test]
+  fn what_a_recorded_commit_named_and_today_does_not_is_left() -> Result<(), Failure> {
+    let recorded = recorded(
+      "[build]\nfiles-panel\nfiles\n\n[files]\n/etc/old.conf\n\n[services]\nold.service\n\n[masked]\nmako.service\n",
+    )?;
+    let then = [recorded];
+    let now = manifest("[build]\nfiles\n")?;
+    let Ok(left) = leftovers(&then, &now, &BTreeSet::new());
+
+    assert_eq!(
+      left,
+      vec![
+        Left::File {
+          declared: "/etc/old.conf".to_string(),
+          written: Written::Always
+        },
+        Left::Program("/usr/local/bin/files-panel".to_string()),
+        Left::Enabled("old.service".to_string()),
+        Left::Masked("mako.service".to_string()),
+      ]
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_name_a_migration_or_a_reason_answers_for_is_not_taken_here() -> Result<(), Failure> {
+    let recorded = recorded("[build]\nfiles-panel\nviewer-panel\n")?;
+    let then = [recorded];
+    let answered = BTreeSet::from(["/usr/local/bin/files-panel".to_string()]);
+    let now = manifest("")?;
+    let Ok(left) = leftovers(&then, &now, &answered);
+
+    assert_eq!(
+      left,
+      vec![Left::Program("/usr/local/bin/viewer-panel".to_string())]
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_package_leaving_the_manifest_is_pacmans_and_not_this() -> Result<(), Failure> {
+    let recorded = recorded("[packages]\ngrim\n")?;
+    let then = [recorded];
+    let now = manifest("")?;
+    let Ok(left) = leftovers(&then, &now, &BTreeSet::new());
+
+    assert!(left.is_empty());
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_program_that_moved_between_sections_is_still_there_and_not_left() -> Result<(), Failure> {
+    let recorded = recorded("[files]\n/usr/local/bin/launcher\n")?;
+    let then = [recorded];
+    let now = manifest("[build]\nlauncher\n")?;
+    let Ok(left) = leftovers(&then, &now, &BTreeSet::new());
+
+    assert!(left.is_empty());
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_home_path_is_the_same_file_whoever_the_home_was_written_for() -> Result<(), Failure> {
+    let recorded = recorded("[files]\n/home/@user@/.config/wofi/config\n")?;
+    let then = [recorded];
+    let now = manifest("")?;
+    let Ok(left) = leftovers(&then, &now, &BTreeSet::new());
+
+    assert_eq!(
+      left,
+      vec![Left::File {
+        declared: "/home/@user@/.config/wofi/config".to_string(),
+        written: Written::Always
+      }]
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_generation_from_before_once_had_its_name_is_still_read() -> Result<(), Failure> {
+    let desktop = b"[files]\n/etc/plasmalogin.conf.d/zz-steamos-autologin.conf theirs\n";
+
+    let manifest = as_manifest(desktop, None)?;
+    let Ok(written) = manifest.write_policy("/etc/plasmalogin.conf.d/zz-steamos-autologin.conf");
+
+    assert_eq!(written, Written::Once);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_generation_with_invalid_text_cannot_authorize_pruning() {
+    let unread = as_manifest(b"[files]\n/etc/old\xff.conf\n", None);
+
+    assert!(
+      matches!(unread, Err(Unapplied::Read(_, fault)) if fault.kind() == std::io::ErrorKind::InvalidData)
+    );
+  }
+
+  #[test]
+  fn a_file_still_holding_what_was_shipped_is_taken_into_the_attic() -> Result<(), Failure> {
+    let machine = a_machine("shipped")?;
+    let on = machine.join("etc/old.conf");
+    let attic = machine.join("attic");
+
+    place_file(&on, b"hello ada\n")?;
+
+    let Ok(stands) = status_with(
+      &on,
+      &[b"hello @user@\n".to_vec()],
+      Written::Always,
+      Ownership::Unowned,
+    );
+
+    assert_eq!(stands, Standing::Left);
 
-        Ok(Recorded { commit: "a1b2c3d".to_string(), manifest })
-    }
+    let under = take(&on, &attic)?;
+
+    assert!(
+      matches!(std::fs::symlink_metadata(&on), Err(fault) if fault.kind() == std::io::ErrorKind::NotFound),
+      "{} is still where the manifest stopped naming it",
+      on.display()
+    );
+    let held = std::fs::read(&under)?;
+
+    assert_eq!(held, b"hello ada\n".to_vec());
 
-    pub(crate) fn a_machine(named: &str) -> Result<PathBuf, Failure> {
-        let at = console_core_temporary_directories::fresh(&format!("pruning-{named}"))?;
-
-        Ok(at)
-    }
-
-    pub(crate) fn place_file(at: &Path, held: &[u8]) -> Result<(), Failure> {
-        console_core_atomic_writes::whole_with_folders(at, held)?;
-
-        Ok(())
-    }
-
-    fn status_with(on: &Path, versions: &[Vec<u8>], written: Written, owned: Ownership) -> Result<Standing, Never> {
-        super::status(on, Known::Versions(versions), written, owned, User("ada"))
-    }
-
-    #[test]
-    fn what_a_recorded_commit_named_and_today_does_not_is_left() -> Result<(), Failure> {
-        let recorded = recorded("[build]\nfiles-panel\nfiles\n\n[files]\n/etc/old.conf\n\n[services]\nold.service\n\n[masked]\nmako.service\n")?;
-        let then = [recorded];
-        let now = manifest("[build]\nfiles\n")?;
-        let Ok(left) = leftovers(&then, &now, &BTreeSet::new());
-
-        assert_eq!(
-            left,
-            vec![
-                Left::File { declared: "/etc/old.conf".to_string(), written: Written::Always },
-                Left::Program("/usr/local/bin/files-panel".to_string()),
-                Left::Enabled("old.service".to_string()),
-                Left::Masked("mako.service".to_string()),
-            ]
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_name_a_migration_or_a_reason_answers_for_is_not_taken_here() -> Result<(), Failure> {
-        let recorded = recorded("[build]\nfiles-panel\nviewer-panel\n")?;
-        let then = [recorded];
-        let answered = BTreeSet::from(["/usr/local/bin/files-panel".to_string()]);
-        let now = manifest("")?;
-        let Ok(left) = leftovers(&then, &now, &answered);
-
-        assert_eq!(left, vec![Left::Program("/usr/local/bin/viewer-panel".to_string())]);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_package_leaving_the_manifest_is_pacmans_and_not_this() -> Result<(), Failure> {
-        let recorded = recorded("[packages]\ngrim\n")?;
-        let then = [recorded];
-        let now = manifest("")?;
-        let Ok(left) = leftovers(&then, &now, &BTreeSet::new());
-
-        assert!(left.is_empty());
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_program_that_moved_between_sections_is_still_there_and_not_left() -> Result<(), Failure> {
-        let recorded = recorded("[files]\n/usr/local/bin/launcher\n")?;
-        let then = [recorded];
-        let now = manifest("[build]\nlauncher\n")?;
-        let Ok(left) = leftovers(&then, &now, &BTreeSet::new());
-
-        assert!(left.is_empty());
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_home_path_is_the_same_file_whoever_the_home_was_written_for() -> Result<(), Failure> {
-        let recorded = recorded("[files]\n/home/@user@/.config/wofi/config\n")?;
-        let then = [recorded];
-        let now = manifest("")?;
-        let Ok(left) = leftovers(&then, &now, &BTreeSet::new());
-
-        assert_eq!(
-            left,
-            vec![Left::File { declared: "/home/@user@/.config/wofi/config".to_string(), written: Written::Always }]
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_generation_from_before_once_had_its_name_is_still_read() -> Result<(), Failure> {
-        let desktop = b"[files]\n/etc/plasmalogin.conf.d/zz-steamos-autologin.conf theirs\n";
-
-        let manifest = as_manifest(desktop, None)?;
-        let Ok(written) = manifest.write_policy("/etc/plasmalogin.conf.d/zz-steamos-autologin.conf");
-
-        assert_eq!(written, Written::Once);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_file_still_holding_what_was_shipped_is_taken_into_the_attic() -> Result<(), Failure> {
-        let machine = a_machine("shipped")?;
-        let on = machine.join("etc/old.conf");
-        let attic = machine.join("attic");
-
-        place_file(&on, b"hello ada\n")?;
-
-        let Ok(stands) = status_with(&on, &[b"hello @user@\n".to_vec()], Written::Always, Ownership::Unowned);
-
-        assert_eq!(stands, Standing::Left);
-
-        let under = take(&on, &attic)?;
-
-        assert!(!on.exists(), "{} is still where the manifest stopped naming it", on.display());
-        let held = std::fs::read(&under)?;
-
-        assert_eq!(held, b"hello ada\n".to_vec());
-
-        let _ = std::fs::remove_dir_all(&machine);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_file_edited_since_it_was_placed_is_reported_and_left() -> Result<(), Failure> {
-        let machine = a_machine("edited")?;
-        let on = machine.join("etc/old.conf");
-
-        place_file(&on, b"what somebody wrote\n")?;
-
-        let Ok(stands) = status_with(&on, &[b"what was shipped\n".to_vec()], Written::Always, Ownership::Unowned);
-
-        assert_eq!(stands, Standing::Edited);
-
-        let _ = std::fs::remove_dir_all(&machine);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_file_no_recorded_commit_can_show_is_not_known_to_be_ours() -> Result<(), Failure> {
-        let machine = a_machine("unshown")?;
-        let on = machine.join("etc/old.conf");
-
-        place_file(&on, b"anything\n")?;
-
-        assert_eq!(status_with(&on, &[], Written::Always, Ownership::Unowned), Ok(Standing::Edited));
-
-        let _ = std::fs::remove_dir_all(&machine);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_file_a_package_owns_or_something_else_writes_is_kept() -> Result<(), Failure> {
-        let machine = a_machine("kept")?;
-        let on = machine.join("etc/old.conf");
-        let shipped = [b"shipped\n".to_vec()];
-
-        place_file(&on, b"shipped\n")?;
-
-        assert_eq!(status_with(&on, &shipped, Written::Always, Ownership::Owned), Ok(Standing::Packaged));
-        assert_eq!(status_with(&on, &shipped, Written::Once, Ownership::Unowned), Ok(Standing::WrittenOnce));
-
-        let _ = std::fs::remove_dir_all(&machine);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_path_whose_owner_could_not_be_asked_is_kept_and_not_taken() -> Result<(), Failure> {
-        let machine = a_machine("unknown")?;
-        let on = machine.join("etc/old.conf");
-        let shipped = [b"shipped\n".to_vec()];
-
-        place_file(&on, b"shipped\n")?;
-
-        assert_eq!(status_with(&on, &shipped, Written::Always, Ownership::Unknown), Ok(Standing::OwnerUnknown));
-
-        let Ok(program) = super::status(&on, Known::Compiled, Written::Always, Ownership::Unknown, User("ada"));
-
-        assert_eq!(program, Standing::OwnerUnknown);
-
-        let _ = std::fs::remove_dir_all(&machine);
-
-        Ok(())
-    }
-
-    #[test]
-    fn only_pacman_saying_so_plainly_is_an_answer_about_an_owner() {
-        let read = |ran, out, said| {
-            let Ok(owned) = read_owner(&machine::CommandOutput { out: String::from(out), said: String::from(said), ran });
-
-            owned
-        };
-
-        assert_eq!(read(Ran::Fine, "inputplumber", ""), Ownership::Owned);
-        assert_eq!(read(Ran::Badly, "", "error: No package owns /etc/old.conf"), Ownership::Unowned);
-        assert_eq!(read(Ran::Badly, "", "pacman: No such file or directory"), Ownership::Unknown);
-        assert_eq!(read(Ran::Badly, "", "error: failed to read file '/etc': Permission denied"), Ownership::Unknown);
-        assert_eq!(read(Ran::Fine, "", ""), Ownership::Unknown);
-    }
-
-    #[test]
-    fn a_file_already_gone_is_nothing_to_do() -> Result<(), Failure> {
-        let machine = a_machine("gone")?;
-
-        assert_eq!(status_with(&machine.join("etc/old.conf"), &[], Written::Always, Ownership::Unowned), Ok(Standing::Gone));
-
-        let _ = std::fs::remove_dir_all(&machine);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_program_is_taken_whatever_it_holds_when_no_package_owns_it() -> Result<(), Failure> {
-        let machine = a_machine("program")?;
-        let on = machine.join("usr/local/bin/files-panel");
-
-        place_file(&on, b"\x7fELF")?;
-
-        let Ok(stands) = super::status(&on, Known::Compiled, Written::Always, Ownership::Unowned, User("ada"));
-
-        assert_eq!(stands, Standing::Left);
-
-        let _ = std::fs::remove_dir_all(&machine);
-
-        Ok(())
-    }
+    std::fs::remove_dir_all(&machine)?;
+
+    Ok(())
+  }
+
+  #[test]
+  fn taking_a_path_with_a_parent_component_leaves_the_attic_untouched() -> Result<(), Failure> {
+    let machine = a_machine("attic-parent")?;
+    let live = machine.join("etc/old.conf");
+    let attic = machine.join("attic");
+    place_file(&live, b"still here")?;
+    let mut invalid_name = machine.clone().into_os_string();
+    invalid_name.push("/etc/../etc/old.conf");
+    let invalid = PathBuf::from(invalid_name);
+    let taken = take(&invalid, &attic);
+
+    assert!(matches!(taken, Err(Unapplied::Pruning(at, _)) if at == invalid));
+    let live_metadata = std::fs::metadata(&live)?;
+
+    assert!(live_metadata.is_file());
+    assert!(
+      matches!(std::fs::symlink_metadata(&attic), Err(fault) if fault.kind() == std::io::ErrorKind::NotFound)
+    );
+
+    std::fs::remove_dir_all(machine)?;
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_directory_at_the_destination_does_not_take_the_file_inside_it() -> Result<(), Failure> {
+    let machine = a_machine("attic-destination")?;
+    let live = machine.join("etc/old.conf");
+    let attic = machine.join("attic");
+    place_file(&live, b"still here")?;
+    let archived = AtticEntry::from_live(&live)?;
+    let destination = attic.join(archived);
+    std::fs::create_dir_all(&destination)?;
+    let taken = take(&live, &attic);
+
+    assert!(matches!(taken, Err(Unapplied::Pruning(at, _)) if at == live));
+    let live_metadata = std::fs::metadata(&live)?;
+
+    assert!(live_metadata.is_file());
+    assert!(
+      matches!(std::fs::symlink_metadata(destination.join("old.conf")), Err(fault) if fault.kind() == std::io::ErrorKind::NotFound)
+    );
+
+    std::fs::remove_dir_all(machine)?;
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_file_edited_since_it_was_placed_is_reported_and_left() -> Result<(), Failure> {
+    let machine = a_machine("edited")?;
+    let on = machine.join("etc/old.conf");
+
+    place_file(&on, b"what somebody wrote\n")?;
+
+    let Ok(stands) = status_with(
+      &on,
+      &[b"what was shipped\n".to_vec()],
+      Written::Always,
+      Ownership::Unowned,
+    );
+
+    assert_eq!(stands, Standing::Edited);
+
+    std::fs::remove_dir_all(&machine)?;
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_file_no_recorded_commit_can_show_is_not_known_to_be_ours() -> Result<(), Failure> {
+    let machine = a_machine("unshown")?;
+    let on = machine.join("etc/old.conf");
+
+    place_file(&on, b"anything\n")?;
+
+    assert_eq!(
+      status_with(&on, &[], Written::Always, Ownership::Unowned),
+      Ok(Standing::Edited)
+    );
+
+    std::fs::remove_dir_all(&machine)?;
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_file_a_package_owns_or_something_else_writes_is_kept() -> Result<(), Failure> {
+    let machine = a_machine("kept")?;
+    let on = machine.join("etc/old.conf");
+    let shipped = [b"shipped\n".to_vec()];
+
+    place_file(&on, b"shipped\n")?;
+
+    assert_eq!(
+      status_with(&on, &shipped, Written::Always, Ownership::Owned),
+      Ok(Standing::Packaged)
+    );
+    assert_eq!(
+      status_with(&on, &shipped, Written::Once, Ownership::Unowned),
+      Ok(Standing::WrittenOnce)
+    );
+
+    std::fs::remove_dir_all(&machine)?;
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_path_whose_owner_could_not_be_asked_is_kept_and_not_taken() -> Result<(), Failure> {
+    let machine = a_machine("unknown")?;
+    let on = machine.join("etc/old.conf");
+    let shipped = [b"shipped\n".to_vec()];
+
+    place_file(&on, b"shipped\n")?;
+
+    assert_eq!(
+      status_with(&on, &shipped, Written::Always, Ownership::Unknown),
+      Ok(Standing::OwnerUnknown)
+    );
+
+    let Ok(program) = super::status(
+      &on,
+      Known::Compiled,
+      Written::Always,
+      Ownership::Unknown,
+      User("ada"),
+    );
+
+    assert_eq!(program, Standing::OwnerUnknown);
+
+    std::fs::remove_dir_all(&machine)?;
+
+    Ok(())
+  }
+
+  #[test]
+  fn only_pacman_saying_so_plainly_is_an_answer_about_an_owner() {
+    let read = |ran, out, said| {
+      let Ok(owned) = read_owner(&machine::CommandOutput {
+        out: String::from(out),
+        said: String::from(said),
+        ran,
+      });
+
+      owned
+    };
+
+    assert_eq!(read(Ran::Fine, "inputplumber", ""), Ownership::Owned);
+    assert_eq!(
+      read(Ran::Badly, "", "error: No package owns /etc/old.conf"),
+      Ownership::Unowned
+    );
+    assert_eq!(
+      read(Ran::Badly, "", "pacman: No such file or directory"),
+      Ownership::Unknown
+    );
+    assert_eq!(
+      read(
+        Ran::Badly,
+        "",
+        "error: failed to read file '/etc': Permission denied"
+      ),
+      Ownership::Unknown
+    );
+    assert_eq!(read(Ran::Fine, "", ""), Ownership::Unknown);
+  }
+
+  #[test]
+  fn a_file_already_gone_is_nothing_to_do() -> Result<(), Failure> {
+    let machine = a_machine("gone")?;
+
+    assert_eq!(
+      status_with(
+        &machine.join("etc/old.conf"),
+        &[],
+        Written::Always,
+        Ownership::Unowned
+      ),
+      Ok(Standing::Gone)
+    );
+
+    std::fs::remove_dir_all(&machine)?;
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_program_is_taken_whatever_it_holds_when_no_package_owns_it() -> Result<(), Failure> {
+    let machine = a_machine("program")?;
+    let on = machine.join("usr/local/bin/files-panel");
+
+    place_file(&on, b"\x7fELF")?;
+
+    let Ok(stands) = super::status(
+      &on,
+      Known::Compiled,
+      Written::Always,
+      Ownership::Unowned,
+      User("ada"),
+    );
+
+    assert_eq!(stands, Standing::Left);
+
+    std::fs::remove_dir_all(&machine)?;
+
+    Ok(())
+  }
 }

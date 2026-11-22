@@ -1,19 +1,74 @@
 error: this `break` is inside more than one loop and names none of them
-  --> $DIR/main.rs:10:25
+  --> $DIR/main.rs:11:25
    |
 LL |                 true => break,
    |                         ^^^^^
    |
-   = help: label the loop this leaves and say it here: `'over_rows: for ...` and `break 'over_rows`. A bare jump leaves the innermost loop, which is a fact about where the line happens to sit rather than about what it means, and it moves the next time someone wraps a loop around it
    = note: `#[deny(explicit046_no_unnamed_jump)]` on by default
+help: label the destination loop and its jumps
+   |
+LL ~         'over_at_2: for at in row {
+LL |             match *at > 10 {
+LL |                 //~v EXPLICIT046_NO_UNNAMED_JUMP
+LL ~                 true => break 'over_at_2,
+   |
 
 error: this `continue` is inside more than one loop and names none of them
-  --> $DIR/main.rs:25:25
+  --> $DIR/main.rs:26:25
    |
 LL |                 true => continue,
    |                         ^^^^^^^^
    |
+help: label the destination loop and its jumps
+   |
+LL ~         'over_at_2: for at in row {
+LL |             match *at > 10 {
+LL |                 //~v EXPLICIT046_NO_UNNAMED_JUMP
+LL ~                 true => continue 'over_at_2,
+   |
+
+error: this `break` is inside more than one loop and names none of them
+  --> $DIR/main.rs:81:22
+   |
+LL |                 0 => break,
+   |                      ^^^^^
+   |
+help: label the destination loop and its jumps
+   |
+LL ~         'over_at_2: for at in row {
+LL |             match *at {
+LL |                 //~v EXPLICIT046_NO_UNNAMED_JUMP
+LL ~                 0 => break 'over_at_2,
+LL |                 //~v EXPLICIT046_NO_UNNAMED_JUMP
+LL ~                 1 => continue 'over_at_2,
+   |
+
+error: this `continue` is inside more than one loop and names none of them
+  --> $DIR/main.rs:83:22
+   |
+LL |                 1 => continue,
+   |                      ^^^^^^^^
+   |
    = help: label the loop this leaves and say it here: `'over_rows: for ...` and `break 'over_rows`. A bare jump leaves the innermost loop, which is a fact about where the line happens to sit rather than about what it means, and it moves the next time someone wraps a loop around it
 
-error: aborting due to 2 previous errors
+error: this `break` is inside more than one loop and names none of them
+  --> $DIR/main.rs:95:22
+   |
+LL |                 1 => break,
+   |                      ^^^^^- help: name the destination loop: `'current_row`
+
+error: this `break` is inside more than one loop and names none of them
+  --> $DIR/main.rs:106:13
+   |
+LL |             break row.len();
+   |             ^^^^^^^^^^^^^^^
+   |
+help: label the destination loop and its jumps
+   |
+LL ~         let _count = 'inner_loop_2: loop {
+LL |             //~v EXPLICIT046_NO_UNNAMED_JUMP
+LL ~             break 'inner_loop_2 row.len();
+   |
+
+error: aborting due to 6 previous errors
 

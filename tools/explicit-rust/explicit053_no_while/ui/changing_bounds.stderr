@@ -1,0 +1,36 @@
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/changing_bounds.rs:4:5
+   |
+LL | /     while pos < data.len() {
+LL | |         data.pop();
+LL | |         pos = pos.wrapping_add(1);
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+   = note: `#[deny(explicit053_no_while)]` on by default
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/changing_bounds.rs:16:5
+   |
+LL | /     while pos < limit.end {
+LL | |         limit.end = limit.end.wrapping_sub(1);
+LL | |         pos = pos.wrapping_add(1);
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/changing_bounds.rs:24:5
+   |
+LL | /     while let Some(value) = input.get_mut(0) {
+LL | |         *value = 8;
+LL | |         break;
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+
+error: aborting due to 3 previous errors
+

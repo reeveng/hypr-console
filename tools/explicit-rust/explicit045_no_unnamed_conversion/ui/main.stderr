@@ -1,19 +1,87 @@
 error: `into()` turns `&str` into `std::string::String` and the line says neither
-  --> $DIR/main.rs:8:5
+  --> $DIR/main.rs:11:5
    |
 LL |     text.into()
    |     ^^^^^^^^^^^
    |
-   = help: write the destination out -- `Target::from(x)` -- so the reader sees what this becomes without asking the compiler, and so the call stops compiling when the type around it changes rather than converting to the new one behind the line
    = note: `#[deny(explicit045_no_unnamed_conversion)]` on by default
+help: name the destination of the same conversion
+   |
+LL -     text.into()
+LL +     <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(text)
+   |
 
 error: `into()` turns `&str` into `std::path::PathBuf` and the line says neither
-  --> $DIR/main.rs:14:5
+  --> $DIR/main.rs:17:5
    |
 LL |     text.into()
    |     ^^^^^^^^^^^
    |
-   = help: write the destination out -- `Target::from(x)` -- so the reader sees what this becomes without asking the compiler, and so the call stops compiling when the type around it changes rather than converting to the new one behind the line
+help: name the destination of the same conversion
+   |
+LL -     text.into()
+LL +     <::std::path::PathBuf as ::core::convert::From<&::core::primitive::str>>::from(text)
+   |
 
-error: aborting due to 2 previous errors
+error: `into()` turns `&[u8]` into `r#type::View<'_>` and the line says neither
+  --> $DIR/main.rs:32:17
+   |
+LL |         true => bytes.into(),
+   |                 ^^^^^^^^^^^^
+   |
+help: name the destination of the same conversion
+   |
+LL -         true => bytes.into(),
+LL +         true => <crate::r#type::View<'_> as ::core::convert::From<&[::core::primitive::u8]>>::from(bytes),
+   |
+
+error: `into()` turns `&[u8]` into `r#type::View<'_>` and the line says neither
+  --> $DIR/main.rs:34:18
+   |
+LL |         false => (&bytes[1..]).into(),
+   |                  ^^^^^^^^^^^^^^^^^^^^
+   |
+help: name the destination of the same conversion
+   |
+LL -         false => (&bytes[1..]).into(),
+LL +         false => <crate::r#type::View<'_> as ::core::convert::From<&[::core::primitive::u8]>>::from(&bytes[1..]),
+   |
+
+error: `into()` turns `[u16; 3]` into `Pixels` and the line says neither
+  --> $DIR/main.rs:48:5
+   |
+LL |     values.into()
+   |     ^^^^^^^^^^^^^
+   |
+help: name the destination of the same conversion
+   |
+LL -     values.into()
+LL +     <crate::Pixels as ::core::convert::From<[::core::primitive::u16; 3]>>::from(values)
+   |
+
+error: `into()` turns `std::vec::Vec<u16>` into `std::boxed::Box<[u16]>` and the line says neither
+  --> $DIR/main.rs:52:5
+   |
+LL |     values.into()
+   |     ^^^^^^^^^^^^^
+   |
+help: name the destination of the same conversion
+   |
+LL -     values.into()
+LL +     <::std::boxed::Box<[::core::primitive::u16]> as ::core::convert::From<::std::vec::Vec<::core::primitive::u16>>>::from(values)
+   |
+
+error: `into()` turns `impl Into<String>` into `std::string::String` and the line says neither
+  --> $DIR/main.rs:56:5
+   |
+LL |     value.into()
+   |     ^^^^^^^^^^^^
+   |
+help: name the destination of the same conversion
+   |
+LL -     value.into()
+LL +     <_ as ::core::convert::Into<::std::string::String>>::into(value)
+   |
+
+error: aborting due to 7 previous errors
 

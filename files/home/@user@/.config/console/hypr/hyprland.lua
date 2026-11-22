@@ -57,6 +57,12 @@ hl.config({
 -- there before the first apply, and nothing there in the nested desktop either.
 pcall(dofile, "/home/@user@/.config/console/hypr/monitor.lua")
 
+-- Clipboard contents and window titles stay private in compositor captures.
+hl.layer_rule({
+    match = { namespace = "^(console-clipboard|console-task-manager)$" },
+    no_screen_share = true,
+})
+
 hl.env("XCURSOR_SIZE", "48")
 hl.env("HYPRCURSOR_SIZE", "48")
 hl.env("MOZ_ENABLE_WAYLAND", "1")

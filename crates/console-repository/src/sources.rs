@@ -18,6 +18,8 @@ use std::path::{Path, PathBuf};
 use console_core_directory_listing::Descend;
 use console_core_never::Never;
 
+use crate::RelativePath;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Word<'a>(pub &'a str);
 
@@ -25,91 +27,110 @@ pub const COMPILED: [&str; 3] = ["src", "tests", "examples"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Spelled {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 pub fn under(at: &Path) -> Result<Vec<PathBuf>, Never> {
-    let Ok(listing) = console_core_directory_listing::recursive(at, |_| Descend::Into);
-    let mut found: Vec<PathBuf> = listing
-        .filter_map(|entry| match entry {
-            Ok(path) => match (path.is_dir(), path.extension().and_then(|ending| ending.to_str())) {
-                (false, Some("rs")) => Some(path),
-                (true, _) | (false, Some(_) | None) => None,
-            },
-            Err(_nothing_there) => None,
-        })
-        .collect();
+  let Ok(listing) = console_core_directory_listing::recursive(at, |_| Descend::Into);
+  let mut found: Vec<PathBuf> = listing
+    .filter_map(|entry| match entry {
+      Ok(path) => {
+        let directory = std::fs::metadata(&path).is_ok_and(|metadata| metadata.is_dir());
+        let extension = path.extension().and_then(|ending| ending.to_str());
 
-    found.sort();
+        match (directory, extension) {
+          (false, Some("rs")) => Some(path),
+          (true, _) | (false, Some(_) | None) => None,
+        }
+      }
+      Err(_nothing_there) => None,
+    })
+    .collect();
 
-    Ok(found)
+  found.sort();
+
+  Ok(found)
 }
 
 pub fn of_every_crate(root: &Path, leaving_out: &[&Path]) -> Result<Vec<PathBuf>, Never> {
-    let mut found = Vec::new();
+  let mut found = Vec::new();
 
-    let crates = match std::fs::read_dir(root.join("crates")) {
-        Ok(crates) => crates,
-        Err(_nothing_there) => return Ok(found),
-    };
+  let crates = match std::fs::read_dir(root.join("crates")) {
+    Ok(crates) => crates,
+    Err(_nothing_there) => return Ok(found),
+  };
 
-    for crate_ in crates.flatten().map(|entry| entry.path()) {
-        for directory in COMPILED {
-            let Ok(inside) = under(&crate_.join(directory));
+  for crate_ in crates.flatten().map(|entry| entry.path()) {
+    'directories: for directory in COMPILED {
+      let relative = match RelativePath::new(Path::new(directory)) {
+        Ok(relative) => relative,
+        Err(_directory_outside_crate) => continue 'directories,
+      };
+      let Ok(inside) = under(&crate_.join(relative));
 
-            found.extend(inside);
-        }
+      found.extend(inside);
     }
+  }
 
-    for out in leaving_out {
-        found.retain(|at| !at.starts_with(out));
-    }
+  for out in leaving_out {
+    found.retain(|at| !at.starts_with(out));
+  }
 
-    found.sort();
+  found.sort();
 
-    Ok(found)
+  Ok(found)
 }
 
 pub fn spells(said: &str, word: Word<'_>) -> Result<Spelled, Never> {
-    let Word(word) = word;
-    let is_a_name_letter = |letter: char| letter.is_alphanumeric() || letter == '_';
+  let Word(word_2) = word;
+  let is_a_name_letter = |letter: char| letter.is_alphanumeric() || letter == '_';
 
-    let found = said.match_indices(word).any(|(at, _)| {
-        let before = said.get(..at).and_then(|earlier| earlier.chars().next_back());
-        let after = said.get(at.saturating_add(word.len())..).and_then(|rest| rest.chars().next());
+  let found = said.match_indices(word_2).any(|(at, _)| {
+    let before = said
+      .get(..at)
+      .and_then(|earlier| earlier.chars().next_back());
+    let after = said
+      .get(at.saturating_add(word_2.len())..)
+      .and_then(|rest| rest.chars().next());
 
-        !before.is_some_and(is_a_name_letter) && !after.is_some_and(is_a_name_letter)
-    });
+    !before.is_some_and(is_a_name_letter) && !after.is_some_and(is_a_name_letter)
+  });
 
-    Ok(match found {
-        true => Spelled::Yes,
-        false => Spelled::No,
-    })
+  Ok(match ::core::primitive::bool::then_some(found, ()) {
+    ::core::option::Option::Some(()) => Spelled::Yes,
+    ::core::option::Option::None => Spelled::No,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_word_inside_a_longer_name_is_not_that_word() {
-        assert_eq!(spells("let children = 1;", Word("Child")), Ok(Spelled::No));
-        assert_eq!(spells("Icon::HomeScreen", Word("Icon::Home")), Ok(Spelled::No));
-        assert_eq!(spells("MyIcon::Home", Word("Icon::Home")), Ok(Spelled::No));
-    }
+  #[test]
+  fn a_word_inside_a_longer_name_is_not_that_word() {
+    assert_eq!(spells("let children = 1;", Word("Child")), Ok(Spelled::No));
+    assert_eq!(
+      spells("Icon::HomeScreen", Word("Icon::Home")),
+      Ok(Spelled::No)
+    );
+    assert_eq!(spells("MyIcon::Home", Word("Icon::Home")), Ok(Spelled::No));
+  }
 
-    #[test]
-    fn a_word_with_anything_but_a_name_either_side_is_spelled() {
-        assert_eq!(spells("icons::Icon::Home)", Word("Icon::Home")), Ok(Spelled::Yes));
-        assert_eq!(spells("Child", Word("Child")), Ok(Spelled::Yes));
-    }
+  #[test]
+  fn a_word_with_anything_but_a_name_either_side_is_spelled() {
+    assert_eq!(
+      spells("icons::Icon::Home)", Word("Icon::Home")),
+      Ok(Spelled::Yes)
+    );
+    assert_eq!(spells("Child", Word("Child")), Ok(Spelled::Yes));
+  }
 
-    #[test]
-    fn the_walk_finds_this_file() {
-        let here = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let Ok(found) = under(&here.join("src"));
+  #[test]
+  fn the_walk_finds_this_file() {
+    let here = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let Ok(found) = under(&here.join("src"));
 
-        assert!(found.contains(&here.join("src/sources.rs")));
-    }
+    assert!(found.contains(&here.join("src/sources.rs")));
+  }
 }

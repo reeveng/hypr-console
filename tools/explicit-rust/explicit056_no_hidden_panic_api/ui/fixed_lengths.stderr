@@ -1,0 +1,16 @@
+warning: `copy_from_slice` answers two lengths that do not agree with a panic
+  --> $DIR/fixed_lengths.rs:5:5
+   |
+LL |     into.copy_from_slice(from);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: copy the arrays directly because their lengths agree: `*into = *from`
+   |
+   = note: `#[warn(explicit056_no_hidden_panic_api)]` on by default
+
+warning: `copy_from_slice` answers two lengths that do not agree with a panic
+  --> $DIR/fixed_lengths.rs:18:5
+   |
+LL |     into.copy_from_slice(&from);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: copy the arrays directly because their lengths agree: `into = from`
+
+warning: 2 warnings emitted
+

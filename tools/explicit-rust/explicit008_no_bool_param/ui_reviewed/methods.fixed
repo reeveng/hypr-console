@@ -1,0 +1,39 @@
+// run-rustfix
+// edition:2024
+
+#[derive(Clone, Copy)]
+enum TreeSize {
+    Large,
+    Small,
+}
+
+struct Tree;
+
+impl Tree {
+    pub(crate) fn branch(&self, large: crate::TreeSize) -> u32 {
+        match large {
+            crate::TreeSize::Large => 128,
+            crate::TreeSize::Small => 64,
+        }
+    }
+
+    fn leaf(&self, large: crate::TreeSize) -> u32 {
+        self.branch(large)
+    }
+}
+
+struct OtherTree;
+
+impl OtherTree {
+    fn branch(&self) -> u32 {
+        8
+    }
+}
+
+fn main() {
+    let tree = Tree;
+    let depending_on_args = std::env::args().len() > 1;
+    let _ = tree.leaf(match ::core::primitive::bool::then_some(depending_on_args, ()) { ::core::option::Option::Some(()) => crate::TreeSize::Large, ::core::option::Option::None => crate::TreeSize::Small });
+    assert_eq!(Tree::branch(&tree, crate::TreeSize::Small), 64);
+    assert_eq!(OtherTree.branch(), 8);
+}

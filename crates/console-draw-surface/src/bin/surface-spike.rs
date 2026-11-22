@@ -39,285 +39,349 @@ const CHECK: [u8; 4] = [0x90, 0x90, 0x90, 0xff];
 const TURNS: u32 = 40;
 
 enum Color {
-    Edge,
-    Check,
-    Ground,
+  Edge,
+  Check,
+  Ground,
 }
 
 fn main() -> ExitCode {
-    let arguments: Vec<String> = std::env::args().skip(1).collect();
-    let wanted = match parse_arguments(&arguments) {
-        Ok(wanted) => wanted,
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
+  let arguments: Vec<String> = std::env::args().skip(1).collect();
+  let wanted = match parse_arguments(&arguments) {
+    Ok(wanted) => wanted,
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
 
-            return ExitCode::from(code);
-        }
-    };
+      return ExitCode::from(code);
+    }
+  };
 
-    let mut surface = match Surface::connect() {
-        Ok(surface) => surface,
-        Err(why) => {
-            eprintln!("surface-spike: {why}");
+  let mut surface = match Surface::connect() {
+    Ok(surface) => surface,
+    Err(why) => {
+      eprintln!("surface-spike: {why}");
 
-            return ExitCode::FAILURE;
-        }
-    };
+      return ExitCode::FAILURE;
+    }
+  };
 
-    match surface.show(&wanted) {
-        Ok(()) => {}
-        Err(why) => {
-            eprintln!("surface-spike: {why}");
+  match surface.show(&wanted) {
+    Ok(()) => {}
+    Err(why) => {
+      eprintln!("surface-spike: {why}");
 
-            return ExitCode::FAILURE;
-        }
+      return ExitCode::FAILURE;
+    }
+  }
+
+  let Ok(panel) = describe_screen();
+
+  println!("{panel}");
+
+  for _turn in 0..TURNS {
+    match surface.draw(paint) {
+      Ok(()) => {}
+      Err(why) => {
+        eprintln!("surface-spike: {why}");
+
+        return ExitCode::FAILURE;
+      }
     }
 
-    let Ok(panel) = describe_screen();
+    let Ok(said) = describe(&surface);
 
-    println!("{panel}");
+    println!("{said}");
 
-    for _turn in 0..TURNS {
-        match surface.draw(paint) {
-            Ok(()) => {}
-            Err(why) => {
-                eprintln!("surface-spike: {why}");
+    match surface.wait(&[], Some(Duration::from_millis(250))) {
+      Ok(()) => {}
+      Err(why) => {
+        eprintln!("surface-spike: {why}");
 
-                return ExitCode::FAILURE;
-            }
-        }
-
-        let Ok(said) = describe(&surface);
-
-        println!("{said}");
-
-        match surface.wait(&[], Some(Duration::from_millis(250))) {
-            Ok(()) => {}
-            Err(why) => {
-                eprintln!("surface-spike: {why}");
-
-                return ExitCode::FAILURE;
-            }
-        }
-
-        match surface.closed() {
-            Ok(Closed::Yes) => return ExitCode::SUCCESS,
-            Ok(Closed::No) | Err(_) => {}
-        }
+        return ExitCode::FAILURE;
+      }
     }
 
-    ExitCode::SUCCESS
+    let Ok(closed) = surface.closed();
+
+    match closed {
+      Closed::Yes => return ExitCode::SUCCESS,
+      Closed::No => {}
+    }
+  }
+
+  ExitCode::SUCCESS
 }
 
 const SIZE: Flag = Flag {
-    spelling: "--size",
-    takes: Takes::Value("WIDTHxHEIGHT"),
-    about: "how large to ask for, in points, rather than whatever the screen is",
+  spelling: "--size",
+  takes: Takes::Value("WIDTHxHEIGHT"),
+  about: "how large to ask for, in points, rather than whatever the screen is",
 };
 
-const ANCHOR: Flag = Flag { spelling: "--anchor", takes: Takes::Value("EDGE"), about: "top, top-right, bottom or whole" };
+const ANCHOR: Flag = Flag {
+  spelling: "--anchor",
+  takes: Takes::Value("EDGE"),
+  about: "top, top-right, bottom or whole",
+};
 
-const MARGIN: Flag = Flag { spelling: "--margin", takes: Takes::Value("POINTS"), about: "how far in from every edge it stands" };
+const MARGIN: Flag = Flag {
+  spelling: "--margin",
+  takes: Takes::Value("POINTS"),
+  about: "how far in from every edge it stands",
+};
 
 const COMMAND: Command = Command {
-    name: "surface-spike",
-    about: "one surface on the screen, drawn in a check, to see what the compositor gives",
-    flags: &[SIZE, ANCHOR, MARGIN],
-    operands: Operands::None,
+  name: "surface-spike",
+  about: "one surface on the screen, drawn in a check, to see what the compositor gives",
+  flags: &[SIZE, ANCHOR, MARGIN],
+  operands: Operands::None,
 };
 
 fn parse_arguments(arguments: &[String]) -> Result<Wanted, ValidationError> {
-    let line = console_core_arguments::read(&COMMAND, arguments)?;
-    let Ok(sized) = line.value(SIZE);
-    let Ok(anchored) = line.value(ANCHOR);
-    let margin = line.parsed::<i32>(MARGIN)?;
-    let refused = |of: Flag, value: &str| {
-        let Ok(refusal) = line.refusal(Reason::InvalidValue { of: of.spelling, value: value.to_string() });
+  let line = console_core_arguments::read(&COMMAND, arguments)?;
+  let Ok(sized) = line.value(SIZE);
+  let Ok(anchored) = line.value(ANCHOR);
+  let margin = line.parsed::<i32>(MARGIN)?;
+  let refused = |of: Flag, value: &str| {
+    let Ok(refusal) = line.refusal(Reason::InvalidValue {
+      of: of.spelling,
+      value: value.to_string(),
+    });
 
-        refusal
-    };
-    let size = match sized {
-        None => Size { width: 0, height: 0 },
-        Some(said) => {
-            let Ok(read) = parse_size(said);
+    refusal
+  };
+  let size = match sized {
+    None => Size {
+      width: 0,
+      height: 0,
+    },
+    Some(said) => {
+      let Ok(read) = parse_size(said);
 
-            match read {
-                Some(size) => size,
-                None => return Err(refused(SIZE, said)),
-            }
-        },
-    };
-    let anchor = match anchored {
-        None => Anchor::Whole,
-        Some(said) => {
-            let Ok(read) = parse_anchor(said);
+      match read {
+        Some(size) => size,
+        None => return Err(refused(SIZE, said)),
+      }
+    }
+  };
+  let anchor = match anchored {
+    None => Anchor::Whole,
+    Some(said) => {
+      let Ok(read) = parse_anchor(said);
 
-            match read {
-                Some(anchor) => anchor,
-                None => return Err(refused(ANCHOR, said)),
-            }
-        },
-    };
-    let margin = match margin {
-        None => Margin::default(),
-        Some(margin) => Margin { top: margin, right: margin, bottom: margin, left: margin },
-    };
+      match read {
+        Some(anchor) => anchor,
+        None => return Err(refused(ANCHOR, said)),
+      }
+    }
+  };
+  let margin_3 = match margin {
+    None => Margin::default(),
+    Some(margin_2) => Margin {
+      top: margin_2,
+      right: margin_2,
+      bottom: margin_2,
+      left: margin_2,
+    },
+  };
 
-    Ok(Wanted {
-        namespace: NAMESPACE.to_string(),
-        anchor,
-        size,
-        margin,
-        keyboard: Keyboard::Declines,
-        room: Room::Over,
-        under: Under::None,
-    })
+  Ok(Wanted {
+    namespace: NAMESPACE.to_string(),
+    anchor,
+    size,
+    margin: margin_3,
+    keyboard: Keyboard::Declines,
+    room: Room::Over,
+    under: Under::None,
+  })
 }
 
 fn parse_size(said: &str) -> Result<Option<Size<u32>>, Never> {
-    let read = match said.split_once('x') {
-        Some((wide, tall)) => (wide.parse::<u32>(), tall.parse::<u32>()),
-        None => return Ok(None),
-    };
+  let read = match said.split_once('x') {
+    Some((wide, tall)) => (wide.parse::<u32>(), tall.parse::<u32>()),
+    None => return Ok(None),
+  };
 
-    Ok(match read {
-        (Ok(width), Ok(height)) => Some(Size { width, height }),
-        (Err(_not_a_number), _) | (Ok(_), Err(_not_a_number)) => None,
-    })
+  Ok(match read {
+    (Ok(width), Ok(height)) => Some(Size { width, height }),
+    (Err(_not_a_number), _) | (Ok(_), Err(_not_a_number)) => None,
+  })
 }
 
 fn parse_anchor(said: &str) -> Result<Option<Anchor>, Never> {
-    Ok(match said {
-        "top" => Some(Anchor::Top),
-        "top-right" => Some(Anchor::TopRight),
-        "bottom" => Some(Anchor::Bottom),
-        "whole" => Some(Anchor::Whole),
-        _ => None,
-    })
+  Ok(match said {
+    "top" => Some(Anchor::Top),
+    "top-right" => Some(Anchor::TopRight),
+    "bottom" => Some(Anchor::Bottom),
+    "whole" => Some(Anchor::Whole),
+    _ => None,
+  })
 }
 
 fn describe_screen() -> Result<String, Never> {
-    Ok(match console_screen::here() {
-        Ok(Some(screen)) => {
-            let Ok(logical) = screen.logical();
+  Ok(match console_screen::here() {
+    Ok(Some(screen)) => {
+      let Ok(logical) = screen.logical();
 
-            format!(
-                "the panel this machine is driving is {} by {} at {}, so {} by {} points",
-                screen.mode.width, screen.mode.height, screen.scale, logical.width, logical.height
-            )
-        }
-        Ok(None) => "this machine names no panel it is driving".to_string(),
-        Err(why) => format!("nothing could be asked about the panel: {why}"),
-    })
+      format!(
+        "the panel this machine is driving is {} by {} at {}, so {} by {} points",
+        screen.mode.width, screen.mode.height, screen.scale, logical.width, logical.height
+      )
+    }
+    Ok(None) => "this machine names no panel it is driving".to_string(),
+    Err(why) => format!("nothing could be asked about the panel: {why}"),
+  })
 }
 
 fn describe(surface: &Surface) -> Result<String, Never> {
-    let Ok(logical) = surface.logical();
-    let Ok(scale) = surface.scale();
-    let Ok(many) = scale.hundred_twentieths();
+  let Ok(logical) = surface.logical();
+  let Ok(scale) = surface.scale();
+  let Ok(many) = scale.hundred_twentieths();
 
-    Ok(match logical {
-        Some(logical) => {
-            let Ok(device) = scale.device(logical);
+  Ok(match logical {
+    Some(logical_2) => {
+      let Ok(device) = scale.device(logical_2);
 
-            format!(
-                "{} by {} points at {}/120, so a buffer {} by {}",
-                logical.width, logical.height, many, device.width, device.height
-            )
-        }
-        None => "the compositor has not said how large this is".to_string(),
-    })
+      format!(
+        "{} by {} points at {}/120, so a buffer {} by {}",
+        logical_2.width, logical_2.height, many, device.width, device.height
+      )
+    }
+    None => "the compositor has not said how large this is".to_string(),
+  })
 }
 
 fn paint(pixels: &mut [u8], device: Size<u32>, _scale: Scale) -> Result<(), Never> {
-    let Size { width: wide, height: tall } = device;
-    let Ok(stride) = index(wide.saturating_mul(4));
+  let Size {
+    width: wide,
+    height: tall,
+  } = device;
+  let Ok(stride) = index(wide.saturating_mul(4));
 
-    match stride == 0 {
-        true => return Ok(()),
-        false => {},
+  match ::core::primitive::bool::then_some(stride == 0, ()) {
+    ::core::option::Option::Some(()) => return Ok(()),
+    ::core::option::Option::None => {}
+  }
+
+  #[cfg_attr(
+    dylint_lib = "explicit056_no_hidden_panic_api",
+    expect(
+      explicit056_no_hidden_panic_api,
+      reason = "the zero-stride case returned before making the row iterator"
+    )
+  )]
+  let rows = pixels.chunks_exact_mut(stride);
+
+  for (down, row) in rows.enumerate() {
+    let Ok(down_2) = fitted::<_, u32>(down);
+
+    for (across, pixel) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+      let Ok(across_2) = fitted::<_, u32>(across);
+      let Ok(ink) = ink(At {
+        x: across_2,
+        y: down_2,
+        width: wide,
+        height: tall,
+      });
+
+      *pixel = match ink {
+        Color::Edge => EDGE,
+        Color::Check => CHECK,
+        Color::Ground => GROUND,
+      };
     }
+  }
 
-    for (down, row) in pixels.chunks_exact_mut(stride).enumerate() {
-        let Ok(down) = fitted::<_, u32>(down);
-
-        for (across, pixel) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-            let Ok(across) = fitted::<_, u32>(across);
-            let Ok(ink) = ink(At { x: across, y: down, width: wide, height: tall });
-
-            pixel.copy_from_slice(match ink {
-                Color::Edge => &EDGE,
-                Color::Check => &CHECK,
-                Color::Ground => &GROUND,
-            });
-        }
-    }
-
-    Ok(())
+  Ok(())
 }
 
 struct At {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
+  x: u32,
+  y: u32,
+  width: u32,
+  height: u32,
 }
 
 fn ink(at: At) -> Result<Color, Never> {
-    let At { x: across, y: down, width: wide, height: tall } = at;
-    let edge = across == 0
-        || down == 0
-        || across.saturating_add(1) == wide
-        || down.saturating_add(1) == tall;
+  let At {
+    x: across,
+    y: down,
+    width: wide,
+    height: tall,
+  } = at;
+  let edge = across == 0
+    || down == 0
+    || across.saturating_add(1) == wide
+    || down.saturating_add(1) == tall;
 
-    Ok(match edge {
-        true => Color::Edge,
-        false => match across.saturating_add(down).checked_rem(2) {
-            Some(0) => Color::Check,
-            Some(_) | None => Color::Ground,
-        },
-    })
+  Ok(match ::core::primitive::bool::then_some(edge, ()) {
+    ::core::option::Option::Some(()) => Color::Edge,
+    ::core::option::Option::None => match across.saturating_add(down).checked_rem(2) {
+      Some(0) => Color::Check,
+      Some(_) | None => Color::Ground,
+    },
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    #[test]
-    fn nothing_asked_for_is_whatever_screen_it_lands_on() -> Result<(), Box<dyn Error>> {
-        let wanted = parse_arguments(&[]).map_err(|why| format!("nothing asked for should read: {why}"))?;
+  #[test]
+  fn nothing_asked_for_is_whatever_screen_it_lands_on() -> Result<(), Box<dyn Error>> {
+    let wanted =
+      parse_arguments(&[]).map_err(|why| format!("nothing asked for should read: {why}"))?;
 
-        assert_eq!(wanted.size, Size { width: 0, height: 0 });
-        assert_eq!(wanted.anchor, Anchor::Whole);
+    assert_eq!(
+      wanted.size,
+      Size {
+        width: 0,
+        height: 0
+      }
+    );
+    assert_eq!(wanted.anchor, Anchor::Whole);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_size_is_read_off_the_command_line_rather_than_written_here() -> Result<(), Box<dyn Error>> {
-        let arguments = ["--size".to_string(), "320x44".to_string()];
-        let wanted = parse_arguments(&arguments).map_err(|why| format!("a size on the command line should read: {why}"))?;
+  #[test]
+  fn a_size_is_read_off_the_command_line_rather_than_written_here() -> Result<(), Box<dyn Error>>
+  {
+    let arguments = ["--size".to_string(), "320x44".to_string()];
+    let wanted = parse_arguments(&arguments)
+      .map_err(|why| format!("a size on the command line should read: {why}"))?;
 
-        assert_eq!(wanted.size, Size { width: 320, height: 44 });
+    assert_eq!(
+      wanted.size,
+      Size {
+        width: 320,
+        height: 44
+      }
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_size_no_one_can_read_says_so_rather_than_standing_somewhere_surprising() {
-        let arguments = ["--size".to_string(), "enormous".to_string()];
+  #[test]
+  fn a_size_no_one_can_read_says_so_rather_than_standing_somewhere_surprising() {
+    let arguments = ["--size".to_string(), "enormous".to_string()];
 
-        assert_eq!(
-            parse_arguments(&arguments).map_err(|refusal| refusal.reason),
-            Err(Reason::InvalidValue { of: "--size", value: "enormous".to_string() })
-        );
-    }
+    assert_eq!(
+      parse_arguments(&arguments).map_err(|refusal| refusal.reason),
+      Err(Reason::InvalidValue {
+        of: "--size",
+        value: "enormous".to_string()
+      })
+    );
+  }
 
-    #[test]
-    fn a_flag_with_nothing_after_it_is_not_a_default() {
-        let arguments = ["--anchor".to_string()];
+  #[test]
+  fn a_flag_with_nothing_after_it_is_not_a_default() {
+    let arguments = ["--anchor".to_string()];
 
-        assert_eq!(parse_arguments(&arguments).map_err(|refusal| refusal.reason), Err(Reason::MissingValue("--anchor")));
-    }
+    assert_eq!(
+      parse_arguments(&arguments).map_err(|refusal| refusal.reason),
+      Err(Reason::MissingValue("--anchor"))
+    );
+  }
 }

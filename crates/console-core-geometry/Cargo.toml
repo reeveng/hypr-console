@@ -10,7 +10,9 @@ name = "console_core_geometry"
 path = "src/lib.rs"
 
 [dependencies]
-console-core-never.workspace = true
+console-core-point.workspace = true
+console-core-rectangle.workspace = true
+console-core-size.workspace = true
 
 [lints]
 workspace = true

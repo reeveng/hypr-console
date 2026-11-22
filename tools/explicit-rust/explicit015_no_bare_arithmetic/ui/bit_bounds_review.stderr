@@ -1,0 +1,99 @@
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds_review.rs:4:47
+   |
+LL | fn shifted_out(row: u32, shift: u32) -> u32 { row / 2u32.wrapping_shl(shift) }
+   |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+   = note: `#[deny(explicit015_no_bare_arithmetic)]` on by default
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds_review.rs:5:55
+   |
+LL | fn right_shift_to_zero(row: u32, shift: u32) -> u32 { row % 1u32.wrapping_shr(shift) }
+   |                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds_review.rs:8:5
+   |
+LL |     row / ctb.wrapping_div(2)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds_review.rs:10:49
+   |
+LL | fn signed_overflow(row: i8, shift: u32) -> i8 { row / (-1i8).wrapping_shl(shift) }
+   |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds_review.rs:11:53
+   |
+LL | fn high_bits_remain(bits: u32, shift: u32) -> u32 { bits.wrapping_shl(shift) + 1 }
+   |                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds_review.rs:12:36
+   |
+LL | fn wide_count(bytes: u64) -> u32 { 32 - bytes.leading_zeros() }
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds_review.rs:13:38
+   |
+LL | fn zero_count(records: u32) -> u32 { 31 - records.leading_zeros() }
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds_review.rs:14:40
+   |
+LL | fn target_width(words: usize) -> u32 { 32 - words.leading_zeros() }
+   |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds_review.rs:15:38
+   |
+LL | fn target_shift(n: usize) -> usize { 1usize.wrapping_shl(32) + n }
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds_review.rs:19:5
+   |
+LL |     block >> sx
+   |     ^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds_review.rs:27:6
+   |
+LL |     (32 - font.leading_zeros(), 17 / font.wrapping_shl(1))
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bit_bounds_review.rs:27:33
+   |
+LL |     (32 - font.leading_zeros(), 17 / font.wrapping_shl(1))
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: aborting due to 12 previous errors
+

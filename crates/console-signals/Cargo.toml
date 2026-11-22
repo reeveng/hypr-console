@@ -10,6 +10,7 @@ name = "console_signals"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-never.workspace = true
 rustix.workspace = true
 
 [lints]

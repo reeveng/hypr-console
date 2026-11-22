@@ -23,19 +23,26 @@
 //! to print: every one of those is a buffer whose size somebody chose, and
 //! the flight wants to have chosen them before it boots.
 //!
+//! Cargo can replace a vector with an array where the compiler shows that
+//! it is only used as a slice or as the input to a `for` loop.
+//!
 //! Its ui case is built as a crate named like the kernel's, because the rule
 //! is asked only of `console-kernel*` and the case is the one way to press it
 //! here on a desktop.
 #![feature(rustc_private)]
 #![warn(unused_extern_crates)]
 
+extern crate rustc_errors;
 extern crate rustc_hir;
 extern crate rustc_middle;
 extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+mod vectors;
+
+use clippy_utils::diagnostics::span_lint_and_then;
+use rustc_errors::Applicability;
 use rustc_hir::def::{DefKind, Res};
-use rustc_hir::def_id::LOCAL_CRATE;
+use rustc_hir::def_id::{DefId, LOCAL_CRATE};
 use rustc_hir::{Expr, ExprKind, LangItem};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty;
@@ -131,7 +138,7 @@ fn made_on_the_heap(cx: &LateContext<'_>, expr: &Expr<'_>, path: &str) -> Option
 }
 
 // What a call resolves to, whether it was written as a path or as a method.
-fn what_is_called(cx: &LateContext<'_>, expr: &Expr<'_>) -> Option<String> {
+fn what_is_called(cx: &LateContext<'_>, expr: &Expr<'_>) -> Option<DefId> {
     match expr.kind {
         ExprKind::Call(called, _) => {
             let ExprKind::Path(ref qpath) = called.kind else {
@@ -143,13 +150,9 @@ fn what_is_called(cx: &LateContext<'_>, expr: &Expr<'_>) -> Option<String> {
                 return None;
             };
 
-            Some(cx.tcx.def_path_str(id))
+            Some(id)
         }
-        ExprKind::MethodCall(..) => {
-            let id = cx.typeck_results().type_dependent_def_id(expr.hir_id)?;
-
-            Some(cx.tcx.def_path_str(id))
-        }
+        ExprKind::MethodCall(..) => cx.typeck_results().type_dependent_def_id(expr.hir_id),
         _ => None,
     }
 }
@@ -160,9 +163,10 @@ impl<'tcx> LateLintPass<'tcx> for Explicit066NoHeapAfterInit {
             return;
         }
 
-        let Some(named) = what_is_called(cx, expr) else {
+        let Some(called) = what_is_called(cx, expr) else {
             return;
         };
+        let named = cx.tcx.def_path_str(called);
 
         let Some(harm) = reaches_for_the_heap(named.as_str())
             .or_else(|| made_on_the_heap(cx, expr, named.as_str()))
@@ -177,15 +181,27 @@ impl<'tcx> LateLintPass<'tcx> for Explicit066NoHeapAfterInit {
             false => expr.span,
         };
 
-        span_lint_and_help(
+        span_lint_and_then(
             cx,
             EXPLICIT066_NO_HEAP_AFTER_INIT,
             shown,
             harm,
-            None,
-            "allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision \
-             made before the machine booted. Where a flight crate genuinely must grow one, allow \
-             this rule here and let the reason say what budgets it",
+            |diagnostic| {
+                if let Some((span, array)) = vectors::replacement(cx, expr, called) {
+                    diagnostic.span_suggestion(
+                        span,
+                        "use a fixed-size array here",
+                        array,
+                        Applicability::MachineApplicable,
+                    );
+                } else {
+                    diagnostic.help(
+                        "allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision \
+                         made before the machine booted. Where a flight crate genuinely must grow one, allow \
+                         this rule here and let the reason say what budgets it",
+                    );
+                }
+            },
         );
     }
 }
@@ -193,4 +209,5 @@ impl<'tcx> LateLintPass<'tcx> for Explicit066NoHeapAfterInit {
 #[test]
 fn ui() {
     dylint_testing::ui_test_example(env!("CARGO_PKG_NAME"), "console_kernel_case");
+    dylint_testing::ui_test(env!("CARGO_PKG_NAME"), concat!(env!("CARGO_MANIFEST_DIR"), "/ui"));
 }

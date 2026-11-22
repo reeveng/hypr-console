@@ -6,22 +6,22 @@
 //! here. It halves whatever it is applied to, and half of a color chosen to
 //! clear 7:1 is a color that does not.
 
+use crate::guide::Section;
 use console_core_arguments::{Command, Flag, Operands, Takes};
 use console_core_never::Never;
 use console_core_number_conversion::index;
-use crate::guide::Section;
 
 pub const IDENTIFY: Flag = Flag {
-    spelling: "--identify",
-    takes: Takes::None,
-    about: "press a button and be told which one it is",
+  spelling: "--identify",
+  takes: Takes::None,
+  about: "press a button and be told which one it is",
 };
 
 pub const COMMAND: Command = Command {
-    name: "console-buttons",
-    about: "print what every button does",
-    flags: &[IDENTIFY],
-    operands: Operands::None,
+  name: "console-buttons",
+  about: "print what every button does",
+  flags: &[IDENTIFY],
+  operands: Operands::None,
 };
 
 pub const RULE: u32 = 46;
@@ -30,105 +30,123 @@ pub const COLUMN: u32 = 22;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ansi {
-    pub bold: &'static str,
-    pub quiet: &'static str,
-    pub pink: &'static str,
-    pub off: &'static str,
+  pub bold: &'static str,
+  pub quiet: &'static str,
+  pub pink: &'static str,
+  pub off: &'static str,
 }
 
-pub const COLORED: Ansi =
-    Ansi { bold: "\u{1b}[1m", quiet: "\u{1b}[37m", pink: "\u{1b}[35m", off: "\u{1b}[0m" };
+pub const COLORED: Ansi = Ansi {
+  bold: "\u{1b}[1m",
+  quiet: "\u{1b}[37m",
+  pink: "\u{1b}[35m",
+  off: "\u{1b}[0m",
+};
 
-pub const PLAIN: Ansi = Ansi { bold: "", quiet: "", pink: "", off: "" };
+pub const PLAIN: Ansi = Ansi {
+  bold: "",
+  quiet: "",
+  pink: "",
+  off: "",
+};
 
 pub fn guide(sections: &[Section], ink: Ansi) -> Result<String, Never> {
-    let mut said = format!("\n{}The buttons on this device{}\n", ink.bold, ink.off);
-    let Ok(rule) = index(RULE);
-    let Ok(column) = index(COLUMN);
+  let mut said = format!("\n{}The buttons on this device{}\n", ink.bold, ink.off);
+  let Ok(rule) = index(RULE);
+  let Ok(column) = index(COLUMN);
 
-    for section in sections.iter().filter(|section| !section.lines.is_empty()) {
-        said.push_str(&format!(
-            "\n{}{}{}{}\n{}{}{}\n",
-            ink.pink,
-            ink.bold,
-            section.title,
-            ink.off,
-            ink.quiet,
-            "\u{2500}".repeat(rule),
-            ink.off
-        ));
-
-        for line in &section.lines {
-            said.push_str(&format!(
-                "  {}{:<column$}{}{}\n",
-                ink.bold, line.button, ink.off, line.does
-            ));
-        }
-    }
-
+  for section in sections.iter().filter(|section| !section.lines.is_empty()) {
     said.push_str(&format!(
-        "\n{}  Not sure which paddle is which? Run:  {} {}{}\n\n",
-        ink.quiet, COMMAND.name, IDENTIFY.spelling, ink.off
+      "\n{}{}{}{}\n{}{}{}\n",
+      ink.pink,
+      ink.bold,
+      section.title,
+      ink.off,
+      ink.quiet,
+      "\u{2500}".repeat(rule),
+      ink.off
     ));
-    Ok(said)
+
+    for line in &section.lines {
+      said.push_str(&format!(
+        "  {}{:<column$}{}{}\n",
+        ink.bold, line.button, ink.off, line.does
+      ));
+    }
+  }
+
+  said.push_str(&format!(
+    "\n{}  Not sure which paddle is which? Run:  {} {}{}\n\n",
+    ink.quiet, COMMAND.name, IDENTIFY.spelling, ink.off
+  ));
+  Ok(said)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
-    use console_input_controller::actions::Table;
+  use super::*;
+  use console_input_controller::actions::Table;
+  use std::error::Error;
 
-    use crate::guide::{Line, TYPED, sections};
+  use crate::guide::{Line, TYPED, sections};
 
-    fn plain_guide() -> Result<String, Never> {
-        let Ok(table) = Table::ours();
-        let Ok(sections) = sections(&table);
+  fn plain_guide() -> Result<String, Never> {
+    let Ok(table) = Table::ours();
+    let Ok(sections) = sections(&table);
 
-        guide(&sections, PLAIN)
+    guide(&sections, PLAIN)
+  }
+
+  #[test]
+  fn a_terminal_that_is_not_one_is_given_no_escapes() {
+    let Ok(said) = plain_guide();
+
+    assert!(
+      !said.contains('\u{1b}'),
+      "an escape reached something reading a file"
+    );
+  }
+
+  #[test]
+  fn every_line_is_the_button_and_what_it_does() {
+    let Ok(said) = plain_guide();
+
+    assert!(said.contains("  Touchpad              move the pointer"));
+  }
+
+  #[test]
+  fn a_section_with_nothing_in_it_is_not_printed() {
+    let Ok(table) = Table::ours();
+    let Ok(mut every) = sections(&table);
+
+    every.push(Section {
+      title: String::from("Nothing at all"),
+      lines: Vec::new(),
+    });
+
+    let Ok(said) = guide(&every, PLAIN);
+
+    assert!(!said.contains("Nothing at all"));
+  }
+
+  #[test]
+  fn a_section_with_something_in_it_is() -> Result<(), Box<dyn Error>> {
+    let Ok(table) = Table::ours();
+    let Ok(mut every) = sections(&table);
+    let line = Line {
+      button: String::from("Super Q"),
+      does: String::from("close"),
+    };
+
+    match every.last_mut() {
+      Some(last) => last.lines.push(line),
+      None => return Err(Box::from("the guide has no sections")),
     }
 
-    #[test]
-    fn a_terminal_that_is_not_one_is_given_no_escapes() {
-        let Ok(said) = plain_guide();
+    let Ok(said) = guide(&every, PLAIN);
 
-        assert!(!said.contains('\u{1b}'), "an escape reached something reading a file");
-    }
+    assert!(said.contains(TYPED));
 
-    #[test]
-    fn every_line_is_the_button_and_what_it_does() {
-        let Ok(said) = plain_guide();
-
-        assert!(said.contains("  Touchpad              move the pointer"));
-    }
-
-    #[test]
-    fn a_section_with_nothing_in_it_is_not_printed() {
-        let Ok(table) = Table::ours();
-        let Ok(mut every) = sections(&table);
-
-        every.push(Section { title: String::from("Nothing at all"), lines: Vec::new() });
-
-        let Ok(said) = guide(&every, PLAIN);
-
-        assert!(!said.contains("Nothing at all"));
-    }
-
-    #[test]
-    fn a_section_with_something_in_it_is() -> Result<(), Box<dyn Error>> {
-        let Ok(table) = Table::ours();
-        let Ok(mut every) = sections(&table);
-        let line = Line { button: String::from("Super Q"), does: String::from("close") };
-
-        match every.last_mut() {
-            Some(last) => last.lines.push(line),
-            None => return Err(Box::from("the guide has no sections")),
-        }
-
-        let Ok(said) = guide(&every, PLAIN);
-
-        assert!(said.contains(TYPED));
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

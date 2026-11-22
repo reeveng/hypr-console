@@ -1,0 +1,26 @@
+// run-rustfix
+// edition:2024
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum DecodeError { Invalid }
+macro_rules! load { ($arg:expr) => { u32::from_ne_bytes(*$arg) } }
+macro_rules! store { ($arg:expr, $val:expr) => { *$arg = $val } }
+fn load_row(bytes: &[u8], width: usize) -> Result<u32, DecodeError> {
+    let value = load!(<&[u8; 4]>::try_from(&*(bytes.get(..width).ok_or(DecodeError::Invalid)?)).unwrap());
+    Ok(value)
+}
+fn store_row(bytes: &mut [u8], width: usize) -> Result<(), DecodeError> {
+    let row = <[_]>::get_mut(&mut *bytes, ..width).ok_or(DecodeError::Invalid)?;
+    store!(<&mut [u8; 4]>::try_from(row).unwrap(), [1, 2, 3, 4]);
+    Ok(())
+}
+fn main() {
+    assert_eq!(load_row(&[1,2,3,4],4), Ok(u32::from_ne_bytes([1,2,3,4])));
+    assert_eq!(load_row(&[0;3],4), Err(DecodeError::Invalid));
+    assert_eq!(load_row(&[0;4],3), Err(DecodeError::Invalid));
+    assert_eq!(load_row(&[0;5],5), Err(DecodeError::Invalid));
+    let mut output=[0;4];
+    assert_eq!(store_row(&mut output, 3),Err(DecodeError::Invalid));
+    assert_eq!(output,[0;4]);
+    assert_eq!(store_row(&mut output,4),Ok(()));
+    assert_eq!(output,[1,2,3,4]);
+}

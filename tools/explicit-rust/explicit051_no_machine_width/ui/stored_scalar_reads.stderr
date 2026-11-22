@@ -1,0 +1,40 @@
+error: `position` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/stored_scalar_reads.rs:9:9
+   |
+LL |     let position = bytes.len();
+   |         ^^^^^^^^
+   |
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+help: hold this position at a fixed width and convert it where the API needs a native index
+   |
+LL ~     let ::core::result::Result::Ok(position) = ::console_core_number_conversion::fixed_index(bytes.len());
+LL ~     (position, (match ::console_core_number_conversion::index(position) { ::core::result::Result::Ok(native_position) => native_position }) < edge.len(), pair(match ::console_core_number_conversion::index(position) { ::core::result::Result::Ok(native_position) => native_position }).0 as u64,
+LL ~      (match ::console_core_number_conversion::index(position) { ::core::result::Result::Ok(native_position) => native_position }).wrapping_add(!0) as u64)
+   |
+
+error: `count` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/stored_scalar_reads.rs:15:9
+   |
+LL |     let count = bytes.len();
+   |         ^^^^^
+   |
+help: hold this position at a fixed width and convert it where the API needs a native index
+   |
+LL ~     let ::core::result::Result::Ok(count) = ::console_core_number_conversion::fixed_index(bytes.len());
+LL ~     Some(match ::console_core_number_conversion::index(count) { ::core::result::Result::Ok(native_position) => native_position }).map(|n| n as u64)
+   |
+
+error: `count` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/stored_scalar_reads.rs:21:9
+   |
+LL |     let count = bytes.len();
+   |         ^^^^^
+   |
+help: hold this position at a fixed width and convert it where the API needs a native index
+   |
+LL ~     let ::core::result::Result::Ok(count) = ::console_core_number_conversion::fixed_index(bytes.len());
+LL ~     identity(match ::console_core_number_conversion::index(count) { ::core::result::Result::Ok(native_position) => native_position }) as u64
+   |
+
+error: aborting due to 3 previous errors
+

@@ -23,14 +23,14 @@ dylint_linting::declare_late_lint! {
     /// cares to write. So the rule is asked at the call, where the decision is
     /// actually made.
     ///
-    /// What a call becomes instead is written in `docs/checks.md`: `drawn()`
-    /// and `gone()` for a menu, and `until(what)` with the question spelled
-    /// out for everything else. The last of them to cross were the home
+    /// What a call becomes instead is written in the `checks.md` note in Orbit:
+    /// `drawn()` and `gone()` for a menu, and `until(what)` with the question
+    /// spelled out for everything else. The last of them to cross were the home
     /// screen's, and what they were waiting on was a repaint: the check reads
     /// that by color, and `lit()` answers `Result<_, String>` where `until`
-    /// carried a question that could not fail. So `until` carries the fault
-    /// its question carries now, and a reading of the screen is a wait like
-    /// any other.
+    /// carried a question that could not fail. So `until` carries the fault its
+    /// question carries now, and a reading of the screen is a wait like any
+    /// other.
     ///
     /// What is left is the calls whose reason says the elapsing was itself
     /// what was asked for -- the gap between two questions, a d-pad held down

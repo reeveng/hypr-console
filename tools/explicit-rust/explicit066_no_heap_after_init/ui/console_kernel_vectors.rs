@@ -1,0 +1,49 @@
+// run-rustfix
+// rustfix-only-machine-applicable
+// edition:2024
+
+fn read(_: &[u8]) {}
+fn generic<T>(_: &[T]) {}
+fn write(_: &mut [u8]) {}
+fn owned(_: Vec<u8>) {}
+
+const COUNT: usize = 3;
+
+fn main() {
+    read(&Vec::new());
+    generic(&Vec::<u16>::new());
+    read(&vec![]);
+    read(&std::vec![1, 2]);
+    write(&mut vec![4; 3]);
+    read(&vec![0; COUNT]);
+
+    let list = vec!(5, 6,);
+    read(&list);
+    read(list.as_slice());
+    let mut empty = Vec::new();
+    write(&mut empty);
+
+    for value in vec![1_u8, 2] {
+        std::hint::black_box(value);
+    }
+    for value in Vec::<u8>::new() {
+        std::hint::black_box(value);
+    }
+
+    let mut grow = Vec::new();
+    grow.push(1);
+    read(&grow);
+    owned(vec![2, 3]);
+    let n = std::hint::black_box(4);
+    read(&vec![1; n]);
+    read(&vec![1; 4096]);
+
+    macro_rules! both {
+        ($value:expr) => {
+            read(&$value);
+            owned($value);
+        }
+    }
+    both!(vec![1]);
+    both!(Vec::new());
+}

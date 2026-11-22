@@ -13,131 +13,234 @@
 //! it is this loop.
 //!
 //! A song ending is the one thing that happens without anyone asking, beside
-//! the clock moving on, which is only said. The thread that carries samples
-//! says so, and what plays next is worked out
-//! there and then, under the same lock every other answer is worked out under
-//! -- the playlist belongs to whoever holds it. That was a hop through glib's
-//! idle queue before, which was how the answer reached the one thread gio
-//! would answer a call on; a lock has no such thread, and the hop was carrying
-//! nothing.
+//! the clock moving on, which is only said. A private socket wakes the bus loop
+//! when the audio worker has an update. The same loop owns the playlist and
+//! sends every reply and notification.
 
-use console_bus::connection::{Bus, ConnectionError, NameRequestResult};
-use console_core_arguments::{Command, Operands, ValidationError};
-use console_core_iteration::Step;
+use console_bus::connection::{
+  Bus, ConnectionError, Incoming, NameRequestResult, Receiver, Sender,
+};
+use console_bus::messages::Message;
+use console_core_arguments::{Command, Flag, Operands, Reason, Takes, ValidationError};
+use console_core_iteration::{Endless, Step};
 use console_core_never::Never;
-use console_music_player::bus::{PlayerState, changed, handle_message, locked, moved};
-use console_music_player::sounding::{Progress, Sounding};
+use console_music_player::bus::{Modified, PlayerState, changed, handle_message, moved};
+use console_music_player::sounding::{Completion, Progress, Sounding};
+use std::io::ErrorKind;
+use std::os::fd::AsFd;
+use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::sync::{Arc, Mutex, OnceLock};
 
 use console_music_player::answers;
-use console_bus::connection::Sender;
 
 struct Answering {
-    held: Arc<Mutex<PlayerState>>,
-    saying: Sender,
+  player: PlayerState,
+  hearing: Receiver,
+  saying: Sender,
+  wakeup: UnixDatagram,
 }
 
-fn ended(answering: &Arc<OnceLock<Answering>>) -> Result<(), Never> {
-    let answering = match answering.get() {
-        Some(answering) => answering,
-        None => return Ok(()),
-    };
+const SECOND: u8 = b'p';
+const ENDED: u8 = b'e';
 
-    let Ok(mut holding) = locked(&answering.held);
-    let Ok(()) = holding.finished();
-    let Ok(()) = holding.remember();
+impl Answering {
+  fn turn(&mut self) -> Result<(), ConnectionError> {
+    let arrived = self.hearing.receive_with(self.wakeup.as_fd())?;
 
-    drop(holding);
-
-    changed(&answering.saying, &answering.held)
-}
-
-fn played_on(answering: &Arc<OnceLock<Answering>>) -> Result<(), Never> {
-    match answering.get() {
-        Some(answering) => moved(&answering.saying),
-        None => Ok(()),
+    match arrived {
+      Incoming::Message(message) => self.answer(&message),
+      Incoming::Woken => self.progress(),
     }
+  }
+
+  fn answer(&mut self, message: &Message) -> Result<(), ConnectionError> {
+    let Ok(turn) = handle_message(&mut self.player, message);
+
+    match turn.say {
+      Some(say) => {
+        let _answered_serial = self.saying.say(&say)?;
+      }
+      None => {}
+    }
+
+    match turn.changed {
+      Modified::Yes => {
+        let Ok(()) = changed(&self.saying, &self.player);
+      }
+      Modified::No => {}
+    }
+
+    Ok(())
+  }
+
+  fn progress(&mut self) -> Result<(), ConnectionError> {
+    let mut signal = [0];
+
+    match self.wakeup.recv(&mut signal) {
+      Ok(_received) => {}
+      Err(fault) => match bool::then_some(
+        matches!(fault.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted),
+        (),
+      ) {
+        Some(()) => return Ok(()),
+        None => return Err(ConnectionError::from(fault)),
+      },
+    }
+
+    let Ok(completed) = self.player.sounding.completed();
+
+    match (completed, signal) {
+      (Completion::Ended, _) => {
+        let Ok(()) = self.player.finished();
+        let Ok(()) = self.player.remember();
+        let Ok(()) = changed(&self.saying, &self.player);
+      }
+      (Completion::Pending, [SECOND]) => {
+        let Ok(()) = moved(&self.saying);
+      }
+      (Completion::Pending, _) => {}
+    }
+
+    Ok(())
+  }
+}
+
+fn wake(socket: &UnixDatagram, progress: Progress) -> Result<(), Never> {
+  let signal = match progress {
+    Progress::Ended => ENDED,
+    Progress::ASecondPlayed => SECOND,
+  };
+
+  let woken = console_core_iteration::iterate((), |()| {
+    Ok(match socket.send(&[signal]) {
+      Ok(_sent) => Step::Halt(()),
+      Err(fault) => match (
+        fault.kind() == ErrorKind::Interrupted,
+        fault.kind() == ErrorKind::WouldBlock,
+      ) {
+        (true, _) => Step::Again(()),
+        (false, true) => Step::Halt(()),
+        (false, false) => {
+          console_core_logging::warn!("could not wake the player for an audio update: {fault}");
+
+          Step::Halt(())
+        }
+      },
+    })
+  });
+
+  match woken {
+    Ok(()) | Err(Endless) => Ok(()),
+  }
 }
 
 fn main() -> ExitCode {
-    let words: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, folder, answering);
+  let words: Vec<String> = std::env::args().skip(1).collect();
+  let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, folder, answering);
 
-    code
+  code
 }
 
+const FOLDER_URI: Flag = Flag {
+  spelling: "--folder-uri",
+  takes: Takes::Value("FILE_URI"),
+  about: "the library folder as a local file URI",
+};
+
 const COMMAND: Command = Command {
-    name: "music-player",
-    about: "the player, answering on the session bus, with the music under FOLDER",
-    flags: &[],
-    operands: Operands::Optional("FOLDER"),
+  name: "music-player",
+  about: "the player, answering on the session bus, with the music under FOLDER",
+  flags: &[FOLDER_URI],
+  operands: Operands::Optional("FOLDER"),
 };
 
 fn folder(words: &[String]) -> Result<Option<PathBuf>, ValidationError> {
-    let line = console_core_arguments::read(&COMMAND, words)?;
-    let Ok(named) = line.operands();
+  let line = console_core_arguments::read(&COMMAND, words)?;
+  let Ok(named) = line.operands();
+  let Ok(uri) = line.value(FOLDER_URI);
 
-    Ok(named.first().map(PathBuf::from))
+  match uri {
+    Some(text) => {
+      let Ok(location) = console_core_file_urls::path(text);
+
+      match location {
+        Some(path) => Ok(Some(path)),
+        None => {
+          let Ok(refusal) = line.refusal(Reason::InvalidValue {
+            of: FOLDER_URI.spelling,
+            value: text.to_owned(),
+          });
+
+          Err(refusal)
+        }
+      }
+    }
+    None => Ok(named.first().map(PathBuf::from)),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::os::unix::ffi::OsStrExt;
+
+  #[test]
+  fn only_the_uri_option_decodes_an_encoded_folder() {
+    let literal = "file://a%FF".to_owned();
+    let decoded = PathBuf::from(std::ffi::OsStr::from_bytes(b"a\xff"));
+
+    assert_eq!(
+      folder(std::slice::from_ref(&literal)),
+      Ok(Some(PathBuf::from(&literal)))
+    );
+    assert_eq!(
+      folder(&[FOLDER_URI.spelling.to_owned(), literal]),
+      Ok(Some(decoded))
+    );
+  }
 }
 
 fn answering(folder: Option<PathBuf>) -> Result<(), ConnectionError> {
-    let mut bus = Bus::session()?;
-    let got = bus.request_name(answers::NAME)?;
+  let mut bus = Bus::session()?;
+  let got = bus.request_name(answers::NAME)?;
 
-    match got {
-        NameRequestResult::PrimaryOwner | NameRequestResult::AlreadyOwner => {}
-        NameRequestResult::InQueue | NameRequestResult::Exists => {
-            eprintln!("music-player: another player has the name, so this one answers to nothing");
+  match got {
+    NameRequestResult::PrimaryOwner | NameRequestResult::AlreadyOwner => {}
+    NameRequestResult::InQueue | NameRequestResult::Exists => {
+      eprintln!("music-player: another player has the name, so this one answers to nothing");
 
-            return Ok(());
-        }
+      return Ok(());
     }
+  }
 
-    let answering: Arc<OnceLock<Answering>> = Arc::new(OnceLock::new());
-    let ending = Arc::clone(&answering);
-    let Ok(sounding) = Sounding::new(move |progress| match progress {
-        Progress::Ended => ended(&ending),
-        Progress::ASecondPlayed => played_on(&ending),
-    });
-    let Ok(held) = PlayerState::new(sounding, folder);
-    let held = Arc::new(Mutex::new(held));
-    let Ok((hearing, saying)) = bus.split();
+  let (wakeup, audio) = UnixDatagram::pair()?;
 
-    let _the_song_ending_finds_the_player_and_the_bus_here =
-        answering.set(Answering { held: Arc::clone(&held), saying: saying.clone() });
+  audio.set_nonblocking(true)?;
+  wakeup.set_nonblocking(true)?;
 
-    let heard = console_core_iteration::iterate(hearing, |mut hearing| {
-        let message = match hearing.receive() {
-            Ok(message) => message,
-            Err(fault) => return Ok(Step::Halt(Err(fault))),
-        };
-        let Ok(turn) = handle_message(&held, &message);
+  let Ok(sounding) = Sounding::new(move |progress| wake(&audio, progress));
+  let Ok(player) = PlayerState::new(sounding, folder);
+  let Ok((hearing, saying)) = bus.split();
+  let owned = Answering {
+    hearing,
+    saying,
+    wakeup,
+    player,
+  };
+  let heard = console_core_iteration::iterate(owned, |mut answering| {
+    Ok(match answering.turn() {
+      Ok(()) => Step::Again(answering),
+      Err(fault) => Step::Halt(Err(fault)),
+    })
+  });
 
-        match turn.say {
-            Some(say) => {
-                let _ = saying.say(&say);
-            }
-            None => {},
-        }
+  match heard {
+    Ok(heard_2) => heard_2,
+    Err(endless) => {
+      eprintln!("music-player: {endless}");
 
-        match turn.changed {
-            console_music_player::bus::Modified::Yes => {
-                let Ok(()) = changed(&saying, &held);
-            }
-            console_music_player::bus::Modified::No => {},
-        }
-
-        Ok(Step::Again(hearing))
-    });
-
-    match heard {
-        Ok(heard) => heard,
-        Err(endless) => {
-            eprintln!("music-player: {endless}");
-
-            Ok(())
-        }
+      Ok(())
     }
+  }
 }

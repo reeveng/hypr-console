@@ -1,0 +1,71 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_number_conversion.rs
+
+extern crate console_core_number_conversion;
+
+use console_core_number_conversion::index;
+
+struct Limits {
+    start: usize,
+    end: usize,
+}
+
+fn clear(data: &mut [u8; 4], mut pos: usize) -> usize {
+    while pos < data.len() {
+        data[pos] = 0;
+        pos += 1;
+    }
+    pos
+}
+
+fn count(data: &[u8], mut pos: usize) -> usize {
+    while pos < data.len() {
+        pos = pos.wrapping_add(1);
+    }
+    pos
+}
+
+fn limit(bounds: Limits) -> usize {
+    let mut position = bounds.start;
+    while position < bounds.end {
+        position = position.wrapping_add(1);
+    }
+    position
+}
+
+fn exit_at(start: usize, width: u8, stop: usize) -> usize {
+    let mut position = start;
+    'positions: while position < (match index(width) {
+        Ok(converted) => converted,
+    }) {
+        if position == stop {
+            break 'positions;
+        }
+        position += 1;
+    }
+    position
+}
+
+fn block_limit(width: u8) -> usize {
+    let mut position = 0usize;
+    while position < {
+        let Ok(converted) = index(width);
+        converted
+    } {
+        position += 1;
+    }
+    position
+}
+
+fn main() {
+    let mut bytes = [1, 2, 3, 4];
+    assert_eq!(clear(&mut bytes, 2), 4);
+    assert_eq!(bytes, [1, 2, 0, 0]);
+    assert_eq!(count(&bytes, 0), 4);
+    assert_eq!(count(&bytes, 9), 9);
+    assert_eq!(limit(Limits { start: 1, end: 8 }), 8);
+    assert_eq!(exit_at(1, 8, 3), 3);
+    assert_eq!(exit_at(8, 2, 3), 8);
+    assert_eq!(block_limit(5), 5);
+}

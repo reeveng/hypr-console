@@ -19,14 +19,14 @@ use console_core_never::Never;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Weight {
-    Plain,
-    Bold,
+  Plain,
+  Bold,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Font {
-    pub family: String,
-    pub height: u32,
+  pub family: String,
+  pub height: u32,
 }
 
 pub const EM: i32 = 18;
@@ -46,37 +46,40 @@ pub const ICONS: &str = "FantasqueSansM Nerd Font Mono";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextStyle {
-    Title,
-    Headline,
-    Body,
-    Callout,
-    Footnote,
-    Caption,
+  Title,
+  Headline,
+  Body,
+  Callout,
+  Footnote,
+  Caption,
 }
 
 impl TextStyle {
-    pub fn height(self) -> Result<u32, Never> {
-        Ok(match self {
-            TextStyle::Title => TITLE.unsigned_abs(),
-            TextStyle::Headline | TextStyle::Body => EM.unsigned_abs(),
-            TextStyle::Callout => CALLOUT.unsigned_abs(),
-            TextStyle::Footnote => FOOTNOTE.unsigned_abs(),
-            TextStyle::Caption => CAPTION.unsigned_abs(),
-        })
-    }
+  pub fn height(self) -> Result<u32, Never> {
+    Ok(match self {
+      TextStyle::Title => TITLE.unsigned_abs(),
+      TextStyle::Headline | TextStyle::Body => EM.unsigned_abs(),
+      TextStyle::Callout => CALLOUT.unsigned_abs(),
+      TextStyle::Footnote => FOOTNOTE.unsigned_abs(),
+      TextStyle::Caption => CAPTION.unsigned_abs(),
+    })
+  }
 
-    pub fn weight(self) -> Result<Weight, Never> {
-        Ok(match self {
-            TextStyle::Title | TextStyle::Headline => Weight::Bold,
-            TextStyle::Body | TextStyle::Callout | TextStyle::Footnote | TextStyle::Caption => {
-                Weight::Plain
-            }
-        })
-    }
+  pub fn weight(self) -> Result<Weight, Never> {
+    Ok(match self {
+      TextStyle::Title | TextStyle::Headline => Weight::Bold,
+      TextStyle::Body | TextStyle::Callout | TextStyle::Footnote | TextStyle::Caption => {
+        Weight::Plain
+      }
+    })
+  }
 
-    pub fn font(self) -> Result<Font, Never> {
-        let Ok(tall) = self.height();
+  pub fn font(self) -> Result<Font, Never> {
+    let Ok(tall) = self.height();
 
-        Ok(Font { family: LETTERS.to_string(), height: tall })
-    }
+    Ok(Font {
+      family: LETTERS.to_string(),
+      height: tall,
+    })
+  }
 }

@@ -1,0 +1,13 @@
+// run-rustfix
+// edition:2024
+// rustc-env:CARGO_PKG_RUST_VERSION=1.87
+#![allow(dead_code)]
+
+const fn bits(value: i32) -> u32 { ::core::primitive::i32::cast_unsigned(value) }
+fn signed(read: fn() -> u8) -> i8 { ::core::primitive::u8::cast_signed(read()) }
+fn offset(value: usize) -> isize { ::core::primitive::usize::cast_signed(value) }
+
+fn main() {
+    assert_eq!(bits(-1), u32::MAX);
+    assert_eq!(signed(|| 128), i8::MIN);
+}

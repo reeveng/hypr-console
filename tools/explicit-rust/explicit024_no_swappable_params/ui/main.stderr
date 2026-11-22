@@ -4,8 +4,22 @@ error: a second parameter of type `u32`: the compiler takes these two in either 
 LL | fn draw(across: u32, down: u32) -> u32 {
    |                            ^^^
    |
-   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
    = note: `#[deny(explicit024_no_swappable_params)]` on by default
+help: name the arguments at every call to this private function
+   |
+LL ~ fn draw(DrawArguments { across, down }: DrawArguments) -> u32 {
+LL |     across.saturating_mul(down)
+LL ~ }
+LL + 
+LL + struct DrawArguments {
+LL +     across: u32,
+LL +     down: u32,
+LL + }
+LL |
+...
+LL | fn main() {
+LL ~     let _ = draw(self::DrawArguments { across: 2, down: 3 });
+   |
 
 error: a second parameter of type `u32`: the compiler takes these two in either order and says nothing
   --> $DIR/main.rs:19:39

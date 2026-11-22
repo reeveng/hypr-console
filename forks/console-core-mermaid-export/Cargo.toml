@@ -1,0 +1,104 @@
+[package]
+name = "console-core-mermaid-export"
+version = "0.10.0-alpha.2"
+edition = "2024"
+authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
+license = "AGPL-3.0-or-later"
+homepage = "https://github.com/Latias94/merman"
+repository = "https://github.com/Latias94/merman"
+rust-version = "1.95"
+description = "Bounded PNG, JPEG, and PDF export for terminally validated Merman SVG."
+documentation = "https://docs.rs/merman-export"
+readme = "README.md"
+keywords = ["mermaid", "svg", "png", "jpeg", "pdf"]
+categories = ["encoding", "graphics"]
+
+[package.metadata.merman]
+artifact-profile-required = true
+
+[features]
+default = []
+bundled-fonts = ["native-fonts"]
+native-fonts = [
+    "dep:merman-model",
+    "dep:merman-render",
+    "dep:rustybuzz",
+    "dep:console-core-checksums",
+    "dep:thiserror",
+    "dep:ttf-parser",
+    "dep:unicase",
+    "dep:usvg",
+]
+system-fonts = ["dep:usvg", "usvg/system-fonts"]
+experimental-system-font-query = ["native-fonts", "system-fonts", "dep:fontique", "dep:unicode-script"]
+png = [
+    "dep:cssparser",
+    "dep:data-url",
+    "dep:merman-model",
+    "dep:merman-render",
+    "dep:quick-xml",
+    "dep:resvg",
+    "dep:svgtypes",
+    "dep:thiserror",
+    "dep:tiny-skia",
+    "dep:ttf-parser",
+    "dep:unicase",
+    "dep:usvg",
+]
+jpeg = [
+    "dep:cssparser",
+    "dep:data-url",
+    "dep:image",
+    "dep:merman-model",
+    "dep:merman-render",
+    "dep:quick-xml",
+    "dep:resvg",
+    "dep:svgtypes",
+    "dep:thiserror",
+    "dep:tiny-skia",
+    "dep:ttf-parser",
+    "dep:unicase",
+    "dep:usvg",
+]
+pdf = [
+    "dep:data-url",
+    "dep:krilla",
+    "dep:krilla-svg",
+    "dep:merman-model",
+    "dep:merman-render",
+    "dep:quick-xml",
+    "dep:svgtypes",
+    "dep:thiserror",
+    "dep:ttf-parser",
+    "dep:unicase",
+    "dep:usvg",
+]
+
+[dependencies]
+cssparser = { version = "0.38.0", default-features = false, features = ["fast_match_byte"], optional = true }
+data-url = { package = "console-core-urls", path = "../../crates/console-core-urls", optional = true }
+fontique = { version = "0.12.0", default-features = false, features = ["system"], optional = true }
+image = { version = "0.25.10", default-features = false, features = ["jpeg"], optional = true }
+krilla = { version = "0.8.2", default-features = false, optional = true }
+krilla-svg = { version = "0.8.1", default-features = false, optional = true }
+merman-model = { package = "console-core-mermaid-model", path = "../console-core-mermaid-model", version = "=0.10.0-alpha.2", default-features = false, optional = true }
+merman-render = { package = "console-core-mermaid-renderer", path = "../console-core-mermaid-renderer", version = "=0.10.0-alpha.2", default-features = false, optional = true }
+quick-xml = { version = "0.42.0", optional = true }
+resvg = { package = "console-core-scalable-vector-graphics-rasterizer", path = "../../crates/console-core-scalable-vector-graphics-rasterizer", default-features = false, optional = true, features = ["raster-images"] }
+rustybuzz = { version = "0.20.1", optional = true }
+console-core-checksums = { path = "../../crates/console-core-checksums", optional = true }
+svgtypes = { package = "console-core-scalable-vector-graphics-values", path = "../../crates/console-core-scalable-vector-graphics-values", optional = true }
+thiserror = { version = "2.0.21", optional = true }
+tiny-skia = { package = "console-core-path-rasterizer", path = "../../crates/console-core-path-rasterizer", optional = true }
+ttf-parser = { version = "0.25.1", default-features = false, features = ["std", "variable-fonts"], optional = true }
+unicase = { version = "2.10.0", optional = true }
+unicode-script = { version = "0.5.9", optional = true }
+usvg = { package = "console-core-scalable-vector-graphics", path = "../../crates/console-core-scalable-vector-graphics", default-features = false, optional = true, features = ["text"] }
+
+[dev-dependencies]
+base64 = "0.23.1"
+merman-model = { package = "console-core-mermaid-model", path = "../console-core-mermaid-model", version = "=0.10.0-alpha.2", default-features = false, features = ["test-support"] }
+png = "0.18.1"
+
+[lib]
+name = "merman_export"

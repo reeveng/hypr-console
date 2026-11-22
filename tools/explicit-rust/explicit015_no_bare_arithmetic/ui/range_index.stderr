@@ -1,0 +1,40 @@
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/range_index.rs:7:17
+   |
+LL |         assert!(x + 1 <= end);
+   |                 ^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u8::wrapping_add(x, 1)`
+   |
+   = note: `#[deny(explicit015_no_bare_arithmetic)]` on by default
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/range_index.rs:8:20
+   |
+LL |         assert_eq!(x / x, 1);
+   |                    ^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u8::wrapping_div(x, x)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/range_index.rs:15:17
+   |
+LL |         assert!((y * 16) < 256);
+   |                 ^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::usize::wrapping_mul(y, 16)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/range_index.rs:17:20
+   |
+LL |         let last = row_offset + 15;
+   |                    ^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::usize::wrapping_add(row_offset, 15)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/range_index.rs:20:21
+   |
+LL |             assert!(12 / y >= 4);
+   |                     ^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u8::wrapping_div(12, y)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/range_index.rs:24:17
+   |
+LL |         assert!(u32::from(x) + 1 <= 256);
+   |                 ^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_add(u32::from(x), 1)`
+
+error: aborting due to 6 previous errors
+

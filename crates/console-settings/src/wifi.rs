@@ -26,111 +26,117 @@
 //! there; standing still does not swap at every scan. The margin between two
 //! networks at the same strength is the same argument, one step earlier.
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, BTreeSet};
 
+use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_panel::running::Exit;
+use console_program_contract::{Answer, Command, ExitStatus, Notification};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(
-    dylint_lib = "explicit048_no_unreal_state",
-    allow(
-        explicit048_no_unreal_state,
-        reason = "`here` is whether this is the network the machine is on and `locked` is whether it wants a password; every combination of the two is a network someone can see in the list"
-    )
+  dylint_lib = "explicit048_no_unreal_state",
+  allow(
+    explicit048_no_unreal_state,
+    reason = "`here` is whether this is the network the machine is on and `locked` is whether it wants a password; every combination of the two is a network someone can see in the list"
+  )
 )]
 pub struct Network {
-    pub name: String,
-    pub here: bool,
-    pub signal: i32,
-    pub band: Band,
-    pub locked: bool,
+  pub name: String,
+  pub here: bool,
+  pub signal: i32,
+  pub band: Band,
+  pub locked: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Band {
-    TwoPointFourGigahertz,
-    FiveGigahertz,
-    Unknown,
+  TwoPointFourGigahertz,
+  FiveGigahertz,
+  Unknown,
 }
 
 fn band_of(said: &str) -> Result<Band, Never> {
-    let megahertz = said.split_whitespace().next().map(str::parse::<u32>);
+  let megahertz = said.split_whitespace().next().map(str::parse::<u32>);
 
-    Ok(match megahertz {
-        Some(Ok(megahertz)) => match megahertz < 4000 {
-            true => Band::TwoPointFourGigahertz,
-            false => Band::FiveGigahertz,
-        },
-        None => Band::Unknown,
-        Some(Err(_not_a_number)) => Band::Unknown,
-    })
+  Ok(match megahertz {
+    Some(Ok(megahertz_2)) => match ::core::primitive::bool::then_some(megahertz_2 < 4000, ()) {
+      ::core::option::Option::Some(()) => Band::TwoPointFourGigahertz,
+      ::core::option::Option::None => Band::FiveGigahertz,
+    },
+    None => Band::Unknown,
+    Some(Err(_not_a_number)) => Band::Unknown,
+  })
 }
 
 fn signal_of(said: &str) -> Result<i32, Never> {
-    let signal = match said.parse::<i32>() {
-        Ok(signal) => signal,
-        Err(_not_a_number) => return Ok(0),
-    };
+  let signal = match said.parse::<i32>() {
+    Ok(signal) => signal,
+    Err(_not_a_number) => return Ok(0),
+  };
 
-    Ok(signal)
+  Ok(signal)
 }
 
 pub fn networks(said: &str) -> Result<Vec<Network>, Never> {
-    let mut strongest: BTreeMap<String, Network> = BTreeMap::new();
+  let mut strongest: BTreeMap<String, Network> = BTreeMap::new();
 
-    for line in said.lines() {
-        let parts: Vec<&str> = line.split(':').collect();
+  for line in said.lines() {
+    let parts: Vec<&str> = line.split(':').collect();
 
-        let (here, name, signal, frequency, locked) = match parts.as_slice() {
-            [here, name, signal, frequency, locked @ ..] => (here, name, signal, frequency, locked),
-            _ => continue,
-        };
+    let (here, name, signal, frequency, locked) = match parts.as_slice() {
+      [here, name, signal, frequency, locked @ ..] => (here, name, signal, frequency, locked),
+      _ => continue,
+    };
 
-        match name.is_empty() {
-            true => continue,
-            false => {},
-        }
-
-        let signal = signal_of(signal)?;
-        let band = band_of(frequency)?;
-
-        let found = Network {
-            name: (*name).to_string(),
-            here: *here == "yes",
-            signal,
-            band,
-            locked: !locked.join(":").is_empty(),
-        };
-
-        match strongest.entry(found.name.clone()) {
-            Entry::Occupied(mut already) => match already.get().signal < found.signal {
-                true => {
-                    let here = already.get().here || found.here;
-                    let _ = already.insert(Network { here, ..found });
-                },
-                false => {
-                    let here = already.get().here || found.here;
-                    already.get_mut().here = here;
-                },
-            },
-            Entry::Vacant(nothing) => {
-                let _ = nothing.insert(found);
-            },
-        }
+    match ::core::primitive::bool::then_some(name.is_empty(), ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
     }
 
-    let mut seen: Vec<Network> = strongest.into_values().collect();
+    let signal_2 = signal_of(signal)?;
+    let band = band_of(frequency)?;
 
-    seen.sort_by_key(|network| network.signal.saturating_neg());
+    let found = Network {
+      name: (*name).to_string(),
+      here: *here == "yes",
+      signal: signal_2,
+      band,
+      locked: !locked.join(":").is_empty(),
+    };
 
-    Ok(seen)
+    match strongest.entry(found.name.clone()) {
+      Entry::Occupied(mut already) => match ::core::primitive::bool::then_some(already.get().signal < found.signal, ()) {
+        ::core::option::Option::Some(()) => {
+          let here_2 = already.get().here || found.here;
+          let _ = already.insert(Network {
+            here: here_2,
+            ..found
+          });
+        }
+        ::core::option::Option::None => {
+          let here_3 = already.get().here || found.here;
+          already.get_mut().here = here_3;
+        }
+      },
+      Entry::Vacant(nothing) => {
+        let _ = nothing.insert(found);
+      }
+    }
+  }
+
+  let mut seen: Vec<Network> = strongest.into_values().collect();
+
+  seen.sort_by_key(|network| network.signal.saturating_neg());
+
+  Ok(seen)
 }
 
 pub const FIELDS: &str = "ACTIVE,SSID,SIGNAL,FREQ,SECURITY";
 
-pub const IN_RANGE: [&str; 8] = ["-t", "-f", FIELDS, "device", "wifi", "list", "--rescan", "no"];
+pub const IN_RANGE: [&str; 8] = [
+  "-t", "-f", FIELDS, "device", "wifi", "list", "--rescan", "no",
+];
 
 pub const KNOWN: [&str; 5] = ["-t", "-f", "NAME,TYPE", "connection", "show"];
 
@@ -146,404 +152,659 @@ pub const CLOSER: i32 = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Receiving {
-    Slowest,
-    Faster,
-    Unknown,
+  Slowest,
+  Faster,
+  Unknown,
 }
 
 pub fn receiving(link: &str) -> Result<Receiving, Never> {
-    let rate = link.lines().find_map(|line| line.trim().strip_prefix("rx bitrate:"));
+  let rate = link
+    .lines()
+    .find_map(|line| line.trim().strip_prefix("rx bitrate:"));
 
-    let words: Vec<&str> = match rate {
-        Some(rate) => rate.split_whitespace().collect(),
-        None => return Ok(Receiving::Unknown),
-    };
+  let words: Vec<&str> = match rate {
+    Some(rate_2) => rate_2.split_whitespace().collect(),
+    None => return Ok(Receiving::Unknown),
+  };
 
-    let index = words.windows(2).find_map(|pair| match pair {
-        [named, index] => match named.ends_with("MCS") {
-            true => Some(index.parse::<u32>()),
-            false => None,
-        },
-        _ => None,
-    });
+  let index = words.windows(2).find_map(|pair| match pair {
+    [named, index] => match ::core::primitive::bool::then_some(named.ends_with("MCS"), ()) {
+      ::core::option::Option::Some(()) => Some(index.parse::<u32>()),
+      ::core::option::Option::None => None,
+    },
+    _ => None,
+  });
 
-    Ok(match index {
-        Some(Ok(0 | 1)) => Receiving::Slowest,
-        Some(Ok(_)) => Receiving::Faster,
-        None => Receiving::Unknown,
-        Some(Err(_not_a_number)) => Receiving::Unknown,
-    })
+  Ok(match index {
+    Some(Ok(0 | 1)) => Receiving::Slowest,
+    Some(Ok(_)) => Receiving::Faster,
+    None => Receiving::Unknown,
+    Some(Err(_not_a_number)) => Receiving::Unknown,
+  })
 }
 
 pub fn wireless(devices: &str) -> Result<Option<String>, Never> {
-    Ok(devices.lines().find_map(|line| line.strip_suffix(":wifi")).map(str::to_string))
+  Ok(
+    devices
+      .lines()
+      .find_map(|line| line.strip_suffix(":wifi"))
+      .map(str::to_string),
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Why {
-    Weak,
-    Slow,
-    Near,
+  Weak,
+  Slow,
+  Near,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Move {
-    pub from: Network,
-    pub to: Network,
-    pub why: Why,
+  pub from: Network,
+  pub to: Network,
+  pub why: Why,
 }
 
 pub type Left = BTreeMap<String, i32>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Distance {
-    Closer,
-    NoCloser,
+  Closer,
+  NoCloser,
 }
 
 fn distance(other: &Network, left: &Left) -> Result<Distance, Never> {
-    Ok(match left.get(&other.name).map(|then| other.signal >= then.saturating_add(CLOSER)) {
-        Some(true) | None => Distance::Closer,
-        Some(false) => Distance::NoCloser,
-    })
+  Ok(
+    match left
+      .get(&other.name)
+      .map(|then| other.signal >= then.saturating_add(CLOSER))
+    {
+      Some(true) | None => Distance::Closer,
+      Some(false) => Distance::NoCloser,
+    },
+  )
 }
 
-pub fn better(networks: &[Network], saved: &[String], link: Receiving, left: &Left) -> Result<Option<Move>, Never> {
-    let here = match networks.iter().find(|network| network.here) {
-        Some(here) => here,
-        None => return Ok(None),
-    };
+pub fn better(
+  networks: &[Network],
+  saved: &[String],
+  link: Receiving,
+  left: &Left,
+) -> Result<Option<Move>, Never> {
+  let here = match networks.iter().find(|network| network.here) {
+    Some(here) => here,
+    None => return Ok(None),
+  };
 
-    let saved: BTreeSet<&String> = saved.iter().collect();
+  let saved_2: BTreeSet<&String> = saved.iter().collect();
 
-    let others = networks
-        .iter()
-        .filter(|network| !network.here && saved.contains(&network.name))
-        .filter(|network| distance(network, left) == Ok(Distance::Closer));
+  let others = networks
+    .iter()
+    .filter(|network| !network.here && saved_2.contains(&network.name))
+    .filter(|network| distance(network, left) == Ok(Distance::Closer));
 
-    let trouble = match (link, here.signal < WEAK) {
-        (Receiving::Slowest, _) => Some(Why::Slow),
-        (Receiving::Faster | Receiving::Unknown, true) => Some(Why::Weak),
-        (Receiving::Faster | Receiving::Unknown, false) => None,
-    };
+  let trouble = match (link, here.signal < WEAK) {
+    (Receiving::Slowest, _) => Some(Why::Slow),
+    (Receiving::Faster | Receiving::Unknown, true) => Some(Why::Weak),
+    (Receiving::Faster | Receiving::Unknown, false) => None,
+  };
 
-    let chosen = match (trouble, here.band) {
-        (Some(why), _) => others
-            .filter(|other| {
-                let clearly = other.signal >= here.signal.saturating_add(CLEARLY);
-                let further_reaching = here.band == Band::FiveGigahertz
-                    && other.band == Band::TwoPointFourGigahertz
-                    && other.signal >= here.signal;
-                let anything_faster = why == Why::Slow && other.signal >= WEAK;
+  let chosen = match (trouble, here.band) {
+    (Some(why), _) => others
+      .filter(|other| {
+        let clearly = other.signal >= here.signal.saturating_add(CLEARLY);
+        let further_reaching = here.band == Band::FiveGigahertz
+          && other.band == Band::TwoPointFourGigahertz
+          && other.signal >= here.signal;
+        let anything_faster = why == Why::Slow && other.signal >= WEAK;
 
-                clearly || further_reaching || anything_faster
-            })
-            .max_by_key(|other| other.signal)
-            .map(|other| Move { from: here.clone(), to: other.clone(), why }),
-        (None, Band::TwoPointFourGigahertz) => others
-            .filter(|other| other.band == Band::FiveGigahertz && other.signal >= NEAR)
-            .max_by_key(|other| other.signal)
-            .map(|other| Move { from: here.clone(), to: other.clone(), why: Why::Near }),
-        (None, Band::FiveGigahertz | Band::Unknown) => None,
-    };
+        clearly || further_reaching || anything_faster
+      })
+      .max_by_key(|other| other.signal)
+      .map(|other| Move {
+        from: here.clone(),
+        to: other.clone(),
+        why,
+      }),
+    (None, Band::TwoPointFourGigahertz) => others
+      .filter(|other| other.band == Band::FiveGigahertz && other.signal >= NEAR)
+      .max_by_key(|other| other.signal)
+      .map(|other| Move {
+        from: here.clone(),
+        to: other.clone(),
+        why: Why::Near,
+      }),
+    (None, Band::FiveGigahertz | Band::Unknown) => None,
+  };
 
-    Ok(chosen)
+  Ok(chosen)
 }
 
 pub fn saved(said: &str) -> Result<Vec<String>, Never> {
-    Ok(said
-        .lines()
-        .filter(|line| line.ends_with("802-11-wireless"))
-        .filter_map(|line| line.split(':').next())
-        .map(str::to_string)
-        .collect())
+  Ok(
+    said
+      .lines()
+      .filter(|line| line.ends_with("802-11-wireless"))
+      .filter_map(|line| line.split(':').next())
+      .map(str::to_string)
+      .collect(),
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Radio {
-    On,
-    Off,
+  On,
+  Off,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Known {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 pub fn on(said: &str) -> Result<Radio, Never> {
-    match said.trim() == "enabled" {
-        true => Ok(Radio::On),
-        false => Ok(Radio::Off),
-    }
+  match ::core::primitive::bool::then_some(said.trim() == "enabled", ()) {
+    ::core::option::Option::Some(()) => Ok(Radio::On),
+    ::core::option::Option::None => Ok(Radio::Off),
+  }
 }
 
 pub fn password(said: &str) -> Result<Option<String>, Never> {
-    let line = match said.strip_suffix('\n') {
-        Some(line) => line,
+  let line = match said.strip_suffix('\n') {
+    Some(line) => line,
+    None => said,
+  };
+
+  Ok(match ::core::primitive::bool::then_some(line.is_empty(), ()) {
+    ::core::option::Option::Some(()) => None,
+    ::core::option::Option::None => Some(line.to_string()),
+  })
+}
+
+pub fn joining(name: &str, known: Known) -> Result<Command, Never> {
+  match known {
+    Known::Yes => Command::external(Program::Nmcli, &["connection", "up", "id", name]),
+    Known::No => Command::external(Program::Nmcli, &["device", "wifi", "connect", name]),
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Password<'a>(pub &'a str);
+
+pub fn joining_with(name: &str, password: Password<'_>) -> Result<Command, Never> {
+  Command::external(
+    Program::Nmcli,
+    &["device", "wifi", "connect", name, "password", password.0],
+  )
+}
+
+pub fn joined(name: &str, answer: &Answer) -> Result<Notification, Never> {
+  Ok(match answer.status {
+    ExitStatus::Success => Notification {
+      summary: format!("Connected to {name}"),
+      body: None,
+    },
+    ExitStatus::Interrupt => Notification {
+      summary: format!("Stopped connecting to {name}"),
+      body: None,
+    },
+    ExitStatus::Failure(_code) => {
+      let said = answer.error_output.trim();
+      let said_2 = match said.strip_prefix("Error: ") {
+        Some(rest) => rest,
         None => said,
-    };
+      };
+      let body = match ::core::primitive::bool::then_some(said_2.contains("Secrets were required"), ()) {
+        ::core::option::Option::Some(()) => "The password was not accepted.",
+        ::core::option::Option::None => said_2,
+      };
 
-    Ok(match line.is_empty() {
-        true => None,
-        false => Some(line.to_string()),
-    })
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Notice {
-    pub summary: String,
-    pub body: String,
-}
-
-pub fn joined(name: &str, exit: &Exit) -> Result<Notice, Never> {
-    Ok(match exit {
-        Exit::Success => Notice { summary: format!("Connected to {name}"), body: String::new() },
-        Exit::Failure { said } => {
-            let said = match said.strip_prefix("Error: ") {
-                Some(rest) => rest,
-                None => said,
-            };
-            let body = match said.contains("Secrets were required") {
-                true => "The password was not accepted.",
-                false => said,
-            };
-
-            Notice { summary: format!("Couldn't connect to {name}"), body: body.to_string() }
-        }
-    })
+      Notification {
+        summary: format!("Couldn't connect to {name}"),
+        body: match ::core::primitive::bool::then_some(body.is_empty(), ()) {
+          ::core::option::Option::Some(()) => None,
+          ::core::option::Option::None => Some(body.to_string()),
+        },
+      }
+    }
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    fn network<'a>(found: &'a [Network], name: &str) -> Result<&'a Network, Failure> {
-        let network = found.iter().find(|network| network.name == name).ok_or(format!("no {name}"))?;
+  fn network<'a>(found: &'a [Network], name: &str) -> Result<&'a Network, Failure> {
+    let network = found
+      .iter()
+      .find(|network| network.name == name)
+      .ok_or(format!("no {name}"))?;
 
-        Ok(network)
-    }
+    Ok(network)
+  }
 
-    const SAID: &str = "\
+  const SAID: &str = "\
 yes:Home:71:2437 MHz:WPA2
 no:Home:44:2437 MHz:WPA2
 no:Cafe:88:5180 MHz:
 no::60:2437 MHz:WPA2
 no:Locked:30:2437 MHz:WPA1 WPA2";
 
-    #[test]
-    fn the_strongest_of_a_name_is_the_one_drawn() -> Result<(), Failure> {
-        let Ok(found) = networks(SAID);
-        let home = network(&found, "Home")?;
+  #[test]
+  fn the_strongest_of_a_name_is_the_one_drawn() -> Result<(), Failure> {
+    let Ok(found) = networks(SAID);
+    let home = network(&found, "Home")?;
 
-        assert_eq!(home.signal, 71);
-        assert!(home.here);
-        assert_eq!(found.iter().filter(|network| network.name == "Home").count(), 1);
+    assert_eq!(home.signal, 71);
+    assert!(home.here);
+    assert_eq!(
+      found
+        .iter()
+        .filter(|network| network.name == "Home")
+        .count(),
+      1
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn the_network_in_use_is_still_in_use_when_a_stronger_access_point_of_it_is_in_range() {
-        let Ok(found) = networks("yes:Home:40:5180 MHz:WPA2\nno:Home:70:5180 MHz:WPA2");
+  #[test]
+  fn the_network_in_use_is_still_in_use_when_a_stronger_access_point_of_it_is_in_range() {
+    let Ok(found) = networks("yes:Home:40:5180 MHz:WPA2\nno:Home:70:5180 MHz:WPA2");
 
-        assert_eq!(
-            found,
-            vec![Network {
-                name: "Home".to_string(),
-                here: true,
-                signal: 70,
-                band: Band::FiveGigahertz,
-                locked: true,
-            }]
-        );
-    }
+    assert_eq!(
+      found,
+      vec![Network {
+        name: "Home".to_string(),
+        here: true,
+        signal: 70,
+        band: Band::FiveGigahertz,
+        locked: true,
+      }]
+    );
+  }
 
-    #[test]
-    fn the_band_is_read_from_the_frequency() {
-        let Ok(found) = networks("no:Two:50:2437 MHz:WPA2\nno:Five:50:5180 MHz:WPA2\nno:What:50:?:WPA2");
-        let bands: Vec<(&str, Band)> = found.iter().map(|network| (network.name.as_str(), network.band)).collect();
+  #[test]
+  fn the_band_is_read_from_the_frequency() {
+    let Ok(found) =
+      networks("no:Two:50:2437 MHz:WPA2\nno:Five:50:5180 MHz:WPA2\nno:What:50:?:WPA2");
+    let bands: Vec<(&str, Band)> = found
+      .iter()
+      .map(|network| (network.name.as_str(), network.band))
+      .collect();
 
-        assert_eq!(
-            bands,
-            vec![("Five", Band::FiveGigahertz), ("Two", Band::TwoPointFourGigahertz), ("What", Band::Unknown)]
-        );
-    }
+    assert_eq!(
+      bands,
+      vec![
+        ("Five", Band::FiveGigahertz),
+        ("Two", Band::TwoPointFourGigahertz),
+        ("What", Band::Unknown)
+      ]
+    );
+  }
 
-    const FIVE: &str = "5180 MHz";
-    const TWO: &str = "2437 MHz";
+  const FIVE: &str = "5180 MHz";
+  const TWO: &str = "2437 MHz";
 
-    struct Received {
-        here: (&'static str, i32),
-        other: (&'static str, i32),
-    }
+  struct Received {
+    here: (&'static str, i32),
+    other: (&'static str, i32),
+  }
 
-    fn range(heard: &Received) -> Result<String, Never> {
-        let Received { here: (here_band, here_signal), other: (other_band, other_signal) } = heard;
+  fn range(heard: &Received) -> Result<String, Never> {
+    let Received {
+      here: (here_band, here_signal),
+      other: (other_band, other_signal),
+    } = heard;
 
-        Ok(format!("yes:Here:{here_signal}:{here_band}:WPA2\nno:Other:{other_signal}:{other_band}:WPA2"))
-    }
+    Ok(format!(
+      "yes:Here:{here_signal}:{here_band}:WPA2\nno:Other:{other_signal}:{other_band}:WPA2"
+    ))
+  }
 
-    fn moving(said: &str, link: Receiving, left: &Left) -> Result<Option<(String, Why)>, Never> {
-        let Ok(found) = networks(said);
-        let saved = ["Here".to_string(), "Other".to_string()];
-        let Ok(better) = better(&found, &saved, link, left);
+  fn moving(said: &str, link: Receiving, left: &Left) -> Result<Option<(String, Why)>, Never> {
+    let Ok(found) = networks(said);
+    let saved = ["Here".to_string(), "Other".to_string()];
+    let Ok(better) = better(&found, &saved, link, left);
 
-        Ok(better.map(|chosen| (chosen.to.name, chosen.why)))
-    }
+    Ok(better.map(|chosen| (chosen.to.name, chosen.why)))
+  }
 
-    fn fresh(heard: &Received, link: Receiving) -> Result<Option<(String, Why)>, Never> {
-        let Ok(said) = range(heard);
+  fn fresh(heard: &Received, link: Receiving) -> Result<Option<(String, Why)>, Never> {
+    let Ok(said) = range(heard);
 
-        moving(&said, link, &Left::new())
-    }
+    moving(&said, link, &Left::new())
+  }
 
-    fn other(why: Why) -> Result<Option<(String, Why)>, Never> {
-        Ok(Some(("Other".to_string(), why)))
-    }
+  fn other(why: Why) -> Result<Option<(String, Why)>, Never> {
+    Ok(Some(("Other".to_string(), why)))
+  }
 
-    #[test]
-    fn a_weak_network_is_left_for_a_saved_one_clearly_stronger() {
-        assert_eq!(fresh(&Received { here: (TWO, 30), other: (FIVE, 64) }, Receiving::Faster), other(Why::Weak));
-    }
+  #[test]
+  fn a_weak_network_is_left_for_a_saved_one_clearly_stronger() {
+    assert_eq!(
+      fresh(
+        &Received {
+          here: (TWO, 30),
+          other: (FIVE, 64)
+        },
+        Receiving::Faster
+      ),
+      other(Why::Weak)
+    );
+  }
 
-    #[test]
-    fn two_networks_about_as_strong_on_one_band_are_not_swapped() {
-        assert_eq!(fresh(&Received { here: (TWO, 49), other: (TWO, 60) }, Receiving::Faster), Ok(None));
-    }
+  #[test]
+  fn two_networks_about_as_strong_on_one_band_are_not_swapped() {
+    assert_eq!(
+      fresh(
+        &Received {
+          here: (TWO, 49),
+          other: (TWO, 60)
+        },
+        Receiving::Faster
+      ),
+      Ok(None)
+    );
+  }
 
-    #[test]
-    fn a_weak_five_gigahertz_network_is_left_for_a_two_and_a_half_one_as_strong() {
-        assert_eq!(fresh(&Received { here: (FIVE, 50), other: (TWO, 50) }, Receiving::Unknown), other(Why::Weak));
-    }
+  #[test]
+  fn a_weak_five_gigahertz_network_is_left_for_a_two_and_a_half_one_as_strong() {
+    assert_eq!(
+      fresh(
+        &Received {
+          here: (FIVE, 50),
+          other: (TWO, 50)
+        },
+        Receiving::Unknown
+      ),
+      other(Why::Weak)
+    );
+  }
 
-    #[test]
-    fn a_link_at_its_slowest_is_left_however_strong_it_reads() {
-        assert_eq!(fresh(&Received { here: (FIVE, 80), other: (TWO, 64) }, Receiving::Slowest), other(Why::Slow));
-    }
+  #[test]
+  fn a_link_at_its_slowest_is_left_however_strong_it_reads() {
+    assert_eq!(
+      fresh(
+        &Received {
+          here: (FIVE, 80),
+          other: (TWO, 64)
+        },
+        Receiving::Slowest
+      ),
+      other(Why::Slow)
+    );
+  }
 
-    #[test]
-    fn a_link_at_its_slowest_is_not_left_for_a_weak_one() {
-        assert_eq!(fresh(&Received { here: (FIVE, 80), other: (TWO, 40) }, Receiving::Slowest), Ok(None));
-    }
+  #[test]
+  fn a_link_at_its_slowest_is_not_left_for_a_weak_one() {
+    assert_eq!(
+      fresh(
+        &Received {
+          here: (FIVE, 80),
+          other: (TWO, 40)
+        },
+        Receiving::Slowest
+      ),
+      Ok(None)
+    );
+  }
 
-    #[test]
-    fn a_strong_fast_network_is_kept_however_strong_the_other_is() {
-        assert_eq!(fresh(&Received { here: (FIVE, 70), other: (TWO, 100) }, Receiving::Faster), Ok(None));
-    }
+  #[test]
+  fn a_strong_fast_network_is_kept_however_strong_the_other_is() {
+    assert_eq!(
+      fresh(
+        &Received {
+          here: (FIVE, 70),
+          other: (TWO, 100)
+        },
+        Receiving::Faster
+      ),
+      Ok(None)
+    );
+  }
 
-    #[test]
-    fn near_the_router_a_strong_five_gigahertz_network_is_joined() {
-        assert_eq!(fresh(&Received { here: (TWO, 90), other: (FIVE, 80) }, Receiving::Faster), other(Why::Near));
-        assert_eq!(fresh(&Received { here: (TWO, 90), other: (FIVE, 70) }, Receiving::Faster), Ok(None));
-    }
+  #[test]
+  fn near_the_router_a_strong_five_gigahertz_network_is_joined() {
+    assert_eq!(
+      fresh(
+        &Received {
+          here: (TWO, 90),
+          other: (FIVE, 80)
+        },
+        Receiving::Faster
+      ),
+      other(Why::Near)
+    );
+    assert_eq!(
+      fresh(
+        &Received {
+          here: (TWO, 90),
+          other: (FIVE, 70)
+        },
+        Receiving::Faster
+      ),
+      Ok(None)
+    );
+  }
 
-    #[test]
-    fn a_network_left_for_being_slow_is_gone_back_to_only_once_it_is_heard_closer() {
-        let left = Left::from([("Other".to_string(), 80)]);
+  #[test]
+  fn a_network_left_for_being_slow_is_gone_back_to_only_once_it_is_heard_closer() {
+    let left = Left::from([("Other".to_string(), 80)]);
 
-        let Ok(farther) = range(&Received { here: (TWO, 90), other: (FIVE, 85) });
-        let Ok(closer) = range(&Received { here: (TWO, 90), other: (FIVE, 90) });
+    let Ok(farther) = range(&Received {
+      here: (TWO, 90),
+      other: (FIVE, 85),
+    });
+    let Ok(closer) = range(&Received {
+      here: (TWO, 90),
+      other: (FIVE, 90),
+    });
 
-        assert_eq!(moving(&farther, Receiving::Faster, &left), Ok(None));
-        assert_eq!(moving(&closer, Receiving::Faster, &left), other(Why::Near));
-    }
+    assert_eq!(moving(&farther, Receiving::Faster, &left), Ok(None));
+    assert_eq!(moving(&closer, Receiving::Faster, &left), other(Why::Near));
+  }
 
-    #[test]
-    fn a_stronger_network_nobody_saved_is_not_joined() {
-        assert_eq!(moving("yes:Here:30:2437 MHz:WPA2\nno:Cafe:90:2437 MHz:", Receiving::Faster, &Left::new()), Ok(None));
-    }
+  #[test]
+  fn a_stronger_network_nobody_saved_is_not_joined() {
+    assert_eq!(
+      moving(
+        "yes:Here:30:2437 MHz:WPA2\nno:Cafe:90:2437 MHz:",
+        Receiving::Faster,
+        &Left::new()
+      ),
+      Ok(None)
+    );
+  }
 
-    #[test]
-    fn a_machine_on_no_network_is_left_to_networkmanager() {
-        assert_eq!(moving("no:Here:30:2437 MHz:WPA2\nno:Other:90:2437 MHz:WPA2", Receiving::Slowest, &Left::new()), Ok(None));
-    }
+  #[test]
+  fn a_machine_on_no_network_is_left_to_networkmanager() {
+    assert_eq!(
+      moving(
+        "no:Here:30:2437 MHz:WPA2\nno:Other:90:2437 MHz:WPA2",
+        Receiving::Slowest,
+        &Left::new()
+      ),
+      Ok(None)
+    );
+  }
 
-    #[test]
-    fn the_driver_says_how_fast_a_frame_comes_in() {
-        let link = |rate: &str| receiving(&format!("Connected to 68:02:b8:d0:19:fe (on wlan0)\n\tsignal: -71 dBm\n\trx bitrate: {rate}\n"));
+  #[test]
+  fn the_driver_says_how_fast_a_frame_comes_in() {
+    let link = |rate: &str| {
+      receiving(&format!(
+        "Connected to 68:02:b8:d0:19:fe (on wlan0)\n\tsignal: -71 dBm\n\trx bitrate: {rate}\n"
+      ))
+    };
 
-        assert_eq!(link("72.2 MBit/s MCS 7 short GI"), Ok(Receiving::Faster));
-        assert_eq!(link("6.5 MBit/s MCS 0"), Ok(Receiving::Slowest));
-        assert_eq!(link("58.5 MBit/s VHT-MCS 1 80MHz VHT-NSS 1"), Ok(Receiving::Slowest));
-        assert_eq!(link("286.7 MBit/s HE-MCS 11 HE-NSS 2"), Ok(Receiving::Faster));
-        assert_eq!(link("6.0 MBit/s"), Ok(Receiving::Unknown));
-        assert_eq!(receiving("Not connected.\n"), Ok(Receiving::Unknown));
-    }
+    assert_eq!(link("72.2 MBit/s MCS 7 short GI"), Ok(Receiving::Faster));
+    assert_eq!(link("6.5 MBit/s MCS 0"), Ok(Receiving::Slowest));
+    assert_eq!(
+      link("58.5 MBit/s VHT-MCS 1 80MHz VHT-NSS 1"),
+      Ok(Receiving::Slowest)
+    );
+    assert_eq!(
+      link("286.7 MBit/s HE-MCS 11 HE-NSS 2"),
+      Ok(Receiving::Faster)
+    );
+    assert_eq!(link("6.0 MBit/s"), Ok(Receiving::Unknown));
+    assert_eq!(receiving("Not connected.\n"), Ok(Receiving::Unknown));
+  }
 
-    #[test]
-    fn joining_says_whether_it_connected_and_why_not() {
-        let refused = Exit::Failure {
-            said: "Error: Connection activation failed: Secrets were required, but not provided.".to_string(),
-        };
-        let gone = Exit::Failure { said: "Error: No network with SSID 'Home' found.".to_string() };
+  fn answered(status: ExitStatus, complained: &str) -> Result<Answer, Never> {
+    let Ok(command) = joining("Home", Known::No);
 
-        assert_eq!(
-            joined("Home", &Exit::Success),
-            Ok(Notice { summary: "Connected to Home".to_string(), body: String::new() })
-        );
-        assert_eq!(
-            joined("Home", &refused),
-            Ok(Notice { summary: "Couldn't connect to Home".to_string(), body: "The password was not accepted.".to_string() })
-        );
-        assert_eq!(
-            joined("Home", &gone),
-            Ok(Notice { summary: "Couldn't connect to Home".to_string(), body: "No network with SSID 'Home' found.".to_string() })
-        );
-    }
+    Ok(Answer {
+      job: None,
+      command,
+      output: String::new(),
+      error_output: complained.to_string(),
+      status,
+    })
+  }
 
-    #[test]
-    fn the_wifi_device_is_the_one_nmcli_calls_wifi() {
-        assert_eq!(wireless("wlan0:wifi\ntailscale0:tun\np2p-dev-wlan0:wifi-p2p\n"), Ok(Some("wlan0".to_string())));
-        assert_eq!(wireless("lo:loopback\n"), Ok(None));
-    }
+  fn couldnt(body: &str) -> Result<Notification, Never> {
+    Ok(Notification {
+      summary: "Couldn't connect to Home".to_string(),
+      body: Some(body.to_string()),
+    })
+  }
 
-    #[test]
-    fn the_strongest_is_first() {
-        let Ok(found) = networks(SAID);
+  #[test]
+  fn joining_says_whether_it_connected_and_why_not() {
+    let Ok(connected) = answered(ExitStatus::Success, "");
+    let Ok(refused) = answered(
+      ExitStatus::Failure(Some(4)),
+      "Error: Connection activation failed: Secrets were required, but not provided.\n",
+    );
+    let Ok(gone) = answered(
+      ExitStatus::Failure(Some(10)),
+      "Error: No network with SSID 'Home' found.\n",
+    );
+    let Ok(said_nothing) = answered(ExitStatus::Failure(None), "");
 
-        assert_eq!(found.first().map(|network| network.name.as_str()), Some("Cafe"));
-    }
+    assert_eq!(
+      joined("Home", &connected),
+      Ok(Notification {
+        summary: "Connected to Home".to_string(),
+        body: None
+      })
+    );
+    assert_eq!(
+      joined("Home", &refused),
+      couldnt("The password was not accepted.")
+    );
+    assert_eq!(
+      joined("Home", &gone),
+      couldnt("No network with SSID 'Home' found.")
+    );
+    assert_eq!(
+      joined("Home", &said_nothing),
+      Ok(Notification {
+        summary: "Couldn't connect to Home".to_string(),
+        body: None
+      }),
+      "a failure nmcli gave no reason for still says it failed, and no empty reason"
+    );
+  }
 
-    #[test]
-    fn a_network_with_no_name_is_not_a_row() {
-        let Ok(found) = networks(SAID);
+  #[test]
+  fn a_join_that_was_stopped_says_so_and_not_what_nmcli_complained_on_the_way_out() {
+    let Ok(stopped) = answered(
+      ExitStatus::Interrupt,
+      "Error: nmcli terminated by signal Terminated (15)\n",
+    );
 
-        assert!(!found.iter().any(|network| network.name.is_empty()));
-    }
+    assert_eq!(
+      joined("Home", &stopped),
+      Ok(Notification {
+        summary: "Stopped connecting to Home".to_string(),
+        body: None
+      }),
+      "a join somebody stopped was said as a network that refused"
+    );
+  }
 
-    #[test]
-    fn a_network_is_locked_if_it_says_anything_at_all_about_security() -> Result<(), Failure> {
-        let Ok(found) = networks(SAID);
-        let cafe = network(&found, "Cafe")?;
-        let locked = network(&found, "Locked")?;
+  #[test]
+  fn a_saved_network_is_brought_up_by_name_and_a_new_one_is_connected_to() {
+    let Ok(saved) = joining("Home", Known::Yes);
+    let Ok(new) = joining("Home", Known::No);
+    let Ok(locked) = joining_with("Home", Password("hunter2"));
 
-        assert!(!cafe.locked);
-        assert!(locked.locked);
+    assert_eq!(saved.arguments, ["connection", "up", "id", "Home"]);
+    assert_eq!(new.arguments, ["device", "wifi", "connect", "Home"]);
+    assert_eq!(
+      locked.arguments,
+      ["device", "wifi", "connect", "Home", "password", "hunter2"]
+    );
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn the_wifi_device_is_the_one_nmcli_calls_wifi() {
+    assert_eq!(
+      wireless("wlan0:wifi\ntailscale0:tun\np2p-dev-wlan0:wifi-p2p\n"),
+      Ok(Some("wlan0".to_string()))
+    );
+    assert_eq!(wireless("lo:loopback\n"), Ok(None));
+  }
 
-    #[test]
-    fn the_ones_we_already_know_the_way_into() {
-        let said = "Home:802-11-wireless\nWired:802-3-ethernet\nCafe:802-11-wireless";
+  #[test]
+  fn the_strongest_is_first() {
+    let Ok(found) = networks(SAID);
 
-        assert_eq!(saved(said), Ok(vec!["Home".to_string(), "Cafe".to_string()]));
-    }
+    assert_eq!(
+      found.first().map(|network| network.name.as_str()),
+      Some("Cafe")
+    );
+  }
 
-    #[test]
-    fn the_radio_is_off_unless_it_says_it_is_on() {
-        assert_eq!(on("enabled\n"), Ok(Radio::On));
-        assert_eq!(on("disabled"), Ok(Radio::Off));
-        assert_eq!(on(""), Ok(Radio::Off));
-    }
+  #[test]
+  fn a_network_with_no_name_is_not_a_row() {
+    let Ok(found) = networks(SAID);
 
-    #[test]
-    fn a_password_is_kept_whole_and_only_the_line_ending_goes() {
-        assert_eq!(password("  two words; and: a colon \n"), Ok(Some("  two words; and: a colon ".to_string())));
-        assert_eq!(password("\n"), Ok(None));
-        assert_eq!(password(""), Ok(None));
-    }
+    assert!(!found.iter().any(|network| network.name.is_empty()));
+  }
+
+  #[test]
+  fn a_network_is_locked_if_it_says_anything_at_all_about_security() -> Result<(), Failure> {
+    let Ok(found) = networks(SAID);
+    let cafe = network(&found, "Cafe")?;
+    let locked = network(&found, "Locked")?;
+
+    assert!(!cafe.locked);
+    assert!(locked.locked);
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_ones_we_already_know_the_way_into() {
+    let said = "Home:802-11-wireless\nWired:802-3-ethernet\nCafe:802-11-wireless";
+
+    assert_eq!(
+      saved(said),
+      Ok(vec!["Home".to_string(), "Cafe".to_string()])
+    );
+  }
+
+  #[test]
+  fn the_radio_is_off_unless_it_says_it_is_on() {
+    assert_eq!(on("enabled\n"), Ok(Radio::On));
+    assert_eq!(on("disabled"), Ok(Radio::Off));
+    assert_eq!(on(""), Ok(Radio::Off));
+  }
+
+  #[test]
+  fn a_password_is_kept_whole_and_only_the_line_ending_goes() {
+    assert_eq!(
+      password("  two words; and: a colon \n"),
+      Ok(Some("  two words; and: a colon ".to_string()))
+    );
+    assert_eq!(password("\n"), Ok(None));
+    assert_eq!(password(""), Ok(None));
+  }
 }

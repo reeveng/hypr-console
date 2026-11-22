@@ -20,11 +20,11 @@ pub const EXEC_START: Key<'static> = Key("ExecStart");
 pub const TIMER_UNIT: Key<'static> = Key("Unit");
 
 pub const ORDERINGS: [(Key<'static>, &str); 5] = [
-    (Key("PartOf"), "part of"),
-    (Key("BindsTo"), "bound to"),
-    (Key("Requires"), "requires"),
-    (Key("Wants"), "wants"),
-    (Key("After"), "after"),
+  (Key("PartOf"), "part of"),
+  (Key("BindsTo"), "bound to"),
+  (Key("Requires"), "requires"),
+  (Key("Wants"), "wants"),
+  (Key("After"), "after"),
 ];
 
 pub const APPLICATION: &str = "/usr/local/bin/";
@@ -35,53 +35,53 @@ pub const SERVICE_SUFFIX: &str = ".service";
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Unit {
-    pub name: String,
-    pub text: String,
+  pub name: String,
+  pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Started {
-    InternalProgram(String),
-    ExternalProgram(String),
+  InternalProgram(String),
+  ExternalProgram(String),
 }
 
 impl Unit {
-    pub fn exec_start(&self) -> Result<Option<Started>, Never> {
-        let Ok(said) = field(&self.text, SERVICE, EXEC_START);
-        let first = said
-            .and_then(|command| command.split_whitespace().next())
-            .map(|word| word.trim_start_matches(['-', '@', ':', '+', '!']));
+  pub fn exec_start(&self) -> Result<Option<Started>, Never> {
+    let Ok(said) = field(&self.text, SERVICE, EXEC_START);
+    let first = said
+      .and_then(|command| command.split_whitespace().next())
+      .map(|word| word.trim_start_matches(['-', '@', ':', '+', '!']));
 
-        Ok(first.map(|path| match path.strip_prefix(APPLICATION) {
-            Some(ours) => Started::InternalProgram(String::from(ours)),
-            None => Started::ExternalProgram(match path.rsplit_once('/') {
-                Some((_, name)) => String::from(name),
-                None => String::from(path),
-            }),
-        }))
+    Ok(first.map(|path| match path.strip_prefix(APPLICATION) {
+      Some(ours) => Started::InternalProgram(String::from(ours)),
+      None => Started::ExternalProgram(match path.rsplit_once('/') {
+        Some((_, name)) => String::from(name),
+        None => String::from(path),
+      }),
+    }))
+  }
+
+  pub fn orderings(&self) -> Result<Vec<(String, &'static str)>, Never> {
+    let mut found = Vec::new();
+
+    for (key, said) in ORDERINGS {
+      let Ok(named) = field(&self.text, UNIT, key);
+
+      for other in named.into_iter().flat_map(str::split_whitespace) {
+        found.push((String::from(other), said));
+      }
     }
 
-    pub fn orderings(&self) -> Result<Vec<(String, &'static str)>, Never> {
-        let mut found = Vec::new();
+    Ok(found)
+  }
 
-        for (key, said) in ORDERINGS {
-            let Ok(named) = field(&self.text, UNIT, key);
+  pub fn triggers(&self) -> Result<Option<String>, Never> {
+    let Ok(named) = field(&self.text, TIMER, TIMER_UNIT);
 
-            for other in named.into_iter().flat_map(str::split_whitespace) {
-                found.push((String::from(other), said));
-            }
-        }
-
-        Ok(found)
-    }
-
-    pub fn triggers(&self) -> Result<Option<String>, Never> {
-        let Ok(named) = field(&self.text, TIMER, TIMER_UNIT);
-
-        Ok(match (named, self.name.strip_suffix(TIMER_SUFFIX)) {
-            (Some(named), Some(_)) => Some(String::from(named)),
-            (None, Some(stem)) => Some(format!("{stem}{SERVICE_SUFFIX}")),
-            (Some(_) | None, None) => None,
-        })
-    }
+    Ok(match (named, self.name.strip_suffix(TIMER_SUFFIX)) {
+      (Some(named_2), Some(_)) => Some(String::from(named_2)),
+      (None, Some(stem)) => Some(format!("{stem}{SERVICE_SUFFIX}")),
+      (Some(_) | None, None) => None,
+    })
+  }
 }

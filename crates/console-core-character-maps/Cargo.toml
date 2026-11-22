@@ -1,0 +1,26 @@
+[package]
+name = "console-core-character-maps"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = ["embed-cmaps"]
+embed-cmaps = []
+
+[lib]
+name = "console_core_character_maps"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-deflate.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-postscript-tokens = { path = "../console-core-postscript-tokens" }
+
+[dev-dependencies]
+console-core-checksums.workspace = true
+
+[lints]
+workspace = true

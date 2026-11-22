@@ -15,316 +15,332 @@ use std::io::BufRead;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use console_core_arguments::{
+  Command, Flag, Operands, Subcommand, Takes, ValidationError, read_with,
+};
+use console_core_never::Never;
+use console_core_words::Words;
+use console_input_gamepad::GamepadError;
 use console_input_gamepad::capture::load_capture;
 use console_input_gamepad::devices::Devices;
 use console_input_gamepad::go::LegionGo;
-use console_waiting::clock::LiveClock;
 use console_input_gamepad::profile::Profile;
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::script::{self, VERBS};
-use console_input_gamepad::GamepadError;
 use console_input_gamepad::uinput::Uinput;
-use console_core_arguments::{Command, Flag, Operands, Subcommand, Takes, ValidationError, read_with};
-use console_core_never::Never;
-use console_core_words::Words;
+use console_waiting::clock::LiveClock;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Action {
-    Interactive,
-    ButtonPress(Vec<String>),
-    Run(PathBuf),
-    Describe(Vec<String>),
-    Devices,
+  Interactive,
+  ButtonPress(Vec<String>),
+  Run(PathBuf),
+  Describe(Vec<String>),
+  Devices,
 }
 
 struct Arguments {
-    effect: Action,
-    profile: String,
-    root: Option<PathBuf>,
+  effect: Action,
+  profile: String,
+  root: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
-    let words: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, asked, run);
+  let words: Vec<String> = std::env::args().skip(1).collect();
+  let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, asked, run);
 
-    code
+  code
 }
 
 #[derive(Debug)]
 enum Unemulated {
-    Rootless(console_repository::NotFound),
-    Read(PathBuf, std::io::Error),
-    NoDevices(GamepadError),
-    NoUinput(GamepadError),
-    Pressing(GamepadError),
+  Rootless(console_repository::NotFound),
+  Read(PathBuf, std::io::Error),
+  NoDevices(GamepadError),
+  NoUinput(GamepadError),
+  Pressing(GamepadError),
 }
 
 impl std::fmt::Display for Unemulated {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unemulated::Rootless(fault) => write!(to, "{fault}"),
-            Unemulated::Read(at, fault) => {
-                write!(to, "{} could not be read: {fault}", at.display())
-            }
-            Unemulated::NoDevices(fault) => write!(to, "{fault}"),
-            Unemulated::NoUinput(fault) => write!(
-                to,
-                "{fault}. Tests that need no devices at all are \
-                 `just test`; see docs/emulator.md for the one rule that grants this."
-            ),
-            Unemulated::Pressing(fault) => write!(to, "{fault}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unemulated::Rootless(fault) => write!(to, "{fault}"),
+      Unemulated::Read(at, fault) => {
+        write!(to, "{} could not be read: {fault}", at.display())
+      }
+      Unemulated::NoDevices(fault) => write!(to, "{fault}"),
+      Unemulated::NoUinput(fault) => write!(
+        to,
+        "{fault}. Tests that need no devices at all are \
+                 `just test`; see the emulator.md note in Orbit for the one rule \
+                 that grants this."
+      ),
+      Unemulated::Pressing(fault) => write!(to, "{fault}"),
     }
+  }
 }
 
 impl std::error::Error for Unemulated {}
 
 impl From<console_repository::NotFound> for Unemulated {
-    fn from(fault: console_repository::NotFound) -> Self {
-        Unemulated::Rootless(fault)
-    }
+  fn from(fault: console_repository::NotFound) -> Self {
+    Unemulated::Rootless(fault)
+  }
 }
 
 impl From<GamepadError> for Unemulated {
-    fn from(fault: GamepadError) -> Self {
-        Unemulated::Pressing(fault)
-    }
+  fn from(fault: GamepadError) -> Self {
+    Unemulated::Pressing(fault)
+  }
 }
 
 fn run(asked: Arguments) -> Result<ExitCode, Unemulated> {
-    let root = match &asked.root {
-        Some(root) => root.clone(),
-        None => console_repository::root()?,
-    };
+  let root = match &asked.root {
+    Some(root) => root.clone(),
+    None => console_repository::root()?,
+  };
 
-    match &asked.effect {
-        Action::Describe(buttons) => {
-            let profiles = every_profile(&root)?;
+  match &asked.effect {
+    Action::Describe(buttons) => {
+      let profiles = every_profile(&root)?;
 
-            let Ok(()) = what(buttons, &profiles);
+      let Ok(()) = what(buttons, &profiles);
 
-            return Ok(ExitCode::SUCCESS);
-        }
-        Action::Devices => {
-            let Ok(()) = devices();
-
-            return Ok(ExitCode::SUCCESS);
-        }
-        Action::Interactive | Action::ButtonPress(_) | Action::Run(_) => (),
+      return Ok(ExitCode::SUCCESS);
     }
+    Action::Devices => {
+      let Ok(()) = devices();
 
-    let descriptors = load_capture().map_err(Unemulated::NoDevices)?;
-    let sink = Uinput::of(&descriptors).map_err(Unemulated::NoUinput)?;
-    let profiles = every_profile(&root)?;
-    let Ok(devices) = Devices::new(descriptors, sink);
-
-    let Ok(clock) = LiveClock::started();
-    let mut go = LegionGo::new(profiles, devices, clock, &asked.profile)?;
-
-    match &asked.effect {
-        Action::ButtonPress(buttons) => {
-            for button in buttons {
-                go.press(button)?;
-            }
-        }
-        Action::Run(scenario) => {
-            let text = std::fs::read_to_string(scenario)
-                .map_err(|fault| Unemulated::Read(scenario.clone(), fault))?;
-            script::play(&mut go, &text)?;
-        }
-        Action::Interactive | Action::Describe(_) | Action::Devices => {
-            let Ok(()) = interactive(&mut go);
-        }
+      return Ok(ExitCode::SUCCESS);
     }
+    Action::Interactive | Action::ButtonPress(_) | Action::Run(_) => (),
+  }
 
-    let Ok(()) = go.close();
+  let descriptors = load_capture().map_err(Unemulated::NoDevices)?;
+  let sink = Uinput::of(&descriptors).map_err(Unemulated::NoUinput)?;
+  let profiles = every_profile(&root)?;
+  let Ok(devices) = Devices::new(descriptors, sink);
 
-    Ok(ExitCode::SUCCESS)
+  let Ok(clock) = LiveClock::started();
+  let mut go = LegionGo::new(profiles, devices, clock, &asked.profile)?;
+
+  match &asked.effect {
+    Action::ButtonPress(buttons) => {
+      for button in buttons {
+        go.press(button)?;
+      }
+    }
+    Action::Run(scenario) => {
+      let text = std::fs::read_to_string(scenario)
+        .map_err(|fault| Unemulated::Read(scenario.clone(), fault))?;
+      script::play(&mut go, &text)?;
+    }
+    Action::Interactive | Action::Describe(_) | Action::Devices => {
+      let Ok(()) = interactive(&mut go);
+    }
+  }
+
+  let Ok(()) = go.close();
+
+  Ok(ExitCode::SUCCESS)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 enum Verb {
-    #[words(word = "press", about = "press those buttons and stop")]
-    Press,
-    #[words(word = "run", about = "play a file of the same commands")]
-    Run,
-    #[words(word = "what", about = "what those buttons do, in every profile")]
-    Describe,
-    #[words(word = "devices", about = "what the emulator publishes")]
-    Devices,
+  #[words(word = "press", about = "press those buttons and stop")]
+  Press,
+  #[words(word = "run", about = "play a file of the same commands")]
+  Run,
+  #[words(word = "what", about = "what those buttons do, in every profile")]
+  Describe,
+  #[words(word = "devices", about = "what the emulator publishes")]
+  Devices,
 }
 
 impl Subcommand for Verb {
-    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
-        Ok(Verb::VARIANTS.iter().copied())
-    }
+  fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+    Ok(Verb::VARIANTS.iter().copied())
+  }
 
-    fn spelling(self) -> Result<&'static str, Never> {
-        self.word()
-    }
+  fn spelling(self) -> Result<&'static str, Never> {
+    self.word()
+  }
 
-    fn about(self) -> Result<&'static str, Never> {
-        Verb::about(self)
-    }
+  fn about(self) -> Result<&'static str, Never> {
+    Verb::about(self)
+  }
 }
 
-const PROFILE: Flag = Flag { spelling: "--profile", takes: Takes::Value("NAME"), about: "which profile the presses go through" };
+const PROFILE: Flag = Flag {
+  spelling: "--profile",
+  takes: Takes::Value("NAME"),
+  about: "which profile the presses go through",
+};
 
-const ROOT: Flag = Flag { spelling: "--root", takes: Takes::Value("PATH"), about: "the checkout the profiles are read from" };
+const ROOT: Flag = Flag {
+  spelling: "--root",
+  takes: Takes::Value("PATH"),
+  about: "the checkout the profiles are read from",
+};
 
 const COMMAND: Command = Command {
-    name: "console-emulate",
-    about: "make the devices of a Legion Go and take commands, or do one thing with them and stop",
-    flags: &[PROFILE, ROOT],
-    operands: Operands::Any("BUTTON"),
+  name: "console-emulate",
+  about: "make the devices of a Legion Go and take commands, or do one thing with them and stop",
+  flags: &[PROFILE, ROOT],
+  operands: Operands::Any("BUTTON"),
 };
 
 fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
-    let line = read_with::<Verb, String>(&COMMAND, words)?;
-    let Ok(verb) = line.subcommand();
-    let Ok(operands) = line.operands();
-    let Ok(profile) = line.value(PROFILE);
-    let Ok(root) = line.value(ROOT);
+  let line = read_with::<Verb, String>(&COMMAND, words)?;
+  let Ok(verb) = line.subcommand();
+  let Ok(operands) = line.operands();
+  let Ok(profile) = line.value(PROFILE);
+  let Ok(root) = line.value(ROOT);
 
-    let effect = match verb {
-        None => Action::Interactive,
-        Some(Verb::Press) => Action::ButtonPress(operands.to_vec()),
-        Some(Verb::Describe) => Action::Describe(operands.to_vec()),
-        Some(Verb::Devices) => {
-            let [] = line.exactly([])?;
+  let effect = match verb {
+    None => Action::Interactive,
+    Some(Verb::Press) => Action::ButtonPress(operands.to_vec()),
+    Some(Verb::Describe) => Action::Describe(operands.to_vec()),
+    Some(Verb::Devices) => {
+      let [] = line.exactly([])?;
 
-            Action::Devices
-        }
-        Some(Verb::Run) => {
-            let [scenario] = line.exactly(["SCENARIO"])?;
+      Action::Devices
+    }
+    Some(Verb::Run) => {
+      let [scenario] = line.exactly(["SCENARIO"])?;
 
-            Action::Run(PathBuf::from(scenario))
-        }
-    };
+      Action::Run(PathBuf::from(scenario))
+    }
+  };
 
-    let profile = match profile {
-        Some(named) => named,
-        None => console_input_gamepad::router::NAME,
-    };
+  let profile_2 = match profile {
+    Some(named) => named,
+    None => console_input_gamepad::router::NAME,
+  };
 
-    Ok(Arguments { effect, profile: profile.to_string(), root: root.map(PathBuf::from) })
+  Ok(Arguments {
+    effect,
+    profile: profile_2.to_string(),
+    root: root.map(PathBuf::from),
+  })
 }
 
 fn interactive<S: console_input_gamepad::devices::Sink>(
-    go: &mut LegionGo<S, LiveClock>,
+  go: &mut LegionGo<S, LiveClock>,
 ) -> Result<(), Never> {
-    let paths = go.devices.paths()?;
+  let Ok(devices) = go.devices();
+  let paths = devices.paths()?;
 
-    let where_: Vec<String> =
-        paths.iter().map(|(role, path)| format!("{role} at {path}")).collect();
-    println!("Devices are up. {}", where_.join(", "));
-    println!("One command a line, or 'help'. Control-D stops.");
+  let where_: Vec<String> = paths
+    .iter()
+    .map(|(role, path)| format!("{role} at {path}"))
+    .collect();
+  println!("Devices are up. {}", where_.join(", "));
+  println!("One command a line, or 'help'. Control-D stops.");
 
-    for line in std::io::stdin().lock().lines().map_while(Result::ok) {
-        match line.trim() {
-            "help" | "?" => println!("{VERBS}"),
-            "quit" | "exit" => break,
-            said => {
-                let read = script::Step::read(said);
+  for line in std::io::stdin().lock().lines().map_while(Result::ok) {
+    match line.trim() {
+      "help" | "?" => println!("{VERBS}"),
+      "quit" | "exit" => break,
+      said => {
+        let read = script::Step::read(said);
 
-                let done = match read {
-                    Ok(Some(step)) => step.run(go),
-                    Ok(None) => Ok(()),
-                    Err(fault) => Err(fault),
-                };
+        let done = match read {
+          Ok(Some(step)) => step.run(go),
+          Ok(None) => Ok(()),
+          Err(fault) => Err(fault),
+        };
 
-                match done {
-                    Ok(()) => {},
-                    Err(fault) => eprintln!("{fault}"),
-                }
-            }
+        match done {
+          Ok(()) => {}
+          Err(fault) => eprintln!("{fault}"),
         }
+      }
     }
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn what(
-    buttons: &[String],
-    profiles: &std::collections::BTreeMap<String, Profile>,
+  buttons: &[String],
+  profiles: &std::collections::BTreeMap<String, Profile>,
 ) -> Result<(), Never> {
-    for spoken in buttons {
-        println!("{spoken}");
+  for spoken in buttons {
+    println!("{spoken}");
 
-        'over_profiles: for (name, profile) in profiles {
-            let mappings = match profile.for_button(spoken) {
-                Ok(mappings) => mappings,
-                Err(fault) => {
-                    println!("  {fault}");
-                    break 'over_profiles;
-                }
-            };
+    'over_profiles: for (name, profile) in profiles {
+      let mappings = match profile.for_button(spoken) {
+        Ok(mappings) => mappings,
+        Err(fault) => {
+          println!("  {fault}");
+          break 'over_profiles;
+        }
+      };
 
-            match mappings.is_empty() {
-                true => {
-                    let does = match profile.mappings.is_empty() {
-                        true => "passed through untouched",
-                        false => "nothing",
-                    };
-                    println!("  {name:<9} {does}");
-                    continue 'over_profiles;
-                }
-                false => {},
-            }
+      match ::core::primitive::bool::then_some(mappings.is_empty(), ()) {
+        ::core::option::Option::Some(()) => {
+          let does = match ::core::primitive::bool::then_some(profile.mappings.is_empty(), ()) {
+            ::core::option::Option::Some(()) => "passed through untouched",
+            ::core::option::Option::None => "nothing",
+          };
+          println!("  {name:<9} {does}");
+          continue 'over_profiles;
+        }
+        ::core::option::Option::None => {}
+      }
 
-            for mapping in mappings {
-                let said = mapping.does()?;
+      for mapping in mappings {
+        let said = mapping.does()?;
 
-                let does = match said {
-                    "" => "nothing yet",
-                    said => said,
-                };
+        let does = match said {
+          "" => "nothing yet",
+          said_2 => said_2,
+        };
 
-                let mut reaches = String::new();
+        let mut reaches = String::new();
 
-                for target in &mapping.targets {
-                    let kind = target.kind.said()?;
+        for target in &mapping.targets {
+          let kind = target.kind.said()?;
 
-                    reaches.push_str(&format!("[{kind} {}]", target.name));
-                }
-
-                println!("  {name:<9} {does}  {reaches}");
-            }
+          reaches.push_str(&format!("[{kind} {}]", target.name));
         }
 
-        println!();
+        println!("  {name:<9} {does}  {reaches}");
+      }
     }
 
-    Ok(())
+    println!();
+  }
+
+  Ok(())
 }
 
 fn devices() -> Result<(), Never> {
-    let found = match load_capture() {
-        Ok(found) => found,
-        Err(why) => {
-            println!("console-emulate: {why}");
+  let found = match load_capture() {
+    Ok(found) => found,
+    Err(why) => {
+      println!("console-emulate: {why}");
 
-            return Ok(());
-        }
-    };
-
-    for (role, descriptor) in found {
-        let held = &descriptor.capabilities;
-        let kinds: Vec<String> = [
-            ("EV_ABS", held.absolute.len()),
-            ("EV_FF", held.force_feedback.len()),
-            ("EV_KEY", held.key.len()),
-            ("EV_MSC", held.miscellaneous.len()),
-            ("EV_REL", held.relative.len()),
-        ]
-        .iter()
-        .filter(|(_, many)| *many > 0)
-        .map(|(kind, many)| format!("{kind}×{many}"))
-        .collect();
-        println!("{role:<9} {:<34} {}", descriptor.name, kinds.join(", "));
+      return Ok(());
     }
+  };
 
-    Ok(())
+  for (role, descriptor) in found {
+    let held = &descriptor.capabilities;
+    let kinds: Vec<String> = [
+      ("EV_ABS", held.absolute.len()),
+      ("EV_FF", held.force_feedback.len()),
+      ("EV_KEY", held.key.len()),
+      ("EV_MSC", held.miscellaneous.len()),
+      ("EV_REL", held.relative.len()),
+    ]
+    .iter()
+    .filter(|(_, many)| *many > 0)
+    .map(|(kind, many)| format!("{kind}×{many}"))
+    .collect();
+    println!("{role:<9} {:<34} {}", descriptor.name, kinds.join(", "));
+  }
+
+  Ok(())
 }
-
-

@@ -1,0 +1,98 @@
+warning: `copy_from_slice` answers two lengths that do not agree with a panic
+  --> $DIR/checked_pairs.rs:15:3
+   |
+LL | /   (*{
+LL | |     let checked = <[_]>::get_mut(&mut *dst, ..2).ok_or(Bounds::Destination)?;
+LL | |     checked
+LL | |   })
+LL | |   .copy_from_slice(&*(<[_]>::get(&*src, offset..offset.wrapping_add(2))
+LL | |     .ok_or(Bounds::Source)?));
+   | |_____________________________^
+   |
+   = note: `#[warn(explicit056_no_hidden_panic_api)]` on by default
+help: copy between ranges whose checks establish the same length
+   |
+LL ~   {
+LL +     let checked_copy_destination = <[_]>::first_chunk_mut::<2>(&mut *dst)
+LL +       .ok_or(Bounds::Destination)?;
+LL +     let checked_copy_source = <[_]>::get(&*src, offset..)
+LL +       .and_then(<[_]>::first_chunk::<2>)
+LL +       .ok_or(Bounds::Source)?;
+LL +     *checked_copy_destination = *checked_copy_source;
+LL ~   };
+   |
+
+warning: `copy_from_slice` answers two lengths that do not agree with a panic
+  --> $DIR/checked_pairs.rs:30:3
+   |
+LL | /   (*(<[_]>::get_mut(&mut *dst, ..width).ok_or(Bounds::Destination)?))
+LL | |     .copy_from_slice(&*(<[_]>::get(&*src, offset..offset.wrapping_add(width))
+LL | |     .ok_or(Bounds::Source)?));
+   | |_____________________________^
+   |
+help: copy between ranges whose checks establish the same length
+   |
+LL ~   {
+LL +     let checked_copy_destination = <[_]>::get_mut(&mut *dst, ..width).ok_or(Bounds::Destination)?;
+LL +     let checked_copy_source = <[_]>::get(&*src, offset..offset.wrapping_add(width)).ok_or(Bounds::Source)?;
+LL +     for (destination_element, source_element) in checked_copy_destination
+LL +       .iter_mut()
+LL +       .zip(checked_copy_source.iter())
+LL +     {
+LL +       *destination_element = *source_element;
+LL +     }
+LL ~   };
+   |
+
+warning: `copy_from_slice` answers two lengths that do not agree with a panic
+  --> $DIR/checked_pairs.rs:42:3
+   |
+LL | /   (*(<[_]>::get_mut(&mut *dst, ..width).ok_or(Bounds::Destination)?))
+LL | |     .copy_from_slice(&*(<[_]>::get(&*src, end.wrapping_sub(width)..end)
+LL | |     .ok_or(Bounds::Source)?));
+   | |_____________________________^
+   |
+help: copy between ranges whose checks establish the same length
+   |
+LL ~   {
+LL +     let checked_copy_destination = <[_]>::get_mut(&mut *dst, ..width).ok_or(Bounds::Destination)?;
+LL +     let checked_copy_source = <[_]>::get(&*src, end.wrapping_sub(width)..end).ok_or(Bounds::Source)?;
+LL +     for (destination_element, source_element) in checked_copy_destination
+LL +       .iter_mut()
+LL +       .zip(checked_copy_source.iter())
+LL +     {
+LL +       *destination_element = *source_element;
+LL +     }
+LL ~   };
+   |
+
+warning: `copy_from_slice` answers two lengths that do not agree with a panic
+  --> $DIR/checked_pairs.rs:54:3
+   |
+LL | /   (*(<[_]>::get_mut(&mut *dst, ..width).ok_or(Bounds::Destination)?))
+LL | |     .copy_from_slice(&*(<[_]>::get(
+LL | |       &*src,
+LL | |       offset.wrapping_add(1)..offset.wrapping_add(1).wrapping_add(width),
+LL | |     )
+LL | |     .ok_or(Bounds::Source)?));
+   | |_____________________________^
+   |
+help: copy between ranges whose checks establish the same length
+   |
+LL ~   {
+LL +     let checked_copy_destination = <[_]>::get_mut(&mut *dst, ..width).ok_or(Bounds::Destination)?;
+LL +     let checked_copy_source = <[_]>::get(
+LL +       &*src,
+LL +       offset.wrapping_add(1)..offset.wrapping_add(1).wrapping_add(width),
+LL +     ).ok_or(Bounds::Source)?;
+LL +     for (destination_element, source_element) in checked_copy_destination
+LL +       .iter_mut()
+LL +       .zip(checked_copy_source.iter())
+LL +     {
+LL +       *destination_element = *source_element;
+LL +     }
+LL ~   };
+   |
+
+warning: 4 warnings emitted
+

@@ -1,0 +1,43 @@
+error: this function cannot say it succeeded
+  --> $DIR/private_review.rs:6:27
+   |
+LL |     fn example_table() -> u8 { 8 }
+   |                           ^^
+   |
+   = help: return `Result<T, Never>` so that every call site reads the same whether or not it can fail
+   = note: `#[deny(explicit002_infallible_result)]` on by default
+
+error: this function cannot say it succeeded
+  --> $DIR/private_review.rs:15:20
+   |
+LL |     fn sample() -> u8 { 7 }
+   |                    ^^
+   |
+   = help: return `Result<T, Never>` so that every call site reads the same whether or not it can fail
+
+error: this function cannot say it succeeded
+  --> $DIR/private_review.rs:25:23
+   |
+LL |     pub fn table() -> u8 { 4 }
+   |                       ^^
+   |
+   = help: return `Result<T, Never>` so that every call site reads the same whether or not it can fail
+
+error: this function cannot say it succeeded
+  --> $DIR/private_review.rs:28:32
+   |
+LL |     fn select(choice: bool) -> u8 {
+   |                                ^^
+   |
+   = help: return `Result<T, Never>` so that every call site reads the same whether or not it can fail
+
+error: this function cannot say it succeeded
+  --> $DIR/private_review.rs:39:20
+   |
+LL |     fn sample() -> u8 { 5 }
+   |                    ^^
+   |
+   = help: return `Result<T, Never>` so that every call site reads the same whether or not it can fail
+
+error: aborting due to 5 previous errors
+

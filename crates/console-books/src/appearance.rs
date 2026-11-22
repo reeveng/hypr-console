@@ -29,6 +29,7 @@
 
 use console_core_color::Oklch;
 use console_core_color::palette::Wearing;
+use console_core_finite_numbers::FiniteF64;
 use console_core_fonts::{Font, Weight};
 use console_core_geometry::Size;
 use console_core_never::Never;
@@ -54,105 +55,138 @@ const WHITE: f64 = 0.99;
 
 const BLACK: f64 = 0.12;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Shade {
-    lightness: f64,
-    chroma: f64,
-}
-
-const SHADES: [Shade; 4] = [
-    Shade { lightness: 0.93, chroma: 0.045 },
-    Shade { lightness: 0.80, chroma: 0.100 },
-    Shade { lightness: 0.63, chroma: 0.150 },
-    Shade { lightness: 0.42, chroma: 0.120 },
+const SHADES: [Oklch; 4] = [
+  Oklch {
+    lightness: 0.93,
+    chroma: 0.045,
+    ..Oklch::BLACK
+  },
+  Oklch {
+    lightness: 0.80,
+    chroma: 0.100,
+    ..Oklch::BLACK
+  },
+  Oklch {
+    lightness: 0.63,
+    chroma: 0.150,
+    ..Oklch::BLACK
+  },
+  Oklch {
+    lightness: 0.42,
+    chroma: 0.120,
+    ..Oklch::BLACK
+  },
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the float is the relative magnification of the reader text size"
+  )
+)]
+pub struct TextScale(pub f64);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Paint {
-    Desktop,
-    Chosen(Oklch),
+  Desktop,
+  Chosen(Oklch),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorRole {
-    Background,
-    Text,
+  Background,
+  Text,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Words)]
 pub enum Typeface {
-    #[default]
-    #[words(word = "serif", says = "Serif")]
-    Serif,
-    #[words(word = "sans-serif", says = "Sans Serif")]
-    SansSerif,
-    #[words(word = "monospaced", says = "Monospaced")]
-    Monospaced,
-    #[words(word = "fantasque", says = "Fantasque")]
-    Fantasque,
+  #[default]
+  #[words(word = "serif", says = "Serif")]
+  Serif,
+  #[words(word = "sans-serif", says = "Sans Serif")]
+  SansSerif,
+  #[words(word = "monospaced", says = "Monospaced")]
+  Monospaced,
+  #[words(word = "fantasque", says = "Fantasque")]
+  Fantasque,
 }
 
-pub const TYPEFACES: &[Typeface] = &[Typeface::Serif, Typeface::SansSerif, Typeface::Monospaced, Typeface::Fantasque];
+pub const TYPEFACES: &[Typeface] = &[
+  Typeface::Serif,
+  Typeface::SansSerif,
+  Typeface::Monospaced,
+  Typeface::Fantasque,
+];
 
 impl Typeface {
-    #[must_use]
-    pub fn family(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Typeface::Serif => console_core_fonts::SERIF,
-            Typeface::SansSerif => console_core_fonts::LETTERS,
-            Typeface::Monospaced => console_core_fonts::MONOSPACED,
-            Typeface::Fantasque => console_core_fonts::ICONS,
-        })
-    }
+  #[must_use]
+  pub fn family(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Typeface::Serif => console_core_fonts::SERIF,
+      Typeface::SansSerif => console_core_fonts::LETTERS,
+      Typeface::Monospaced => console_core_fonts::MONOSPACED,
+      Typeface::Fantasque => console_core_fonts::ICONS,
+    })
+  }
 
-    pub fn choose(self) -> Result<(), Never> {
-        let Ok(value) = self.word();
+  pub fn choose(self) -> Result<(), Never> {
+    let Ok(value) = self.word();
 
-        console_defaults::set(console_defaults::Setting { key: TYPEFACE, value })
-    }
+    console_defaults::set(console_defaults::Setting {
+      key: TYPEFACE,
+      value,
+    })
+  }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TextSize(pub u32);
 
 impl Default for TextSize {
-    fn default() -> Self {
-        TextSize(22)
-    }
+  fn default() -> Self {
+    TextSize(22)
+  }
 }
 
 impl TextSize {
-    pub const SMALLEST: TextSize = TextSize(14);
+  pub const SMALLEST: TextSize = TextSize(14);
 
-    pub const LARGEST: TextSize = TextSize(44);
+  pub const LARGEST: TextSize = TextSize(44);
 
-    const STEP: u32 = 2;
+  const STEP: u32 = 2;
 
-    fn within(size: u32) -> Result<TextSize, Never> {
-        Ok(TextSize(size.clamp(TextSize::SMALLEST.0, TextSize::LARGEST.0)))
-    }
+  fn within(size: u32) -> Result<TextSize, Never> {
+    Ok(TextSize(
+      size.clamp(TextSize::SMALLEST.0, TextSize::LARGEST.0),
+    ))
+  }
 
-    pub fn larger(self) -> Result<TextSize, Never> {
-        TextSize::within(self.0.saturating_add(TextSize::STEP))
-    }
+  pub fn larger(self) -> Result<TextSize, Never> {
+    TextSize::within(self.0.saturating_add(TextSize::STEP))
+  }
 
-    pub fn smaller(self) -> Result<TextSize, Never> {
-        TextSize::within(self.0.saturating_sub(TextSize::STEP))
-    }
+  pub fn smaller(self) -> Result<TextSize, Never> {
+    TextSize::within(self.0.saturating_sub(TextSize::STEP))
+  }
 
-    pub fn scaled(self, by: f64) -> Result<TextSize, Never> {
-        let Ok(size) = whole_u32(f64::from(self.0) * by);
+  pub fn scaled(self, by: TextScale) -> Result<TextSize, Never> {
+    let Ok(size) = whole_u32(f64::from(self.0) * by.0);
 
-        TextSize::within(size)
-    }
+    TextSize::within(size)
+  }
 
-    pub fn heading(self) -> Result<u32, Never> {
-        Ok(self.0.saturating_mul(15).saturating_div(11))
-    }
+  pub fn heading(self) -> Result<u32, Never> {
+    Ok(self.0.saturating_mul(15).saturating_div(11))
+  }
 
-    pub fn choose(self) -> Result<(), Never> {
-        console_defaults::set(console_defaults::Setting { key: TEXT_SIZE, value: &self.0.to_string() })
-    }
+  pub fn choose(self) -> Result<(), Never> {
+    console_defaults::set(console_defaults::Setting {
+      key: TEXT_SIZE,
+      value: &self.0.to_string(),
+    })
+  }
 }
 
 pub const READING_WIDE: u32 = 720;
@@ -161,259 +195,346 @@ pub const READING_EDGE: u32 = 48;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Column {
-    pub left: u32,
-    pub width: u32,
+  pub left: u32,
+  pub width: u32,
 }
 
 pub fn column(room: Size<u32>) -> Result<Column, Never> {
-    let wide = room.width.saturating_sub(READING_EDGE.saturating_mul(2)).min(READING_WIDE);
-    let left = room.width.saturating_sub(wide).saturating_div(2);
+  let wide = room
+    .width
+    .saturating_sub(READING_EDGE.saturating_mul(2))
+    .min(READING_WIDE);
+  let left = room.width.saturating_sub(wide).saturating_div(2);
 
-    Ok(Column { left, width: wide })
+  Ok(Column { left, width: wide })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Appearance {
-    pub background: Paint,
-    pub text: Paint,
-    pub typeface: Typeface,
-    pub text_size: TextSize,
+  pub background: Paint,
+  pub text: Paint,
+  pub typeface: Typeface,
+  pub text_size: TextSize,
 }
 
 impl Default for Appearance {
-    fn default() -> Self {
-        Appearance { background: Paint::Desktop, text: Paint::Desktop, typeface: Typeface::Serif, text_size: TextSize::default() }
+  fn default() -> Self {
+    Appearance {
+      background: Paint::Desktop,
+      text: Paint::Desktop,
+      typeface: Typeface::Serif,
+      text_size: TextSize::default(),
     }
+  }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Settings<'a> {
-    pub background: Option<&'a str>,
-    pub text: Option<&'a str>,
-    pub typeface: Option<&'a str>,
-    pub text_size: Option<&'a str>,
+  pub background: Option<&'a str>,
+  pub text: Option<&'a str>,
+  pub typeface: Option<&'a str>,
+  pub text_size: Option<&'a str>,
 }
 
 impl Appearance {
-    #[must_use]
-    pub fn styled(self, style: Style) -> Result<(Font, Weight), Never> {
-        let Ok(family) = self.typeface.family();
-        let Ok((height, weight)) = match style {
-            Style::Body => Ok::<_, Never>((self.text_size.0, Weight::Plain)),
-            Style::Heading => self.text_size.heading().map(|tall| (tall, Weight::Bold)),
-        };
+  #[must_use]
+  pub fn styled(self, style: Style) -> Result<(Font, Weight), Never> {
+    let Ok(family) = self.typeface.family();
+    let Ok((height, weight)) = match style {
+      Style::Body => Ok::<_, Never>((self.text_size.0, Weight::Plain)),
+      Style::Heading => self.text_size.heading().map(|tall| (tall, Weight::Bold)),
+    };
 
-        Ok((Font { family: family.to_string(), height }, weight))
-    }
+    Ok((
+      Font {
+        family: family.to_string(),
+        height,
+      },
+      weight,
+    ))
+  }
 
-    #[must_use]
-    pub fn line_height(self, style: Style) -> Result<u32, Never> {
-        let Ok((font, weight)) = self.styled(style);
-        let Ok(measured) = console_draw_painting::measure_text(Run { said: "Ag", weight, width: 4096 }, &font);
+  #[must_use]
+  pub fn line_height(self, style: Style) -> Result<u32, Never> {
+    let Ok((font, weight)) = self.styled(style);
+    let Ok(measured) = console_draw_painting::measure_text(
+      Run {
+        said: "Ag",
+        weight,
+        width: 4096,
+      },
+      &font,
+    );
 
-        Ok(measured.height.saturating_mul(5).saturating_div(4))
-    }
+    Ok(measured.height.saturating_mul(5).saturating_div(4))
+  }
 
-    #[must_use]
-    pub fn ground(self, wearing: &Wearing) -> Result<Oklch, Never> {
-        Ok(match self.background {
-            Paint::Chosen(ground) => ground,
-            Paint::Desktop => wearing.ground,
-        })
-    }
+  #[must_use]
+  pub fn ground(self, wearing: &Wearing) -> Result<Oklch, Never> {
+    Ok(match self.background {
+      Paint::Chosen(ground) => ground,
+      Paint::Desktop => wearing.ground,
+    })
+  }
 
-    #[must_use]
-    pub fn ink(self, wearing: &Wearing) -> Result<Oklch, Never> {
-        Ok(match self.text {
-            Paint::Chosen(ink) => ink,
-            Paint::Desktop => wearing.text,
-        })
-    }
+  #[must_use]
+  pub fn ink(self, wearing: &Wearing) -> Result<Oklch, Never> {
+    Ok(match self.text {
+      Paint::Chosen(ink) => ink,
+      Paint::Desktop => wearing.text,
+    })
+  }
 
-    #[must_use]
-    pub fn current() -> Result<Appearance, Never> {
-        let background = console_defaults::setting(BACKGROUND)?;
-        let text = console_defaults::setting(TEXT)?;
-        let typeface = console_defaults::setting(TYPEFACE)?;
-        let text_size = console_defaults::setting(TEXT_SIZE)?;
+  #[must_use]
+  pub fn current() -> Result<Appearance, Never> {
+    let background = console_defaults::setting(BACKGROUND)?;
+    let text = console_defaults::setting(TEXT)?;
+    let typeface = console_defaults::setting(TYPEFACE)?;
+    let text_size = console_defaults::setting(TEXT_SIZE)?;
 
-        Appearance::read(Settings {
-            background: background.as_deref(),
-            text: text.as_deref(),
-            typeface: typeface.as_deref(),
-            text_size: text_size.as_deref(),
-        })
-    }
+    Appearance::read(Settings {
+      background: background.as_deref(),
+      text: text.as_deref(),
+      typeface: typeface.as_deref(),
+      text_size: text_size.as_deref(),
+    })
+  }
 
-    #[must_use]
-    pub fn read(said: Settings<'_>) -> Result<Appearance, Never> {
-        let Ok(background) = paint(said.background);
-        let Ok(text) = paint(said.text);
-        let typeface = TYPEFACES.iter().copied().find(|typeface| said.typeface.map(Ok) == Some(typeface.word()));
-        let Ok(text_size) = match said.text_size.map(str::parse::<u32>) {
-            Some(Ok(size)) => TextSize::within(size),
-            Some(Err(_not_a_size)) => Ok(TextSize::default()),
-            None => Ok(TextSize::default()),
-        };
+  #[must_use]
+  pub fn read(said: Settings<'_>) -> Result<Appearance, Never> {
+    let Ok(background) = paint(said.background);
+    let Ok(text) = paint(said.text);
+    let typeface = TYPEFACES
+      .iter()
+      .copied()
+      .find(|typeface| said.typeface.map(Ok) == Some(typeface.word()));
+    let Ok(text_size) = match said.text_size.map(str::parse::<u32>) {
+      Some(Ok(size)) => TextSize::within(size),
+      Some(Err(_not_a_size)) => Ok(TextSize::default()),
+      None => Ok(TextSize::default()),
+    };
 
-        Ok(Appearance {
-            background,
-            text,
-            typeface: match typeface {
-                Some(typeface) => typeface,
-                None => Typeface::Serif,
-            },
-            text_size,
-        })
-    }
+    Ok(Appearance {
+      background,
+      text,
+      typeface: match typeface {
+        Some(typeface_2) => typeface_2,
+        None => Typeface::Serif,
+      },
+      text_size,
+    })
+  }
 }
 
 fn paint(said: Option<&str>) -> Result<Paint, Never> {
-    let said = match said {
-        Some(said) => said,
-        None => return Ok(Paint::Desktop),
-    };
+  let said_3 = match said {
+    Some(said_2) => said_2,
+    None => return Ok(Paint::Desktop),
+  };
 
-    let mut numbers = said.split_whitespace().map(str::parse::<f64>);
+  let mut numbers = said_3.split_whitespace().map(str::parse::<FiniteF64>);
 
-    Ok(match (numbers.next(), numbers.next(), numbers.next(), numbers.next()) {
-        (Some(Ok(lightness)), Some(Ok(chroma)), Some(Ok(hue)), None) => Paint::Chosen(Oklch { lightness, chroma, hue }),
-        (_, _, _, _) => Paint::Desktop,
-    })
+  Ok(
+    match (
+      numbers.next(),
+      numbers.next(),
+      numbers.next(),
+      numbers.next(),
+    ) {
+      (Some(Ok(lightness)), Some(Ok(chroma)), Some(Ok(hue)), None) => Paint::Chosen(Oklch {
+        lightness: f64::from(lightness),
+        chroma: f64::from(chroma),
+        hue: console_core_color::Hue(f64::from(hue)),
+      }),
+      (_, _, _, _) => Paint::Desktop,
+    },
+  )
 }
 
 #[must_use]
 pub fn serialize(paint: Paint) -> Result<String, Never> {
-    Ok(match paint {
-        Paint::Desktop => DESKTOP.to_string(),
-        Paint::Chosen(color) => format!("{} {} {}", color.lightness, color.chroma, color.hue),
-    })
+  Ok(match paint {
+    Paint::Desktop => DESKTOP.to_string(),
+    Paint::Chosen(color) => format!("{} {} {}", color.lightness, color.chroma, color.hue),
+  })
 }
 
 impl ColorRole {
-    pub fn choose(self, paint: Paint) -> Result<(), Never> {
-        let key = match self {
-            ColorRole::Background => BACKGROUND,
-            ColorRole::Text => TEXT,
-        };
-        let Ok(value) = serialize(paint);
+  pub fn choose(self, paint: Paint) -> Result<(), Never> {
+    let key = match self {
+      ColorRole::Background => BACKGROUND,
+      ColorRole::Text => TEXT,
+    };
+    let Ok(value) = serialize(paint);
 
-        console_defaults::set(console_defaults::Setting { key, value: &value })
-    }
+    console_defaults::set(console_defaults::Setting { key, value: &value })
+  }
 }
 
 #[must_use]
 pub fn grid() -> Result<Vec<Vec<Oklch>>, Never> {
-    let Ok(steps) = u64::from(ACROSS.saturating_sub(1)).float();
-    let Ok(across) = u64::from(ACROSS).float();
+  let Ok(steps) = u64::from(ACROSS.saturating_sub(1)).float();
+  let Ok(across) = u64::from(ACROSS).float();
 
-    let grays = (0..ACROSS).map(|column| {
+  let grays = (0..ACROSS).map(|column| {
+    let Ok(along) = u64::from(column).float();
+
+    Oklch {
+      lightness: WHITE - (WHITE - BLACK) * along / steps,
+      ..Oklch::BLACK
+    }
+  });
+
+  let hues = SHADES.iter().map(|shade| {
+    (0..ACROSS)
+      .map(|column| {
         let Ok(along) = u64::from(column).float();
 
-        Oklch { lightness: WHITE - (WHITE - BLACK) * along / steps, chroma: 0.0, hue: 0.0 }
-    });
+        Oklch {
+          lightness: shade.lightness,
+          chroma: shade.chroma,
+          hue: console_core_color::Hue(360.0 * along / across),
+        }
+      })
+      .collect()
+  });
 
-    let hues = SHADES.iter().map(|shade| {
-        (0..ACROSS)
-            .map(|column| {
-                let Ok(along) = u64::from(column).float();
-
-                Oklch { lightness: shade.lightness, chroma: shade.chroma, hue: 360.0 * along / across }
-            })
-            .collect()
-    });
-
-    Ok(std::iter::once(grays.collect()).chain(hues).collect())
+  Ok(std::iter::once(grays.collect()).chain(hues).collect())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn nothing_chosen_is_the_page_as_it_always_was() {
-        assert_eq!(Appearance::read(Settings::default()), Ok(Appearance::default()));
-        assert_eq!(Appearance::read(Settings { background: Some(DESKTOP), ..Settings::default() }), Ok(Appearance::default()));
-    }
+  #[test]
+  fn nothing_chosen_is_the_page_as_it_always_was() {
+    assert_eq!(
+      Appearance::read(Settings::default()),
+      Ok(Appearance::default())
+    );
+    assert_eq!(
+      Appearance::read(Settings {
+        background: Some(DESKTOP),
+        ..Settings::default()
+      }),
+      Ok(Appearance::default())
+    );
+  }
 
-    #[test]
-    fn a_colour_is_read_back_exactly_as_it_was_written() {
-        let Ok(grid) = grid();
+  #[test]
+  fn a_colour_is_read_back_exactly_as_it_was_written() {
+    let Ok(grid) = grid();
 
-        for row in grid {
-            for color in row {
-                let Ok(kept) = serialize(Paint::Chosen(color));
-                let Ok(read) = Appearance::read(Settings { background: Some(&kept), ..Settings::default() });
-
-                assert_eq!(read.background, Paint::Chosen(color), "{kept}");
-            }
-        }
-    }
-
-    #[test]
-    fn what_cannot_be_read_back_is_the_desktop_rather_than_black() {
+    for row in grid {
+      for color in row {
+        let Ok(kept) = serialize(Paint::Chosen(color));
         let Ok(read) = Appearance::read(Settings {
-            background: Some("0.5 tartan 3"),
-            text: Some("1 2"),
-            typeface: Some("Comic Sans"),
-            text_size: Some("huge"),
+          background: Some(&kept),
+          ..Settings::default()
         });
 
-        assert_eq!(read, Appearance::default());
+        assert_eq!(read.background, Paint::Chosen(color), "{kept}");
+      }
+    }
+  }
+
+  #[test]
+  fn what_cannot_be_read_back_is_the_desktop_rather_than_black() {
+    let Ok(read) = Appearance::read(Settings {
+      background: Some("0.5 tartan 3"),
+      text: Some("1 2"),
+      typeface: Some("Comic Sans"),
+      text_size: Some("huge"),
+    });
+
+    assert_eq!(read, Appearance::default());
+  }
+
+  #[test]
+  fn every_face_is_read_back_by_its_own_word() {
+    for typeface in TYPEFACES {
+      let Ok(word) = typeface.word();
+      let Ok(read) = Appearance::read(Settings {
+        typeface: Some(word),
+        ..Settings::default()
+      });
+
+      assert_eq!(read.typeface, *typeface);
+    }
+  }
+
+  #[test]
+  fn a_text_size_is_kept_between_the_smallest_and_the_largest() {
+    let Ok(read) = Appearance::read(Settings {
+      text_size: Some("30"),
+      ..Settings::default()
+    });
+    let Ok(tiny) = Appearance::read(Settings {
+      text_size: Some("2"),
+      ..Settings::default()
+    });
+
+    assert_eq!(read.text_size, TextSize(30));
+    assert_eq!(
+      tiny.text_size,
+      TextSize::SMALLEST,
+      "a size nobody can read is the smallest one that can be"
+    );
+    assert_eq!(TextSize::LARGEST.larger(), Ok(TextSize::LARGEST));
+    assert_eq!(TextSize::SMALLEST.smaller(), Ok(TextSize::SMALLEST));
+    assert_eq!(TextSize(22).larger(), Ok(TextSize(24)));
+  }
+
+  #[test]
+  fn a_pinch_scales_the_size_it_started_from() {
+    assert_eq!(TextSize(20).scaled(TextScale(1.5)), Ok(TextSize(30)));
+    assert_eq!(TextSize(20).scaled(TextScale(0.5)), Ok(TextSize::SMALLEST));
+    assert_eq!(TextSize(20).scaled(TextScale(10.0)), Ok(TextSize::LARGEST));
+    assert_eq!(
+      TextSize::default().heading(),
+      Ok(30),
+      "the heading keeps the size it had before the body could change"
+    );
+  }
+
+  #[test]
+  fn the_grid_is_grays_from_white_to_black_and_then_every_hue_pale_to_deep()
+  -> Result<(), &'static str> {
+    let Ok(grid) = grid();
+    let grays = grid.first().ok_or("a row of grays")?;
+
+    assert_eq!(grid.len(), SHADES.len().saturating_add(1));
+    assert!(
+      grid.iter().all(|row| row.len() == 10),
+      "every row is as wide as the others"
+    );
+    assert!(
+      grays.iter().all(|gray| ::core::matches!(
+        ::core::primitive::f64::classify(gray.chroma),
+        ::core::num::FpCategory::Zero
+      )),
+      "a gray has no hue in it"
+    );
+    assert!(
+      grays.windows(2).all(|pair| pair
+        .first()
+        .zip(pair.last())
+        .is_some_and(|(this, next)| this.lightness > next.lightness)),
+      "the grays go from white to black"
+    );
+    assert_eq!(grays.first().map(|gray| gray.lightness), Some(WHITE));
+    assert_eq!(grays.last().map(|gray| gray.lightness), Some(BLACK));
+
+    for row in grid.iter().skip(1) {
+      assert!(
+        row.windows(2).all(|pair| pair
+          .first()
+          .zip(pair.last())
+          .is_some_and(|(this, next)| this.hue < next.hue)),
+        "the hues go round once"
+      );
     }
 
-    #[test]
-    fn every_face_is_read_back_by_its_own_word() {
-        for typeface in TYPEFACES {
-            let Ok(word) = typeface.word();
-            let Ok(read) = Appearance::read(Settings { typeface: Some(word), ..Settings::default() });
-
-            assert_eq!(read.typeface, *typeface);
-        }
-    }
-
-    #[test]
-    fn a_text_size_is_kept_between_the_smallest_and_the_largest() {
-        let Ok(read) = Appearance::read(Settings { text_size: Some("30"), ..Settings::default() });
-        let Ok(tiny) = Appearance::read(Settings { text_size: Some("2"), ..Settings::default() });
-
-        assert_eq!(read.text_size, TextSize(30));
-        assert_eq!(tiny.text_size, TextSize::SMALLEST, "a size nobody can read is the smallest one that can be");
-        assert_eq!(TextSize::LARGEST.larger(), Ok(TextSize::LARGEST));
-        assert_eq!(TextSize::SMALLEST.smaller(), Ok(TextSize::SMALLEST));
-        assert_eq!(TextSize(22).larger(), Ok(TextSize(24)));
-    }
-
-    #[test]
-    fn a_pinch_scales_the_size_it_started_from() {
-        assert_eq!(TextSize(20).scaled(1.5), Ok(TextSize(30)));
-        assert_eq!(TextSize(20).scaled(0.5), Ok(TextSize::SMALLEST));
-        assert_eq!(TextSize(20).scaled(10.0), Ok(TextSize::LARGEST));
-        assert_eq!(TextSize::default().heading(), Ok(30), "the heading keeps the size it had before the body could change");
-    }
-
-    #[test]
-    fn the_grid_is_grays_from_white_to_black_and_then_every_hue_pale_to_deep() -> Result<(), &'static str> {
-        let Ok(grid) = grid();
-        let grays = grid.first().ok_or("a row of grays")?;
-
-        assert_eq!(grid.len(), SHADES.len().saturating_add(1));
-        assert!(grid.iter().all(|row| row.len() == 10), "every row is as wide as the others");
-        assert!(grays.iter().all(|gray| gray.chroma == 0.0), "a gray has no hue in it");
-        assert!(
-            grays.windows(2).all(|pair| pair.first().zip(pair.last()).is_some_and(|(this, next)| this.lightness > next.lightness)),
-            "the grays go from white to black"
-        );
-        assert_eq!(grays.first().map(|gray| gray.lightness), Some(WHITE));
-        assert_eq!(grays.last().map(|gray| gray.lightness), Some(BLACK));
-
-        for row in grid.iter().skip(1) {
-            assert!(
-                row.windows(2).all(|pair| pair.first().zip(pair.last()).is_some_and(|(this, next)| this.hue < next.hue)),
-                "the hues go round once"
-            );
-        }
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

@@ -1,0 +1,41 @@
+error: `position` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/boundary.rs:8:12
+   |
+LL |     let Ok(position) = console_core_number_conversion::fitted::<_, usize>(7_u8);
+   |            ^^^^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/boundary.rs:8:68
+   |
+LL |     let Ok(position) = console_core_number_conversion::fitted::<_, usize>(7_u8);
+   |                                                        ------------^^^^^- help: use the conversion that names this machine-width boundary: `index`
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/boundary.rs:9:21
+   |
+LL |     assert_eq!(x as usize, !0);
+   |                     ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     assert_eq!(x as usize, !0);
+LL +     assert_eq!(match ::console_core_number_conversion::wrapped_index(x) { ::core::result::Result::Ok(converted_position) => converted_position }, !0);
+   |
+
+error: `isize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/boundary.rs:10:26
+   |
+LL |     assert_eq!(255_u8 as isize, 255);
+   |                          ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     assert_eq!(255_u8 as isize, 255);
+LL +     assert_eq!(match ::console_core_number_conversion::wrapped_offset(255_u8) { ::core::result::Result::Ok(converted_position) => converted_position }, 255);
+   |
+
+error: aborting due to 4 previous errors
+

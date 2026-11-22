@@ -54,10 +54,10 @@
 //!
 //! What `hyprctl` is told is `eval`, and that is not a preference. A
 //! Lua-configured compositor answers `hyprctl keyword` with *"keyword can't
-//! work with non-legacy parsers. Use eval."* -- the same trap `docs/screen.md`
-//! describes for `dispatch`, where the command every example on the internet
-//! gives comes back with a complaint and the only symptom is a setting that
-//! does nothing.
+//! work with non-legacy parsers. Use eval."* -- the same trap the `screen.md`
+//! note in Orbit describes for `dispatch`, where the command every example on
+//! the internet gives comes back with a complaint and the only symptom is a
+//! setting that does nothing.
 
 use std::process::ExitCode;
 
@@ -76,383 +76,401 @@ const HOME: &str = "console-home.service";
 const APPLY: &str = "apply";
 
 const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
-    name: "console-scale",
-    about: "how big everything on the screen is, and which way up it stands; with nothing, the size it is standing at",
-    flags: &[],
-    operands: Operands::None,
+  name: "console-scale",
+  about: "how big everything on the screen is, and which way up it stands; with nothing, the size it is standing at",
+  flags: &[],
+  operands: Operands::None,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wanted {
-    Sized(Size),
-    Turned(Turn),
+  Sized(Size),
+  Turned(Turn),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scale {
-    Wear(Wanted),
-    Apply,
+  Wear(Wanted),
+  Apply,
 }
 
 impl Subcommand for Scale {
-    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
-        let sized = Size::VARIANTS.iter().copied().map(Wanted::Sized);
-        let turned = Turn::VARIANTS.iter().copied().map(Wanted::Turned);
+  fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+    let sized = Size::VARIANTS.iter().copied().map(Wanted::Sized);
+    let turned = Turn::VARIANTS.iter().copied().map(Wanted::Turned);
 
-        Ok(sized.chain(turned).map(Scale::Wear).chain([Scale::Apply]))
-    }
+    Ok(sized.chain(turned).map(Scale::Wear).chain([Scale::Apply]))
+  }
 
-    fn spelling(self) -> Result<&'static str, Never> {
-        match self {
-            Scale::Wear(Wanted::Sized(size)) => size.written(),
-            Scale::Wear(Wanted::Turned(turn)) => turn.written(),
-            Scale::Apply => Ok(APPLY),
-        }
+  fn spelling(self) -> Result<&'static str, Never> {
+    match self {
+      Scale::Wear(Wanted::Sized(size)) => size.written(),
+      Scale::Wear(Wanted::Turned(turn)) => turn.written(),
+      Scale::Apply => Ok(APPLY),
     }
+  }
 
-    fn about(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Scale::Wear(Wanted::Sized(_size)) => "draw everything at this size, and remember it",
-            Scale::Wear(Wanted::Turned(_turn)) => "stand the screen this way up, and remember it",
-            Scale::Apply => "wear what each screen remembers",
-        })
-    }
+  fn about(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Scale::Wear(Wanted::Sized(_size)) => "draw everything at this size, and remember it",
+      Scale::Wear(Wanted::Turned(_turn)) => "stand the screen this way up, and remember it",
+      Scale::Apply => "wear what each screen remembers",
+    })
+  }
 }
 
 fn read_file(at: &std::path::Path) -> Result<String, Never> {
-    Ok(match console_core_atomic_writes::text_or_empty(at) {
-        Ok(message) => message,
-        Err(fault) => {
-            eprintln!("console-scale: {fault}");
+  Ok(match console_core_atomic_writes::text_or_empty(at) {
+    Ok(message) => message,
+    Err(fault) => {
+      eprintln!("console-scale: {fault}");
 
-            String::new()
-        }
-    })
+      String::new()
+    }
+  })
 }
 
 fn standing() -> Result<ExitCode, Never> {
-    let Ok(monitors) = query_monitors();
+  let Ok(monitors) = query_monitors();
 
-    let monitors = match monitors {
-        Some(monitors) => monitors,
-        None => return Ok(ExitCode::FAILURE),
-    };
+  let monitors_3 = match monitors {
+    Some(monitors_2) => monitors_2,
+    None => return Ok(ExitCode::FAILURE),
+  };
 
-    let Ok(standing) = size::current_size(&monitors);
-    let Ok(shown) = console_screen::shown(&monitors);
+  let Ok(standing) = size::current_size(&monitors_3);
+  let Ok(shown) = console_screen::shown(&monitors_3);
 
-    Ok(match (standing, shown) {
-        (Some(size), _) => {
-            let Ok(written) = size.written();
+  Ok(match (standing, shown) {
+    (Some(size), _) => {
+      let Ok(written) = size.written();
 
-            println!("{written}");
+      println!("{written}");
 
-            ExitCode::SUCCESS
-        }
-        (None, Some(screen)) => {
-            println!("{}", screen.scale);
+      ExitCode::SUCCESS
+    }
+    (None, Some(screen)) => {
+      println!("{}", screen.scale);
 
-            ExitCode::SUCCESS
-        }
-        (None, None) => {
-            eprintln!("console-scale: the compositor said nothing about a screen");
+      ExitCode::SUCCESS
+    }
+    (None, None) => {
+      eprintln!("console-scale: the compositor said nothing about a screen");
 
-            ExitCode::FAILURE
-        }
-    })
+      ExitCode::FAILURE
+    }
+  })
 }
 
 fn main() -> ExitCode {
-    let words: Vec<String> = std::env::args().skip(1).collect();
+  let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let asked = match read_with::<Scale, String>(&COMMAND, &words) {
-        Ok(line) => {
-            let Ok(asked) = line.subcommand();
+  let asked = match read_with::<Scale, String>(&COMMAND, &words) {
+    Ok(line) => {
+      let Ok(asked) = line.subcommand();
 
-            asked
-        }
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
-
-            return ExitCode::from(code);
-        }
-    };
-
-    let Ok(said) = console_core_places::home();
-
-    let home = match said {
-        Some(home) => home,
-        None => {
-            eprintln!("console-scale: no HOME, so there is no one to remember for");
-
-            return ExitCode::FAILURE;
-        }
-    };
-
-    let wanted = match asked {
-        Some(Scale::Wear(wanted)) => wanted,
-        Some(Scale::Apply) => {
-            let Ok(gone) = applied(&home);
-
-            return gone;
-        }
-        None => {
-            let Ok(standing) = standing();
-
-            return standing;
-        }
-    };
-
-    let Ok(found) = panel();
-
-    let (named, screen) = match found {
-        Some(panel) => panel,
-        None => return ExitCode::FAILURE,
-    };
-
-    let wanted_turn = match wanted {
-        Wanted::Turned(turn) => Some(turn),
-        Wanted::Sized(_a_rung) => None,
-    };
-
-    let kept = match remembers(&home, Output(&named), &screen, wanted_turn) {
-        Ok(kept) => kept,
-        Err(why) => {
-            eprintln!("console-scale: {why}, so there is nowhere to remember this");
-
-            return ExitCode::FAILURE;
-        }
-    };
-
-    let (size, turn) = match wanted {
-        Wanted::Sized(size) => (Some(size), kept.turn),
-        Wanted::Turned(turn) => (kept.size, Some(turn)),
-    };
-
-    let (remembering, said) = match wanted {
-        Wanted::Sized(size) => {
-            let Ok(written) = size.written();
-
-            (kept.size_at, written.to_string())
-        }
-        Wanted::Turned(turn) => {
-            let Ok(written) = turn.written();
-
-            (kept.turn_at, written.to_string())
-        }
-    };
-
-    match remembering.parent() {
-        Some(holding) => {
-            match std::fs::create_dir_all(holding) {
-                Ok(()) => {},
-                Err(fault) => {
-                    eprintln!(
-                        "console-scale: {}: {fault}, so nothing was changed",
-                        holding.display()
-                    );
-
-                    return ExitCode::FAILURE;
-                }
-            }
-
-            match console_core_atomic_writes::whole(&remembering, format!("{said}\n").as_bytes()) {
-                Ok(()) => {},
-                Err(fault) => {
-                    eprintln!(
-                        "console-scale: {}: {fault}, so nothing was changed",
-                        remembering.display()
-                    );
-
-                    return ExitCode::FAILURE;
-                }
-            }
-        }
-        None => {},
+      asked
     }
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
 
-    let Ok(refused) = refused(&named, &screen, size, turn);
-
-    match refused {
-        Some(why) => {
-            eprintln!("console-scale: {why}");
-            return ExitCode::FAILURE;
-        }
-        None => {},
+      return ExitCode::from(code);
     }
+  };
 
-    let Ok(mut asking) = Program::Systemctl.command();
-    let _ = asking.args(["--user", "restart", BAR, HOME]).status();
-    ExitCode::SUCCESS
+  let Ok(said) = console_core_places::home();
+
+  let home = match said {
+    Some(home) => home,
+    None => {
+      eprintln!("console-scale: no HOME, so there is no one to remember for");
+
+      return ExitCode::FAILURE;
+    }
+  };
+
+  let wanted = match asked {
+    Some(Scale::Wear(wanted)) => wanted,
+    Some(Scale::Apply) => {
+      let Ok(gone) = applied(&home);
+
+      return gone;
+    }
+    None => {
+      let Ok(standing) = standing();
+
+      return standing;
+    }
+  };
+
+  let Ok(found) = panel();
+
+  let (named, screen) = match found {
+    Some(panel) => panel,
+    None => return ExitCode::FAILURE,
+  };
+
+  let wanted_turn = match wanted {
+    Wanted::Turned(turn) => Some(turn),
+    Wanted::Sized(_a_rung) => None,
+  };
+
+  let kept = match remembers(&home, Output(&named), &screen, wanted_turn) {
+    Ok(kept) => kept,
+    Err(why) => {
+      eprintln!("console-scale: {why}, so there is nowhere to remember this");
+
+      return ExitCode::FAILURE;
+    }
+  };
+
+  let (size, turn) = match wanted {
+    Wanted::Sized(size) => (Some(size), kept.turn),
+    Wanted::Turned(turn) => (kept.size, Some(turn)),
+  };
+
+  let (remembering, said_2) = match wanted {
+    Wanted::Sized(size_2) => {
+      let Ok(written) = size_2.written();
+
+      (kept.size_at, written.to_string())
+    }
+    Wanted::Turned(turn_2) => {
+      let Ok(written) = turn_2.written();
+
+      (kept.turn_at, written.to_string())
+    }
+  };
+
+  match remembering.parent() {
+    Some(holding) => {
+      match std::fs::create_dir_all(holding) {
+        Ok(()) => {}
+        Err(fault) => {
+          eprintln!(
+            "console-scale: {}: {fault}, so nothing was changed",
+            holding.display()
+          );
+
+          return ExitCode::FAILURE;
+        }
+      }
+
+      match console_core_atomic_writes::whole(
+        &remembering,
+        format!("{said}\n", said = said_2).as_bytes(),
+      ) {
+        Ok(()) => {}
+        Err(fault) => {
+          eprintln!(
+            "console-scale: {}: {fault}, so nothing was changed",
+            remembering.display()
+          );
+
+          return ExitCode::FAILURE;
+        }
+      }
+    }
+    None => {}
+  }
+
+  let Ok(refused) = refused(&named, &screen, size, turn);
+
+  match refused {
+    Some(why) => {
+      eprintln!("console-scale: {why}");
+      return ExitCode::FAILURE;
+    }
+    None => {}
+  }
+
+  let Ok(mut asking) = Program::Systemctl.command();
+
+  match asking.args(["--user", "restart", BAR, HOME]).status() {
+    Ok(status) => match status.code() {
+      Some(0) => {}
+      Some(_) | None => eprintln!("console-scale: restarting {BAR} and {HOME} returned {status}"),
+    },
+    Err(fault) => eprintln!("console-scale: restarting {BAR} and {HOME} failed: {fault}"),
+  }
+
+  ExitCode::SUCCESS
 }
 
 struct Remembers {
-    size: Option<Size>,
-    turn: Option<Turn>,
-    size_at: std::path::PathBuf,
-    turn_at: std::path::PathBuf,
+  size: Option<Size>,
+  turn: Option<Turn>,
+  size_at: std::path::PathBuf,
+  turn_at: std::path::PathBuf,
 }
 
 fn remembers(
-    home: &std::path::Path,
-    panel: Output<'_>,
-    screen: &console_screen::Screen,
-    wanted: Option<Turn>,
+  home: &std::path::Path,
+  panel: Output<'_>,
+  screen: &console_screen::Screen,
+  wanted: Option<Turn>,
 ) -> Result<Remembers, Unnamed> {
-    let turn_at = turning::at(home, panel)?;
-    let Ok(written) = read_file(&turn_at);
-    let Ok(turn) = Turn::of(&written);
+  let turn_at = turning::at(home, panel)?;
+  let Ok(written) = read_file(&turn_at);
+  let Ok(turn) = Turn::of(&written);
 
-    let standing = match wanted.or(turn) {
-        Some(turn) => {
-            let Ok(turned) = turning::rotate(screen, turn);
+  let standing = match wanted.or(turn) {
+    Some(turn_2) => {
+      let Ok(turned) = turning::rotate(screen, turn_2);
 
-            turned
-        }
-        None => *screen,
-    };
-    let Ok(shape) = standing.shape();
+      turned
+    }
+    None => *screen,
+  };
+  let Ok(shape) = standing.shape();
 
-    let size_at = size::at(home, panel, shape)?;
-    let Ok(written) = read_file(&size_at);
-    let Ok(said) = Size::of(&written);
+  let size_at = size::at(home, panel, shape)?;
+  let Ok(written_2) = read_file(&size_at);
+  let Ok(said) = Size::of(&written_2);
 
-    let size = match said {
-        Some(size) => Some(size),
-        None => {
-            let Ok(other) = shape.other();
-            let at = size::at(home, panel, other)?;
-            let Ok(written) = read_file(&at);
-            let Ok(said) = Size::of(&written);
+  let size = match said {
+    Some(size) => Some(size),
+    None => {
+      let Ok(other) = shape.other();
+      let at = size::at(home, panel, other)?;
+      let Ok(written_3) = read_file(&at);
+      let Ok(said_2) = Size::of(&written_3);
 
-            said
-        }
-    };
+      said_2
+    }
+  };
 
-    Ok(Remembers { size, turn, size_at, turn_at })
+  Ok(Remembers {
+    size,
+    turn,
+    size_at,
+    turn_at,
+  })
 }
 
 fn applied(home: &std::path::Path) -> Result<ExitCode, Never> {
-    let Ok(said) = query_monitors();
+  let Ok(said) = query_monitors();
 
-    let monitors = match said {
-        Some(monitors) => monitors,
-        None => return Ok(ExitCode::SUCCESS),
+  let monitors = match said {
+    Some(monitors) => monitors,
+    None => return Ok(ExitCode::SUCCESS),
+  };
+
+  for monitor in &monitors {
+    let Ok(driving) = console_screen::from_monitor(monitor);
+
+    let screen = match driving {
+      Some(screen) => screen,
+      None => continue,
     };
 
-    for monitor in &monitors {
-        let Ok(driving) = console_screen::from_monitor(monitor);
+    let kept = match remembers(home, Output(&monitor.named), &screen, None) {
+      Ok(kept) => kept,
+      Err(why) => {
+        eprintln!("console-scale: {why}, so nothing was remembered for it");
 
-        let screen = match driving {
-            Some(screen) => screen,
-            None => continue,
-        };
+        continue;
+      }
+    };
 
-        let kept = match remembers(home, Output(&monitor.named), &screen, None) {
-            Ok(kept) => kept,
-            Err(why) => {
-                eprintln!("console-scale: {why}, so nothing was remembered for it");
+    match (kept.size, kept.turn) {
+      (None, None) => continue,
+      (size, turn) => {
+        let Ok(why) = refused(&monitor.named, &screen, size, turn);
 
-                continue;
-            }
-        };
-
-        match (kept.size, kept.turn) {
-            (None, None) => continue,
-            (size, turn) => {
-                let Ok(why) = refused(&monitor.named, &screen, size, turn);
-
-                match why {
-                    Some(why) => eprintln!("console-scale: {}: {why}", monitor.named),
-                    None => {},
-                }
-            }
+        match why {
+          Some(why_2) => eprintln!("console-scale: {}: {why}", monitor.named, why = why_2),
+          None => {}
         }
+      }
     }
+  }
 
-    Ok(ExitCode::SUCCESS)
+  Ok(ExitCode::SUCCESS)
 }
 
 fn panel() -> Result<Option<(String, console_screen::Screen)>, Never> {
-    let found = match console_screen::driving_here() {
-        Ok(found) => found,
-        Err(why) => {
-            eprintln!("console-scale: {why}");
+  let found = match console_screen::driving_here() {
+    Ok(found) => found,
+    Err(why) => {
+      eprintln!("console-scale: {why}");
 
-            return Ok(None);
-        }
-    };
-
-    match found {
-        Some(panel) => Ok(Some(panel)),
-        None => {
-            eprintln!("console-scale: the compositor is driving no screen to put a size on");
-
-            Ok(None)
-        }
+      return Ok(None);
     }
+  };
+
+  match found {
+    Some(panel) => Ok(Some(panel)),
+    None => {
+      eprintln!("console-scale: the compositor is driving no screen to put a size on");
+
+      Ok(None)
+    }
+  }
 }
 
 fn refused(
-    named: &str,
-    screen: &console_screen::Screen,
-    size: Option<Size>,
-    turn: Option<Turn>,
+  named: &str,
+  screen: &console_screen::Screen,
+  size: Option<Size>,
+  turn: Option<Turn>,
 ) -> Result<Option<String>, Never> {
-    let standing = match turn {
-        Some(turn) => {
-            let Ok(turned) = turning::rotate(screen, turn);
+  let standing = match turn {
+    Some(turn_2) => {
+      let Ok(turned) = turning::rotate(screen, turn_2);
 
-            turned
-        }
-        None => *screen,
-    };
-    let scale = match size {
-        Some(size) => {
-            let Ok(scale) = size.scale_on(&standing);
+      turned
+    }
+    None => *screen,
+  };
+  let scale = match size {
+    Some(size_2) => {
+      let Ok(scale) = size_2.scale_on(&standing);
 
-            scale
-        }
-        None => standing.scale,
-    };
-    let Ok(lua) = size::lua(Output(named), &standing, scale);
-    let Ok(done) = console_compositor::request(console_compositor::Request::Script, &lua);
+      scale
+    }
+    None => standing.scale,
+  };
+  let Ok(lua) = size::lua(Output(named), &standing, scale);
+  let Ok(done) = console_compositor::request(console_compositor::Request::Script, &lua);
 
-    Ok(match done {
-        DispatchResult::Success => None,
-        DispatchResult::Failure(why) => Some(format!("the compositor would not take it: {why}")),
-    })
+  Ok(match done {
+    DispatchResult::Success => None,
+    DispatchResult::Failure(why) => Some(format!("the compositor would not take it: {why}")),
+  })
 }
 
 fn query_monitors() -> Result<Option<Vec<console_compositor::Monitor>>, Never> {
-    Ok(match console_compositor::ask(console_compositor::Monitors) {
-        Ok(monitors) => Some(monitors),
-        Err(why) => {
-            eprintln!("console-scale: {why}");
+  Ok(
+    match console_compositor::ask(console_compositor::Monitors) {
+      Ok(monitors) => Some(monitors),
+      Err(why) => {
+        eprintln!("console-scale: {why}");
 
-            None
-        }
-    })
+        None
+      }
+    },
+  )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use console_core_arguments::ValidationError;
+  use super::*;
+  use console_core_arguments::ValidationError;
 
-    #[test]
-    fn every_size_and_every_turn_is_a_word_it_reads() -> Result<(), ValidationError> {
-        let sized = Size::VARIANTS.iter().copied().map(Wanted::Sized);
-        let turned = Turn::VARIANTS.iter().copied().map(Wanted::Turned);
+  #[test]
+  fn every_size_and_every_turn_is_a_word_it_reads() -> Result<(), ValidationError> {
+    let sized = Size::VARIANTS.iter().copied().map(Wanted::Sized);
+    let turned = Turn::VARIANTS.iter().copied().map(Wanted::Turned);
 
-        for wanted in sized.chain(turned) {
-            let Ok(word) = Scale::Wear(wanted).spelling();
-            let line = read_with::<Scale, &str>(&COMMAND, &[word]);
-            let read = line?;
+    for wanted in sized.chain(turned) {
+      let Ok(word) = Scale::Wear(wanted).spelling();
+      let line = read_with::<Scale, &str>(&COMMAND, &[word]);
+      let read = line?;
 
-            assert_eq!(read.subcommand(), Ok(Some(Scale::Wear(wanted))), "{word}");
-        }
-
-        Ok(())
+      assert_eq!(read.subcommand(), Ok(Some(Scale::Wear(wanted))), "{word}");
     }
+
+    Ok(())
+  }
 }

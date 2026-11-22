@@ -18,37 +18,42 @@ pub const QUIET: Duration = Duration::from_secs(4);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wake {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 pub fn awake(since: Duration) -> Result<Wake, Never> {
-    Ok(match since < QUIET {
-        true => Wake::Yes,
-        false => Wake::No,
-    })
+  Ok(
+    match ::core::primitive::bool::then_some(since < QUIET, ()) {
+      ::core::option::Option::Some(()) => Wake::Yes,
+      ::core::option::Option::None => Wake::No,
+    },
+  )
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+  use std::time::Duration;
 
-    use super::{Wake, QUIET, awake};
+  use super::{QUIET, Wake, awake};
 
-    #[test]
-    fn a_card_just_pressed_is_awake() {
-        assert_eq!(awake(Duration::ZERO), Ok(Wake::Yes));
-        assert_eq!(awake(QUIET - Duration::from_millis(1)), Ok(Wake::Yes));
-    }
+  #[test]
+  fn a_card_just_pressed_is_awake() {
+    assert_eq!(awake(Duration::ZERO), Ok(Wake::Yes));
+    assert_eq!(
+      awake(QUIET.saturating_sub(Duration::from_millis(1))),
+      Ok(Wake::Yes)
+    );
+  }
 
-    #[test]
-    fn a_card_no_one_has_touched_is_only_the_picture() {
-        assert_eq!(awake(QUIET), Ok(Wake::No));
-        assert_eq!(awake(Duration::from_secs(600)), Ok(Wake::No));
-    }
+  #[test]
+  fn a_card_no_one_has_touched_is_only_the_picture() {
+    assert_eq!(awake(QUIET), Ok(Wake::No));
+    assert_eq!(awake(Duration::from_secs(600)), Ok(Wake::No));
+  }
 
-    #[test]
-    fn the_quiet_is_longer_than_the_tick_that_would_end_it() {
-        assert!(QUIET >= Duration::from_secs(2));
-    }
+  #[test]
+  fn the_quiet_is_longer_than_the_tick_that_would_end_it() {
+    assert!(QUIET >= Duration::from_secs(2));
+  }
 }

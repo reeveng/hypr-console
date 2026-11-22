@@ -1,0 +1,27 @@
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/enumerated_positions.rs:8:17
+   |
+LL |         shifted[usize::wrapping_add(position, 1)] = item;
+   |                 ^^^^^
+   |
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+help: use the conversion that names this machine-width boundary
+   |
+LL -         shifted[usize::wrapping_add(position, 1)] = item;
+LL +         shifted[position.wrapping_add(1)] = item;
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/enumerated_positions.rs:18:17
+   |
+LL |         shifted[usize::wrapping_shl(position, 0)] = item;
+   |                 ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -         shifted[usize::wrapping_shl(position, 0)] = item;
+LL +         shifted[position.wrapping_shl(0)] = item;
+   |
+
+error: aborting due to 2 previous errors
+

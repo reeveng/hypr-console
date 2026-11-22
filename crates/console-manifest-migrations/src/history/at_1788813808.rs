@@ -17,7 +17,7 @@
 //! The package leaves [packages] in the same commit and is deliberately not
 //! swept here. pacman keeps the better answer -- a package the manifest stops
 //! asking for is held as a dependency or by nothing, and `pacman -Qdtq` is what
-//! collects it -- and `docs/migrations.md` argues that at length.
+//! collects it -- and the `migrations.md` note in Orbit argues that at length.
 //!
 //! What kew was told is carried across before it is swept. ~/.config/kew/kewrc
 //! held `path=`, which is where the music is, and it was the only place this
@@ -37,16 +37,16 @@
 use crate::sweeping::{CopySetting, Migration, Moment, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1788813808),
-    says: "sweeping the player under its old name",
-    steps: &[
-        Step::Terminate("kew"),
-        Step::CopySetting(CopySetting {
-            from: "/home/@user@/.config/kew/kewrc",
-            key: "path=",
-            into: "/home/@user@/.config/console/music",
-        }),
-        Step::Attic("/usr/local/bin/kew"),
-        Step::Attic("/home/@user@/.config/kew"),
-    ],
+  moment: Moment(1788813808),
+  says: "sweeping the player under its old name",
+  steps: &[
+    Step::Terminate("kew"),
+    Step::CopySetting(CopySetting {
+      from: "/home/@user@/.config/kew/kewrc",
+      key: "path=",
+      into: "/home/@user@/.config/console/music",
+    }),
+    Step::Attic("/usr/local/bin/kew"),
+    Step::Attic("/home/@user@/.config/kew"),
+  ],
 };

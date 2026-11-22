@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+
+[package]
+name = "console-browser-renderer-webkit"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+console-browser-renderer = { path = "../console-browser-renderer" }
+console-core-geometry = { path = "../console-core-geometry" }
+console-core-logging = { path = "../console-core-logging", features = ["std"] }
+console-core-never = { path = "../console-core-never" }
+console-core-number-conversion = { path = "../console-core-number-conversion" }
+console-core-pixel-buffers = { path = "../console-core-pixel-buffers" }
+console-core-web-engine = { path = "../console-core-web-engine" }
+console-input-key-symbols = { path = "../console-input-key-symbols" }
+
+[build-dependencies]
+pkg-config = "0.3"

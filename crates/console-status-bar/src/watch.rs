@@ -42,8 +42,11 @@
 //!
 //! So no source's line is a reason to look until someone says it is. Each watch
 //! carries what its own reading comes from, decided on this side of the socket the
-//! way `console-wallpaper` decides what is worth waking for, and the two that want
-//! every line say `anything` rather than say nothing. Getting that wrong in the
+//! way `console-wallpaper` decides what is worth waking for, and the ones that want
+//! every line say `always` rather than say nothing. Bluetooth is one of those
+//! because the pool already decided: what bluez says is a bus message, read
+//! where it arrives, and a line reaches the bar only when the radio was
+//! switched, something connected or went, or bluez itself came back. Getting that wrong in the
 //! careful direction is a reading late until the next change, where a line no
 //! one filtered costs the machine.
 //!
@@ -57,12 +60,12 @@
 //! which is what `again`'s head says a subscriber that disagrees should write
 //! rather than widening the one the wallpaper is also standing on.
 
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::time::Duration;
 
 use console_compositor::events::CompositorEvent;
-use console_events::again::{self, Worth, Worthwhile, about, always, layers};
 use console_core_never::Never;
+use console_events::again::{self, Worth, Worthwhile, about, always, layers};
 use console_program_contract::EventGroup;
 
 use crate::reading::StatusItem;
@@ -70,110 +73,128 @@ use crate::reading::StatusItem;
 pub const BELL: Duration = Duration::from_secs(10);
 
 pub fn tick(item: StatusItem) -> Result<Option<Duration>, Never> {
-    Ok(match item {
-        StatusItem::Battery => Some(Duration::from_secs(30)),
-        StatusItem::Network => Some(Duration::from_secs(60)),
-        StatusItem::Bluetooth | StatusItem::Sound => None,
-    })
+  Ok(match item {
+    StatusItem::Battery => Some(Duration::from_secs(30)),
+    StatusItem::Network => Some(Duration::from_secs(60)),
+    StatusItem::Bluetooth | StatusItem::Sound => None,
+  })
 }
 
 fn change_source(item: StatusItem) -> Result<(EventGroup, Worthwhile), Never> {
-    Ok(match item {
-        StatusItem::Battery => (EventGroup::Battery, always),
-        StatusItem::Bluetooth => (EventGroup::Bluetooth, again::bluetooth),
-        StatusItem::Network => (EventGroup::Network, always),
-        StatusItem::Sound => (EventGroup::Sound, again::sound),
-    })
+  Ok(match item {
+    StatusItem::Battery => (EventGroup::Battery, always),
+    StatusItem::Bluetooth => (EventGroup::Bluetooth, always),
+    StatusItem::Network => (EventGroup::Network, always),
+    StatusItem::Sound => (EventGroup::Sound, again::sound),
+  })
 }
 
-pub fn subscribe(item: StatusItem, say: Sender<()>) -> Result<(), Never> {
-    let Ok((event_group, worth)) = change_source(item);
+pub fn subscribe(item: StatusItem, say: SyncSender<()>) -> Result<(), Never> {
+  let Ok((event_group, worth)) = change_source(item);
 
-    about(&event_group, worth, say)
+  about(&event_group, worth, say)
 }
 
 pub fn watch(item: StatusItem) -> Result<Receiver<()>, Never> {
-    let (say, heard) = channel();
-    let Ok(()) = layers(say.clone());
-    let Ok(()) = subscribe(item, say);
+  let (say, heard) = sync_channel(1);
+  let Ok(()) = layers(say.clone());
+  let Ok(()) = subscribe(item, say);
 
-    Ok(heard)
+  Ok(heard)
 }
 
-pub fn telling_notifications(say: Sender<()>) -> Result<(), Never> {
-    about(&EventGroup::Notifications, again::notifications, say)
+pub fn telling_notifications(say: SyncSender<()>) -> Result<(), Never> {
+  about(&EventGroup::Notifications, again::notifications, say)
 }
 
 pub fn watching_notifications() -> Result<Receiver<()>, Never> {
-    let (say, heard) = channel();
-    let Ok(()) = layers(say.clone());
-    let Ok(()) = telling_notifications(say);
+  let (say, heard) = sync_channel(1);
+  let Ok(()) = layers(say.clone());
+  let Ok(()) = telling_notifications(say);
 
-    Ok(heard)
+  Ok(heard)
 }
 
 pub fn surface_worth_asking_after(line: &str) -> Result<Worth, Never> {
-    let Ok(stirred) = console_compositor::events::read(line);
+  let Ok(stirred) = console_compositor::events::read(line);
 
-    Ok(match stirred {
-        CompositorEvent::LayerOpened
-        | CompositorEvent::LayerClosed
-        | CompositorEvent::WorkspaceChanged
-        | CompositorEvent::WindowOpened(_)
-        | CompositorEvent::WindowClosed(_)
-        | CompositorEvent::ScreenFocused => Worth::Querying,
-        CompositorEvent::WindowRenamed(_)
-        | CompositorEvent::WindowMoved
-        | CompositorEvent::WindowFloated
-        | CompositorEvent::WindowPinned
-        | CompositorEvent::WindowFilled
-        | CompositorEvent::WindowFocused
-        | CompositorEvent::ConfigurationReloaded
-        | CompositorEvent::Ignored => Worth::Ignoring,
-    })
+  Ok(match stirred {
+    CompositorEvent::LayerOpened
+    | CompositorEvent::LayerClosed
+    | CompositorEvent::WorkspaceChanged
+    | CompositorEvent::WindowOpened(_)
+    | CompositorEvent::WindowClosed(_)
+    | CompositorEvent::ScreenFocused => Worth::Querying,
+    CompositorEvent::WindowRenamed(_)
+    | CompositorEvent::WindowMoved
+    | CompositorEvent::WindowFloated
+    | CompositorEvent::WindowPinned
+    | CompositorEvent::WindowFilled
+    | CompositorEvent::WindowFocused
+    | CompositorEvent::ConfigurationReloaded
+    | CompositorEvent::Ignored => Worth::Ignoring,
+  })
 }
 
-pub fn telling_surfaces(say: Sender<()>) -> Result<(), Never> {
-    about(&EventGroup::Compositor, surface_worth_asking_after, say)
+pub fn telling_surfaces(say: SyncSender<()>) -> Result<(), Never> {
+  about(&EventGroup::Compositor, surface_worth_asking_after, say)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const EVERY: [StatusItem; 4] =
-        [StatusItem::Battery, StatusItem::Bluetooth, StatusItem::Network, StatusItem::Sound];
+  const EVERY: [StatusItem; 4] = [
+    StatusItem::Battery,
+    StatusItem::Bluetooth,
+    StatusItem::Network,
+    StatusItem::Sound,
+  ];
 
-    #[test]
-    fn every_reading_is_told_by_the_pool_rather_than_by_a_program_of_its_own() {
-        let told: Vec<EventGroup> = EVERY
-            .iter()
-            .map(|item| {
-                let Ok((event_group, _worth)) = change_source(*item);
+  #[test]
+  fn every_reading_is_told_by_the_pool_rather_than_by_a_program_of_its_own() {
+    let told: Vec<EventGroup> = EVERY
+      .iter()
+      .map(|item| {
+        let Ok((event_group, _worth)) = change_source(*item);
 
-                event_group
-            })
-            .collect();
+        event_group
+      })
+      .collect();
 
-        assert_eq!(told, [EventGroup::Battery, EventGroup::Bluetooth, EventGroup::Network, EventGroup::Sound]);
+    assert_eq!(
+      told,
+      [
+        EventGroup::Battery,
+        EventGroup::Bluetooth,
+        EventGroup::Network,
+        EventGroup::Sound
+      ]
+    );
+  }
+
+  #[test]
+  fn a_reading_its_source_tells_about_every_change_is_never_read_on_a_clock() {
+    for item in [StatusItem::Bluetooth, StatusItem::Sound] {
+      let Ok(every) = tick(item);
+
+      assert_eq!(every, None, "{item:?} is still polled");
     }
+  }
 
-    #[test]
-    fn a_reading_its_source_tells_about_every_change_is_never_read_on_a_clock() {
-        for item in [StatusItem::Bluetooth, StatusItem::Sound] {
-            let Ok(every) = tick(item);
+  #[test]
+  fn what_no_source_says_is_read_on_a_long_clock_and_never_a_short_one() {
+    for item in [StatusItem::Battery, StatusItem::Network] {
+      let Ok(every) = tick(item);
 
-            assert_eq!(every, None, "{item:?} is still polled");
-        }
+      assert!(
+        every.is_some(),
+        "{item:?} has something no source says and nothing to read it"
+      );
+      assert!(
+        every >= Some(Duration::from_secs(30)),
+        "{item:?} every {every:?}"
+      );
     }
-
-    #[test]
-    fn what_no_source_says_is_read_on_a_long_clock_and_never_a_short_one() {
-        for item in [StatusItem::Battery, StatusItem::Network] {
-            let Ok(every) = tick(item);
-
-            assert!(every.is_some(), "{item:?} has something no source says and nothing to read it");
-            assert!(every >= Some(Duration::from_secs(30)), "{item:?} every {every:?}");
-        }
-    }
+  }
 }

@@ -25,7 +25,7 @@
 
 use console_core_never::Never;
 
-use crate::looking::Found;
+use crate::looking::{Found, LiveStatus};
 use crate::opds::{self, Byline, Entry, Feed};
 
 pub const SEARCH: &str = "https://www.gutenberg.org/ebooks/search.opds/";
@@ -38,49 +38,53 @@ const FEED_ENDING: &str = ".opds";
 
 const COVERS: &str = "https://www.gutenberg.org/cache/epub/";
 
-pub const NOT_ANSWERING: &str = "Project Gutenberg and Standard Ebooks aren't answering. Try again later.";
+pub const NOT_ANSWERING: &str =
+  "Project Gutenberg and Standard Ebooks aren't answering. Try again later.";
 
 pub fn search(asked: &str) -> Result<Vec<String>, Never> {
-    opds::search(Feed(SEARCH), asked)
+  opds::search(Feed(SEARCH), asked)
 }
 
 pub fn found_in(text: &str) -> Result<Vec<Found>, Never> {
-    opds::found_in(text, Byline::Content, book)
+  opds::found_in(text, Byline::Content, book)
 }
 
 fn book(entry: Entry) -> Result<Option<Found>, Never> {
-    let written = entry.identifier.strip_prefix(BOOK_PAGE).and_then(|rest| rest.strip_suffix(FEED_ENDING));
+  let written = entry
+    .identifier
+    .strip_prefix(BOOK_PAGE)
+    .and_then(|rest| rest.strip_suffix(FEED_ENDING));
 
-    let number = match written.map(str::parse::<u64>) {
-        Some(Ok(number)) => number,
-        None => return Ok(None),
-        Some(Err(_not_a_number)) => return Ok(None),
-    };
+  let number = match written.map(str::parse::<u64>) {
+    Some(Ok(number)) => number,
+    None => return Ok(None),
+    Some(Err(_not_a_number)) => return Ok(None),
+  };
 
-    Ok(match entry.title.is_empty() {
-        false => Some(Found {
-            id: number.to_string(),
-            title: entry.title,
-            url: format!("{BOOK_PAGE}{number}"),
-            by: entry.by,
-            seconds: 0,
-            views: 0,
-            live: false,
-            picture: format!("{COVERS}{number}/pg{number}.cover.medium.jpg"),
-        }),
-        true => None,
-    })
+  Ok(match ::core::primitive::bool::then_some(entry.title.is_empty(), ()) {
+    ::core::option::Option::None => Some(Found {
+      id: number.to_string(),
+      title: entry.title,
+      url: format!("{BOOK_PAGE}{number}"),
+      by: entry.by,
+      seconds: 0,
+      views: 0,
+      live: LiveStatus::NotLive,
+      picture: format!("{COVERS}{number}/pg{number}.cover.medium.jpg"),
+    }),
+    ::core::option::Option::Some(()) => None,
+  })
 }
 
 pub fn publication(page: &str) -> Result<String, Never> {
-    Ok(format!("{page}.{PUBLICATION}"))
+  Ok(format!("{page}.{PUBLICATION}"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const ANSWER: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+  const ANSWER: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
 <id>http://www.gutenberg.org/ebooks/search.opds/?query=meditations</id>
 <title>Books: meditations</title>
@@ -107,65 +111,74 @@ mod tests {
 </entry>
 </feed>"#;
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    fn found() -> Result<Vec<Found>, Never> {
-        found_in(ANSWER)
-    }
+  fn found() -> Result<Vec<Found>, Never> {
+    found_in(ANSWER)
+  }
 
-    fn first() -> Result<Found, Failure> {
-        let Ok(found) = found();
-        let first = found.into_iter().next().ok_or("no book found")?;
+  fn first() -> Result<Found, Failure> {
+    let Ok(found) = found();
+    let first = found.into_iter().next().ok_or("no book found")?;
 
-        Ok(first)
-    }
+    Ok(first)
+  }
 
-    #[test]
-    fn a_heading_is_not_a_book_and_a_book_needs_a_title() {
-        let Ok(found) = found();
-        let titles: Vec<String> = found.into_iter().map(|found| found.title).collect();
+  #[test]
+  fn a_heading_is_not_a_book_and_a_book_needs_a_title() {
+    let Ok(found) = found();
+    let titles: Vec<String> = found.into_iter().map(|found_2| found_2.title).collect();
 
-        assert_eq!(titles, vec!["Meditations", "The Imitation of Christ"]);
-    }
+    assert_eq!(titles, vec!["Meditations", "The Imitation of Christ"]);
+  }
 
-    #[test]
-    fn the_author_is_said_as_the_library_says_it() {
-        let Ok(found) = found();
-        let by: Vec<&str> = found.iter().map(|book| book.by.as_str()).collect();
+  #[test]
+  fn the_author_is_said_as_the_library_says_it() {
+    let Ok(found) = found();
+    let by: Vec<&str> = found.iter().map(|book| book.by.as_str()).collect();
 
-        assert_eq!(by, ["Emperor of Rome Marcus Aurelius", "\u{e0} Kempis Thomas"]);
-    }
+    assert_eq!(
+      by,
+      ["Emperor of Rome Marcus Aurelius", "\u{e0} Kempis Thomas"]
+    );
+  }
 
-    #[test]
-    fn the_cover_is_the_one_the_library_keeps_for_that_number() -> Result<(), Failure> {
-        let first = first()?;
+  #[test]
+  fn the_cover_is_the_one_the_library_keeps_for_that_number() -> Result<(), Failure> {
+    let first = first()?;
 
-        assert_eq!(first.picture, "https://www.gutenberg.org/cache/epub/2680/pg2680.cover.medium.jpg");
+    assert_eq!(
+      first.picture,
+      "https://www.gutenberg.org/cache/epub/2680/pg2680.cover.medium.jpg"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_book_is_fetched_from_gutenberg_whatever_link_the_answer_carried() -> Result<(), Failure> {
-        let first = first()?;
+  #[test]
+  fn a_book_is_fetched_from_gutenberg_whatever_link_the_answer_carried() -> Result<(), Failure> {
+    let first = first()?;
 
-        assert_eq!(first.url, "https://www.gutenberg.org/ebooks/2680");
-        assert_eq!(publication(&first.url), Ok("https://www.gutenberg.org/ebooks/2680.epub3.images".to_string()));
+    assert_eq!(first.url, "https://www.gutenberg.org/ebooks/2680");
+    assert_eq!(
+      publication(&first.url),
+      Ok("https://www.gutenberg.org/ebooks/2680.epub3.images".to_string())
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn an_answer_that_is_not_one_is_no_books() {
-        assert_eq!(found_in("<html>busy</html>"), Ok(Vec::new()));
-        assert_eq!(found_in(""), Ok(Vec::new()));
-    }
+  #[test]
+  fn an_answer_that_is_not_one_is_no_books() {
+    assert_eq!(found_in("<html>busy</html>"), Ok(Vec::new()));
+    assert_eq!(found_in(""), Ok(Vec::new()));
+  }
 
-    #[test]
-    fn what_is_typed_is_one_encoded_value_and_never_a_flag() {
-        let Ok(arguments) = search("--output /etc/passwd");
+  #[test]
+  fn what_is_typed_is_one_encoded_value_and_never_a_flag() {
+    let Ok(arguments) = search("--output /etc/passwd");
 
-        assert!(arguments.contains(&"query=--output /etc/passwd".to_string()));
-        assert_eq!(arguments.last().map(String::as_str), Some(SEARCH));
-    }
+    assert!(arguments.contains(&"query=--output /etc/passwd".to_string()));
+    assert_eq!(arguments.last().map(String::as_str), Some(SEARCH));
+  }
 }

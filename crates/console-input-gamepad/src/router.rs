@@ -48,56 +48,56 @@ pub const PASSED: [&str; 2] = ["LeftTrigger", "RightTrigger"];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Router {
-    pub buttons: Vec<&'static str>,
-    pub without: Vec<String>,
+  pub buttons: Vec<&'static str>,
+  pub without: Vec<String>,
 }
 
 impl Router {
-    pub fn of(capabilities: &BTreeSet<String>) -> Result<Self, Never> {
-        let mut router = Router::default();
+  pub fn of(capabilities: &BTreeSet<String>) -> Result<Self, Never> {
+    let mut router = Router::default();
 
-        for capability in capabilities {
-            let button = match capability.strip_prefix(BUTTON) {
-                Some(button) => button,
-                None => continue,
-            };
+    for capability in capabilities {
+      let button = match capability.strip_prefix(BUTTON) {
+        Some(button) => button,
+        None => continue,
+      };
 
-            match button.ends_with("Trigger") || button.ends_with("StickTouch") {
-                true => continue,
-                false => {},
-            }
+      match ::core::primitive::bool::then_some(button.ends_with("Trigger") || button.ends_with("StickTouch"), ()) {
+        ::core::option::Option::Some(()) => continue,
+        ::core::option::Option::None => {}
+      }
 
-            match routing::ROUTE.iter().find(|(named, _)| *named == button) {
-                Some((named, _)) => router.buttons.push(named),
-                None => router.without.push(button.to_string()),
-            }
-        }
-
-        router.buttons.sort_unstable_by_key(|button| {
-            routing::ROUTE.iter().position(|(named, _)| named == button)
-        });
-
-        Ok(router)
+      match routing::ROUTE.iter().find(|(named, _)| *named == button) {
+        Some((named, _)) => router.buttons.push(named),
+        None => router.without.push(button.to_string()),
+      }
     }
 
-    pub fn has(&self, button: &str) -> Result<Has, Never> {
-        Ok(match self.buttons.contains(&button) {
-            true => Has::Yes,
-            false => Has::No,
-        })
+    router.buttons.sort_unstable_by_key(|button| {
+      routing::ROUTE.iter().position(|(named, _)| named == button)
+    });
+
+    Ok(router)
+  }
+
+  pub fn has(&self, button: &str) -> Result<Has, Never> {
+    Ok(match ::core::primitive::bool::then_some(self.buttons.contains(&button), ()) {
+      ::core::option::Option::Some(()) => Has::Yes,
+      ::core::option::Option::None => Has::No,
+    })
+  }
+
+  pub fn yaml(&self) -> Result<String, Never> {
+    let mut asked = String::new();
+
+    for target in crate::targets::ASKED {
+      let Ok(name) = target.as_str();
+
+      asked.push_str(&format!("  - {name}\n"));
     }
 
-    pub fn yaml(&self) -> Result<String, Never> {
-        let mut asked = String::new();
-
-        for target in crate::targets::ASKED {
-            let Ok(name) = target.as_str();
-
-            asked.push_str(&format!("  - {name}\n"));
-        }
-
-        let mut said = String::from(
-            "# Written by `console apply`, out of what this device says it can send.\n\
+    let mut said = String::from(
+      "# Written by `console apply`, out of what this device says it can send.\n\
              #\n\
              # Nothing here says what a button means. Every button goes to something the\n\
              # controller daemon can tell from every other button, and what a press comes\n\
@@ -111,220 +111,243 @@ impl Router {
              name: Router\n\
              description: Every button, said as itself, for the daemon to read.\n\
              target_devices:\n",
-        );
-        said.push_str(&asked);
-        said.push_str("\nmapping:\n");
-        said.push_str(&format!(
+    );
+    said.push_str(&asked);
+    said.push_str("\nmapping:\n");
+    said.push_str(&format!(
             "  - name: Left stick - move the pointer, and reach the pad as itself\n\
              \x20   source_event:\n      gamepad:\n        axis:\n          name: LeftStick\n\
              \x20   target_events:\n      - mouse:\n          motion:\n            speed_pps: {POINTER_PPS}\n\
              \x20     - gamepad:\n          axis:\n            name: LeftStick\n\n"
         ));
-        said.push_str(
+    said.push_str(
             "  - name: Right stick - the wheel, turned by the daemon\n\
              \x20   source_event:\n      gamepad:\n        axis:\n          name: RightStick\n\
              \x20   target_events:\n      - gamepad:\n          axis:\n            name: RightStick\n\n",
         );
 
-        for trigger in PASSED {
-            said.push_str(&format!(
-                "  - name: {trigger} - a layer, held\n\
+    for trigger in PASSED {
+      said.push_str(&format!(
+        "  - name: {trigger} - a layer, held\n\
                  \x20   source_event:\n      gamepad:\n        trigger:\n\
                  \x20         name: {trigger}\n          deadzone: 0.3\n\
                  \x20   target_events:\n      - gamepad:\n          trigger:\n\
                  \x20           name: {trigger}\n\n"
-            ));
-        }
-
-        for button in &self.buttons {
-            let mapping = routing::mapping_for(button)?;
-
-            match mapping {
-                Some(mapping) => said.push_str(&mapping),
-                None => {},
-            }
-        }
-
-        Ok(said)
+      ));
     }
+
+    for button in &self.buttons {
+      let mapping = routing::mapping_for(button)?;
+
+      match mapping {
+        Some(mapping_2) => said.push_str(&mapping_2),
+        None => {}
+      }
+    }
+
+    Ok(said)
+  }
 }
 
 pub fn legion_go() -> Result<BTreeSet<String>, Never> {
-    Ok(crate::vocabulary::BUTTONS
-        .iter()
-        .map(|(_, named)| format!("{BUTTON}{named}"))
-        .chain(crate::vocabulary::AXES.iter().map(|(_, named)| format!("Gamepad:Axis:{named}")))
-        .chain(
-            crate::vocabulary::TRIGGERS
-                .iter()
-                .map(|(_, named)| format!("Gamepad:Trigger:{named}")),
-        )
-        .collect())
+  Ok(
+    crate::vocabulary::BUTTONS
+      .iter()
+      .map(|(_, named)| format!("{BUTTON}{named}"))
+      .chain(
+        crate::vocabulary::AXES
+          .iter()
+          .map(|(_, named)| format!("Gamepad:Axis:{named}")),
+      )
+      .chain(
+        crate::vocabulary::TRIGGERS
+          .iter()
+          .map(|(_, named)| format!("Gamepad:Trigger:{named}")),
+      )
+      .collect(),
+  )
 }
 
 #[cfg(feature = "read")]
 impl Router {
-    pub fn profile(&self) -> Result<crate::profile::Profile, crate::GamepadError> {
-        let Ok(yaml) = self.yaml();
+  pub fn profile(&self) -> Result<crate::profile::Profile, crate::GamepadError> {
+    let Ok(yaml) = self.yaml();
 
-        crate::profile::Profile::read(std::path::Path::new(FILE), &yaml)
-    }
+    crate::profile::Profile::read(std::path::Path::new(FILE), &yaml)
+  }
 }
 
 #[cfg(feature = "read")]
 pub fn every_profile(
-    root: &std::path::Path,
+  root: &std::path::Path,
 ) -> Result<std::collections::BTreeMap<String, crate::profile::Profile>, crate::GamepadError> {
-    let mut profiles = crate::profile::load_all(root)?;
+  let mut profiles = crate::profile::load_all(root)?;
 
-    let Ok(every) = legion_go();
+  let Ok(every) = legion_go();
 
-    let Ok(router) = Router::of(&every);
+  let Ok(router) = Router::of(&every);
 
-    let routed = router.profile()?;
+  let routed = router.profile()?;
 
-    profiles.insert(NAME.to_string(), routed);
-    Ok(profiles)
+  profiles.insert(NAME.to_string(), routed);
+  Ok(profiles)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::GamepadError;
-    use crate::profile::{Kind, Profile, Source, Target};
-    use std::path::Path;
+  use super::*;
+  use crate::GamepadError;
+  use crate::profile::{Kind, Profile, Source, Target};
+  use std::path::Path;
 
-    fn legion() -> Result<BTreeSet<String>, Never> {
-        Ok([
-            "Gamepad:Button:South",
-            "Gamepad:Button:North",
-            "Gamepad:Button:DPadUp",
-            "Gamepad:Button:LeftPaddle1",
-            "Gamepad:Button:QuickAccess",
-            "Gamepad:Button:LeftTrigger",
-            "Gamepad:Button:LeftStickTouch",
-            "Gamepad:Axis:LeftStick",
-            "Gamepad:Trigger:LeftTrigger",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect())
+  fn legion() -> Result<BTreeSet<String>, Never> {
+    Ok(
+      [
+        "Gamepad:Button:South",
+        "Gamepad:Button:North",
+        "Gamepad:Button:DPadUp",
+        "Gamepad:Button:LeftPaddle1",
+        "Gamepad:Button:QuickAccess",
+        "Gamepad:Button:LeftTrigger",
+        "Gamepad:Button:LeftStickTouch",
+        "Gamepad:Axis:LeftStick",
+        "Gamepad:Trigger:LeftTrigger",
+      ]
+      .into_iter()
+      .map(String::from)
+      .collect(),
+    )
+  }
+
+  fn written(router: &Router) -> Result<Profile, GamepadError> {
+    let Ok(yaml) = router.yaml();
+
+    Profile::read(Path::new(FILE), &yaml)
+  }
+
+  #[test]
+  fn every_button_the_device_has_is_routed() {
+    let Ok(legion) = legion();
+    let Ok(router) = Router::of(&legion);
+
+    assert_eq!(
+      router.buttons,
+      ["South", "DPadUp", "LeftPaddle1", "QuickAccess", "North"]
+    );
+    assert!(router.without.is_empty());
+  }
+
+  #[test]
+  fn a_trigger_is_not_one_of_the_buttons() {
+    let Ok(legion) = legion();
+    let Ok(router) = Router::of(&legion);
+    let Ok(yaml) = router.yaml();
+
+    assert_eq!(router.has("LeftTrigger"), Ok(Has::No));
+    assert!(yaml.contains("LeftTrigger - a layer, held"));
+  }
+
+  #[test]
+  fn a_trigger_reaches_the_pad_as_a_trigger() -> Result<(), Box<dyn std::error::Error>> {
+    let Ok(legion_go) = legion_go();
+    let Ok(router) = Router::of(&legion_go);
+    let profile = written(&router)?;
+
+    for trigger in PASSED {
+      let held = profile
+        .mappings
+        .iter()
+        .find(|mapping| {
+          mapping.source
+            == Source::Trigger {
+              name: trigger.to_string(),
+              deadzone: Some(0.3),
+            }
+        })
+        .ok_or_else(|| format!("{trigger} is not in the profile"))?;
+
+      assert_eq!(
+        held.targets,
+        [Target {
+          kind: Kind::GamepadTrigger,
+          name: trigger.to_string()
+        }],
+        "{trigger} does not come out of the profile as itself",
+      );
     }
 
-    fn written(router: &Router) -> Result<Profile, GamepadError> {
-        let Ok(yaml) = router.yaml();
+    Ok(())
+  }
 
-        Profile::read(Path::new(FILE), &yaml)
-    }
+  #[test]
+  fn a_button_nothing_here_can_name_is_said_rather_than_dropped() {
+    let Ok(mut odd) = legion();
 
-    #[test]
-    fn every_button_the_device_has_is_routed() {
-        let Ok(legion) = legion();
-        let Ok(router) = Router::of(&legion);
+    odd.insert("Gamepad:Button:ThirdShoulder".to_string());
 
-        assert_eq!(router.buttons, ["South", "DPadUp", "LeftPaddle1", "QuickAccess", "North"]);
-        assert!(router.without.is_empty());
-    }
+    let Ok(router) = Router::of(&odd);
+    let Ok(yaml) = router.yaml();
 
-    #[test]
-    fn a_trigger_is_not_one_of_the_buttons() {
-        let Ok(legion) = legion();
-        let Ok(router) = Router::of(&legion);
-        let Ok(yaml) = router.yaml();
+    assert_eq!(router.without, ["ThirdShoulder"]);
+    assert!(!yaml.contains("ThirdShoulder"));
+  }
 
-        assert_eq!(router.has("LeftTrigger"), Ok(Has::No));
-        assert!(yaml.contains("LeftTrigger - a layer, held"));
-    }
+  #[test]
+  fn what_it_writes_is_a_profile_that_reads_back() -> Result<(), GamepadError> {
+    let Ok(legion) = legion();
+    let Ok(router) = Router::of(&legion);
+    let profile = written(&router)?;
 
-    #[test]
-    fn a_trigger_reaches_the_pad_as_a_trigger() -> Result<(), Box<dyn std::error::Error>> {
-        let Ok(legion_go) = legion_go();
-        let Ok(router) = Router::of(&legion_go);
-        let profile = written(&router)?;
+    assert_eq!(profile.name, "Router");
+    assert_eq!(profile.publishes("xbox-elite"), Ok(Has::Yes));
+    assert_eq!(profile.publishes("keyboard"), Ok(Has::Yes));
+    assert_eq!(profile.publishes("mouse"), Ok(Has::Yes));
+    assert_eq!(
+      profile.mappings.len(),
+      router.buttons.len().saturating_add(4)
+    );
+    assert!(
+      profile
+        .mappings
+        .iter()
+        .any(|mapping| mapping.source == Source::Button("LeftPaddle1".to_string()))
+    );
 
-        for trigger in PASSED {
-            let held = profile
-                .mappings
-                .iter()
-                .find(|mapping| mapping.source == Source::Trigger {
-                    name: trigger.to_string(),
-                    deadzone: Some(0.3),
-                })
-                .ok_or_else(|| format!("{trigger} is not in the profile"))?;
+    Ok(())
+  }
 
-            assert_eq!(
-                held.targets,
-                [Target { kind: Kind::GamepadTrigger, name: trigger.to_string() }],
-                "{trigger} does not come out of the profile as itself",
-            );
-        }
+  #[test]
+  fn the_pointer_is_left_where_it_is_smooth() {
+    let Ok(legion) = legion();
+    let Ok(router) = Router::of(&legion);
+    let Ok(yaml) = router.yaml();
 
-        Ok(())
-    }
+    assert!(yaml.contains("speed_pps: 900"), "{yaml}");
+  }
 
-    #[test]
-    fn a_button_nothing_here_can_name_is_said_rather_than_dropped() {
-        let Ok(mut odd) = legion();
+  #[test]
+  fn the_machine_this_grew_on_is_routed_whole() -> Result<(), GamepadError> {
+    let Ok(legion_go) = legion_go();
+    let Ok(router) = Router::of(&legion_go);
+    let _profile = router.profile()?;
 
-        odd.insert("Gamepad:Button:ThirdShoulder".to_string());
+    assert!(router.without.is_empty(), "{:?}", router.without);
+    assert_eq!(router.buttons.len(), routing::ROUTE.len());
 
-        let Ok(router) = Router::of(&odd);
-        let Ok(yaml) = router.yaml();
+    Ok(())
+  }
 
-        assert_eq!(router.without, ["ThirdShoulder"]);
-        assert!(!yaml.contains("ThirdShoulder"));
-    }
+  #[test]
+  fn a_device_with_almost_nothing_still_gets_a_profile() -> Result<(), GamepadError> {
+    let bare: BTreeSet<String> = ["Gamepad:Button:South"]
+      .into_iter()
+      .map(String::from)
+      .collect();
+    let Ok(router) = Router::of(&bare);
+    let profile = written(&router)?;
 
-    #[test]
-    fn what_it_writes_is_a_profile_that_reads_back() -> Result<(), GamepadError> {
-        let Ok(legion) = legion();
-        let Ok(router) = Router::of(&legion);
-        let profile = written(&router)?;
+    assert_eq!(profile.mappings.len(), 5);
 
-        assert_eq!(profile.name, "Router");
-        assert_eq!(profile.publishes("xbox-elite"), Ok(Has::Yes));
-        assert_eq!(profile.publishes("keyboard"), Ok(Has::Yes));
-        assert_eq!(profile.publishes("mouse"), Ok(Has::Yes));
-        assert_eq!(profile.mappings.len(), router.buttons.len().saturating_add(4));
-        assert!(
-            profile
-                .mappings
-                .iter()
-                .any(|mapping| mapping.source == Source::Button("LeftPaddle1".to_string()))
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_pointer_is_left_where_it_is_smooth() {
-        let Ok(legion) = legion();
-        let Ok(router) = Router::of(&legion);
-        let Ok(yaml) = router.yaml();
-
-        assert!(yaml.contains("speed_pps: 900"), "{yaml}");
-    }
-
-    #[test]
-    fn the_machine_this_grew_on_is_routed_whole() -> Result<(), GamepadError> {
-        let Ok(legion_go) = legion_go();
-        let Ok(router) = Router::of(&legion_go);
-        let _profile = router.profile()?;
-
-        assert!(router.without.is_empty(), "{:?}", router.without);
-        assert_eq!(router.buttons.len(), routing::ROUTE.len());
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_device_with_almost_nothing_still_gets_a_profile() -> Result<(), GamepadError> {
-        let bare: BTreeSet<String> = ["Gamepad:Button:South"].into_iter().map(String::from).collect();
-        let Ok(router) = Router::of(&bare);
-        let profile = written(&router)?;
-
-        assert_eq!(profile.mappings.len(), 5);
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

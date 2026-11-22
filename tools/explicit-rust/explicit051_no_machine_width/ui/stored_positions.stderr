@@ -1,0 +1,27 @@
+error: `row` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/stored_positions.rs:7:9
+   |
+LL |     let row = { *count += 1; consumed.len() };
+   |         ^^^
+   |
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+help: hold this position at a fixed width and convert it where the API needs a native index
+   |
+LL ~     let ::core::result::Result::Ok(row) = ::console_core_number_conversion::fixed_index({ *count += 1; consumed.len() });
+LL ~     bytes.get(match ::console_core_number_conversion::index(row) { ::core::result::Result::Ok(native_position) => native_position }).copied()
+   |
+
+error: `start` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/stored_positions.rs:12:9
+   |
+LL |     let start = bytes.len().saturating_sub(2);
+   |         ^^^^^
+   |
+help: hold this position at a fixed width and convert it where the API needs a native index
+   |
+LL ~     let ::core::result::Result::Ok(start) = ::console_core_number_conversion::fixed_index(bytes.len().saturating_sub(2));
+LL ~     bytes.get(match ::console_core_number_conversion::index(start) { ::core::result::Result::Ok(native_position) => native_position }..)
+   |
+
+error: aborting due to 2 previous errors
+

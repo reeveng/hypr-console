@@ -4,161 +4,188 @@
 //! of this file, so a file manager and a print dialogue arrive already wearing
 //! the palette without a widget theme being installed to do it.
 
-use console_core_color::Short;
 use crate::palette::Palette;
+use console_core_color::Short;
 
 fn rgb(code: &str) -> Result<String, Short> {
-    let code = code.trim_start_matches('#');
-    let mut said: Vec<String> = Vec::new();
+  let code_2 = code.trim_start_matches('#');
+  let mut said: Vec<String> = Vec::new();
 
-    for at in [0usize, 2, 4] {
-        let pair = code
-            .get(at..at.saturating_add(2))
-            .ok_or_else(|| Short(format!("{code} is not the six hex digits a color is")))?;
-        let number = u8::from_str_radix(pair, 16)
-            .map_err(|why| Short(format!("{pair}, in {code}, is not a hex number: {why}")))?;
-        said.push(number.to_string());
-    }
+  for at in [0usize, 2, 4] {
+    let pair = code_2.get(at..at.saturating_add(2)).ok_or_else(|| {
+      Short(format!(
+        "{code} is not the six hex digits a color is",
+        code = code_2
+      ))
+    })?;
+    let number = u8::from_str_radix(pair, 16).map_err(|why| {
+      Short(format!(
+        "{pair}, in {code}, is not a hex number: {why}",
+        code = code_2
+      ))
+    })?;
+    said.push(number.to_string());
+  }
 
-    Ok(said.join(","))
+  Ok(said.join(","))
 }
 
 const INK: [(&str, &str); 10] = [
-    ("DecorationFocus", "pink"), ("DecorationHover", "pink"),
-    ("ForegroundActive", "peach"), ("ForegroundInactive", "soft"),
-    ("ForegroundLink", "sky"), ("ForegroundNegative", "coral"),
-    ("ForegroundNeutral", "butter"), ("ForegroundNormal", "text"),
-    ("ForegroundPositive", "leaf"), ("ForegroundVisited", "mauve"),
+  ("DecorationFocus", "pink"),
+  ("DecorationHover", "pink"),
+  ("ForegroundActive", "peach"),
+  ("ForegroundInactive", "soft"),
+  ("ForegroundLink", "sky"),
+  ("ForegroundNegative", "coral"),
+  ("ForegroundNeutral", "butter"),
+  ("ForegroundNormal", "text"),
+  ("ForegroundPositive", "leaf"),
+  ("ForegroundVisited", "mauve"),
 ];
 
 const SECTIONS: [(&str, &str, &str); 6] = [
-    ("Colors:Button", "panel", "ground"),
-    ("Colors:Complementary", "ground", "night"),
-    ("Colors:Header", "ground", "night"),
-    ("Colors:Tooltip", "panel", "ground"),
-    ("Colors:View", "night", "ground"),
-    ("Colors:Window", "ground", "night"),
+  ("Colors:Button", "panel", "ground"),
+  ("Colors:Complementary", "ground", "night"),
+  ("Colors:Header", "ground", "night"),
+  ("Colors:Tooltip", "panel", "ground"),
+  ("Colors:View", "night", "ground"),
+  ("Colors:Window", "ground", "night"),
 ];
 
 const ON_A_SELECTION: [&str; 8] = [
-    "ForegroundActive", "ForegroundInactive", "ForegroundLink",
-    "ForegroundNegative", "ForegroundNeutral", "ForegroundNormal",
-    "ForegroundPositive", "ForegroundVisited",
+  "ForegroundActive",
+  "ForegroundInactive",
+  "ForegroundLink",
+  "ForegroundNegative",
+  "ForegroundNeutral",
+  "ForegroundNormal",
+  "ForegroundPositive",
+  "ForegroundVisited",
 ];
 
 pub fn spend(palette: &Palette) -> Result<String, Short> {
-    let at = |role: &str| palette.must(role).and_then(rgb);
+  let at = |role: &str| palette.must(role).and_then(rgb);
 
-    let mut lines: Vec<String> = Vec::new();
+  let mut lines: Vec<String> = Vec::new();
 
-    for (name, normal, alternate) in SECTIONS {
-        lines.push(format!("[{name}]"));
-        let second = at(alternate)?;
-        let first = at(normal)?;
+  for (name, normal, alternate) in SECTIONS {
+    lines.push(format!("[{name}]"));
+    let second = at(alternate)?;
+    let first = at(normal)?;
 
-        lines.push(format!("BackgroundAlternate={second}"));
-        lines.push(format!("BackgroundNormal={first}"));
+    lines.push(format!("BackgroundAlternate={second}"));
+    lines.push(format!("BackgroundNormal={first}"));
 
-        for (role, color) in INK {
-            let ink = at(color)?;
+    for (role, color) in INK {
+      let ink = at(color)?;
 
-            lines.push(format!("{role}={ink}"));
-        }
-
-        lines.push(String::new());
-    }
-
-    lines.push("[Colors:Selection]".to_string());
-
-    let pink = at("pink")?;
-    let night = at("night")?;
-
-    for name in ["BackgroundAlternate", "BackgroundNormal", "DecorationFocus", "DecorationHover"] {
-        lines.push(format!("{name}={pink}"));
-    }
-
-    for role in ON_A_SELECTION {
-        lines.push(format!("{role}={night}"));
+      lines.push(format!("{role}={ink}"));
     }
 
     lines.push(String::new());
+  }
 
-    lines.push("[WM]".to_string());
+  lines.push("[Colors:Selection]".to_string());
 
-    for (name, role) in [
-        ("activeBackground", "panel"),
-        ("activeBlend", "pink"),
-        ("activeForeground", "text"),
-        ("inactiveBackground", "ground"),
-        ("inactiveBlend", "soft"),
-        ("inactiveForeground", "soft"),
-    ] {
-        let color = at(role)?;
+  let pink = at("pink")?;
+  let night = at("night")?;
 
-        lines.push(format!("{name}={color}"));
-    }
+  for name in [
+    "BackgroundAlternate",
+    "BackgroundNormal",
+    "DecorationFocus",
+    "DecorationHover",
+  ] {
+    lines.push(format!("{name}={pink}"));
+  }
 
-    Ok(lines.join("\n"))
+  for role in ON_A_SELECTION {
+    lines.push(format!("{role}={night}"));
+  }
+
+  lines.push(String::new());
+
+  lines.push("[WM]".to_string());
+
+  for (name, role) in [
+    ("activeBackground", "panel"),
+    ("activeBlend", "pink"),
+    ("activeForeground", "text"),
+    ("inactiveBackground", "ground"),
+    ("inactiveBlend", "soft"),
+    ("inactiveForeground", "soft"),
+  ] {
+    let color = at(role)?;
+
+    lines.push(format!("{name}={color}"));
+  }
+
+  Ok(lines.join("\n"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
-    use crate::spend::tests::blossom;
+  use super::*;
+  use crate::spend::tests::blossom;
+  use std::error::Error;
 
-    #[test]
-    fn a_color_is_three_decimal_numbers() {
-        assert_eq!(rgb("000000"), Ok("0,0,0".to_string()));
-        assert_eq!(rgb("ffffff"), Ok("255,255,255".to_string()));
-        assert_eq!(rgb("#ff8040"), Ok("255,128,64".to_string()));
-        assert!(matches!(rgb("nope"), Err(Short(_))), "a code that is not a color is said rather than drawn");
+  #[test]
+  fn a_color_is_three_decimal_numbers() {
+    assert_eq!(rgb("000000"), Ok("0,0,0".to_string()));
+    assert_eq!(rgb("ffffff"), Ok("255,255,255".to_string()));
+    assert_eq!(rgb("#ff8040"), Ok("255,128,64".to_string()));
+    assert!(
+      matches!(rgb("nope"), Err(Short(_))),
+      "a code that is not a color is said rather than drawn"
+    );
+  }
+
+  #[test]
+  fn every_section_qt_asks_for_is_written() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let ini = spend(&palette)?;
+
+    for (name, _, _) in SECTIONS {
+      assert!(ini.contains(&format!("[{name}]")), "{name} is missing");
     }
 
-    #[test]
-    fn every_section_qt_asks_for_is_written() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let ini = spend(&palette)?;
+    assert!(ini.contains("[Colors:Selection]"));
+    assert!(ini.contains("[WM]"));
 
-        for (name, _, _) in SECTIONS {
-            assert!(ini.contains(&format!("[{name}]")), "{name} is missing");
-        }
+    Ok(())
+  }
 
-        assert!(ini.contains("[Colors:Selection]"));
-        assert!(ini.contains("[WM]"));
+  #[test]
+  fn every_foreground_on_a_selection_is_the_dark_ink() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let ini = spend(&palette)?;
+    let (_, after_heading) = ini.split_once("[Colors:Selection]").ok_or("the section")?;
+    let selection = after_heading
+      .split_once("[WM]")
+      .map_or(after_heading, |(head, _)| head);
+    let dark_ink = palette.must("night")?;
+    let night = rgb(dark_ink)?;
 
-        Ok(())
+    for role in ON_A_SELECTION {
+      assert!(
+        selection.contains(&format!("{role}={night}")),
+        "{role} on a selection is not the dark ink"
+      );
     }
 
-    #[test]
-    fn every_foreground_on_a_selection_is_the_dark_ink() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let ini = spend(&palette)?;
-        let (_, selection) = ini.split_once("[Colors:Selection]").ok_or("the section")?;
-        let selection = selection.split_once("[WM]").map_or(selection, |(head, _)| head);
-        let night = palette.must("night")?;
-        let night = rgb(night)?;
+    Ok(())
+  }
 
-        for role in ON_A_SELECTION {
-            assert!(
-                selection.contains(&format!("{role}={night}")),
-                "{role} on a selection is not the dark ink"
-            );
-        }
+  #[test]
+  fn it_parses_as_the_ini_qt_would_read() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let spent = spend(&palette)?;
 
-        Ok(())
+    for line in spent.lines().filter(|line| !line.is_empty()) {
+      let shaped = line.starts_with('[') && line.ends_with(']') || line.contains('=');
+      assert!(shaped, "{line:?} is neither a section nor a setting");
     }
 
-    #[test]
-    fn it_parses_as_the_ini_qt_would_read() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let spent = spend(&palette)?;
-
-        for line in spent.lines().filter(|line| !line.is_empty()) {
-            let shaped = line.starts_with('[') && line.ends_with(']') || line.contains('=');
-            assert!(shaped, "{line:?} is neither a section nor a setting");
-        }
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

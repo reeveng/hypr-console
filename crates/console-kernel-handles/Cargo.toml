@@ -11,6 +11,7 @@ path = "src/lib.rs"
 
 [dependencies]
 console-core-never.workspace = true
+console-core-number-conversion = { path = "../console-core-number-conversion", default-features = false }
 
 [lints]
 workspace = true

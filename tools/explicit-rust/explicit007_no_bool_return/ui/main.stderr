@@ -1,11 +1,107 @@
 error: boolean return value is forbidden
-  --> $DIR/main.rs:5:15
+  --> $DIR/main.rs:14:15
    |
 LL | fn saves() -> bool {
    |               ^^^^
    |
-   = help: use an `enum` (or `Result`) so the failure mode is visible to the caller
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
    = note: `#[deny(explicit007_no_bool_return)]` on by default
 
-error: aborting due to 1 previous error
+error: boolean return value is forbidden
+  --> $DIR/main.rs:20:18
+   |
+LL | fn is_empty() -> Result<bool, Never> {
+   |                  ^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/main.rs:26:17
+   |
+LL | fn is_full() -> Result<bool, std::convert::Infallible> {
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/main.rs:32:17
+   |
+LL | fn is_open() -> Answered<bool> {
+   |                 ^^^^^^^^^^^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/main.rs:39:26
+   |
+LL |     fn is_held(&self) -> bool;
+   |                          ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/main.rs:42:30
+   |
+LL |     fn is_provided(&self) -> Result<bool, Never> {
+   |                              ^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/main.rs:47:34
+   |
+LL |     async fn will_hold(&self) -> bool;
+   |                                  ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/main.rs:71:22
+   |
+LL | fn reads_a_flag() -> Result<bool, Unreadable> {
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/main.rs:77:21
+   |
+LL | fn gets_a_flag() -> Answered<Option<bool>> {
+   |                     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/main.rs:83:25
+   |
+LL | fn boolean_failure() -> Result<Save, bool> {
+   |                         ^^^^^^^^^^^^^^^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/main.rs:89:27
+   |
+LL | async fn ready_later() -> bool {
+   |                           ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/main.rs:95:20
+   |
+LL | fn done_later() -> impl core::future::Future<Output = Option<bool>> {
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/main.rs:101:15
+   |
+LL | fn truth() -> Result<(), bool> {
+   |               ^^^^^^^^^^^^^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: aborting due to 13 previous errors
 

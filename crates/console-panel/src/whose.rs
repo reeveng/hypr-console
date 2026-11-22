@@ -18,7 +18,7 @@
 //! program has always been, and is what every test and every fallback gets
 //! without asking for it.
 
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::path::Path;
 
 use console_core_never::Never;
@@ -26,84 +26,99 @@ use console_core_never::Never;
 const NO_ONE: &str = "console-panel";
 
 thread_local! {
-    static WHOSE: RefCell<Option<String>> = const { RefCell::new(None) };
+    static WHOSE: Cell<Option<String>> = const { Cell::new(None) };
 }
 
 pub fn set_owner(who: &str) -> Result<(), Never> {
-    let said = match who.is_empty() {
-        true => None,
-        false => Some(who.to_string()),
-    };
+  let said = match ::core::primitive::bool::then_some(who.is_empty(), ()) {
+    ::core::option::Option::Some(()) => None,
+    ::core::option::Option::None => Some(who.to_string()),
+  };
 
-    WHOSE.with(|held| *held.borrow_mut() = said);
+  WHOSE.with(|held| held.set(said));
 
-    Ok(())
+  Ok(())
 }
 
 pub fn no_one() -> Result<(), Never> {
-    WHOSE.with(|held| *held.borrow_mut() = None);
+  WHOSE.with(|held| held.set(None));
 
-    Ok(())
+  Ok(())
 }
 
 pub fn name() -> Result<String, Never> {
-    let said = WHOSE.with(|held| held.borrow().clone());
+  let said = WHOSE.with(|held| {
+    let owner = held.take();
+    let copy = owner.clone();
+    held.set(owner);
+    copy
+  });
 
-    match said {
-        Some(said) => Ok(said),
-        None => argv0(),
-    }
+  match said {
+    Some(said_2) => Ok(said_2),
+    None => argv0(),
+  }
 }
 
 pub fn argv0() -> Result<String, Never> {
-    let argv0 = std::env::args()
-        .next()
-        .and_then(|argv0| {
-            Path::new(&argv0).file_name().and_then(|name| name.to_str()).map(str::to_string)
-        })
-        .filter(|name| !name.is_empty());
-
-    Ok(match argv0 {
-        Some(whose) => whose,
-        None => NO_ONE.to_string(),
+  let argv0 = std::env::args()
+    .next()
+    .and_then(|argv0| {
+      Path::new(&argv0)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_string)
     })
+    .filter(|name| !name.is_empty());
+
+  Ok(match argv0 {
+    Some(whose) => whose,
+    None => NO_ONE.to_string(),
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn what_was_said_is_what_is_read() {
-        let Ok(()) = set_owner("settings-panel");
+  #[test]
+  fn what_was_said_is_what_is_read() {
+    let Ok(()) = set_owner("settings-panel");
 
-        assert_eq!(name(), Ok("settings-panel".to_string()));
+    assert_eq!(name(), Ok("settings-panel".to_string()));
 
-        let Ok(()) = no_one();
-    }
+    let Ok(()) = no_one();
+  }
 
-    #[test]
-    fn one_opening_does_not_leave_its_name_behind() {
-        let Ok(()) = set_owner("launcher");
-        let Ok(()) = no_one();
-        let Ok(argv0) = argv0();
+  #[test]
+  fn one_opening_does_not_leave_its_name_behind() {
+    let Ok(()) = set_owner("launcher");
+    let Ok(()) = no_one();
+    let Ok(argv0) = argv0();
 
-        assert_eq!(name(), Ok(argv0), "the next opening would draw under the last one's name");
-    }
+    assert_eq!(
+      name(),
+      Ok(argv0),
+      "the next opening would draw under the last one's name"
+    );
+  }
 
-    #[test]
-    fn a_name_that_says_nothing_is_not_a_name() {
-        let Ok(()) = set_owner("");
-        let Ok(argv0) = argv0();
+  #[test]
+  fn a_name_that_says_nothing_is_not_a_name() {
+    let Ok(()) = set_owner("");
+    let Ok(argv0) = argv0();
 
-        assert_eq!(name(), Ok(argv0));
-    }
+    assert_eq!(name(), Ok(argv0));
+  }
 
-    #[test]
-    fn the_program_is_what_a_panel_drawing_itself_is_called() {
-        let Ok(argv0) = argv0();
+  #[test]
+  fn the_program_is_what_a_panel_drawing_itself_is_called() {
+    let Ok(argv0) = argv0();
 
-        assert!(!argv0.is_empty(), "a surface with no namespace is one nothing can find");
-        assert!(!argv0.contains('/'), "the namespace is a name, not a path");
-    }
+    assert!(
+      !argv0.is_empty(),
+      "a surface with no namespace is one nothing can find"
+    );
+    assert!(!argv0.contains('/'), "the namespace is a name, not a path");
+  }
 }

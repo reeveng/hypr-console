@@ -1,0 +1,61 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_number_conversion.rs
+#![deny(unused_parens)]
+
+extern crate console_core_number_conversion;
+
+type WireWord = i16;
+
+const fn widen_signed(value: i8) -> u16 {
+    value as u16
+}
+
+const fn narrow_unsigned(value: u64) -> WireWord {
+    value as WireWord
+}
+
+const fn to_index(value: u8) -> usize {
+    value as _
+}
+
+const fn same_width(value: i32) -> i32 {
+    value as i32
+}
+
+macro_rules! source {
+    () => { 255_u8 };
+}
+
+const SIGN_EXTENDED: u16 = widen_signed(-128);
+const NARROWED: i16 = narrow_unsigned(0x1ffff);
+const INDEX: usize = to_index(137);
+const UNCHANGED: i32 = same_width(-9);
+const MACRO_OPERAND: usize = source!() as usize;
+const FLAG: usize = matches!(MACRO_OPERAND, 255) as usize;
+
+const fn pair_sum((left, right): (u16, u16)) -> u16 {
+    left + right
+}
+
+const BINARY: u8 = (pair_sum((1, 2)) + 1_u32 as u16) as u8;
+const LEFT_CAST: u8 = (1_u32 as u16 + 3) as u8;
+
+const _: () = {
+    assert!(SIGN_EXTENDED == 65408);
+    assert!(NARROWED == -1);
+    assert!(INDEX == 137);
+    assert!(UNCHANGED == -9);
+    assert!(MACRO_OPERAND == 255);
+    assert!(FLAG == 1);
+    assert!(BINARY == 4);
+    assert!(LEFT_CAST == 4);
+};
+
+fn runtime(value: i32) -> (u8, WireWord) {
+    (value as _, value as WireWord)
+}
+
+fn main() {
+    assert_eq!(runtime(-257), (255, -257));
+}

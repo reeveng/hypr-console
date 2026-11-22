@@ -20,580 +20,772 @@
 //! middle of a sentence leaves a desktop that is not listening rather than one
 //! that thinks it still is.
 
-use std::path::Path;
+use std::ffi::OsString;
+use std::io;
+use std::os::fd::{AsFd, OwnedFd};
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-use console_core_internal_programs::InternalProgram;
-use console_program_lifetime::let_go;
 use console_core_arguments::{Presence, Reason, ValidationError};
-use console_input_dictation::{
-    BUILD, COMMAND, FETCH, VoiceActivity, detect_speech, cloning, compiling, configuring, fetching, whisper_arguments, languages, whisper_binary, making,
-    Note, model, recording, recording_path, serialize_note, taking, tidy, told_by, typing, whisper,
-};
-use console_core_external_programs::Program;
 use console_core_atomic_writes::Stored;
+use console_core_external_programs::Program;
+use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
+use console_input_dictation::{
+  BUILD, COMMAND, FETCH, Note, VoiceActivity, cloning, compiling, configuring, detect_speech,
+  fetching, languages, making, model, recording, recording_path, serialize_note, taking, tidy,
+  told_by, typing, whisper, whisper_arguments, whisper_binary,
+};
+use console_program_lifetime::let_go;
 use console_response_times::{Wait, Waiting};
-use console_waiting::{Schedule, Ready, until};
-use rustix::process::{Pid, kill_process, Signal};
-use std::path::PathBuf;
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
+use rustix::fs::{FileType, FlockOperation, Mode, OFlags, flock, fstat, open};
+use rustix::io::Errno;
+use rustix::process::{Pid, PidfdFlags, Signal, pidfd_open, pidfd_send_signal};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Task {
-    Fetch,
-    Build,
-    Dictate,
+  Fetch,
+  Build,
+  Dictate,
 }
 
 fn task(words: &[String]) -> Result<Task, ValidationError> {
-    let line = console_core_arguments::read(&COMMAND, words)?;
-    let Ok(fetch) = line.presence(FETCH);
-    let Ok(build) = line.presence(BUILD);
+  let line = console_core_arguments::read(&COMMAND, words)?;
+  let Ok(fetch) = line.presence(FETCH);
+  let Ok(build) = line.presence(BUILD);
 
-    match (fetch, build) {
-        (Presence::Present, Presence::Absent) => Ok(Task::Fetch),
-        (Presence::Absent, Presence::Present) => Ok(Task::Build),
-        (Presence::Absent, Presence::Absent) => Ok(Task::Dictate),
-        (Presence::Present, Presence::Present) => {
-            let Ok(refusal) = line.refusal(Reason::ExtraArgument(BUILD.spelling.to_string()));
+  match (fetch, build) {
+    (Presence::Present, Presence::Absent) => Ok(Task::Fetch),
+    (Presence::Absent, Presence::Present) => Ok(Task::Build),
+    (Presence::Absent, Presence::Absent) => Ok(Task::Dictate),
+    (Presence::Present, Presence::Present) => {
+      let Ok(refusal) = line.refusal(Reason::ExtraArgument(BUILD.spelling.to_string()));
 
-            Err(refusal)
-        }
+      Err(refusal)
     }
+  }
 }
 
 fn main() -> ExitCode {
-    let asked: Vec<String> = std::env::args().skip(1).collect();
-    let task = match task(&asked) {
-        Ok(task) => task,
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
+  let asked: Vec<String> = std::env::args().skip(1).collect();
+  let task = match task(&asked) {
+    Ok(task) => task,
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
 
-            return ExitCode::from(code);
-        }
-    };
-
-    match task {
-        Task::Fetch => {
-            match fetched() {
-                Ok(()) => {},
-                Err(why) => {
-                    let Ok(()) = report("model", Failure {
-                        summary: "Couldn't download the language",
-                        body: &why.to_string(),
-                    });
-                }
-            }
-
-            match built() {
-                Ok(()) => {},
-                Err(why) => {
-                    let Ok(()) = report("hearing", Failure {
-                        summary: "Couldn't set up dictation",
-                        body: &why.to_string(),
-                    });
-                }
-            }
-
-            ExitCode::SUCCESS
-        }
-        Task::Build => {
-            match built() {
-                Ok(()) => {},
-                Err(why) => {
-                    let Ok(()) = report("hearing", Failure {
-                        summary: "Couldn't set up dictation",
-                        body: &why.to_string(),
-                    });
-                }
-            }
-
-            ExitCode::SUCCESS
-        },
-        Task::Dictate => {
-            let Ok(taken) = claim_state();
-
-            match taken {
-                Claimed::Yes => {
-                    let Ok(()) = wrote_down();
-                }
-                Claimed::No => {
-                    let Ok(()) = listen();
-                }
-            }
-
-            ExitCode::SUCCESS
-        }
+      return ExitCode::from(code);
     }
-}
+  };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Claimed {
-    Yes,
-    No,
-}
-
-fn claim_state() -> Result<Claimed, Never> {
-    let Ok(holder) = holder();
-
-    Ok(match holder.is_some() {
-        true => Claimed::Yes,
-        false => Claimed::No,
-    })
-}
-
-fn holder() -> Result<Option<(i32, u32)>, Never> {
-    let Ok(at) = taking();
-
-    let Ok(held) = console_core_atomic_writes::read(&at);
-
-    let note = match held {
-        Stored::Text(note) => note,
-        Stored::Absent => return Ok(None),
-
-        Stored::Failed(fault) => {
-            eprintln!("{}: reading who is holding the microphone: {fault}", at.display());
-            return Ok(None);
-        }
-    };
-    let Ok(told) = told_by(&note);
-
-    let (pid, press) = match told {
-        Some((pid, press)) => (pid, press),
-        None => return Ok(None),
-    };
-
-    Ok(Path::new(&format!("/proc/{pid}")).exists().then_some((pid, press)))
-}
-
-fn listen() -> Result<(), Never> {
-    let Ok(mut waiting) = Waiting::on(Wait { who: "console-dictate", what: "listening" });
-    let press = std::process::id();
-    let Ok(into) = recording_path(press);
-
-    match into.parent() {
-        Some(parent) => {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        None => {},
-    }
-
-    let Ok(arguments) = recording(&into);
-
-    let (program, rest) = match arguments.split_first() {
-        Some((program, rest)) => (program, rest),
-        None => {
-            let Ok(()) = report("microphone", Failure {
-                summary: "Couldn't record",
-                body: "No recording app is installed.",
-            });
-
-            return Ok(());
-        }
-    };
-
-    let mut starting = Command::new(program);
-    starting.args(rest).stdin(Stdio::null()).stdout(Stdio::null());
-
-    let started = let_go(&mut starting);
-
-    match started {
+  match task {
+    Task::Fetch => {
+      match fetched() {
+        Ok(()) => {}
         Err(why) => {
-            let Ok(()) = report("microphone", Failure {
-                summary: "Couldn't record",
-                body: &why.to_string(),
-            });
+          let Ok(()) = report(
+            "model",
+            Failure {
+              summary: "Couldn't download the language",
+              body: &why.to_string(),
+            },
+          );
         }
-        Ok(child) => {
-            let Ok(id) = child.id();
-            let Ok(at) = taking();
-            let Ok(note) = serialize_note(Note { recorder: id, press });
-            let _ = console_core_atomic_writes::whole(&at, note.as_bytes());
-            let Ok(()) = waiting.mark("microphone");
-            let Ok(()) = notify("Listening", UNTIL_IT_CHANGES);
-            let Ok(()) = waiting.finish();
-            let Ok(()) = console_response_times::flush();
-        }
-    }
+      }
 
-    Ok(())
+      match built() {
+        Ok(()) => {}
+        Err(why) => {
+          let Ok(()) = report(
+            "hearing",
+            Failure {
+              summary: "Couldn't set up dictation",
+              body: &why.to_string(),
+            },
+          );
+        }
+      }
+
+      ExitCode::SUCCESS
+    }
+    Task::Build => {
+      match built() {
+        Ok(()) => {}
+        Err(why) => {
+          let Ok(()) = report(
+            "hearing",
+            Failure {
+              summary: "Couldn't set up dictation",
+              body: &why.to_string(),
+            },
+          );
+        }
+      }
+
+      ExitCode::SUCCESS
+    }
+    Task::Dictate => {
+      match microphone() {
+        Ok(Some(recorded)) => {
+          let Ok(()) = wrote_down(recorded);
+        }
+        Ok(None) => {}
+        Err(fault) => {
+          let Ok(()) = report(
+            "microphone",
+            Failure {
+              summary: "Couldn't finish the microphone request",
+              body: &fault.to_string(),
+            },
+          );
+        }
+      }
+
+      ExitCode::SUCCESS
+    }
+  }
 }
 
-fn wrote_down() -> Result<(), Never> {
-    let Ok(mut waiting) = Waiting::on(Wait { who: "console-dictate", what: "writing it down" });
-    let Ok(holder) = holder();
+struct Recorder {
+  process: OwnedFd,
+  press: u32,
+}
 
-    let (pid, press) = match holder {
-        Some((pid, press)) => (pid, press),
-        None => return Ok(()),
-    };
+struct Recorded {
+  at: PathBuf,
+  waited: Waiting,
+}
 
-    match Pid::from_raw(pid) {
-        Some(holding) => {
-            let _ = kill_process(holding, Signal::INT);
-        }
-        None => return Ok(()),
+fn microphone() -> io::Result<Option<Recorded>> {
+  let Ok(note) = taking();
+  let parent = note
+    .parent()
+    .ok_or_else(|| io::Error::other("nowhere to keep the recording"))?;
+
+  let acquired = lock_directory(parent)?;
+  let _held_during_transition = match acquired {
+    Some(lock) => lock,
+    None => {
+      let Ok(()) = notify("The microphone is finishing the previous request", BRIEFLY);
+
+      return Ok(None);
     }
+  };
 
-    let Ok(()) = gone(pid);
-    let Ok(at) = taking();
-    let _ = std::fs::remove_file(at);
+  let active = holder(&note)?;
 
-    let Ok(()) = waiting.mark("stopped");
-    let Ok(recorded) = recording_path(press);
-    let Ok(()) = read_out(&recorded, &mut waiting);
-    let _ = std::fs::remove_file(&recorded);
+  match active {
+    Some(recorder) => {
+      let Ok(mut waited) = Waiting::on(Wait {
+        who: "console-dictate",
+        what: "writing it down",
+      });
 
-    let Ok(()) = waiting.finish();
-    let Ok(()) = console_response_times::flush();
+      stop(&recorder.process)?;
+      remove_file(&note)?;
 
-    Ok(())
+      let Ok(()) = waited.mark("stopped");
+      let Ok(at) = recording_path(recorder.press);
+
+      Ok(Some(Recorded { at, waited }))
+    }
+    None => {
+      listen(&note)?;
+
+      Ok(None)
+    }
+  }
+}
+
+fn holder(at: &Path) -> io::Result<Option<Recorder>> {
+  let Ok(held) = console_core_atomic_writes::read(at);
+  let note = match held {
+    Stored::Text(note) => note,
+    Stored::Absent => return Ok(None),
+    Stored::Failed(fault) => return Err(io::Error::other(fault)),
+  };
+
+  recorder_from_note(&note)
+}
+
+fn recorder_from_note(note: &str) -> io::Result<Option<Recorder>> {
+  let Ok(told) = told_by(note);
+  let (pid, press) = match told {
+    Some((pid @ 1.., press)) => (pid, press),
+    Some((..=0, _)) | None => return Ok(None),
+  };
+  let pid_2 =
+    Pid::from_raw(pid).ok_or_else(|| io::Error::other("the recorder has no process ID"))?;
+  let process = match pidfd_open(pid_2, PidfdFlags::empty()) {
+    Ok(process) => process,
+    Err(Errno::SRCH) => return Ok(None),
+    Err(fault) => return Err(io::Error::from(fault)),
+  };
+
+  match note.split_whitespace().nth(2) {
+    Some(inode) => {
+      let recorded = inode.parse::<u64>().map_err(io::Error::other)?;
+      let named = fstat(&process)?;
+
+      match bool::then_some(named.st_ino == recorded, ()) {
+        Some(()) => {}
+        None => return Ok(None),
+      }
+    }
+    None => {}
+  }
+
+  Ok(Some(Recorder { process, press }))
+}
+
+fn listen(note_at: &Path) -> io::Result<()> {
+  let Ok(mut waiting) = Waiting::on(Wait {
+    who: "console-dictate",
+    what: "listening",
+  });
+  let press = std::process::id();
+  let Ok(into) = recording_path(press);
+
+  let Ok(arguments) = recording(&into);
+  let (program, rest) = arguments
+    .split_first()
+    .ok_or_else(|| io::Error::other("No recording app is installed."))?;
+
+  let mut starting = Command::new(program);
+  starting
+    .args(rest)
+    .stdin(Stdio::null())
+    .stdout(Stdio::null());
+
+  let mut child = starting.spawn()?;
+  let saved = save_recorder(&child, press, note_at);
+
+  match saved {
+    Ok(()) => {}
+    Err(fault) => {
+      match child.kill() {
+        Ok(()) => match child.wait() {
+          Ok(_ended) => {}
+          Err(why) => eprintln!("console-dictate: reaping the unregistered recorder: {why}"),
+        },
+        Err(why) => eprintln!("console-dictate: stopping the unregistered recorder: {why}"),
+      }
+
+      return Err(fault);
+    }
+  }
+
+  let Ok(()) = waiting.mark("microphone");
+  let Ok(()) = notify("Listening", UNTIL_IT_CHANGES);
+  let Ok(()) = waiting.finish();
+  let Ok(()) = console_response_times::flush();
+
+  Ok(())
+}
+
+fn save_recorder(child: &std::process::Child, press: u32, at: &Path) -> io::Result<()> {
+  let process = pidfd_open(Pid::from_child(child), PidfdFlags::empty())?;
+  let named = fstat(&process)?;
+  let Ok(note) = serialize_note(Note {
+    recorder: child.id(),
+    press,
+  });
+  let identified = format!("{note} {}", named.st_ino);
+
+  console_core_atomic_writes::whole(at, identified.as_bytes()).map_err(io::Error::other)
+}
+
+fn wrote_down(Recorded { at, mut waited }: Recorded) -> Result<(), Never> {
+  let Ok(()) = read_out(&at, &mut waited);
+
+  let Ok(()) = clean_file(&at);
+
+  let Ok(()) = waited.finish();
+  let Ok(()) = console_response_times::flush();
+
+  Ok(())
 }
 
 fn read_out(recorded: &Path, waiting: &mut Waiting) -> Result<(), Never> {
-    match fetched() {
-        Ok(()) => {},
-        Err(why) => {
-            let Ok(()) = report("model", Failure {
-                summary: "Couldn't download the language",
-                body: &why.to_string(),
-            });
-
-            return Ok(());
-        }
-    }
-
-    let Ok(()) = waiting.mark("model");
-    let Ok(()) = notify("Transcribing…", UNTIL_IT_CHANGES);
-
-    match transcribe(recorded) {
-        Err(why) => {
-            let Ok(()) = notify("Couldn't understand that", BRIEFLY);
-            let Ok(()) = report("hearing", Failure {
-                summary: "Couldn't understand that",
-                body: &why.to_string(),
-            });
-        }
-        Ok(words) => match words.is_empty() {
-            true => {
-                let Ok(()) = waiting.mark("heard");
-                let Ok(()) = notify("No speech detected", BRIEFLY);
-            }
-            false => {
-                let Ok(()) = waiting.mark("heard");
-                let Ok(letters) = console_core_number_conversion::fitted::<_, u64>(words.chars().count());
-                let Ok(()) = waiting.counted("letters", letters);
-                let Ok(()) = write(&words);
-                let Ok(()) = waiting.mark("typed");
-                let Ok(()) = notify(&words, BRIEFLY);
-            }
+  match fetched() {
+    Ok(()) => {}
+    Err(why) => {
+      let Ok(()) = report(
+        "model",
+        Failure {
+          summary: "Couldn't download the language",
+          body: &why.to_string(),
         },
-    }
+      );
 
-    Ok(())
+      return Ok(());
+    }
+  }
+
+  let Ok(()) = waiting.mark("model");
+  let Ok(()) = notify("Transcribing…", UNTIL_IT_CHANGES);
+
+  match transcribe(recorded) {
+    Err(why) => {
+      let Ok(()) = notify("Couldn't understand that", BRIEFLY);
+      let Ok(()) = report(
+        "hearing",
+        Failure {
+          summary: "Couldn't understand that",
+          body: &why.to_string(),
+        },
+      );
+    }
+    Ok(words) => match ::core::primitive::bool::then_some(words.is_empty(), ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(()) = waiting.mark("heard");
+        let Ok(()) = notify("No speech detected", BRIEFLY);
+      }
+      ::core::option::Option::None => {
+        let Ok(()) = waiting.mark("heard");
+        let Ok(letters) = console_core_number_conversion::fitted::<_, u64>(words.chars().count());
+        let Ok(()) = waiting.counted("letters", letters);
+        let Ok(()) = write(&words);
+        let Ok(()) = waiting.mark("typed");
+        let Ok(()) = notify(&words, BRIEFLY);
+      }
+    },
+  }
+
+  Ok(())
 }
 
-fn gone(pid: i32) -> Result<(), Never> {
-    let at = format!("/proc/{pid}");
-    let Ok(patience) = Schedule::asking_every(LEAVING, std::time::Duration::from_millis(20));
-    let Ok(_went) = until(patience, || {
-        Ok(match Path::new(&at).exists() {
-            true => Ready::NotYet,
-            false => Ready::Yes,
-        })
-    });
+fn stop(process: &OwnedFd) -> io::Result<()> {
+  match pidfd_send_signal(process, Signal::INT) {
+    Ok(()) => {}
+    Err(Errno::SRCH) => return Ok(()),
+    Err(fault) => return Err(io::Error::from(fault)),
+  }
 
-    Ok(())
+  let mut watch = [PollFd::from_borrowed_fd(process.as_fd(), PollFlags::IN)];
+  let _ready = poll(&mut watch, Some(&LEAVING))?;
+  let ended = watch
+    .first()
+    .is_some_and(|ready| ready.revents().intersects(PollFlags::IN | PollFlags::HUP));
+
+  match bool::then_some(ended, ()) {
+    Some(()) => Ok(()),
+    None => Err(io::Error::new(
+      io::ErrorKind::TimedOut,
+      "the microphone has not finished saving the recording",
+    )),
+  }
 }
 
 #[derive(Debug)]
 enum DictationError {
-    Machine(std::io::Error),
-    NoModel,
-    NoProgram(&'static str),
-    CommandFailed(&'static str, std::process::ExitStatus),
-    Nowhere,
+  Machine(std::io::Error),
+  NoModel,
+  NoProgram(&'static str),
+  CommandFailed(&'static str, std::process::ExitStatus),
+  Transcript(std::string::FromUtf8Error),
+  Nowhere,
 }
 
 impl std::fmt::Display for DictationError {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DictationError::Machine(fault) => write!(to, "{fault}"),
-            DictationError::NoModel => write!(to, "nothing says where the model is kept"),
-            DictationError::NoProgram(what) => write!(to, "there is no program to {what} with"),
-            DictationError::CommandFailed(name, status) => write!(to, "{name} said no: {status}"),
-            DictationError::Nowhere => write!(to, "nowhere to keep it"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      DictationError::Machine(fault) => write!(to, "{fault}"),
+      DictationError::NoModel => write!(to, "nothing says where the model is kept"),
+      DictationError::NoProgram(what) => write!(to, "there is no program to {what} with"),
+      DictationError::CommandFailed(name, status) => write!(to, "{name} said no: {status}"),
+      DictationError::Transcript(fault) => write!(to, "the transcription was not UTF-8: {fault}"),
+      DictationError::Nowhere => write!(to, "nowhere to keep it"),
     }
+  }
 }
 
 impl std::error::Error for DictationError {}
 
 fn transcribe(recorded: &Path) -> Result<String, DictationError> {
-    let wav = std::fs::read(recorded).map_err(DictationError::Machine)?;
+  let wav = std::fs::read(recorded).map_err(DictationError::Machine)?;
 
-    let Ok(heard) = detect_speech(&wav);
+  let Ok(heard) = detect_speech(&wav);
 
-    match heard {
-        VoiceActivity::Silence => return Ok(String::new()),
-        VoiceActivity::Speech => {},
+  match heard {
+    VoiceActivity::Silence => return Ok(String::new()),
+    VoiceActivity::Speech => {}
+  }
+
+  let Ok(engine) = engine();
+  let Ok(model) = model();
+
+  let model_3 = match model {
+    Some(model_2) => model_2,
+    None => return Err(DictationError::NoModel),
+  };
+
+  let Ok(language) = languages::current();
+  let Ok(arguments) = whisper_arguments(&engine, &model_3, recorded, &language);
+
+  let (program, rest) = match arguments.split_first() {
+    Some((program, rest)) => (program, rest),
+    None => return Err(DictationError::NoProgram("hear")),
+  };
+
+  let answered = Command::new(program)
+    .args(rest)
+    .stderr(Stdio::null())
+    .output()
+    .map_err(DictationError::Machine)?;
+
+  match ::core::primitive::bool::then_some(answered.status.success(), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      return Err(DictationError::CommandFailed(
+        "whisper-cli",
+        answered.status,
+      ));
     }
+  }
 
-    let Ok(engine) = engine();
-    let Ok(model) = model();
+  let transcript = String::from_utf8(answered.stdout).map_err(DictationError::Transcript)?;
+  let Ok(tidy) = tidy(&transcript);
 
-    let model = match model {
-        Some(model) => model,
-        None => return Err(DictationError::NoModel),
-    };
-
-    let Ok(language) = languages::current();
-    let Ok(arguments) = whisper_arguments(&engine, &model, recorded, &language);
-
-    let (program, rest) = match arguments.split_first() {
-        Some((program, rest)) => (program, rest),
-        None => return Err(DictationError::NoProgram("hear")),
-    };
-
-    let answered = Command::new(program)
-        .args(rest)
-        .stderr(Stdio::null())
-        .output()
-        .map_err(DictationError::Machine)?;
-
-    match answered.status.success() {
-        true => {},
-        false => return Err(DictationError::CommandFailed("whisper-cli", answered.status)),
-    }
-
-    let Ok(tidy) = tidy(&String::from_utf8_lossy(&answered.stdout));
-
-    Ok(tidy)
+  Ok(tidy)
 }
 
 fn write(words: &str) -> Result<(), Never> {
-    let Ok(arguments) = typing(words);
+  let Ok(arguments) = typing(words);
 
-    let (program, rest) = match arguments.split_first() {
-        Some((program, rest)) => (program, rest),
-        None => {
-            let Ok(()) = report("typing", Failure {
-                summary: "Couldn't type the words",
-                body: "No typing app is installed.",
-            });
-
-            return Ok(());
-        }
-    };
-
-    match Command::new(program).args(rest).status() {
-        Err(why) => {
-            let Ok(()) = report("typing", Failure {
-                summary: "Couldn't type the words",
-                body: &why.to_string(),
-            });
-        }
-        Ok(status) => match status.success() {
-            true => (),
-            false => {
-                let Ok(()) = report("typing", Failure {
-                    summary: "Couldn't type the words",
-                    body: &status.to_string(),
-                });
-            }
+  let (program, rest) = match arguments.split_first() {
+    Some((program, rest)) => (program, rest),
+    None => {
+      let Ok(()) = report(
+        "typing",
+        Failure {
+          summary: "Couldn't type the words",
+          body: "No typing app is installed.",
         },
-    }
+      );
 
-    Ok(())
+      return Ok(());
+    }
+  };
+
+  match Command::new(program).args(rest).status() {
+    Err(why) => {
+      let Ok(()) = report(
+        "typing",
+        Failure {
+          summary: "Couldn't type the words",
+          body: &why.to_string(),
+        },
+      );
+    }
+    Ok(status) => match ::core::primitive::bool::then_some(status.success(), ()) {
+      ::core::option::Option::Some(()) => (),
+      ::core::option::Option::None => {
+        let Ok(()) = report(
+          "typing",
+          Failure {
+            summary: "Couldn't type the words",
+            body: &status.to_string(),
+          },
+        );
+      }
+    },
+  }
+
+  Ok(())
 }
 
 fn engine() -> Result<PathBuf, Never> {
-    let Ok(ours) = whisper();
+  let Ok(ours) = whisper();
 
-    match ours {
-        Some(ours) => match ours.exists() {
-            true => return Ok(ours),
-            false => {},
-        },
-        None => {},
-    }
+  match ours {
+    Some(ours_2) => match artifact(&ours_2) {
+      Ok(Artifact::Ready) => return Ok(ours_2),
+      Ok(Artifact::Missing) => {}
+      Err(fault) => eprintln!("console-dictate: opening {}: {fault}", ours_2.display()),
+    },
+    None => {}
+  }
 
-    let Ok(mut building) = InternalProgram::Dictate.command();
-    building.arg(BUILD.spelling).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+  let Ok(mut building) = InternalProgram::Dictate.command();
+  building
+    .arg(BUILD.spelling)
+    .stdin(Stdio::null())
+    .stdout(Stdio::null())
+    .stderr(Stdio::null());
 
-    let _ = let_go(&mut building);
+  let Ok(()) = background(&mut building, "starting the setup");
 
-    let Ok(whisper_cli) = Program::WhisperCli.name();
+  let Ok(whisper_cli) = Program::WhisperCli.name();
 
-    Ok(PathBuf::from(whisper_cli))
+  Ok(PathBuf::from(whisper_cli))
+}
+
+enum Artifact {
+  Ready,
+  Missing,
+}
+
+fn artifact(at: &Path) -> io::Result<Artifact> {
+  let file = match open(at, OFlags::PATH | OFlags::CLOEXEC, Mode::empty()) {
+    Ok(file) => file,
+    Err(Errno::NOENT) => return Ok(Artifact::Missing),
+    Err(fault) => return Err(io::Error::from(fault)),
+  };
+  let facts = fstat(&file)?;
+  let ordinary = FileType::from_raw_mode(facts.st_mode) == FileType::RegularFile;
+
+  match bool::then_some(ordinary, ()) {
+    Some(()) => Ok(Artifact::Ready),
+    None => Err(io::Error::new(
+      io::ErrorKind::InvalidData,
+      format!("{} is not a regular file", at.display()),
+    )),
+  }
+}
+
+fn lock_directory(at: &Path) -> io::Result<Option<OwnedFd>> {
+  std::fs::create_dir_all(at)?;
+
+  let directory = open(
+    at,
+    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+    Mode::empty(),
+  )?;
+
+  match flock(&directory, FlockOperation::NonBlockingLockExclusive) {
+    Ok(()) => Ok(Some(directory)),
+    Err(Errno::AGAIN) => Ok(None),
+    Err(fault) => Err(io::Error::from(fault)),
+  }
+}
+
+fn missing_is_gone(fault: io::Error) -> io::Result<()> {
+  match bool::then_some(fault.kind() == io::ErrorKind::NotFound, ()) {
+    Some(()) => Ok(()),
+    None => Err(fault),
+  }
+}
+
+fn remove_file(at: &Path) -> io::Result<()> {
+  std::fs::remove_file(at).or_else(missing_is_gone)
+}
+
+fn remove_tree(at: &Path) -> io::Result<()> {
+  std::fs::remove_dir_all(at).or_else(missing_is_gone)
+}
+
+fn clean_file(at: &Path) -> Result<(), Never> {
+  match remove_file(at) {
+    Ok(()) => {}
+    Err(fault) => eprintln!("console-dictate: removing {}: {fault}", at.display()),
+  }
+
+  Ok(())
 }
 
 #[derive(Debug)]
 enum BuildError {
-    NoWhisper,
-    Nowhere,
-    Machine(std::io::Error),
-    NoStep,
-    NoProgram(String, std::io::Error),
-    CommandFailed(String, std::process::ExitStatus),
+  NoWhisper,
+  Nowhere,
+  Machine(std::io::Error),
+  NoStep,
+  NoProgram(OsString, std::io::Error),
+  CommandFailed(OsString, std::process::ExitStatus),
 }
 
 impl std::fmt::Display for BuildError {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BuildError::NoWhisper => write!(to, "nothing says where whisper is kept"),
-            BuildError::Nowhere => write!(to, "nowhere to keep it"),
-            BuildError::Machine(fault) => write!(to, "{fault}"),
-            BuildError::NoStep => write!(to, "a step of the build named no program to run"),
-            BuildError::NoProgram(program, fault) => {
-                write!(to, "{program} could not be run: {fault}")
-            }
-            BuildError::CommandFailed(program, status) => write!(to, "{program} said no: {status}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      BuildError::NoWhisper => write!(to, "nothing says where whisper is kept"),
+      BuildError::Nowhere => write!(to, "nowhere to keep it"),
+      BuildError::Machine(fault) => write!(to, "{fault}"),
+      BuildError::NoStep => write!(to, "a step of the build named no program to run"),
+      BuildError::NoProgram(program, fault) => {
+        write!(to, "{} could not be run: {fault}", program.display())
+      }
+      BuildError::CommandFailed(program, status) => write!(to, "{} said no: {status}", program.display()),
     }
+  }
 }
 
 impl std::error::Error for BuildError {}
 
 fn built() -> Result<(), BuildError> {
-    let Ok(ours) = whisper();
+  let Ok(path) = whisper();
+  let ours = match path {
+    Some(path_2) => path_2,
+    None => return Err(BuildError::NoWhisper),
+  };
 
-    let ours = match ours {
-        Some(ours) => ours,
-        None => return Err(BuildError::NoWhisper),
-    };
+  let present = artifact(&ours).map_err(BuildError::Machine)?;
 
-    match ours.exists() {
-        true => return Ok(()),
-        false => {},
-    }
+  match present {
+    Artifact::Ready => return Ok(()),
+    Artifact::Missing => {}
+  }
 
-    let parent = match ours.parent() {
-        Some(parent) => parent,
-        None => return Err(BuildError::Nowhere),
-    };
+  let parent = match ours.parent() {
+    Some(parent) => parent,
+    None => return Err(BuildError::Nowhere),
+  };
 
-    std::fs::create_dir_all(parent).map_err(BuildError::Machine)?;
+  let acquired = lock_directory(parent).map_err(BuildError::Machine)?;
+  let _held_during_build = match acquired {
+    Some(lock) => lock,
+    None => return Ok(()),
+  };
+  let present_after_lock = artifact(&ours).map_err(BuildError::Machine)?;
 
-    let alone = parent.join("building.lock");
-
-    #[cfg_attr(
-        dylint_lib = "explicit040_no_torn_write",
-        allow(
-            explicit040_no_torn_write,
-            reason = "the lock one build of the model takes, whose whole point is that making it fails when someone else has: a file written beside and renamed over would succeed for both of them"
-        )
-    )]
-    match std::fs::OpenOptions::new().write(true).create_new(true).open(&alone) {
-        Ok(_) => {}
-        Err(fault) => match fault.kind() == std::io::ErrorKind::AlreadyExists {
-            true => return Ok(()),
-            false => {
-                eprintln!("{}: {fault}", alone.display());
-                return Ok(());
-            }
-        },
-    }
-
-    let answer = build(&ours);
-    let _ = std::fs::remove_file(&alone);
-    answer
+  match present_after_lock {
+    Artifact::Ready => Ok(()),
+    Artifact::Missing => build(&ours),
+  }
 }
 
 fn build(ours: &Path) -> Result<(), BuildError> {
-    let Ok(at) = making();
-    let _ = std::fs::remove_dir_all(&at);
+  let Ok(at) = making();
 
-    match at.parent() {
-        Some(parent) => std::fs::create_dir_all(parent).map_err(BuildError::Machine)?,
-        None => {},
-    }
+  remove_tree(&at).map_err(BuildError::Machine)?;
 
-    let Ok(()) = notify("Setting up dictation…", UNTIL_IT_CHANGES);
-    let Ok(cloning) = cloning(&at);
-    let Ok(configuring) = configuring(&at);
-    let Ok(compiling) = compiling(&at);
+  match at.parent() {
+    Some(parent) => std::fs::create_dir_all(parent).map_err(BuildError::Machine)?,
+    None => {}
+  }
 
-    for arguments in [cloning, configuring, compiling] {
-        let (program, rest) = match arguments.split_first() {
-            Some((program, rest)) => (program, rest),
-            None => return Err(BuildError::NoStep),
-        };
+  let Ok(()) = notify("Setting up dictation…", UNTIL_IT_CHANGES);
+  let prepared = prepare_engine(&at, ours);
 
-        let answered = Command::new(program)
-            .args(rest)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .status()
-            .map_err(|why| BuildError::NoProgram(program.clone(), why))?;
+  match remove_tree(&at) {
+    Ok(()) => {}
+    Err(fault) => eprintln!("console-dictate: removing {}: {fault}", at.display()),
+  }
 
-        match answered.success() {
-            true => {},
-            false => {
-                let _ = std::fs::remove_dir_all(&at);
-                return Err(BuildError::CommandFailed(program.clone(), answered));
-            }
-        }
-    }
+  prepared?;
 
-    let coming = ours.with_extension("coming");
-    let Ok(made) = whisper_binary(&at);
+  let Ok(()) = notify("Dictation is ready", BRIEFLY);
 
-    std::fs::copy(made, &coming).map_err(BuildError::Machine)?;
-    std::fs::rename(&coming, ours).map_err(BuildError::Machine)?;
-
-    let _ = std::fs::remove_dir_all(&at);
-    let Ok(()) = notify("Dictation is ready", BRIEFLY);
-
-    Ok(())
+  Ok(())
 }
 
-fn fetched() -> Result<(), DictationError> {
-    let Ok(model) = model();
+fn prepare_engine(at: &Path, ours: &Path) -> Result<(), BuildError> {
+  let Ok(clone_command) = cloning(at);
+  let Ok(configure_command) = configuring(at);
+  let Ok(compile_command) = compiling(at);
 
-    let model = match model {
-        Some(model) => model,
-        None => return Err(DictationError::NoModel),
-    };
-
-    match model.exists() {
-        true => return Ok(()),
-        false => {},
-    }
-
-    let parent = match model.parent() {
-        Some(parent) => parent,
-        None => return Err(DictationError::Nowhere),
-    };
-
-    std::fs::create_dir_all(parent).map_err(DictationError::Machine)?;
-
-    let Ok(()) = notify("Downloading the language…", UNTIL_IT_CHANGES);
-    let coming = parent.join("coming.bin");
-    let Ok(arguments) = fetching(&coming);
-
+  for arguments in [clone_command, configure_command, compile_command] {
     let (program, rest) = match arguments.split_first() {
-        Some((program, rest)) => (program, rest),
-        None => return Err(DictationError::NoProgram("fetch the words")),
+      Some((program, rest)) => (program, rest),
+      None => return Err(BuildError::NoStep),
     };
 
     let answered = Command::new(program)
-        .args(rest)
-        .status()
-        .map_err(DictationError::Machine)?;
+      .args(rest)
+      .stdin(Stdio::null())
+      .stdout(Stdio::null())
+      .status()
+      .map_err(|why| BuildError::NoProgram(program.clone(), why))?;
 
-    match answered.success() {
-        true => {},
-        false => {
-            let _ = std::fs::remove_file(&coming);
-            return Err(DictationError::CommandFailed("curl", answered));
-        }
+    match ::core::primitive::bool::then_some(answered.success(), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => {
+        return Err(BuildError::CommandFailed(program.clone(), answered));
+      }
     }
+  }
 
-    std::fs::rename(&coming, &model).map_err(DictationError::Machine)
+  let coming = ours.with_extension("coming");
+  let Ok(made) = whisper_binary(at);
+  let stage =
+    std::fs::copy(made, &coming).and_then(|_copied_bytes| std::fs::rename(&coming, ours));
+
+  match stage {
+    Ok(()) => Ok(()),
+    Err(fault) => {
+      let Ok(()) = clean_file(&coming);
+
+      Err(BuildError::Machine(fault))
+    }
+  }
 }
 
-const LEAVING: std::time::Duration = std::time::Duration::from_secs(2);
+fn fetched() -> Result<(), DictationError> {
+  let Ok(model) = model();
+
+  let model_3 = match model {
+    Some(model_2) => model_2,
+    None => return Err(DictationError::NoModel),
+  };
+
+  let present = artifact(&model_3).map_err(DictationError::Machine)?;
+
+  match present {
+    Artifact::Ready => return Ok(()),
+    Artifact::Missing => {}
+  }
+
+  let parent = match model_3.parent() {
+    Some(parent) => parent,
+    None => return Err(DictationError::Nowhere),
+  };
+
+  let acquired = lock_directory(parent).map_err(DictationError::Machine)?;
+  let _held_during_download = match acquired {
+    Some(lock) => lock,
+    None => {
+      return Err(DictationError::Machine(io::Error::new(
+        io::ErrorKind::WouldBlock,
+        "another dictation setup request is running",
+      )));
+    }
+  };
+  let present_after_lock = artifact(&model_3).map_err(DictationError::Machine)?;
+
+  match present_after_lock {
+    Artifact::Ready => Ok(()),
+    Artifact::Missing => {
+      let Ok(()) = notify("Downloading the language…", UNTIL_IT_CHANGES);
+      let coming = parent.join("coming.bin");
+      let downloaded = download(&model_3, &coming);
+
+      match downloaded {
+        Ok(()) => Ok(()),
+        Err(fault) => {
+          let Ok(()) = clean_file(&coming);
+
+          Err(fault)
+        }
+      }
+    }
+  }
+}
+
+fn download(model: &Path, coming: &Path) -> Result<(), DictationError> {
+  let Ok(arguments) = fetching(coming);
+  let (program, rest) = match arguments.split_first() {
+    Some((program, rest)) => (program, rest),
+    None => return Err(DictationError::NoProgram("fetch the words")),
+  };
+
+  let answered = Command::new(program)
+    .args(rest)
+    .status()
+    .map_err(DictationError::Machine)?;
+
+  match ::core::primitive::bool::then_some(answered.success(), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      return Err(DictationError::CommandFailed("curl", answered));
+    }
+  }
+
+  std::fs::rename(coming, model).map_err(DictationError::Machine)
+}
+
+const LEAVING: Timespec = Timespec {
+  tv_sec: 2,
+  tv_nsec: 0,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Until(u32);
@@ -603,42 +795,73 @@ const UNTIL_IT_CHANGES: Until = Until(0);
 const BRIEFLY: Until = Until(2_000);
 
 fn notify(what: &str, until: Until) -> Result<(), Never> {
-    let Ok(mut saying) = Program::NotifySend.command();
+  let Ok(mut saying) = Program::NotifySend.command();
 
-    saying
-        .args([
-            "--app-name=Console",
-            "--urgency=low",
-            &format!("--expire-time={}", until.0),
-            "--hint=string:x-canonical-private-synchronous:console-dictate",
-            "--icon=audio-input-microphone",
-            "--",
-            what,
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+  saying
+    .args([
+      "--app-name=Console",
+      "--urgency=low",
+      &format!("--expire-time={}", until.0),
+      "--hint=string:x-canonical-private-synchronous:console-dictate",
+      "--icon=audio-input-microphone",
+      "--",
+      what,
+    ])
+    .stdin(Stdio::null())
+    .stdout(Stdio::null())
+    .stderr(Stdio::null());
 
-    let _ = let_go(&mut saying);
+  background(&mut saying, "showing a notification")
+}
 
-    Ok(())
+fn background(command: &mut Command, doing: &str) -> Result<(), Never> {
+  match let_go(command) {
+    Ok(_runs_after_this_press) => {}
+    Err(fault) => eprintln!("console-dictate: {doing}: {fault}"),
+  }
+
+  Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Failure<'a> {
-    summary: &'a str,
-    body: &'a str,
+  summary: &'a str,
+  body: &'a str,
 }
 
 fn report(kind: &str, fault: Failure<'_>) -> Result<(), Never> {
-    let Failure { summary, body } = fault;
+  let Failure { summary, body } = fault;
 
-    eprintln!("console-dictate: {summary}: {body}");
+  eprintln!("console-dictate: {summary}: {body}");
 
-    let Ok(mut saying) = InternalProgram::ConsoleSay.command();
-    saying.args([kind, summary, body]).stdin(Stdio::null());
+  let Ok(mut saying) = InternalProgram::ConsoleSay.command();
+  saying.args([kind, summary, body]).stdin(Stdio::null());
 
-    let _ = let_go(&mut saying);
+  background(&mut saying, "showing a microphone error")
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn recorder_notes_accept_the_existing_format_and_refuse_a_reused_identity() -> io::Result<()> {
+    let pid = rustix::process::getpid();
+    let process = pidfd_open(pid, PidfdFlags::empty())?;
+    let named = fstat(&process)?;
+    let legacy = format!("{} 42", pid.as_raw_pid());
+    let matching = format!("{legacy} {}", named.st_ino);
+    let different = format!("{legacy} {}", named.st_ino ^ 1);
+    let old = recorder_from_note(&legacy)?;
+    let current = recorder_from_note(&matching)?;
+    let reused = recorder_from_note(&different)?;
+    let not_a_process = recorder_from_note("-1 42")?;
+
+    assert!(old.is_some_and(|one| one.press == 42));
+    assert!(current.is_some_and(|one| one.press == 42));
+    assert!(reused.is_none());
+    assert!(not_a_process.is_none());
 
     Ok(())
+  }
 }

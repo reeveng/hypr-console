@@ -40,48 +40,48 @@ pub const STATUS: &str = "status";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Plugged {
-    Into,
-    None,
+  Into,
+  None,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Panel {
-    pub named: String,
-    pub mode: Size<u32>,
+  pub named: String,
+  pub mode: Size<u32>,
 }
 
 impl Panel {
-    pub fn mounted(&self) -> Result<Mounted, Never> {
-        Mounted::of(self.mode)
-    }
+  pub fn mounted(&self) -> Result<Mounted, Never> {
+    Mounted::of(self.mode)
+  }
 
-    pub fn width(&self) -> Result<u32, Never> {
-        let Ok(mounted) = self.mounted();
-        let Ok(transform) = mounted.transform();
-        let Ok(picture) = transform.picture_size(self.mode);
+  pub fn width(&self) -> Result<u32, Never> {
+    let Ok(mounted) = self.mounted();
+    let Ok(transform) = mounted.transform();
+    let Ok(picture) = transform.picture_size(self.mode);
 
-        Ok(picture.width)
-    }
+    Ok(picture.width)
+  }
 
-    pub fn scale(&self, canvas: Canvas) -> Result<f64, Never> {
-        let Ok(across) = self.width();
+  pub fn scale(&self, canvas: Canvas) -> Result<f64, Never> {
+    let Ok(across) = self.width();
 
-        Ok(f64::from(across) / f64::from(canvas.0.max(1)))
-    }
+    Ok(f64::from(across) / f64::from(canvas.0.max(1)))
+  }
 
-    pub fn block(&self, canvas: Canvas) -> Result<String, Never> {
-        let Ok(mounted) = self.mounted();
-        let Ok(turned) = mounted.transform();
-        let Ok(transform) = turned.number();
-        let Ok(across) = self.width();
-        let Ok(scale) = self.scale(canvas);
-        let Ok(how) = how_it_is_mounted(mounted);
+  pub fn block(&self, canvas: Canvas) -> Result<String, Never> {
+    let Ok(mounted) = self.mounted();
+    let Ok(turned) = mounted.transform();
+    let Ok(transform) = turned.number();
+    let Ok(across) = self.width();
+    let Ok(scale) = self.scale(canvas);
+    let Ok(how) = how_it_is_mounted(mounted);
 
-        let named = &self.named;
-        let (wide, tall) = (self.mode.width, self.mode.height);
-        let points = canvas.0;
+    let named = &self.named;
+    let (wide, tall) = (self.mode.width, self.mode.height);
+    let points = canvas.0;
 
-        Ok(format!(
+    Ok(format!(
             "\
 -- This machine's panel, written by `console apply` out of what the kernel says
 -- it is. It is read after the block in hyprland.lua, which is one machine's
@@ -107,247 +107,325 @@ hl.monitor({{ output = \"{named}\", mode = \"{wide}x{tall}\", position = \"auto\
 hl.config({{ input = {{ touchdevice = {{ output = \"{named}\", transform = {transform} }} }} }})
 "
         ))
-    }
+  }
 }
 
 fn how_it_is_mounted(mounted: Mounted) -> Result<&'static str, Never> {
-    Ok(match mounted {
-        Mounted::Sideways => "taller than it is wide, so it is turned a quarter",
-        Mounted::Upright => "wider than it is tall, so it is not turned",
-    })
+  Ok(match mounted {
+    Mounted::Sideways => "taller than it is wide, so it is turned a quarter",
+    Mounted::Upright => "wider than it is tall, so it is not turned",
+  })
 }
 
 pub fn at(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
+  let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
 
-    Ok(ours.join(UNDER).join(NAMED))
+  Ok(ours.join(UNDER).join(NAMED))
 }
 
 pub fn connector_name(of: &Path) -> Result<Option<String>, Never> {
-    let called = match of.file_name() {
-        Some(called) => called.to_string_lossy().to_string(),
-        None => return Ok(None),
-    };
+  let called = match of.file_name().and_then(std::ffi::OsStr::to_str) {
+    Some(called) => called,
+    None => return Ok(None),
+  };
 
-    Ok(called.split_once('-').map(|(_card, connector)| connector.to_string()))
+  Ok(
+    called
+      .split_once('-')
+      .map(|(_card, connector)| connector.to_string()),
+  )
 }
 
 pub fn plugged(at: &Path) -> Result<Plugged, Never> {
-    let said = match std::fs::read_to_string(at.join(STATUS)) {
-        Ok(said) => said,
-        Err(_nothing_says_so) => return Ok(Plugged::None),
-    };
+  let said = match std::fs::read_to_string(at.join(STATUS)) {
+    Ok(said) => said,
+    Err(_nothing_says_so) => return Ok(Plugged::None),
+  };
 
-    Ok(match said.trim() == "connected" {
-        true => Plugged::Into,
-        false => Plugged::None,
-    })
+  Ok(match said.trim() {
+    "connected" => Plugged::Into,
+    _status => Plugged::None,
+  })
 }
 
 pub fn mode(at: &Path) -> Result<Option<Size<u32>>, Never> {
-    let said = match std::fs::read_to_string(at.join(MODES)) {
-        Ok(said) => said,
-        Err(_no_modes_to_read) => return Ok(None),
-    };
+  let said = match std::fs::read_to_string(at.join(MODES)) {
+    Ok(said) => said,
+    Err(_no_modes_to_read) => return Ok(None),
+  };
 
-    let first = match said.lines().next() {
-        Some(first) => first.trim().to_string(),
-        None => return Ok(None),
-    };
+  let first = match said.lines().next() {
+    Some(first) => first.trim().to_string(),
+    None => return Ok(None),
+  };
 
-    let (wide, tall) = match first.split_once('x') {
-        Some(both) => both,
-        None => return Ok(None),
-    };
+  let (wide, tall) = match first.split_once('x') {
+    Some(both) => both,
+    None => return Ok(None),
+  };
 
-    Ok(match (wide.parse(), tall.parse()) {
-        (Ok(wide), Ok(tall)) => Some(Size { width: wide, height: tall }),
-        (_wide, _tall) => None,
-    })
+  Ok(match (wide.parse(), tall.parse()) {
+    (Ok(wide_2), Ok(tall_2)) => Some(Size {
+      width: wide_2,
+      height: tall_2,
+    }),
+    (_wide, _tall) => None,
+  })
 }
 
 pub fn find_panels(under: &Path) -> Result<Vec<Panel>, Never> {
-    let entries = match std::fs::read_dir(under) {
-        Ok(entries) => entries,
-        Err(_no_drm_here) => return Ok(Vec::new()),
-    };
+  let entries = match std::fs::read_dir(under) {
+    Ok(entries) => entries,
+    Err(_no_drm_here) => return Ok(Vec::new()),
+  };
 
-    let mut every: Vec<Panel> = Vec::new();
+  let mut every: Vec<Panel> = Vec::new();
 
-    for at in entries.flatten().map(|entry| entry.path()) {
-        let Ok(plugged) = plugged(&at);
+  for at in entries.flatten().map(|entry| entry.path()) {
+    let Ok(plugged) = plugged(&at);
 
-        match plugged {
-            Plugged::None => continue,
-            Plugged::Into => {},
-        }
-
-        let Ok(named) = connector_name(&at);
-        let Ok(mode) = mode(&at);
-
-        match (named, mode) {
-            (Some(named), Some(mode)) => every.push(Panel { named, mode }),
-            (_named, _mode) => {},
-        }
+    match plugged {
+      Plugged::None => continue,
+      Plugged::Into => {}
     }
 
-    every.sort_by(|one, other| one.named.cmp(&other.named));
+    let Ok(named) = connector_name(&at);
+    let Ok(mode) = mode(&at);
 
-    Ok(every)
+    match (named, mode) {
+      (Some(named_2), Some(mode_2)) => every.push(Panel {
+        named: named_2,
+        mode: mode_2,
+      }),
+      (_named, _mode) => {}
+    }
+  }
+
+  every.sort_by(|one, other| one.named.cmp(&other.named));
+
+  Ok(every)
 }
 
 pub fn panel(under: &Path) -> Result<Option<Panel>, Never> {
-    let Ok(every) = find_panels(under);
+  let Ok(every) = find_panels(under);
 
-    let built_in = every.iter().find(|panel| panel.named.starts_with(INTERNAL));
+  let built_in = every.iter().find(|panel| panel.named.starts_with(INTERNAL));
 
-    Ok(built_in.or_else(|| every.first()).cloned())
+  Ok(built_in.or_else(|| every.first()).cloned())
 }
 
 pub fn here() -> Result<Option<Panel>, Never> {
-    panel(Path::new(DRM))
+  panel(Path::new(DRM))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    fn drm(whose: &str, said: &[(&str, &str, &str)]) -> Result<PathBuf, Box<dyn Error>> {
-        let at = console_core_temporary_directories::fresh(&format!("drm-{whose}"))?;
+  fn drm(whose: &str, said: &[(&str, &str, &str)]) -> Result<PathBuf, Box<dyn Error>> {
+    let at = console_core_temporary_directories::fresh(&format!("drm-{whose}"))?;
 
-        for (connector, status, modes) in said {
-            let under = at.join(connector);
+    for (connector, status, modes) in said {
+      #[cfg_attr(
+        dylint_lib = "explicit086_no_climbing_join",
+        expect(
+          explicit086_no_climbing_join,
+          reason = "the test fixture supplies literal connector names such as card1-eDP-1"
+        )
+      )]
+      let under = at.join(connector);
 
-            std::fs::create_dir_all(&under)?;
-            console_core_atomic_writes::whole(&under.join(STATUS), format!("{status}\n").as_bytes())?;
-            console_core_atomic_writes::whole(&under.join(MODES), modes.as_bytes())?;
+      std::fs::create_dir_all(&under)?;
+      console_core_atomic_writes::whole(&under.join(STATUS), format!("{status}\n").as_bytes())?;
+      console_core_atomic_writes::whole(&under.join(MODES), modes.as_bytes())?;
+    }
+
+    Ok(at)
+  }
+
+  const HANDHELD: &str = "1600x2560\n1600x2560\n";
+
+  const LAPTOP: &str = "1920x1200\n1920x1080\n";
+
+  #[test]
+  fn a_connector_is_named_without_the_card_it_is_on() {
+    let Ok(named) = connector_name(Path::new("/sys/class/drm/card1-eDP-1"));
+
+    assert_eq!(named, Some("eDP-1".to_string()));
+  }
+
+  #[test]
+  fn the_mode_a_panel_prefers_is_the_first_one_it_lists() -> Result<(), Box<dyn Error>> {
+    let at = drm("preferred", &[("card1-eDP-1", "connected", LAPTOP)])?;
+    let Ok(mode) = mode(&at.join("card1-eDP-1"));
+
+    assert_eq!(
+      mode,
+      Some(Size {
+        width: 1920,
+        height: 1200
+      })
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn nothing_is_plugged_into_a_connector_that_says_disconnected() -> Result<(), Box<dyn Error>> {
+    let at = drm("unplugged", &[("card1-DP-1", "disconnected", "")])?;
+    let Ok(plugged) = plugged(&at.join("card1-DP-1"));
+
+    assert_eq!(plugged, Plugged::None);
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_panel_is_the_built_in_one_whatever_else_is_plugged_in() -> Result<(), Box<dyn Error>> {
+    let at = drm(
+      "both",
+      &[
+        ("card1-DP-1", "connected", "3840x2160\n"),
+        ("card1-eDP-1", "connected", HANDHELD),
+      ],
+    )?;
+    let Ok(panel) = panel(&at);
+
+    assert_eq!(
+      panel,
+      Some(Panel {
+        named: "eDP-1".to_string(),
+        mode: Size {
+          width: 1600,
+          height: 2560
         }
+      })
+    );
 
-        Ok(at)
-    }
+    Ok(())
+  }
 
-    const HANDHELD: &str = "1600x2560\n1600x2560\n";
+  #[test]
+  fn with_no_panel_built_in_it_is_whatever_is_plugged_in() -> Result<(), Box<dyn Error>> {
+    let at = drm("external", &[("card1-DP-2", "connected", "1920x1080\n")])?;
+    let Ok(panel) = panel(&at);
 
-    const LAPTOP: &str = "1920x1200\n1920x1080\n";
+    assert_eq!(
+      panel,
+      Some(Panel {
+        named: "DP-2".to_string(),
+        mode: Size {
+          width: 1920,
+          height: 1080
+        }
+      })
+    );
 
-    #[test]
-    fn a_connector_is_named_without_the_card_it_is_on() {
-        let Ok(named) = connector_name(Path::new("/sys/class/drm/card1-eDP-1"));
+    Ok(())
+  }
 
-        assert_eq!(named, Some("eDP-1".to_string()));
-    }
+  #[test]
+  fn a_machine_with_nothing_connected_says_nothing() -> Result<(), Box<dyn Error>> {
+    let at = drm("nothing", &[("card1-HDMI-A-1", "disconnected", "")])?;
+    let Ok(panel) = panel(&at);
 
-    #[test]
-    fn the_mode_a_panel_prefers_is_the_first_one_it_lists() -> Result<(), Box<dyn Error>> {
-        let at = drm("preferred", &[("card1-eDP-1", "connected", LAPTOP)])?;
-        let Ok(mode) = mode(&at.join("card1-eDP-1"));
+    assert_eq!(panel, None);
 
-        assert_eq!(mode, Some(Size { width: 1920, height: 1200 }));
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn a_panel_taller_than_it_is_wide_is_turned_and_scaled_on_its_long_edge() {
+    let panel = Panel {
+      named: "eDP-1".to_string(),
+      mode: Size {
+        width: 1600,
+        height: 2560,
+      },
+    };
+    let Ok(mounted) = panel.mounted();
+    let Ok(across) = panel.width();
+    let Ok(scale) = panel.scale(crate::DRAWN_AT);
 
-    #[test]
-    fn nothing_is_plugged_into_a_connector_that_says_disconnected() -> Result<(), Box<dyn Error>> {
-        let at = drm("unplugged", &[("card1-DP-1", "disconnected", "")])?;
-        let Ok(plugged) = plugged(&at.join("card1-DP-1"));
+    assert_eq!(mounted, Mounted::Sideways);
+    assert_eq!(across, 2560);
+    assert!((scale - 2.5).abs() < f64::EPSILON);
+  }
 
-        assert_eq!(plugged, Plugged::None);
+  #[test]
+  fn a_laptop_panel_is_not_turned_and_is_scaled_on_its_width() {
+    let panel = Panel {
+      named: "eDP-1".to_string(),
+      mode: Size {
+        width: 1920,
+        height: 1200,
+      },
+    };
+    let Ok(mounted) = panel.mounted();
+    let Ok(scale) = panel.scale(crate::DRAWN_AT);
 
-        Ok(())
-    }
+    assert_eq!(mounted, Mounted::Upright);
+    assert!((scale - 1.875).abs() < f64::EPSILON);
+  }
 
-    #[test]
-    fn the_panel_is_the_built_in_one_whatever_else_is_plugged_in() -> Result<(), Box<dyn Error>> {
-        let at = drm(
-            "both",
-            &[
-                ("card1-DP-1", "connected", "3840x2160\n"),
-                ("card1-eDP-1", "connected", HANDHELD),
-            ],
-        )?;
-        let Ok(panel) = panel(&at);
+  #[test]
+  fn the_block_names_the_connector_the_turn_and_the_scale_and_no_mode() {
+    let panel = Panel {
+      named: "eDP-1".to_string(),
+      mode: Size {
+        width: 1600,
+        height: 2560,
+      },
+    };
+    let Ok(block) = panel.block(crate::DRAWN_AT);
 
-        assert_eq!(panel, Some(Panel { named: "eDP-1".to_string(), mode: Size { width: 1600, height: 2560 } }));
-
-        Ok(())
-    }
-
-    #[test]
-    fn with_no_panel_built_in_it_is_whatever_is_plugged_in() -> Result<(), Box<dyn Error>> {
-        let at = drm("external", &[("card1-DP-2", "connected", "1920x1080\n")])?;
-        let Ok(panel) = panel(&at);
-
-        assert_eq!(panel, Some(Panel { named: "DP-2".to_string(), mode: Size { width: 1920, height: 1080 } }));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_machine_with_nothing_connected_says_nothing() -> Result<(), Box<dyn Error>> {
-        let at = drm("nothing", &[("card1-HDMI-A-1", "disconnected", "")])?;
-        let Ok(panel) = panel(&at);
-
-        assert_eq!(panel, None);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_panel_taller_than_it_is_wide_is_turned_and_scaled_on_its_long_edge() {
-        let panel = Panel { named: "eDP-1".to_string(), mode: Size { width: 1600, height: 2560 } };
-        let Ok(mounted) = panel.mounted();
-        let Ok(across) = panel.width();
-        let Ok(scale) = panel.scale(crate::DRAWN_AT);
-
-        assert_eq!(mounted, Mounted::Sideways);
-        assert_eq!(across, 2560);
-        assert!((scale - 2.5).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn a_laptop_panel_is_not_turned_and_is_scaled_on_its_width() {
-        let panel = Panel { named: "eDP-1".to_string(), mode: Size { width: 1920, height: 1200 } };
-        let Ok(mounted) = panel.mounted();
-        let Ok(scale) = panel.scale(crate::DRAWN_AT);
-
-        assert_eq!(mounted, Mounted::Upright);
-        assert!((scale - 1.875).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn the_block_names_the_connector_the_turn_and_the_scale_and_no_mode() {
-        let panel = Panel { named: "eDP-1".to_string(), mode: Size { width: 1600, height: 2560 } };
-        let Ok(block) = panel.block(crate::DRAWN_AT);
-
-        assert!(block.contains(
+    assert!(block.contains(
             r#"hl.monitor({ output = "eDP-1", mode = "1600x2560", position = "auto", scale = 2.5, transform = 1 })"#
         ));
-        assert!(!block.contains("1600x2560@"));
-    }
+    assert!(!block.contains("1600x2560@"));
+  }
 
-    #[test]
-    fn the_finger_is_read_through_the_same_quarter_the_picture_is_drawn_at() {
-        for (mode, transform) in
-            [(Size { width: 1600, height: 2560 }, 1), (Size { width: 1920, height: 1200 }, 0)]
-        {
-            let panel = Panel { named: "eDP-1".to_string(), mode };
-            let Ok(block) = panel.block(crate::DRAWN_AT);
+  #[test]
+  fn the_finger_is_read_through_the_same_quarter_the_picture_is_drawn_at() {
+    for (mode, transform) in [
+      (
+        Size {
+          width: 1600,
+          height: 2560,
+        },
+        1,
+      ),
+      (
+        Size {
+          width: 1920,
+          height: 1200,
+        },
+        0,
+      ),
+    ] {
+      let panel = Panel {
+        named: "eDP-1".to_string(),
+        mode,
+      };
+      let Ok(block) = panel.block(crate::DRAWN_AT);
 
-            assert!(
+      assert!(
                 block.contains(&format!(
                     r#"hl.config({{ input = {{ touchdevice = {{ output = "eDP-1", transform = {transform} }} }} }})"#
                 )),
                 "{block}"
             );
-        }
     }
+  }
 
-    #[test]
-    fn the_file_is_beside_the_compositors_own_in_this_desktops_directory() {
-        let Ok(at) = at(Path::new("/home/ada"));
+  #[test]
+  fn the_file_is_beside_the_compositors_own_in_this_desktops_directory() {
+    let Ok(at) = at(Path::new("/home/ada"));
 
-        assert_eq!(at, PathBuf::from("/home/ada/.config/console/hypr/monitor.lua"));
-    }
+    assert_eq!(
+      at,
+      PathBuf::from("/home/ada/.config/console/hypr/monitor.lua")
+    );
+  }
 }

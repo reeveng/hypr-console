@@ -1,0 +1,26 @@
+// run-rustfix
+// rustfix-only-machine-applicable
+// edition:2024
+#![warn(explicit016_no_wildcard_arm)]
+
+use std::io::{Error, ErrorKind};
+
+fn missing(error: &Error) -> u8 {
+    match error.kind() {
+        ErrorKind::NotFound => 1,
+        _other => 2,
+    }
+}
+
+fn keep(kind: ErrorKind) -> ErrorKind {
+    match kind {
+        ErrorKind::NotFound => ErrorKind::PermissionDenied,
+        other => other,
+    }
+}
+
+fn main() {
+    assert_eq!(missing(&Error::from(ErrorKind::NotFound)), 1);
+    assert_eq!(missing(&Error::from(ErrorKind::BrokenPipe)), 2);
+    assert_eq!(keep(ErrorKind::Interrupted), ErrorKind::Interrupted);
+}

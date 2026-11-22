@@ -29,197 +29,198 @@ use crate::palette::Palette;
 use crate::terminal::Terminal;
 
 pub const ROLES: [&str; 17] = [
-    "night", "ground", "panel", "fill", "edge", "text", "soft", "pink", "rose", "mauve", "lilac",
-    "sky", "mint", "leaf", "butter", "peach", "coral",
+  "night", "ground", "panel", "fill", "edge", "text", "soft", "pink", "rose", "mauve", "lilac",
+  "sky", "mint", "leaf", "butter", "peach", "coral",
 ];
 
 pub fn widest(names: &[&str]) -> Result<u32, Never> {
-    Ok(match names.iter().map(|name| name.len()).max() {
-        Some(widest) => {
-            let Ok(widest) = fitted(widest);
+  Ok(match names.iter().map(|name| name.len()).max() {
+    Some(widest) => {
+      let Ok(widest_2) = fitted(widest);
 
-            widest
-        }
-        None => NOTHING_TO_LINE_UP,
-    })
+      widest_2
+    }
+    None => NOTHING_TO_LINE_UP,
+  })
 }
 
 const NOTHING_TO_LINE_UP: u32 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum How {
-    Whole,
-    Region,
+  Whole,
+  Region,
 }
 
 #[derive(Debug, Clone)]
 pub struct Written {
-    pub path: PathBuf,
-    pub how: How,
-    pub body: String,
+  pub path: PathBuf,
+  pub how: How,
+  pub body: String,
 }
 
 pub fn everywhere(
-    files: &Path,
-    palette: &Palette,
-    terminal: &Terminal,
+  files: &Path,
+  palette: &Palette,
+  terminal: &Terminal,
 ) -> Result<Vec<Written>, Short> {
-    let home = files.join("home/@user@");
-    let Ok(ours) = console_core_places::Base::Configuration.application_under(&home);
-    let chrome = home.join(".librewolf/console/chrome");
-    let whole = |path: PathBuf, body: String| Written {
-        path,
-        how: How::Whole,
-        body,
-    };
-    let region = |path: PathBuf, body: String| Written {
-        path,
-        how: How::Region,
-        body,
-    };
+  let home = files.join("home/@user@");
+  let Ok(ours) = console_core_places::Base::Configuration.application_under(&home);
+  let chrome = home.join(".librewolf/console/chrome");
+  let whole = |path: PathBuf, body: String| Written {
+    path,
+    how: How::Whole,
+    body,
+  };
+  let region = |path: PathBuf, body: String| Written {
+    path,
+    how: How::Region,
+    body,
+  };
 
-    let css = gtk::spend(palette)?;
-    let stylesheet = librewolf::stylesheet(palette)?;
-    let sh = shell::spend(palette)?;
-    let kdeglobals = kde::spend(palette)?;
-    let preferences = librewolf::preferences(palette)?;
-    let hypr = hyprland::spend(palette)?;
-    let paper = paper::spend(palette)?;
-    let icon = icon::spend(palette)?;
-    let Ok(colors) = alacritty::spend(terminal);
+  let css = gtk::spend(palette)?;
+  let stylesheet = librewolf::stylesheet(palette)?;
+  let sh = shell::spend(palette)?;
+  let kdeglobals = kde::spend(palette)?;
+  let preferences = librewolf::preferences(palette)?;
+  let hypr = hyprland::spend(palette)?;
+  let paper = paper::spend(palette)?;
+  let icon = icon::spend(palette)?;
+  let Ok(colors) = alacritty::spend(terminal);
 
-    Ok(vec![
-        whole(ours.join("palette.css"), css),
-        whole(ours.join("palette.toml"), colors),
-        whole(chrome.join("palette.css"), stylesheet),
-        whole(files.join("usr/local/lib/console/palette.sh"), sh),
-        region(home.join(".config/kdeglobals"), kdeglobals),
-        region(home.join(".librewolf/console/user.js"), preferences),
-        region(ours.join("hypr/hyprland.lua"), hypr),
-        region(files.join("etc/systemd/user/console-paper.service"), paper),
-        whole(files.join("usr/share/icons/console-placeholder.svg"), icon),
-    ])
+  Ok(vec![
+    whole(ours.join("palette.css"), css),
+    whole(ours.join("palette.toml"), colors),
+    whole(chrome.join("palette.css"), stylesheet),
+    whole(files.join("usr/local/lib/console/palette.sh"), sh),
+    region(home.join(".config/kdeglobals"), kdeglobals),
+    region(home.join(".librewolf/console/user.js"), preferences),
+    region(ours.join("hypr/hyprland.lua"), hypr),
+    region(files.join("etc/systemd/user/console-paper.service"), paper),
+    whole(files.join("usr/share/icons/console-placeholder.svg"), icon),
+  ])
 }
 
 #[cfg(test)]
 pub mod tests {
-    use super::*;
-    use std::error::Error;
-    use crate::configuration::Configuration;
+  use super::*;
+  use crate::configuration::Configuration;
+  use std::error::Error;
 
-    const DECLARED: &str = include_str!("../../../../theme/palette.toml");
+  const DECLARED: &str = include_str!("../../../../theme/palette.toml");
 
-    pub fn declared_palette() -> Result<Configuration, Box<dyn Error>> {
-        let declared = toml::from_str(DECLARED)?;
+  pub fn declared_palette() -> Result<Configuration, Box<dyn Error>> {
+    let declared = toml::from_str(DECLARED)?;
 
-        Ok(declared)
+    Ok(declared)
+  }
+
+  pub fn blossom() -> Result<Palette, Box<dyn Error>> {
+    let declared = declared_palette()?;
+    let palette = crate::palette::resolve(&declared.color)?;
+
+    Ok(palette)
+  }
+
+  fn spent() -> Result<Vec<Written>, Box<dyn Error>> {
+    let configuration = declared_palette()?;
+    let palette = blossom()?;
+    let terminal = Terminal::of(&configuration, &palette)?;
+    let written = everywhere(Path::new("files"), &palette, &terminal)?;
+
+    Ok(written)
+  }
+
+  #[test]
+  fn no_file_is_written_twice() -> Result<(), Box<dyn Error>> {
+    let written = spent()?;
+    let mut paths: Vec<&PathBuf> = written.iter().map(|file| &file.path).collect();
+    paths.sort();
+    let once = {
+      let mut seen = paths.clone();
+      seen.dedup();
+      seen
+    };
+    assert_eq!(paths.len(), once.len(), "a file is written twice");
+
+    Ok(())
+  }
+
+  #[test]
+  fn nothing_written_whole_is_empty() -> Result<(), Box<dyn Error>> {
+    let spent = spent()?;
+
+    for written in spent.iter().filter(|file| file.how == How::Whole) {
+      assert!(
+        !written.body.trim().is_empty(),
+        "{:?} is empty",
+        written.path
+      );
     }
 
-    pub fn blossom() -> Result<Palette, Box<dyn Error>> {
-        let declared = declared_palette()?;
-        let palette = crate::palette::resolve(&declared.color)?;
+    Ok(())
+  }
 
-        Ok(palette)
+  #[test]
+  fn a_whole_file_ends_in_a_newline_and_a_spliced_block_does_not() -> Result<(), Box<dyn Error>> {
+    let spent = spent()?;
+
+    for written in spent {
+      match written.how {
+        How::Whole => assert!(
+          written.body.ends_with('\n'),
+          "{:?} is a whole file and does not end in a newline",
+          written.path
+        ),
+        How::Region => assert!(
+          !written.body.ends_with('\n'),
+          "{:?} is a block to splice and ends in a newline",
+          written.path
+        ),
+      }
     }
 
-    fn spent() -> Result<Vec<Written>, Box<dyn Error>> {
-        let configuration = declared_palette()?;
-        let palette = blossom()?;
-        let terminal = Terminal::of(&configuration, &palette)?;
-        let written = everywhere(Path::new("files"), &palette, &terminal)?;
+    Ok(())
+  }
 
-        Ok(written)
+  #[test]
+  fn every_language_the_desktop_speaks_gets_a_palette() -> Result<(), Box<dyn Error>> {
+    let spent = spent()?;
+
+    let paths: Vec<String> = spent
+      .iter()
+      .map(|file| file.path.display().to_string())
+      .collect();
+    let Ok(ours) =
+      console_core_places::Base::Configuration.application_under(std::path::Path::new(""));
+
+    for wanted in [
+      ours.join("palette.css").display().to_string(),
+      ours.join("palette.toml").display().to_string(),
+      "chrome/palette.css".to_string(),
+      "usr/local/lib/console/palette.sh".to_string(),
+    ] {
+      assert!(
+        paths.iter().any(|path| path.contains(&wanted)),
+        "{wanted} is not written"
+      );
     }
 
-    #[test]
-    fn no_file_is_written_twice() -> Result<(), Box<dyn Error>> {
-        let written = spent()?;
-        let mut paths: Vec<&PathBuf> = written.iter().map(|file| &file.path).collect();
-        paths.sort();
-        let once = {
-            let mut seen = paths.clone();
-            seen.dedup();
-            seen
-        };
-        assert_eq!(paths.len(), once.len(), "a file is written twice");
+    Ok(())
+  }
 
-        Ok(())
+  #[test]
+  fn nothing_is_written_outside_the_tree_it_was_given() -> Result<(), Box<dyn Error>> {
+    let spent = spent()?;
+
+    for written in spent {
+      assert!(
+        written.path.starts_with("files"),
+        "{:?} is written outside files/",
+        written.path
+      );
     }
 
-    #[test]
-    fn nothing_written_whole_is_empty() -> Result<(), Box<dyn Error>> {
-        let spent = spent()?;
-
-        for written in spent.iter().filter(|file| file.how == How::Whole) {
-            assert!(
-                !written.body.trim().is_empty(),
-                "{:?} is empty",
-                written.path
-            );
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_whole_file_ends_in_a_newline_and_a_spliced_block_does_not() -> Result<(), Box<dyn Error>> {
-        let spent = spent()?;
-
-        for written in spent {
-            match written.how {
-                How::Whole => assert!(
-                    written.body.ends_with('\n'),
-                    "{:?} is a whole file and does not end in a newline",
-                    written.path
-                ),
-                How::Region => assert!(
-                    !written.body.ends_with('\n'),
-                    "{:?} is a block to splice and ends in a newline",
-                    written.path
-                ),
-            }
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn every_language_the_desktop_speaks_gets_a_palette() -> Result<(), Box<dyn Error>> {
-        let spent = spent()?;
-
-        let paths: Vec<String> = spent
-            .iter()
-            .map(|file| file.path.display().to_string())
-            .collect();
-        let Ok(ours) = console_core_places::Base::Configuration.application_under(std::path::Path::new(""));
-
-        for wanted in [
-            ours.join("palette.css").display().to_string(),
-            ours.join("palette.toml").display().to_string(),
-            "chrome/palette.css".to_string(),
-            "usr/local/lib/console/palette.sh".to_string(),
-        ] {
-            assert!(
-                paths.iter().any(|path| path.contains(&wanted)),
-                "{wanted} is not written"
-            );
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn nothing_is_written_outside_the_tree_it_was_given() -> Result<(), Box<dyn Error>> {
-        let spent = spent()?;
-
-        for written in spent {
-            assert!(
-                written.path.starts_with("files"),
-                "{:?} is written outside files/",
-                written.path
-            );
-        }
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

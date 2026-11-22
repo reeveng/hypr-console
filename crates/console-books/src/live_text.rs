@@ -34,114 +34,166 @@
 
 use std::ops::Range;
 
-use console_core_geometry::Point;
+use console_core_finite_numbers::FiniteF64;
+use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Area {
-    pub left: f64,
-    pub top: f64,
-    pub width: f64,
-    pub height: f64,
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the float measures a fraction of the page along one of its axes"
+  )
+)]
+pub struct PageFraction(pub f64);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the float is a coordinate or distance in the original OCR raster pixels"
+  )
+)]
+struct PagePixels(f64);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Area<T = PageFraction> {
+  pub left: T,
+  pub top: T,
+  pub width: T,
+  pub height: T,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Word {
-    pub run: Range<u32>,
-    pub area: Area,
+  pub run: Range<u32>,
+  pub area: Area,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Paragraph {
-    pub text: String,
-    pub words: Vec<Word>,
+  pub text: String,
+  pub words: Vec<Word>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Spacing {
-    Spaced,
-    Unspaced,
+  Spaced,
+  Unspaced,
 }
 
 fn spacing(letter: Option<char>) -> Result<Spacing, Never> {
-    Ok(match letter.map(u32::from) {
-        Some(0x0E00..=0x0E7F | 0x3000..=0x30FF | 0x3400..=0x9FFF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF) => Spacing::Unspaced,
-        Some(_) | None => Spacing::Spaced,
-    })
+  Ok(match letter.map(u32::from) {
+    Some(
+      0x0E00..=0x0E7F | 0x3000..=0x30FF | 0x3400..=0x9FFF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF,
+    ) => Spacing::Unspaced,
+    Some(_) | None => Spacing::Spaced,
+  })
 }
 
 impl Paragraph {
-    pub(crate) fn push(&mut self, said: &str, area: Area) -> Result<(), Never> {
-        let Ok(before) = spacing(self.text.chars().last());
-        let Ok(after) = spacing(said.chars().next());
+  pub(crate) fn push(&mut self, said: &str, area: Area) -> Result<(), Never> {
+    let Ok(before) = spacing(self.text.chars().last());
+    let Ok(after) = spacing(said.chars().next());
 
-        match (self.text.is_empty(), before, after) {
-            (true, _, _) | (false, Spacing::Unspaced, Spacing::Unspaced) => {},
-            (false, Spacing::Spaced, _) | (false, _, Spacing::Spaced) => self.text.push(' '),
-        }
-
-        let Ok(start) = fitted::<_, u32>(self.text.len());
-
-        self.text.push_str(said);
-
-        let Ok(end) = fitted::<_, u32>(self.text.len());
-
-        self.words.push(Word { run: start..end, area });
-
-        Ok(())
+    match (self.text.is_empty(), before, after) {
+      (true, _, _) | (false, Spacing::Unspaced, Spacing::Unspaced) => {}
+      (false, Spacing::Spaced, _) | (false, _, Spacing::Spaced) => self.text.push(' '),
     }
+
+    let Ok(start) = fitted::<_, u32>(self.text.len());
+
+    self.text.push_str(said);
+
+    let Ok(end) = fitted::<_, u32>(self.text.len());
+
+    self.words.push(Word {
+      run: start..end,
+      area,
+    });
+
+    Ok(())
+  }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Page {
-    width: f64,
-    height: f64,
-}
+fn share(area: Area<PagePixels>, page: Size<PagePixels>) -> Result<Area, Never> {
+  let shares = (page.width.0 > 0.0 && page.height.0 > 0.0).then_some(());
+  let (across, down) = match shares {
+    Some(()) => (page.width.0, page.height.0),
+    None => (1.0, 1.0),
+  };
 
-fn share(area: Area, page: Page) -> Result<Area, Never> {
-    Ok(match page.width > 0.0 && page.height > 0.0 {
-        true => Area { left: area.left / page.width, top: area.top / page.height, width: area.width / page.width, height: area.height / page.height },
-        false => area,
-    })
+  Ok(Area {
+    left: PageFraction(area.left.0 / across),
+    top: PageFraction(area.top.0 / down),
+    width: PageFraction(area.width.0 / across),
+    height: PageFraction(area.height.0 / down),
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Row {
-    level: u32,
-    block: u32,
-    paragraph: u32,
+  level: u32,
+  block: u32,
+  paragraph: u32,
 }
 
-fn row(fields: &[&str]) -> Result<Option<(Row, Area, String)>, Never> {
-    let numbers: Vec<Option<f64>> = fields.iter().take(10).map(|field| match field.parse::<f64>() {
+fn row(fields: &[&str]) -> Result<Option<(Row, Area<PagePixels>, String)>, Never> {
+  let numbers: Vec<Option<f64>> = fields
+    .iter()
+    .take(10)
+    .map(|field| match field.parse::<FiniteF64>() {
+      Ok(read) => Some(f64::from(read)),
+      Err(_not_a_finite_number) => None,
+    })
+    .collect();
+
+  let whole = |at: u32| -> Option<u32> {
+    let Ok(at_2) = console_core_number_conversion::index(at);
+
+    fields
+      .get(at_2)
+      .and_then(|field| match field.parse::<u32>() {
         Ok(read) => Some(read),
         Err(_not_a_number) => None,
-    }).collect();
+      })
+  };
 
-    let whole = |at: u32| -> Option<u32> {
-        let Ok(at) = console_core_number_conversion::index(at);
+  let area = match (
+    numbers.get(6),
+    numbers.get(7),
+    numbers.get(8),
+    numbers.get(9),
+  ) {
+    (Some(Some(left)), Some(Some(top)), Some(Some(width)), Some(Some(height))) => Area {
+      left: PagePixels(*left),
+      top: PagePixels(*top),
+      width: PagePixels(*width),
+      height: PagePixels(*height),
+    },
+    (_, _, _, _) => return Ok(None),
+  };
 
-        fields.get(at).and_then(|field| match field.parse::<u32>() {
-            Ok(read) => Some(read),
-            Err(_not_a_number) => None,
-        })
-    };
+  let said = match fields.get(11) {
+    Some(said) => said.trim().to_string(),
+    None => String::new(),
+  };
 
-    let area = match (numbers.get(6), numbers.get(7), numbers.get(8), numbers.get(9)) {
-        (Some(Some(left)), Some(Some(top)), Some(Some(width)), Some(Some(height))) => Area { left: *left, top: *top, width: *width, height: *height },
-        (_, _, _, _) => return Ok(None),
-    };
-
-    let said = match fields.get(11) {
-        Some(said) => said.trim().to_string(),
-        None => String::new(),
-    };
-
-    Ok(match (whole(0), whole(2), whole(3)) {
-        (Some(level), Some(block), Some(paragraph)) => Some((Row { level, block, paragraph }, area, said)),
-        (None, _, _) | (_, None, _) | (_, _, None) => None,
-    })
+  Ok(match (whole(0), whole(2), whole(3)) {
+    (Some(level), Some(block), Some(paragraph)) => Some((
+      Row {
+        level,
+        block,
+        paragraph,
+      },
+      area,
+      said,
+    )),
+    (None, _, _) | (_, None, _) | (_, _, None) => None,
+  })
 }
 
 const PAGE_ROW: u32 = 1;
@@ -149,250 +201,419 @@ const PAGE_ROW: u32 = 1;
 const WORD_ROW: u32 = 5;
 
 pub fn from_recognition(table: &str) -> Result<Vec<Paragraph>, Never> {
-    let mut page: Option<Page> = None;
-    let mut paragraphs: Vec<((u32, u32), Paragraph)> = Vec::new();
+  let mut page: Option<Size<PagePixels>> = None;
+  let mut paragraphs: Vec<((u32, u32), Paragraph)> = Vec::new();
 
-    for line in table.lines().skip(1) {
-        let fields: Vec<&str> = line.split('\t').collect();
-        let Ok(read) = row(&fields);
+  for line in table.lines().skip(1) {
+    let fields: Vec<&str> = line.split('\t').collect();
+    let Ok(read) = row(&fields);
 
-        match (read, page) {
-            (Some((Row { level: PAGE_ROW, .. }, area, _)), _) => page = Some(Page { width: area.width, height: area.height }),
-            (Some((Row { level: WORD_ROW, block, paragraph }, area, said)), Some(page)) => match said.is_empty() {
-                true => {},
-                false => {
-                    let key = (block, paragraph);
-                    let Ok(area) = share(area, page);
-
-                    match paragraphs.last_mut() {
-                        Some((last, paragraph)) => match *last == key {
-                            true => {
-                                let Ok(()) = paragraph.push(&said, area);
-                            },
-                            false => {
-                                let mut fresh = Paragraph::default();
-                                let Ok(()) = fresh.push(&said, area);
-
-                                paragraphs.push((key, fresh));
-                            },
-                        },
-                        None => {
-                            let mut fresh = Paragraph::default();
-                            let Ok(()) = fresh.push(&said, area);
-
-                            paragraphs.push((key, fresh));
-                        },
-                    }
-                },
-            },
-            (Some(_), _) | (None, _) => {},
-        }
+    match (read, page) {
+      (
+        Some((
+          Row {
+            level: PAGE_ROW, ..
+          },
+          area,
+          _,
+        )),
+        _,
+      ) => {
+        page = Some(Size {
+          width: area.width,
+          height: area.height,
+        })
+      }
+      (
+        Some((
+          Row {
+            level: WORD_ROW,
+            block,
+            paragraph,
+          },
+          area,
+          said,
+        )),
+        Some(page_2),
+      ) => {
+        let Ok(()) = recognize_word(&mut paragraphs, (block, paragraph), &said, area, page_2);
+      }
+      (Some(_), _) | (None, _) => {}
     }
+  }
 
-    Ok(paragraphs.into_iter().map(|(_, paragraph)| paragraph).collect())
+  Ok(
+    paragraphs
+      .into_iter()
+      .map(|(_, paragraph)| paragraph)
+      .collect(),
+  )
+}
+
+fn recognize_word(
+  paragraphs: &mut Vec<((u32, u32), Paragraph)>,
+  key: (u32, u32),
+  said: &str,
+  area: Area<PagePixels>,
+  page: Size<PagePixels>,
+) -> Result<(), Never> {
+  match said {
+    "" => return Ok(()),
+    _nonempty => {}
+  }
+
+  let Ok(on_page) = share(area, page);
+
+  match paragraphs
+    .last_mut()
+    .filter(|(last, _paragraph)| *last == key)
+  {
+    Some((_, paragraph)) => paragraph.push(said, on_page),
+    None => {
+      let mut fresh = Paragraph::default();
+      let Ok(()) = fresh.push(said, on_page);
+
+      paragraphs.push((key, fresh));
+
+      Ok(())
+    }
+  }
 }
 
 fn distance(area: Area, at: Point<f64>) -> Result<f64, Never> {
-    let across = (area.left - at.x).max(at.x - (area.left + area.width)).max(0.0);
-    let down = (area.top - at.y).max(at.y - (area.top + area.height)).max(0.0);
+  let across = (area.left.0 - at.x)
+    .max(at.x - (area.left.0 + area.width.0))
+    .max(0.0);
+  let down = (area.top.0 - at.y)
+    .max(at.y - (area.top.0 + area.height.0))
+    .max(0.0);
 
-    Ok(across.hypot(down * 2.0))
+  Ok(across.hypot(down * 2.0))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Found {
-    pub paragraph: u32,
-    pub start: u32,
+  pub paragraph: u32,
+  pub start: u32,
 }
 
 pub fn word_at(paragraphs: &[Paragraph], at: Point<f64>) -> Result<Option<Found>, Never> {
-    let nearest = (0_u32..)
-        .zip(paragraphs)
-        .flat_map(|(paragraph, each)| each.words.iter().map(move |word| (paragraph, word)))
-        .map(|(paragraph, word)| {
-            let Ok(far) = distance(word.area, at);
+  let nearest = (0_u32..)
+    .zip(paragraphs)
+    .flat_map(|(paragraph, each)| each.words.iter().map(move |word| (paragraph, word)))
+    .map(|(paragraph, word)| {
+      let Ok(far) = distance(word.area, at);
 
-            (far, Found { paragraph, start: word.run.start })
-        })
-        .min_by(|(one, _), (other, _)| one.total_cmp(other));
+      (
+        far,
+        Found {
+          paragraph,
+          start: word.run.start,
+        },
+      )
+    })
+    .min_by(|(one, _), (other, _)| one.total_cmp(other));
 
-    Ok(nearest.map(|(_, found)| found))
+  Ok(nearest.map(|(_, found)| found))
 }
 
 pub fn widen(paragraph: &Paragraph, run: Range<u32>) -> Result<Range<u32>, Never> {
-    let (low, high) = match run.start <= run.end {
-        true => (run.start, run.end),
-        false => (run.end, run.start),
-    };
+  let (low, high) = match ::core::primitive::bool::then_some(run.start <= run.end, ()) {
+    ::core::option::Option::Some(()) => (run.start, run.end),
+    ::core::option::Option::None => (run.end, run.start),
+  };
 
-    let mut touched = paragraph.words.iter().filter(|word| low < word.run.end && word.run.start <= high);
-    let first = touched.next();
-    let last = touched.next_back().or(first);
+  let mut touched = paragraph
+    .words
+    .iter()
+    .filter(|word| low < word.run.end && word.run.start <= high);
+  let first = touched.next();
+  let last = touched.next_back().or(first);
 
-    Ok(match (first, last) {
-        (Some(first), Some(last)) => first.run.start..last.run.end,
-        (None, _) | (_, None) => low..high,
-    })
+  Ok(match (first, last) {
+    (Some(first_2), Some(last_2)) => first_2.run.start..last_2.run.end,
+    (None, _) | (_, None) => low..high,
+  })
 }
 
 pub fn word_under(paragraphs: &[Paragraph], at: Point<f64>) -> Result<Option<Found>, Never> {
-    let under = (0_u32..)
-        .zip(paragraphs)
-        .flat_map(|(paragraph, each)| each.words.iter().map(move |word| (paragraph, word)))
-        .find(|(_, word)| {
-            let Ok(far) = distance(word.area, at);
+  let under = (0_u32..)
+    .zip(paragraphs)
+    .flat_map(|(paragraph, each)| each.words.iter().map(move |word| (paragraph, word)))
+    .find(|(_, word)| {
+      let Ok(far) = distance(word.area, at);
 
-            far <= word.area.height / 2.0
-        });
+      far <= word.area.height.0 / 2.0
+    });
 
-    Ok(under.map(|(paragraph, word)| Found { paragraph, start: word.run.start }))
+  Ok(under.map(|(paragraph, word)| Found {
+    paragraph,
+    start: word.run.start,
+  }))
 }
 
 pub const SCRIPTS: [(&str, &[&str]); 8] = [
-    ("Latin", &["eng", "nld", "fra"]),
-    ("Japanese", &["jpn", "jpn_vert"]),
-    ("Han", &["jpn", "jpn_vert"]),
-    ("Hiragana", &["jpn", "jpn_vert"]),
-    ("Katakana", &["jpn", "jpn_vert"]),
-    ("Hangul", &["kor", "kor_vert"]),
-    ("Korean", &["kor", "kor_vert"]),
-    ("Thai", &["tha"]),
+  ("Latin", &["eng", "nld", "fra"]),
+  ("Japanese", &["jpn", "jpn_vert"]),
+  ("Han", &["jpn", "jpn_vert"]),
+  ("Hiragana", &["jpn", "jpn_vert"]),
+  ("Katakana", &["jpn", "jpn_vert"]),
+  ("Hangul", &["kor", "kor_vert"]),
+  ("Korean", &["kor", "kor_vert"]),
+  ("Thai", &["tha"]),
 ];
 
-pub fn installed(listed: &str) -> Result<Vec<String>, Never> {
-    Ok(listed.lines().skip(1).map(str::trim).filter(|language| !language.is_empty() && *language != "osd").map(str::to_string).collect())
+pub fn installed(listed: impl AsRef<[u8]>) -> Result<Vec<String>, Never> {
+  Ok(
+    listed
+      .as_ref()
+      .split(|byte| *byte == b'\n')
+      .skip(1)
+      .filter_map(|line| match std::str::from_utf8(line) {
+        Ok(language) => Some(language),
+        Err(_unreadable_language_name) => None,
+      })
+      .map(str::trim)
+      .filter(|language| !language.is_empty() && *language != "osd")
+      .map(str::to_string)
+      .collect(),
+  )
 }
 
 pub fn script(answered: &str) -> Result<Option<String>, Never> {
-    Ok(answered.lines().find_map(|line| line.strip_prefix("Script:")).map(|named| named.trim().to_string()))
+  Ok(
+    answered
+      .lines()
+      .find_map(|line| line.strip_prefix("Script:"))
+      .map(|named| named.trim().to_string()),
+  )
 }
 
 pub fn languages(script: Option<&str>, installed: &[String]) -> Result<String, Never> {
-    let have: std::collections::BTreeSet<&str> = installed.iter().map(String::as_str).collect();
-    let wanted = SCRIPTS.iter().find(|(named, _)| Some(*named) == script).map(|(_, languages)| *languages);
+  let have: std::collections::BTreeSet<&str> = installed.iter().map(String::as_str).collect();
+  let wanted = SCRIPTS
+    .iter()
+    .find(|(named, _)| Some(*named) == script)
+    .map(|(_, languages)| *languages);
 
-    let chosen: Vec<&str> = match wanted {
-        Some(languages) => languages.iter().copied().filter(|language| have.contains(language)).collect(),
-        None => Vec::new(),
-    };
+  let chosen: Vec<&str> = match wanted {
+    Some(languages) => languages
+      .iter()
+      .copied()
+      .filter(|language| have.contains(language))
+      .collect(),
+    None => Vec::new(),
+  };
 
-    let chosen = match chosen.is_empty() {
-        true => {
-            let (kept, _) = SCRIPTS
-                .iter()
-                .flat_map(|(_, languages)| languages.iter().copied())
-                .filter(|language| have.contains(language))
-                .fold((Vec::new(), std::collections::BTreeSet::new()), |(mut kept, mut seen), language| {
-                    match seen.insert(language) {
-                        true => kept.push(language),
-                        false => {},
-                    }
+  let chosen_2 = match ::core::primitive::bool::then_some(chosen.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {
+      let (kept, _) = SCRIPTS
+        .iter()
+        .flat_map(|(_, languages)| languages.iter().copied())
+        .filter(|language| have.contains(language))
+        .fold(
+          (Vec::new(), std::collections::BTreeSet::new()),
+          |(mut kept, mut seen), language| {
+            match ::core::primitive::bool::then_some(seen.insert(language), ()) {
+              ::core::option::Option::Some(()) => kept.push(language),
+              ::core::option::Option::None => {}
+            }
 
-                    (kept, seen)
-                });
+            (kept, seen)
+          },
+        );
 
-            kept
-        },
-        false => chosen,
-    };
+      kept
+    }
+    ::core::option::Option::None => chosen,
+  };
 
-    Ok(chosen.join("+"))
+  Ok(chosen_2.join("+"))
 }
 
 pub fn areas(paragraph: &Paragraph, run: &Range<u32>) -> Result<Vec<Area>, Never> {
-    Ok(paragraph.words.iter().filter(|word| word.run.start < run.end && run.start < word.run.end).map(|word| word.area).collect())
+  Ok(
+    paragraph
+      .words
+      .iter()
+      .filter(|word| word.run.start < run.end && run.start < word.run.end)
+      .map(|word| word.area)
+      .collect(),
+  )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const RECOGNIZED: &str = include_str!("../tests/a-page.tsv");
+  const RECOGNIZED: &str = include_str!("../tests/a-page.tsv");
 
-    fn texts(paragraphs: &[Paragraph]) -> Result<Vec<&str>, Never> {
-        Ok(paragraphs.iter().map(|paragraph| paragraph.text.as_str()).collect())
+  fn texts(paragraphs: &[Paragraph]) -> Result<Vec<&str>, Never> {
+    Ok(
+      paragraphs
+        .iter()
+        .map(|paragraph| paragraph.text.as_str())
+        .collect(),
+    )
+  }
+
+  #[test]
+  fn what_was_recognized_off_a_picture_is_read_the_same_way() {
+    let Ok(read) = from_recognition(RECOGNIZED);
+
+    assert_eq!(
+      texts(&read),
+      Ok(vec![
+        "Call me Ishmael.",
+        "Some years ago, never mind how long precisely, having little."
+      ])
+    );
+  }
+
+  #[test]
+  fn a_touch_finds_the_nearest_word() -> Result<(), &'static str> {
+    let Ok(read) = from_recognition(RECOGNIZED);
+    let Ok(found) = word_at(&read, Point { x: 0.43, y: 0.26 });
+    let found_2 = found.ok_or("a word near the middle of the second line")?;
+    let paragraph = read.get(1).ok_or("a second paragraph")?;
+    let Ok(start) = console_core_number_conversion::index(found_2.start);
+
+    assert_eq!(found_2.paragraph, 1);
+    assert!(
+      paragraph
+        .text
+        .get(start..)
+        .is_some_and(|rest| rest.starts_with("ago,")),
+      "{:?}",
+      paragraph.text.get(start..)
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn japanese_and_thai_words_are_joined_with_nothing_between_them() {
+    let mut japanese = Paragraph::default();
+    let area = Area {
+      left: PageFraction(0.0),
+      top: PageFraction(0.0),
+      width: PageFraction(0.1),
+      height: PageFraction(0.1),
+    };
+
+    for said in [
+      "\u{79c1}\u{306f}",
+      "\u{732b}",
+      "Tokyo",
+      "\u{0e41}\u{0e21}\u{0e27}",
+      "\u{0e14}\u{0e33}",
+    ] {
+      let Ok(()) = japanese.push(said, area);
     }
 
-    #[test]
-    fn what_was_recognized_off_a_picture_is_read_the_same_way() {
-        let Ok(read) = from_recognition(RECOGNIZED);
+    assert_eq!(
+      japanese.text,
+      "\u{79c1}\u{306f}\u{732b} Tokyo \u{0e41}\u{0e21}\u{0e27}\u{0e14}\u{0e33}"
+    );
 
-        assert_eq!(texts(&read), Ok(vec!["Call me Ishmael.", "Some years ago, never mind how long precisely, having little."]));
+    let mut korean = Paragraph::default();
+
+    for said in ["\u{c548}\u{b155}", "\u{d558}\u{c138}\u{c694}"] {
+      let Ok(()) = korean.push(said, area);
     }
 
-    #[test]
-    fn a_touch_finds_the_nearest_word() -> Result<(), &'static str> {
-        let Ok(read) = from_recognition(RECOGNIZED);
-        let Ok(found) = word_at(&read, Point { x: 0.43, y: 0.26 });
-        let found = found.ok_or("a word near the middle of the second line")?;
-        let paragraph = read.get(1).ok_or("a second paragraph")?;
-        let Ok(start) = console_core_number_conversion::index(found.start);
+    assert_eq!(
+      korean.text, "\u{c548}\u{b155} \u{d558}\u{c138}\u{c694}",
+      "Korean keeps its spaces"
+    );
+  }
 
-        assert_eq!(found.paragraph, 1);
-        assert!(paragraph.text.get(start..).is_some_and(|rest| rest.starts_with("ago,")), "{:?}", paragraph.text.get(start..));
+  #[test]
+  fn a_highlight_on_a_picture_is_widened_to_the_words_that_were_found() -> Result<(), &'static str>
+  {
+    let mut paragraph = Paragraph::default();
+    let area = Area {
+      left: PageFraction(0.0),
+      top: PageFraction(0.0),
+      width: PageFraction(0.1),
+      height: PageFraction(0.1),
+    };
 
-        Ok(())
+    for said in ["\u{79c1}\u{306f}", "\u{732b}", "\u{304c}\u{597d}\u{304d}"] {
+      let Ok(()) = paragraph.push(said, area);
     }
 
-    #[test]
-    fn japanese_and_thai_words_are_joined_with_nothing_between_them() {
-        let mut japanese = Paragraph::default();
-        let area = Area { left: 0.0, top: 0.0, width: 0.1, height: 0.1 };
+    let middle = paragraph
+      .words
+      .get(1)
+      .map(|word| word.run.clone())
+      .ok_or("a second word")?;
 
-        for said in ["\u{79c1}\u{306f}", "\u{732b}", "Tokyo", "\u{0e41}\u{0e21}\u{0e27}", "\u{0e14}\u{0e33}"] {
-            let Ok(()) = japanese.push(said, area);
-        }
+    assert_eq!(
+      widen(&paragraph, middle.start..middle.start),
+      Ok(middle.clone()),
+      "a tap takes the word it lands on and no more"
+    );
+    assert_eq!(widen(&paragraph, 1..middle.start), Ok(0..middle.end));
 
-        assert_eq!(japanese.text, "\u{79c1}\u{306f}\u{732b} Tokyo \u{0e41}\u{0e21}\u{0e27}\u{0e14}\u{0e33}");
+    Ok(())
+  }
 
-        let mut korean = Paragraph::default();
+  #[test]
+  fn a_page_is_read_in_the_languages_of_its_script_that_are_installed() {
+    let every: Vec<String> = [
+      "eng", "nld", "fra", "jpn", "jpn_vert", "kor", "kor_vert", "tha",
+    ]
+    .iter()
+    .map(|language| language.to_string())
+    .collect();
+    let only_english = vec!["eng".to_string()];
 
-        for said in ["\u{c548}\u{b155}", "\u{d558}\u{c138}\u{c694}"] {
-            let Ok(()) = korean.push(said, area);
-        }
+    assert_eq!(
+      script("Page number: 0\nScript: Japanese\nScript confidence: 3.1\n"),
+      Ok(Some("Japanese".to_string()))
+    );
+    assert_eq!(
+      languages(Some("Japanese"), &every),
+      Ok("jpn+jpn_vert".to_string())
+    );
+    assert_eq!(
+      languages(Some("Hangul"), &every),
+      Ok("kor+kor_vert".to_string())
+    );
+    assert_eq!(
+      languages(Some("Latin"), &only_english),
+      Ok("eng".to_string()),
+      "a language that is not installed is not asked for"
+    );
+    assert_eq!(
+      languages(None, &every),
+      Ok("eng+nld+fra+jpn+jpn_vert+kor+kor_vert+tha".to_string()),
+      "no script is every language"
+    );
+    assert_eq!(
+      languages(Some("Thai"), &only_english),
+      Ok("eng".to_string()),
+      "a script with none of its languages installed is read with what there is"
+    );
+    assert_eq!(
+      installed("List of available languages in \"/usr/share/tessdata/\" (3):\nafr\neng\nosd\n"),
+      Ok(vec!["afr".to_string(), "eng".to_string()])
+    );
+    assert_eq!(
+      installed(b"languages in /models/\xff\r\nafr\r\n\xff\r\neng\nosd\n"),
+      Ok(vec!["afr".to_string(), "eng".to_string()])
+    );
+  }
 
-        assert_eq!(korean.text, "\u{c548}\u{b155} \u{d558}\u{c138}\u{c694}", "Korean keeps its spaces");
-    }
+  #[test]
+  fn a_highlight_covers_the_boxes_of_the_words_it_runs_over() -> Result<(), &'static str> {
+    let Ok(read) = from_recognition(RECOGNIZED);
+    let paragraph = read.get(1).ok_or("a second paragraph")?;
+    let Ok(covered) = areas(paragraph, &(5..14));
 
-    #[test]
-    fn a_highlight_on_a_picture_is_widened_to_the_words_that_were_found() -> Result<(), &'static str> {
-        let mut paragraph = Paragraph::default();
-        let area = Area { left: 0.0, top: 0.0, width: 0.1, height: 0.1 };
+    assert_eq!(covered.len(), 2, "years and ago");
 
-        for said in ["\u{79c1}\u{306f}", "\u{732b}", "\u{304c}\u{597d}\u{304d}"] {
-            let Ok(()) = paragraph.push(said, area);
-        }
-
-        let middle = paragraph.words.get(1).map(|word| word.run.clone()).ok_or("a second word")?;
-
-        assert_eq!(widen(&paragraph, middle.start..middle.start), Ok(middle.clone()), "a tap takes the word it lands on and no more");
-        assert_eq!(widen(&paragraph, 1..middle.start), Ok(0..middle.end));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_page_is_read_in_the_languages_of_its_script_that_are_installed() {
-        let every: Vec<String> = ["eng", "nld", "fra", "jpn", "jpn_vert", "kor", "kor_vert", "tha"].iter().map(|language| language.to_string()).collect();
-        let only_english = vec!["eng".to_string()];
-
-        assert_eq!(script("Page number: 0\nScript: Japanese\nScript confidence: 3.1\n"), Ok(Some("Japanese".to_string())));
-        assert_eq!(languages(Some("Japanese"), &every), Ok("jpn+jpn_vert".to_string()));
-        assert_eq!(languages(Some("Hangul"), &every), Ok("kor+kor_vert".to_string()));
-        assert_eq!(languages(Some("Latin"), &only_english), Ok("eng".to_string()), "a language that is not installed is not asked for");
-        assert_eq!(languages(None, &every), Ok("eng+nld+fra+jpn+jpn_vert+kor+kor_vert+tha".to_string()), "no script is every language");
-        assert_eq!(languages(Some("Thai"), &only_english), Ok("eng".to_string()), "a script with none of its languages installed is read with what there is");
-        assert_eq!(installed("List of available languages in \"/usr/share/tessdata/\" (3):\nafr\neng\nosd\n"), Ok(vec!["afr".to_string(), "eng".to_string()]));
-    }
-
-    #[test]
-    fn a_highlight_covers_the_boxes_of_the_words_it_runs_over() -> Result<(), &'static str> {
-        let Ok(read) = from_recognition(RECOGNIZED);
-        let paragraph = read.get(1).ok_or("a second paragraph")?;
-        let Ok(covered) = areas(paragraph, &(5..14));
-
-        assert_eq!(covered.len(), 2, "years and ago");
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

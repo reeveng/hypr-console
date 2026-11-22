@@ -13,16 +13,23 @@ use console_core_arguments::{Command, Operands};
 use console_panel::card::{App, open_app};
 
 const COMMAND: Command = Command {
-    name: console_downloads::WHO,
-    about: "the downloads, as an app",
-    flags: &[],
-    operands: Operands::Optional("TAB"),
+  name: console_downloads::WHO,
+  about: "the downloads, as an app",
+  flags: &[],
+  operands: Operands::Optional("TAB"),
 };
 
 fn main() -> ExitCode {
-    let asked: Vec<String> = std::env::args().skip(1).collect();
+  let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(code) = open_app(&asked, App { who: console_downloads::WHO, command: COMMAND, card: console_downloads::card });
+  let Ok(code) = open_app(
+    &asked,
+    App {
+      who: console_downloads::WHO,
+      command: COMMAND,
+      card: console_downloads::card,
+    },
+  );
 
-    code
+  code
 }

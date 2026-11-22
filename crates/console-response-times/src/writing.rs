@@ -54,348 +54,428 @@ pub const CAP: u64 = 10 << 30;
 const QUEUE: u32 = 4096;
 
 enum Message {
-    Line(String),
-    Flush(SyncSender<()>),
+  Line(String),
+  Flush(SyncSender<()>),
 }
 
 pub fn line(said: &str) -> Result<(), Never> {
-    let mut whole = String::with_capacity(said.len().saturating_add(1));
-    whole.push_str(said);
-    whole.push('\n');
+  let mut whole = String::with_capacity(said.len().saturating_add(1));
+  whole.push_str(said);
+  whole.push('\n');
 
-    let Ok(held) = writer();
+  let Ok(held) = writer();
 
-    let say = match held {
-        Some(say) => say,
-        None => {
-            let Ok(()) = by_hand(&whole);
+  let say = match held {
+    Some(say) => say,
+    None => {
+      let Ok(()) = by_hand(&whole);
 
-            return Ok(());
-        }
-    };
-
-    match say.try_send(Message::Line(whole.clone())) {
-        Ok(()) => {}
-        Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
-            let Ok(()) = by_hand(&whole);
-        }
+      return Ok(());
     }
+  };
 
-    Ok(())
+  match say.try_send(Message::Line(whole.clone())) {
+    Ok(()) => {}
+    Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+      let Ok(()) = by_hand(&whole);
+    }
+  }
+
+  Ok(())
 }
 
 pub fn flush() -> Result<(), Never> {
-    let Ok(held) = writer();
+  let Ok(held) = writer();
 
-    let say = match held {
-        Some(say) => say,
-        None => return Ok(()),
-    };
+  let say = match held {
+    Some(say) => say,
+    None => return Ok(()),
+  };
 
-    let (told, back) = sync_channel(0);
+  let (told, back) = sync_channel(0);
 
-    match say.send(Message::Flush(told)) {
-        Ok(()) => {
-            let _ = back.recv();
-        }
-        Err(_no_one_is_listening) => {}
-    }
+  match say.send(Message::Flush(told)) {
+    Ok(()) => {}
+    Err(_writer_already_exited) => return Ok(()),
+  }
 
-    Ok(())
+  #[cfg_attr(
+    dylint_lib = "explicit057_no_unbounded_wait",
+    expect(
+      explicit057_no_unbounded_wait,
+      reason = "flush is the explicit exit barrier for all preceding journal writes and its private acknowledgment disconnects if the writer exits"
+    )
+  )]
+  let receipt = back.recv();
+
+  match receipt {
+    Ok(()) => Ok(()),
+    Err(_writer_exited_before_acknowledging) => Ok(()),
+  }
 }
 
 fn writer() -> Result<Option<&'static SyncSender<Message>>, Never> {
-    #[cfg_attr(
-        dylint_lib = "explicit044_no_ambient_value",
-        allow(
-            explicit044_no_ambient_value,
-            reason = "one thread per process holds the file open for the life of it, which is what this crate's head argues for: the queue is what every timed thread hands a line to, and a sender held by any one of them would be a sender the next one cannot find"
-        )
-    )]
-    static WRITER: OnceLock<Option<SyncSender<Message>>> = OnceLock::new();
+  #[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+      explicit044_no_ambient_value,
+      reason = "one thread per process holds the file open for the life of it, which is what this crate's head argues for: the queue is what every timed thread hands a line to, and a sender held by any one of them would be a sender the next one cannot find"
+    )
+  )]
+  #[cfg_attr(
+    dylint_lib = "explicit068_no_global_mutable_state",
+    expect(
+      explicit068_no_global_mutable_state,
+      reason = "one immutable sender points to the single process writer; only that thread owns or modifies the journal file"
+    )
+  )]
+  static WRITER: OnceLock<Option<SyncSender<Message>>> = OnceLock::new();
 
-    let held = WRITER.get_or_init(|| {
-        let Ok(started) = start();
+  let held = WRITER.get_or_init(|| {
+    let Ok(started) = start();
 
-        started
-    });
+    started
+  });
 
-    Ok(held.as_ref())
+  Ok(held.as_ref())
 }
 
 fn start() -> Result<Option<SyncSender<Message>>, Never> {
-    let Ok(queue) = index(QUEUE);
-    let (say, heard) = sync_channel(queue);
+  let Ok(queue) = index(QUEUE);
+  let (say, heard) = sync_channel(queue);
 
-    let Ok(at) = where_();
+  let Ok(at) = where_();
 
-    let at = match at {
-        Some(at) => at,
-        None => return Ok(None),
-    };
+  let at_3 = match at {
+    Some(at_2) => at_2,
+    None => return Ok(None),
+  };
 
-    let started = std::thread::Builder::new()
-        .name("wait-times".to_string())
-        .spawn(move || keep(&heard, &at, measuring::current));
+  let started = std::thread::Builder::new()
+    .name("wait-times".to_string())
+    .spawn(move || keep(&heard, &at_3, measuring::current));
 
-    match started {
-        Ok(_) => Ok(Some(say)),
-        Err(fault) => {
-            eprintln!("console-response-times: no thread to write with: {fault}");
+  match started {
+    Ok(_) => Ok(Some(say)),
+    Err(fault) => {
+      eprintln!("console-response-times: no thread to write with: {fault}");
 
-            Ok(None)
-        }
+      Ok(None)
     }
+  }
 }
 
-fn keep(heard: &Receiver<Message>, at: &Path, asked: fn() -> Result<Measuring, Never>) -> Result<(), Never> {
-    let mut store: Option<Store> = None;
+fn keep(
+  heard: &Receiver<Message>,
+  at: &Path,
+  asked: fn() -> Result<Measuring, Never>,
+) -> Result<(), Never> {
+  let mut store: Option<Store> = None;
 
-    for told in heard {
-        match told {
-            Message::Line(said) => {
-                let Ok(chosen) = asked();
+  #[cfg_attr(
+    dylint_lib = "explicit055_no_unbounded_loop",
+    expect(
+      explicit055_no_unbounded_loop,
+      reason = "the dedicated background writer accepts events for the lifetime of the process and stops when its senders disconnect"
+    )
+  )]
+  'messages: for told in heard {
+    match told {
+      Message::Line(said) => {
+        let Ok(chosen) = asked();
 
-                match chosen {
-                    Measuring::On => {
-                        let Ok(held) = append(store, at, &said);
+        match chosen {
+          Measuring::On => {
+            let Ok(held) = append(store, at, &said);
 
-                        store = held;
-                    }
-                    Measuring::Off => store = None,
-                }
-            }
-            Message::Flush(told) => {
-                let _ = told.send(());
-            }
+            store = held;
+          }
+          Measuring::Off => store = None,
         }
+      }
+      Message::Flush(told_2) => match told_2.send(()) {
+        Ok(()) => {}
+        Err(_flusher_disconnected) => continue 'messages,
+      },
     }
+  }
 
-    Ok(())
+  Ok(())
 }
 
 struct Store {
-    file: File,
-    long: u64,
+  file: File,
+  long: u64,
 }
 
 fn append(store: Option<Store>, at: &Path, said: &str) -> Result<Option<Store>, Never> {
-    let mut store = match store {
-        Some(store) => store,
-        None => {
-            let Ok(held) = opened(at);
+  let mut store_3 = match store {
+    Some(store_2) => store_2,
+    None => {
+      let Ok(held) = opened(at);
 
-            match held {
-                Some(held) => held,
-                None => return Ok(None),
-            }
-        }
-    };
-
-    match store.file.write_all(said.as_bytes()) {
-        Ok(()) => {}
-        Err(fault) => {
-            eprintln!("console-response-times: {}: {fault}", at.display());
-
-            return Ok(None);
-        }
+      match held {
+        Some(held_2) => held_2,
+        None => return Ok(None),
+      }
     }
+  };
 
-    let Ok(long) = fitted(said.len());
+  match store_3.file.write_all(said.as_bytes()) {
+    Ok(()) => {}
+    Err(fault) => {
+      eprintln!("console-response-times: {}: {fault}", at.display());
 
-    store.long = store.long.saturating_add(long);
-
-    match store.long >= CAP {
-        true => {
-            let Ok(()) = set_aside(at);
-
-            Ok(None)
-        }
-        false => Ok(Some(store)),
+      return Ok(None);
     }
+  }
+
+  let Ok(long) = fitted(said.len());
+
+  store_3.long = store_3.long.saturating_add(long);
+
+  match ::core::primitive::bool::then_some(store_3.long >= CAP, ()) {
+    ::core::option::Option::Some(()) => {
+      let Ok(()) = set_aside(at);
+
+      Ok(None)
+    }
+    ::core::option::Option::None => Ok(Some(store_3)),
+  }
 }
 
 fn opened(at: &Path) -> Result<Option<Store>, Never> {
-    match at.parent() {
-        Some(above) => match std::fs::create_dir_all(above) {
-            Ok(()) => {}
-            Err(fault) => {
-                eprintln!("console-response-times: {}: {fault}", above.display());
+  match at.parent() {
+    Some(above) => match std::fs::create_dir_all(above) {
+      Ok(()) => {}
+      Err(fault) => {
+        eprintln!("console-response-times: {}: {fault}", above.display());
 
-                return Ok(None);
-            }
-        },
-        None => {}
+        return Ok(None);
+      }
+    },
+    None => {}
+  }
+
+  #[cfg_attr(
+    dylint_lib = "explicit040_no_torn_write",
+    allow(
+      explicit040_no_torn_write,
+      reason = "a log appended to a line at a time, opened once and held for the life of the process: a rename over it would take away every line the other processes are still appending to"
+    )
+  )]
+  let file = match OpenOptions::new().create(true).append(true).open(at) {
+    Ok(file) => file,
+    Err(fault) => {
+      eprintln!("console-response-times: {}: {fault}", at.display());
+
+      return Ok(None);
     }
-
-    #[cfg_attr(
-        dylint_lib = "explicit040_no_torn_write",
-        allow(
-            explicit040_no_torn_write,
-            reason = "a log appended to a line at a time, opened once and held for the life of the process: a rename over it would take away every line the other processes are still appending to"
-        )
-    )]
-    let file = match OpenOptions::new().create(true).append(true).open(at) {
-        Ok(file) => file,
-        Err(fault) => {
-            eprintln!("console-response-times: {}: {fault}", at.display());
-
-            return Ok(None);
-        }
-    };
-    let long = match file.metadata() {
-        Ok(about) => about.len(),
-        Err(fault) => {
-            eprintln!(
-                "console-response-times: {}: how long it already is would not be said: {fault}. The \
+  };
+  let long = match file.metadata() {
+    Ok(about) => about.len(),
+    Err(fault) => {
+      eprintln!(
+        "console-response-times: {}: how long it already is would not be said: {fault}. The \
                  ten gigabytes are counted from here instead",
-                at.display()
-            );
+        at.display()
+      );
 
-            0
-        }
-    };
+      0
+    }
+  };
 
-    Ok(Some(Store { file, long }))
+  Ok(Some(Store { file, long }))
 }
 
 fn set_aside(at: &Path) -> Result<(), Never> {
-    let _ = std::fs::rename(at, at.with_extension("jsonl.old"));
+  match std::fs::rename(at, at.with_extension("jsonl.old")) {
+    Ok(()) => {}
+    Err(fault) => eprintln!(
+      "console-response-times: cannot rotate {}: {fault}",
+      at.display()
+    ),
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn by_hand(said: &str) -> Result<(), Never> {
-    let Ok(chosen) = measuring::current();
+  let Ok(chosen) = measuring::current();
 
-    match chosen {
-        Measuring::On => {}
-        Measuring::Off => return Ok(()),
+  match chosen {
+    Measuring::On => {}
+    Measuring::Off => return Ok(()),
+  }
+
+  let Ok(at) = where_();
+
+  let at_3 = match at {
+    Some(at_2) => at_2,
+    None => return Ok(()),
+  };
+
+  let Ok(held) = opened(&at_3);
+
+  let mut store = match held {
+    Some(store) => store,
+    None => return Ok(()),
+  };
+
+  match store.file.write_all(said.as_bytes()) {
+    Ok(()) => Ok(()),
+    Err(fault) => {
+      eprintln!("console-response-times: {}: {fault}", at_3.display());
+
+      Ok(())
     }
-
-    let Ok(at) = where_();
-
-    let at = match at {
-        Some(at) => at,
-        None => return Ok(()),
-    };
-
-    let Ok(held) = opened(&at);
-
-    let mut store = match held {
-        Some(store) => store,
-        None => return Ok(()),
-    };
-
-    let _ = store.file.write_all(said.as_bytes());
-
-    Ok(())
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
-    use std::path::PathBuf;
+  use super::*;
+  use std::error::Error;
+  use std::io::{self, ErrorKind};
+  use std::path::PathBuf;
+  use std::thread::JoinHandle;
+  use std::time::Duration;
 
-    fn somewhere(named: &str) -> Result<PathBuf, Box<dyn Error>> {
-        let folder = console_core_temporary_directories::fresh(&format!("waited-{named}"))?;
+  const WAIT_FOR_WRITER: Duration = Duration::from_secs(5);
 
-        Ok(folder.join("waited.jsonl"))
-    }
+  #[cfg_attr(
+    dylint_lib = "explicit057_no_unbounded_wait",
+    expect(
+      explicit057_no_unbounded_wait,
+      reason = "the tests close their only sender after the writer acknowledges the queue, so the receive loop exits and the join collects its result"
+    )
+  )]
+  fn joined(writer: JoinHandle<Result<(), Never>>) -> io::Result<()> {
+    let result = writer
+      .join()
+      .map_err(|_writer_panicked| io::Error::other("the journal writer panicked"))?;
+    let Ok(()) = result;
 
-    fn on() -> Result<Measuring, Never> {
-        Ok(Measuring::On)
-    }
+    Ok(())
+  }
 
-    fn off() -> Result<Measuring, Never> {
-        Ok(Measuring::Off)
-    }
+  fn somewhere(named: &str) -> Result<PathBuf, Box<dyn Error>> {
+    let folder = console_core_temporary_directories::fresh(&format!("waited-{named}"))?;
 
-    #[test]
-    fn the_file_is_opened_once_and_held_for_every_line_after_the_first() -> Result<(), Box<dyn Error>> {
-        let at = somewhere("held")?;
-        let _ = std::fs::remove_file(&at);
-        let Ok(store) = append(None, &at, "one\n");
+    Ok(folder.join("waited.jsonl"))
+  }
 
-        assert!(store.is_some(), "the first line did not open the file");
+  fn on() -> Result<Measuring, Never> {
+    Ok(Measuring::On)
+  }
 
-        let Ok(store) = append(store, &at, "two\n");
-        let written = std::fs::read_to_string(&at)?;
+  fn off() -> Result<Measuring, Never> {
+    Ok(Measuring::Off)
+  }
 
-        assert!(store.is_some(), "the second line let go of the file");
-        assert_eq!(written, "one\ntwo\n");
+  #[test]
+  fn the_file_is_opened_once_and_held_for_every_line_after_the_first()
+  -> Result<(), Box<dyn Error>> {
+    let at = somewhere("held")?;
+    let Ok(store) = append(None, &at, "one\n");
 
-        let _ = std::fs::remove_file(&at);
+    assert!(store.is_some(), "the first line did not open the file");
 
-        Ok(())
-    }
+    let Ok(after_second_line) = append(store, &at, "two\n");
+    let written = std::fs::read_to_string(&at)?;
 
-    #[test]
-    fn a_line_written_by_hand_lands_where_the_thread_would_have_put_it() -> Result<(), Box<dyn Error>> {
-        let at = somewhere("by-hand")?;
-        let _ = std::fs::remove_file(&at);
-        let Ok(store) = append(None, &at, "written on the thread that timed it\n");
-        let written = std::fs::read_to_string(&at)?;
+    assert!(
+      after_second_line.is_some(),
+      "the second line let go of the file"
+    );
+    assert_eq!(written, "one\ntwo\n");
 
-        assert!(store.is_some());
-        assert!(written.ends_with('\n'));
+    std::fs::remove_file(&at)?;
 
-        let _ = std::fs::remove_file(&at);
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn a_line_written_by_hand_lands_where_the_thread_would_have_put_it()
+  -> Result<(), Box<dyn Error>> {
+    let at = somewhere("by-hand")?;
+    let Ok(store) = append(None, &at, "written on the thread that timed it\n");
+    let written = std::fs::read_to_string(&at)?;
 
-    #[test]
-    fn the_thread_writes_what_it_was_given_and_answers_once_the_queue_is_empty() -> Result<(), Box<dyn Error>> {
-        let at = somewhere("queue")?;
-        let _ = std::fs::remove_file(&at);
-        let (say, heard) = sync_channel(8);
-        let there = at.clone();
-        let thread = std::thread::spawn(move || keep(&heard, &there, on));
-        let (told, back) = sync_channel(0);
+    assert!(store.is_some());
+    assert!(written.ends_with('\n'));
 
-        say.send(Message::Line("one\n".to_string())).map_err(|_| "the queue had no room in it")?;
-        say.send(Message::Flush(told)).map_err(|_| "the queue had no room in it")?;
-        back.recv().map_err(|_| "the thread never said it had caught up")?;
+    std::fs::remove_file(&at)?;
 
-        let written = std::fs::read_to_string(&at)?;
+    Ok(())
+  }
 
-        assert_eq!(written, "one\n");
+  #[test]
+  fn the_thread_writes_what_it_was_given_and_answers_once_the_queue_is_empty()
+  -> Result<(), Box<dyn Error>> {
+    let at = somewhere("queue")?;
+    let (say, heard) = sync_channel(8);
+    let there = at.clone();
+    let thread = std::thread::spawn(move || keep(&heard, &there, on));
+    let (told, back) = sync_channel(0);
 
-        drop(say);
+    say
+      .send(Message::Line("one\n".to_string()))
+      .map_err(|_| "the queue had no room in it")?;
+    say
+      .send(Message::Flush(told))
+      .map_err(|_| "the queue had no room in it")?;
+    back
+      .recv_timeout(WAIT_FOR_WRITER)
+      .map_err(|_| "the thread never said it had caught up")?;
 
-        let _ = thread.join();
-        let _ = std::fs::remove_file(&at);
+    let written = std::fs::read_to_string(&at)?;
 
-        Ok(())
-    }
+    assert_eq!(written, "one\n");
 
-    #[test]
-    fn with_measuring_off_the_thread_writes_nothing_and_still_answers() -> Result<(), Box<dyn Error>> {
-        let at = somewhere("off")?;
-        let _ = std::fs::remove_file(&at);
-        let (say, heard) = sync_channel(8);
-        let there = at.clone();
-        let thread = std::thread::spawn(move || keep(&heard, &there, off));
-        let (told, back) = sync_channel(0);
+    drop(say);
 
-        say.send(Message::Line("one\n".to_string())).map_err(|_| "the queue had no room in it")?;
-        say.send(Message::Flush(told)).map_err(|_| "the queue had no room in it")?;
-        back.recv().map_err(|_| "the thread never said it had caught up")?;
+    joined(thread)?;
+    std::fs::remove_file(&at)?;
 
-        assert!(!at.exists(), "a line was written with measuring off");
+    Ok(())
+  }
 
-        drop(say);
+  #[test]
+  fn with_measuring_off_the_thread_writes_nothing_and_still_answers() -> Result<(), Box<dyn Error>>
+  {
+    let at = somewhere("off")?;
+    let (say, heard) = sync_channel(8);
+    let there = at.clone();
+    let thread = std::thread::spawn(move || keep(&heard, &there, off));
+    let (told, back) = sync_channel(0);
 
-        let _ = thread.join();
+    say
+      .send(Message::Line("one\n".to_string()))
+      .map_err(|_| "the queue had no room in it")?;
+    say
+      .send(Message::Flush(told))
+      .map_err(|_| "the queue had no room in it")?;
+    back
+      .recv_timeout(WAIT_FOR_WRITER)
+      .map_err(|_| "the thread never said it had caught up")?;
 
-        Ok(())
-    }
+    let absent = match std::fs::metadata(&at) {
+      Ok(_unexpected_journal) => false,
+      Err(fault) => fault.kind() == ErrorKind::NotFound,
+    };
+    assert!(absent, "a line was written with measuring off");
 
-    #[test]
-    fn waiting_for_a_queue_nothing_was_put_on_returns() {
-        let Ok(()) = flush();
-        let Ok(()) = flush();
-    }
+    drop(say);
+
+    joined(thread)?;
+
+    Ok(())
+  }
+
+  #[test]
+  fn waiting_for_a_queue_nothing_was_put_on_returns() {
+    let Ok(()) = flush();
+    let Ok(()) = flush();
+  }
 }

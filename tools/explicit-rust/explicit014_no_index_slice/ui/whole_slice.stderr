@@ -1,0 +1,36 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/whole_slice.rs:5:6
+   |
+LL |     &b"bytes"[..]
+   |     -^^^^^^^^^^^^
+   |     |
+   |     help: borrow the whole slice directly: `::core::convert::AsRef::<[_]>::as_ref(&*(b"bytes"))`
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/whole_slice.rs:9:10
+   |
+LL |     &mut slice[..]
+   |     -----^^^^^^^^^
+   |     |
+   |     help: borrow the whole slice directly: `&mut *slice`
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/whole_slice.rs:13:10
+   |
+LL |     &mut bytes[..]
+   |     -----^^^^^^^^^
+   |     |
+   |     help: borrow the whole slice directly: `::core::convert::AsMut::<[_]>::as_mut(&mut *bytes)`
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/whole_slice.rs:17:6
+   |
+LL |     &text[..]
+   |     -^^^^^^^^
+   |     |
+   |     help: borrow the whole slice directly: `::core::convert::AsRef::<str>::as_ref(&*text)`
+
+error: aborting due to 4 previous errors
+

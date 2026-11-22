@@ -16,34 +16,41 @@
 use std::process::ExitCode;
 
 use console_core_arguments::{Command, Operands};
-use console_panel::card::{App, open_app, refusal};
 use console_media_viewer::card::Worth;
+use console_panel::card::{App, open_app, refusal};
 
 const COMMAND: Command = Command {
-    name: console_media_viewer::WHO,
-    about: "a picture or a film; with nothing, the pictures folder",
-    flags: &[],
-    operands: Operands::Optional("FILE-OR-FOLDER"),
+  name: console_media_viewer::WHO,
+  about: "a picture or a film; with nothing, the pictures folder",
+  flags: &[],
+  operands: Operands::Optional("FILE-OR-FOLDER"),
 };
 
 fn main() -> ExitCode {
-    let asked: Vec<String> = std::env::args().skip(1).collect();
+  let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(refusing) = refusal(&COMMAND, &asked);
+  let Ok(refusing) = refusal(&COMMAND, &asked);
 
-    match refusing {
-        Some(code) => return code,
-        None => {},
+  match refusing {
+    Some(code) => return code,
+    None => {}
+  }
+
+  let Ok(worth) = console_media_viewer::card::worth_opening(&asked);
+
+  match worth {
+    Worth::None => ExitCode::SUCCESS,
+    Worth::Opening => {
+      let Ok(code) = open_app(
+        &asked,
+        App {
+          who: console_media_viewer::WHO,
+          command: COMMAND,
+          card: console_media_viewer::card,
+        },
+      );
+
+      code
     }
-
-    let Ok(worth) = console_media_viewer::card::worth_opening(&asked);
-
-    match worth {
-        Worth::None => ExitCode::SUCCESS,
-        Worth::Opening => {
-            let Ok(code) = open_app(&asked, App { who: console_media_viewer::WHO, command: COMMAND, card: console_media_viewer::card });
-
-            code
-        }
-    }
+  }
 }

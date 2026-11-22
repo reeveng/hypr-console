@@ -21,7 +21,8 @@
 //! somewhere no one asked for, and the one thing a directory named after
 //! someone else's string must not do is leave the directory.
 
-use std::path::{Path, PathBuf};
+use std::ffi::OsStr;
+use std::path::{Component, Path, PathBuf};
 
 use console_core_never::Never;
 
@@ -32,90 +33,134 @@ pub struct Output<'a>(pub &'a str);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Unnamed {
-    NotAConnector(String),
+  NotAConnector(String),
+  NotAFileName(String),
 }
 
 impl std::fmt::Display for Unnamed {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unnamed::NotAConnector(said) => {
-                write!(to, "{said:?} is not what a kernel calls a connector")
-            }
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unnamed::NotAConnector(said) => {
+        write!(to, "{said:?} is not what a kernel calls a connector")
+      }
+      Unnamed::NotAFileName(said) => {
+        write!(to, "{said:?} is not a settings file name")
+      }
     }
+  }
 }
 
 impl std::error::Error for Unnamed {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Spelled {
-    LikeAConnector,
-    LikeSomethingElse,
+  LikeAConnector,
+  LikeSomethingElse,
 }
 
 fn classify_name(named: &str) -> Result<Spelled, Never> {
-    let letters = named.chars().all(|one| one.is_ascii_alphanumeric() || one == '-');
+  let letters = named
+    .chars()
+    .all(|one| one.is_ascii_alphanumeric() || one == '-');
 
-    Ok(match named.is_empty() || !letters {
-        true => Spelled::LikeSomethingElse,
-        false => Spelled::LikeAConnector,
-    })
+  Ok(match ::core::primitive::bool::then_some(named.is_empty() || !letters, ()) {
+    ::core::option::Option::Some(()) => Spelled::LikeSomethingElse,
+    ::core::option::Option::None => Spelled::LikeAConnector,
+  })
+}
+
+struct FileName<'a>(&'a OsStr);
+
+impl AsRef<Path> for FileName<'_> {
+  fn as_ref(&self) -> &Path {
+    Path::new(self.0)
+  }
 }
 
 impl Output<'_> {
-    pub fn under(self, home: &Path) -> Result<PathBuf, Unnamed> {
-        let named = self.0.trim();
-        let Ok(spelled) = classify_name(named);
+  pub fn under(self, home: &Path) -> Result<PathBuf, Unnamed> {
+    let named = self.0.trim();
+    let Ok(spelled) = classify_name(named);
 
-        match spelled {
-            Spelled::LikeAConnector => {},
-            Spelled::LikeSomethingElse => return Err(Unnamed::NotAConnector(self.0.to_string())),
-        }
-
-        let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
-
-        Ok(ours.join(UNDER).join(named))
+    match spelled {
+      Spelled::LikeAConnector => {}
+      Spelled::LikeSomethingElse => return Err(Unnamed::NotAConnector(self.0.to_string())),
     }
 
-    pub fn path_for(self, home: &Path, called: &str) -> Result<PathBuf, Unnamed> {
-        let under = self.under(home)?;
+    let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
 
-        Ok(under.join(called))
-    }
+    let connector = FileName(OsStr::new(named));
+
+    Ok(ours.join(UNDER).join(connector))
+  }
+
+  pub fn path_for(self, home: &Path, called: &str) -> Result<PathBuf, Unnamed> {
+    let under = self.under(home)?;
+    let path = Path::new(called);
+    let mut components = path.components();
+    let file = match (components.next(), components.next()) {
+      (Some(Component::Normal(name)), None) => FileName(name),
+      _ => return Err(Unnamed::NotAFileName(called.to_string())),
+    };
+
+    Ok(under.join(file))
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn at(output: Output<'_>, called: &str) -> Result<PathBuf, Unnamed> {
-        output.path_for(Path::new("/home/ada"), called)
-    }
+  fn at(output: Output<'_>, called: &str) -> Result<PathBuf, Unnamed> {
+    output.path_for(Path::new("/home/ada"), called)
+  }
 
-    #[test]
-    fn a_screens_answers_are_kept_in_a_directory_named_after_it() {
-        assert_eq!(
-            at(Output("eDP-1"), "turn"),
-            Ok(PathBuf::from("/home/ada/.config/console/screens/eDP-1/turn"))
-        );
-        assert_eq!(
-            at(Output("DP-3"), "scale"),
-            Ok(PathBuf::from("/home/ada/.config/console/screens/DP-3/scale"))
-        );
-    }
+  #[test]
+  fn a_screens_answers_are_kept_in_a_directory_named_after_it() {
+    assert_eq!(
+      at(Output("eDP-1"), "turn"),
+      Ok(PathBuf::from(
+        "/home/ada/.config/console/screens/eDP-1/turn"
+      ))
+    );
+    assert_eq!(
+      at(Output("DP-3"), "scale"),
+      Ok(PathBuf::from(
+        "/home/ada/.config/console/screens/DP-3/scale"
+      ))
+    );
+  }
 
-    #[test]
-    fn two_screens_do_not_share_an_answer() {
-        assert_ne!(at(Output("eDP-1"), "turn"), at(Output("HDMI-A-1"), "turn"));
-    }
+  #[test]
+  fn two_screens_do_not_share_an_answer() {
+    assert_ne!(at(Output("eDP-1"), "turn"), at(Output("HDMI-A-1"), "turn"));
+  }
 
-    #[test]
-    fn a_name_that_could_leave_the_directory_is_not_a_connector() {
-        assert_eq!(at(Output("../../.."), "turn"), Err(Unnamed::NotAConnector("../../..".to_string())));
-        assert_eq!(
-            at(Output("eDP-1/../../x"), "turn"),
-            Err(Unnamed::NotAConnector("eDP-1/../../x".to_string()))
-        );
-        assert_eq!(at(Output(""), "turn"), Err(Unnamed::NotAConnector(String::new())));
-    }
+  #[test]
+  fn an_answer_stays_under_its_connector() {
+    assert_eq!(
+      at(Output("eDP-1"), "../turn"),
+      Err(Unnamed::NotAFileName("../turn".to_string()))
+    );
+    assert_eq!(
+      at(Output("eDP-1"), "/scale"),
+      Err(Unnamed::NotAFileName("/scale".to_string()))
+    );
+  }
+
+  #[test]
+  fn a_name_that_could_leave_the_directory_is_not_a_connector() {
+    assert_eq!(
+      at(Output("../../.."), "turn"),
+      Err(Unnamed::NotAConnector("../../..".to_string()))
+    );
+    assert_eq!(
+      at(Output("eDP-1/../../x"), "turn"),
+      Err(Unnamed::NotAConnector("eDP-1/../../x".to_string()))
+    );
+    assert_eq!(
+      at(Output(""), "turn"),
+      Err(Unnamed::NotAConnector(String::new()))
+    );
+  }
 }

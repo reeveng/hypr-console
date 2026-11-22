@@ -6,8 +6,8 @@
 //! what stands in for the toolkit is not a smaller toolkit: it is this, a list
 //! of the shapes this machine can ever draw, closed and matched over. An engine
 //! for arbitrary arrangement is a larger thing than the one it replaces, and an
-//! element holding its own mutable state is what `docs/programs.md` exists to
-//! forbid, arriving dressed as a widget.
+//! element holding its own mutable state is what the `programs.md` note in
+//! Orbit exists to forbid, arriving dressed as a widget.
 //!
 //! The list is short because it was derived rather than designed. The
 //! notification card -- a bordered box, a bold line, a wrapped line under it,
@@ -23,7 +23,7 @@
 //! a conversion out of that. Our own surfaces are the first ones that did not
 //! have to convert, so they do not: a shape carries the color in the space it
 //! was decided in, and the channels happen in the last inch, inside the thing
-//! holding cairo. What that buys is the arithmetic -- lifting a row under the
+//! holding the rasterizer. What that buys is the arithmetic -- lifting a row under the
 //! highlight, dropping a label that cannot be pressed -- staying perceptual
 //! rather than being done to three bytes that do not mean anything on their own.
 //!
@@ -35,16 +35,13 @@
 //! So it is here, beside the weight, and nothing above has to sort its shapes
 //! by face before it draws them.
 //!
-//! **How tall a font is, is logical pixels like everything else here.** Pango
-//! measures a face in points at some resolution, which is a second unit in a
-//! tree that has one, and a whole number of them cannot say the fifteen pixels
-//! the bar's letters had always been. So the number on a font is the number
-//! every other number here is, and the one conversion happens where the type
-//! face is asked for.
+//! **A font's height is in logical pixels.** The layout uses the same units
+//! as the shapes around it. Rasterization applies the display scale later,
+//! which leaves measurement independent of the screen it will be drawn on.
 //!
 //! **A picture is bytes somebody else decoded.** The third variant is the one
 //! 016 was written to ask about, and what it carries is the argument for it:
-//! not a path, which would make the thing holding cairo open files and work out
+//! not a path, which would make the thing holding the rasterizer open files and work out
 //! formats, and not a handle to a toolkit's image, which is the widget coming
 //! back in. It carries the pixels and the size they are drawn at, so what
 //! decodes is the program that was already decoding -- the panel's picture
@@ -67,8 +64,6 @@
 //! compositor in the room while the measuring is checked where there is one. A
 //! measurement kept in the state is the first thing that would undo that.
 
-use std::sync::Arc;
-
 use console_core_color::Oklch;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
@@ -79,156 +74,211 @@ pub struct Round(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Edge {
-    Of { wide: u32, color: Oklch },
-    None,
+  Of { wide: u32, color: Oklch },
+  None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Panel {
-    pub at: Point<i32>,
-    pub size: Size<u32>,
-    pub round: Round,
-    pub fill: Oklch,
-    pub edge: Edge,
+  pub at: Point<i32>,
+  pub size: Size<u32>,
+  pub round: Round,
+  pub fill: Oklch,
+  pub edge: Edge,
 }
 
 pub use console_core_fonts::{Font, Weight};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Text {
-    pub at: Point<i32>,
-    pub width: u32,
-    pub said: String,
-    pub weight: Weight,
-    pub font: Font,
-    pub ink: Oklch,
+  pub at: Point<i32>,
+  pub width: u32,
+  pub said: String,
+  pub weight: Weight,
+  pub font: Font,
+  pub ink: Oklch,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Pixels {
-    pub width: u32,
-    pub height: u32,
-    pub stride: u32,
-    pub bytes: Arc<Vec<u8>>,
-}
+pub use console_core_pixel_buffers::StridedPixels as Pixels;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Picture {
-    pub at: Point<i32>,
-    pub size: Size<u32>,
-    pub pixels: Pixels,
+pub struct Picture<P = Pixels> {
+  pub at: Point<i32>,
+  pub size: Size<u32>,
+  pub pixels: P,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Cropped {
-    pub at: Point<i32>,
-    pub size: Size<u32>,
-    pub pixels: Pixels,
-    pub from: Point<f64>,
-    pub seen: Size<f64>,
+pub struct Cropped<P = Pixels> {
+  pub at: Point<i32>,
+  pub size: Size<u32>,
+  pub pixels: P,
+  pub from: Point<f64>,
+  pub seen: Size<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Line {
-    pub from: Point<i32>,
-    pub to: Point<i32>,
-    pub width: u32,
-    pub color: Oklch,
+  pub from: Point<i32>,
+  pub to: Point<i32>,
+  pub width: u32,
+  pub color: Oklch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Clip {
-    To { at: Point<i32>, size: Size<u32> },
-    Lifted,
+  To { at: Point<i32>, size: Size<u32> },
+  Lifted,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Shape {
-    Panel(Panel),
-    Text(Text),
-    Picture(Picture),
-    Cropped(Cropped),
-    Line(Line),
-    Clip(Clip),
+  Panel(Panel),
+  Text(Text),
+  Picture(Picture),
+  Cropped(Cropped),
+  Line(Line),
+  Clip(Clip),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Covers {
-    Yes,
-    No,
+  Yes,
+  No,
+}
+
+impl From<bool> for Covers {
+  fn from(inside: bool) -> Self {
+    match bool::then_some(inside, ()) {
+      Some(()) => Self::Yes,
+      None => Self::No,
+    }
+  }
 }
 
 impl Panel {
-    pub fn covers(&self, at: Point<i32>) -> Result<Covers, Never> {
-        let Ok(wide) = width(self.size.width);
-        let Ok(tall) = width(self.size.height);
+  pub fn focus_outline(&self, color: Oklch) -> Result<[Line; 4], Never> {
+    let Ok(wide) = width(self.size.width);
+    let Ok(tall) = width(self.size.height);
+    let left = self.at.x.saturating_add(1);
+    let top = self.at.y.saturating_add(1);
+    let right = self.at.x.saturating_add(wide.saturating_sub(1)).max(left);
+    let bottom = self.at.y.saturating_add(tall.saturating_sub(1)).max(top);
+    let corners = [
+      Point { x: left, y: top },
+      Point { x: right, y: top },
+      Point {
+        x: right,
+        y: bottom,
+      },
+      Point { x: left, y: bottom },
+    ];
+    let [first, second, third, fourth] = corners;
 
-        let inside = at.x >= self.at.x
-            && at.y >= self.at.y
-            && at.x < self.at.x.saturating_add(wide)
-            && at.y < self.at.y.saturating_add(tall);
+    Ok(
+      [
+        (first, second),
+        (second, third),
+        (third, fourth),
+        (fourth, first),
+      ]
+      .map(|(from, to)| Line {
+        from,
+        to,
+        width: 2,
+        color,
+      }),
+    )
+  }
 
-        Ok(match inside {
-            true => Covers::Yes,
-            false => Covers::No,
-        })
-    }
+  pub fn covers(&self, at: Point<i32>) -> Result<Covers, Never> {
+    let Ok(wide) = width(self.size.width);
+    let Ok(tall) = width(self.size.height);
+
+    let inside = at.x >= self.at.x
+      && at.y >= self.at.y
+      && at.x < self.at.x.saturating_add(wide)
+      && at.y < self.at.y.saturating_add(tall);
+
+    Ok(Covers::from(inside))
+  }
 }
 
 pub fn panels(shapes: &[Shape]) -> Result<Vec<Panel>, Never> {
-    Ok(shapes
-        .iter()
-        .filter_map(|shape| match shape {
-            Shape::Panel(panel) => Some(*panel),
-            Shape::Text(_) | Shape::Picture(_) | Shape::Cropped(_) | Shape::Line(_) | Shape::Clip(_) => None,
-        })
-        .collect())
+  Ok(
+    shapes
+      .iter()
+      .filter_map(|shape| match shape {
+        Shape::Panel(panel) => Some(*panel),
+        Shape::Text(_)
+        | Shape::Picture(_)
+        | Shape::Cropped(_)
+        | Shape::Line(_)
+        | Shape::Clip(_) => None,
+      })
+      .collect(),
+  )
 }
 
 pub fn texts(shapes: &[Shape]) -> Result<Vec<Text>, Never> {
-    Ok(shapes
-        .iter()
-        .filter_map(|shape| match shape {
-            Shape::Text(text) => Some(text.clone()),
-            Shape::Panel(_) | Shape::Picture(_) | Shape::Cropped(_) | Shape::Line(_) | Shape::Clip(_) => None,
-        })
-        .collect())
+  Ok(
+    shapes
+      .iter()
+      .filter_map(|shape| match shape {
+        Shape::Text(text) => Some(text.clone()),
+        Shape::Panel(_)
+        | Shape::Picture(_)
+        | Shape::Cropped(_)
+        | Shape::Line(_)
+        | Shape::Clip(_) => None,
+      })
+      .collect(),
+  )
 }
 
 fn width(many: u32) -> Result<i32, Never> {
-    fitted(many)
+  fitted(many)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const PANEL: Panel = Panel {
-        at: Point { x: 10, y: 20 },
-        size: Size { width: 100, height: 40 },
-        round: Round(4),
-        fill: Oklch { lightness: 0.0, chroma: 0.0, hue: 0.0 },
-        edge: Edge::None,
+  const PANEL: Panel = Panel {
+    at: Point { x: 10, y: 20 },
+    size: Size {
+      width: 100,
+      height: 40,
+    },
+    round: Round(4),
+    fill: Oklch::BLACK,
+    edge: Edge::None,
+  };
+
+  #[test]
+  fn a_press_on_a_panel_is_on_it_and_a_press_past_its_far_edge_is_not() {
+    assert_eq!(PANEL.covers(Point { x: 10, y: 20 }), Ok(Covers::Yes));
+    assert_eq!(PANEL.covers(Point { x: 109, y: 59 }), Ok(Covers::Yes));
+    assert_eq!(PANEL.covers(Point { x: 110, y: 40 }), Ok(Covers::No));
+    assert_eq!(PANEL.covers(Point { x: 50, y: 60 }), Ok(Covers::No));
+  }
+
+  #[test]
+  fn a_press_before_a_panel_is_not_on_it_either_way_round() {
+    assert_eq!(PANEL.covers(Point { x: 9, y: 20 }), Ok(Covers::No));
+    assert_eq!(PANEL.covers(Point { x: 10, y: 19 }), Ok(Covers::No));
+  }
+
+  #[test]
+  fn a_panel_of_nothing_covers_nothing_rather_than_its_own_corner() {
+    let none = Panel {
+      size: Size {
+        width: 0,
+        height: 0,
+      },
+      ..PANEL
     };
 
-    #[test]
-    fn a_press_on_a_panel_is_on_it_and_a_press_past_its_far_edge_is_not() {
-        assert_eq!(PANEL.covers(Point { x: 10, y: 20 }), Ok(Covers::Yes));
-        assert_eq!(PANEL.covers(Point { x: 109, y: 59 }), Ok(Covers::Yes));
-        assert_eq!(PANEL.covers(Point { x: 110, y: 40 }), Ok(Covers::No));
-        assert_eq!(PANEL.covers(Point { x: 50, y: 60 }), Ok(Covers::No));
-    }
-
-    #[test]
-    fn a_press_before_a_panel_is_not_on_it_either_way_round() {
-        assert_eq!(PANEL.covers(Point { x: 9, y: 20 }), Ok(Covers::No));
-        assert_eq!(PANEL.covers(Point { x: 10, y: 19 }), Ok(Covers::No));
-    }
-
-    #[test]
-    fn a_panel_of_nothing_covers_nothing_rather_than_its_own_corner() {
-        let none = Panel { size: Size { width: 0, height: 0 }, ..PANEL };
-
-        assert_eq!(none.covers(Point { x: 10, y: 20 }), Ok(Covers::No));
-    }
+    assert_eq!(none.covers(Point { x: 10, y: 20 }), Ok(Covers::No));
+  }
 }

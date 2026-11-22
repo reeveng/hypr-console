@@ -20,15 +20,16 @@
 //!
 //! `cargo dylint` cannot ask this, for `the_families` reason and one more: a
 //! lint sees one crate at a time, and a word is only out of proportion against
-//! the whole tree. It is also a question about prose -- `docs/` argues in the
+//! the whole tree. It is also a question about prose -- a head argues in the
 //! same words the code names things in, and a habit that starts in a paragraph
 //! is in an identifier by the end of the week.
 //!
 //! What is measured is what this tree chose to say: identifiers, the `//!`
-//! heads, and the prose in `docs/` and `README.md`. What is not measured is
-//! what someone else chose -- string literals, because `hyprctl`'s words are
-//! hyprctl's, and `tools/`, because the lint suite is written against rustc's
-//! vocabulary rather than this desktop's.
+//! heads and `README.md`. What is not measured is what someone else chose --
+//! string literals, because `hyprctl`'s words are hyprctl's, and `tools/`,
+//! because the lint suite is written against rustc's vocabulary rather than
+//! this desktop's -- and the documentation, which is in Orbit now and out of
+//! reach of a test that has to pass with no network.
 //!
 //! [`LEANING_ON`] is the same measurement held to a looser multiple, and it
 //! decides nothing: it is what the printed table is cut at, because the words a
@@ -71,9 +72,23 @@ use crate::norm::Norm;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Uses(pub u64);
 
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "PerMillion names the denominator of the quantity carried by this scalar representation"
+  )
+)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PerMillion(pub f64);
 
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "TimesAsOften is the dimensionless ratio between the observed and expected rates"
+  )
+)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TimesAsOften(pub f64);
 
@@ -86,202 +101,217 @@ pub const LEANING_ON: TimesAsOften = TimesAsOften(20.0);
 pub const NOT: &str = "un";
 
 impl PerMillion {
-    pub fn against(self, norm: PerMillion) -> Result<TimesAsOften, Never> {
-        Ok(TimesAsOften(self.0 / norm.0))
-    }
+  pub fn against(self, norm: PerMillion) -> Result<TimesAsOften, Never> {
+    Ok(TimesAsOften(self.0 / norm.0))
+  }
 }
 
 impl TimesAsOften {
-    pub fn past(self, limit: TimesAsOften) -> Result<Further, Never> {
-        Ok(match self.0 >= limit.0 {
-            true => Further::Yes,
-            false => Further::No,
-        })
-    }
+  pub fn past(self, limit: TimesAsOften) -> Result<Further, Never> {
+    Ok(match ::core::primitive::bool::then_some(self.0 >= limit.0, ()) {
+      ::core::option::Option::Some(()) => Further::Yes,
+      ::core::option::Option::None => Further::No,
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Further {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Debug, Clone)]
 pub struct Measured {
-    pub word: String,
+  pub word: String,
 
-    pub uses: Uses,
+  pub uses: Uses,
 
-    pub here: PerMillion,
+  pub here: PerMillion,
 
-    pub in_english: Option<PerMillion>,
+  pub in_english: Option<PerMillion>,
 
-    pub times: Option<TimesAsOften>,
+  pub times: Option<TimesAsOften>,
 
-    pub written_in: Vec<String>,
+  pub written_in: Vec<String>,
 }
 
 impl Measured {
-    pub fn how_far(&self) -> Result<f64, Never> {
-        Ok(match self.times {
-            Some(times) => times.0,
-            None => f64::INFINITY,
-        })
-    }
+  pub fn how_far(&self) -> Result<f64, Never> {
+    Ok(match self.times {
+      Some(times) => times.0,
+      None => f64::INFINITY,
+    })
+  }
 }
 
 pub fn measure(counted: &Counted, norm: &Norm) -> Result<Vec<Measured>, Never> {
-    let Ok(where_to_look) = index(WHERE_TO_LOOK);
-    let mut found: Vec<Measured> = counted
-        .words
-        .iter()
-        .map(|(word, written)| {
-            let Ok(here) = counted.per_million(written.uses);
-            let Ok(in_english) = norm.of(word);
+  let Ok(where_to_look) = index(WHERE_TO_LOOK);
+  let mut found: Vec<Measured> = counted
+    .words
+    .iter()
+    .map(|(word, written)| {
+      let Ok(here) = counted.per_million(written.uses);
+      let Ok(in_english) = norm.of(word);
 
-            let times = in_english.map(|rate| {
-                let Ok(times) = here.against(rate);
+      let times = in_english.map(|rate| {
+        let Ok(times) = here.against(rate);
 
-                times
-            });
+        times
+      });
 
-            Measured {
-                word: word.clone(),
-                uses: written.uses,
-                here,
-                in_english,
-                times,
-                written_in: written.written_in.iter().take(where_to_look).cloned().collect(),
-            }
-        })
-        .collect();
+      Measured {
+        word: word.clone(),
+        uses: written.uses,
+        here,
+        in_english,
+        times,
+        written_in: written
+          .written_in
+          .iter()
+          .take(where_to_look)
+          .cloned()
+          .collect(),
+      }
+    })
+    .collect();
 
-    found.sort_by(|one, other| {
-        let Ok(mine) = other.how_far();
-        let Ok(theirs) = one.how_far();
+  found.sort_by(|one, other| {
+    let Ok(mine) = other.how_far();
+    let Ok(theirs) = one.how_far();
 
-        mine.total_cmp(&theirs).then_with(|| other.uses.cmp(&one.uses))
-    });
+    mine
+      .total_cmp(&theirs)
+      .then_with(|| other.uses.cmp(&one.uses))
+  });
 
-    Ok(found)
+  Ok(found)
 }
 
 const WHERE_TO_LOOK: u32 = 3;
 
 pub fn undeclared<'a>(
-    measured: &'a [Measured],
-    vocabulary: &Vocabulary<'_>,
+  measured: &'a [Measured],
+  vocabulary: &Vocabulary<'_>,
 ) -> Result<Vec<&'a Measured>, Never> {
-    Ok(measured
-        .iter()
-        .filter(|word| word.uses >= A_HABIT)
-        .filter(|word| match word.times {
-            Some(times) => {
-                let Ok(further) = times.past(TOO_FAR);
+  Ok(
+    measured
+      .iter()
+      .filter(|word| word.uses >= A_HABIT)
+      .filter(|word| match word.times {
+        Some(times) => {
+          let Ok(further) = times.past(TOO_FAR);
 
-                further == Further::Yes
-            },
-            None => true,
-        })
-        .filter(|word| {
-            let Ok(known) = known(&word.word, vocabulary);
+          further == Further::Yes
+        }
+        None => true,
+      })
+      .filter(|word| {
+        let Ok(known) = known(&word.word, vocabulary);
 
-            known == Known::Nowhere
-        })
-        .collect())
+        known == Known::Nowhere
+      })
+      .collect(),
+  )
 }
 
 #[derive(Debug, Clone)]
 pub struct Outside {
-    pub word: String,
+  pub word: String,
 
-    pub only: Vec<String>,
+  pub only: Vec<String>,
 
-    pub written_in: Vec<String>,
+  pub written_in: Vec<String>,
 }
 
 pub fn outside(counted: &Counted, declared: &Declared) -> Result<Vec<Outside>, Never> {
-    let Ok(every) = declared.every();
-    let mut found = Vec::new();
+  let Ok(every) = declared.every();
+  let mut found = Vec::new();
 
-    for word in every.keys() {
-        let Ok(scope) = declared.scope(word);
-        let only = match scope {
-            Scope::Anywhere => continue,
-            Scope::Only(places) => places,
-        };
-        let written_in = match counted.words.get(word) {
-            Some(written) => written.written_in.clone(),
-            None => BTreeSet::new(),
-        };
-        let written: Vec<String> = written_in
-            .into_iter()
-            .filter(|at| {
-                let Ok(belonging) = belonging(at, &only);
+  for word in every.keys() {
+    let Ok(scope) = declared.scope(word);
+    let only = match scope {
+      Scope::Anywhere => continue,
+      Scope::Only(places) => places,
+    };
+    let written_in = match counted.words.get(word) {
+      Some(written) => written.written_in.clone(),
+      None => BTreeSet::new(),
+    };
+    let written: Vec<String> = written_in
+      .into_iter()
+      .filter(|at| {
+        let Ok(belonging) = belonging(at, &only);
 
-                belonging == Belonging::Elsewhere
-            })
-            .collect();
+        belonging == Belonging::Elsewhere
+      })
+      .collect();
 
-        match written.is_empty() {
-            true => {},
-            false => found.push(Outside { word: word.clone(), only, written_in: written }),
-        }
+    match ::core::primitive::bool::then_some(written.is_empty(), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => found.push(Outside {
+        word: word.clone(),
+        only,
+        written_in: written,
+      }),
     }
+  }
 
-    Ok(found)
+  Ok(found)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Belonging {
-    Here,
-    Elsewhere,
+  Here,
+  Elsewhere,
 }
 
 fn belonging(at: &str, only: &[String]) -> Result<Belonging, Never> {
-    Ok(match only.iter().any(|place| at.starts_with(place.as_str())) {
-        true => Belonging::Here,
-        false => Belonging::Elsewhere,
-    })
+  Ok(
+    match ::core::primitive::bool::then_some(only.iter().any(|place| at.starts_with(place.as_str())), ()) {
+      ::core::option::Option::Some(()) => Belonging::Here,
+      ::core::option::Option::None => Belonging::Elsewhere,
+    },
+  )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Known {
-    Under(String),
-    Named(Name),
-    TheNegativeOf(String),
-    Nowhere,
+  Under(String),
+  Named(Name),
+  TheNegativeOf(String),
+  Nowhere,
 }
 
 pub struct Vocabulary<'a> {
-    pub declared: &'a Declared,
+  pub declared: &'a Declared,
 
-    pub elsewhere: &'a Elsewhere,
+  pub elsewhere: &'a Elsewhere,
 
-    pub norm: &'a Norm,
+  pub norm: &'a Norm,
 }
 
 pub fn known(word: &str, vocabulary: &Vocabulary<'_>) -> Result<Known, Never> {
-    let Ok(here) = vocabulary.declared.knows(word);
-    let Ok(named) = vocabulary.elsewhere.names(word);
+  let Ok(here) = vocabulary.declared.knows(word);
+  let Ok(named) = vocabulary.elsewhere.names(word);
 
-    Ok(match (here, named) {
-        (Configuration::Under(heading), _) => Known::Under(heading),
-        (Configuration::Nowhere, Some(name)) => Known::Named(name),
-        (Configuration::Nowhere, None) => match word.strip_prefix(NOT) {
-            Some(root) => {
-                let Ok(under) = vocabulary.declared.knows(root);
-                let Ok(english) = vocabulary.norm.of(root);
+  Ok(match (here, named) {
+    (Configuration::Under(heading), _) => Known::Under(heading),
+    (Configuration::Nowhere, Some(name)) => Known::Named(name),
+    (Configuration::Nowhere, None) => match word.strip_prefix(NOT) {
+      Some(root) => {
+        let Ok(under) = vocabulary.declared.knows(root);
+        let Ok(english) = vocabulary.norm.of(root);
 
-                match (under, english) {
-                    (Configuration::Under(heading), _) => Known::Under(heading),
-                    (Configuration::Nowhere, Some(_a_word_english_has)) => {
-                        Known::TheNegativeOf(root.to_string())
-                    },
-                    (Configuration::Nowhere, None) => Known::Nowhere,
-                }
-            },
-            None => Known::Nowhere,
-        },
-    })
+        match (under, english) {
+          (Configuration::Under(heading), _) => Known::Under(heading),
+          (Configuration::Nowhere, Some(_a_word_english_has)) => {
+            Known::TheNegativeOf(root.to_string())
+          }
+          (Configuration::Nowhere, None) => Known::Nowhere,
+        }
+      }
+      None => Known::Nowhere,
+    },
+  })
 }

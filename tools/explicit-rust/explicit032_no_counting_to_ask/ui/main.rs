@@ -35,6 +35,32 @@ fn nothing(held: &[String]) -> bool {
     held.is_empty()
 }
 
+struct StoredCount(u16);
+
+impl StoredCount {
+    fn count(&self) -> u16 {
+        self.0
+    }
+}
+
+fn stored_count_is_not_a_walk(stored: &StoredCount) -> bool {
+    stored.count() == 0
+}
+
+trait Counted {
+    fn count(&self) -> u16;
+}
+
+impl Counted for u16 {
+    fn count(&self) -> u16 {
+        *self
+    }
+}
+
+fn another_traits_count_is_not_a_walk(stored: &impl Counted) -> bool {
+    stored.count() == 0
+}
+
 fn main() {
     let held = vec![String::from("one"), String::from("two")];
 
@@ -44,4 +70,6 @@ fn main() {
     let _ = several(&held);
     let _ = asked(&held, "one");
     let _ = nothing(&held);
+    let _ = stored_count_is_not_a_walk(&StoredCount(0));
+    let _ = another_traits_count_is_not_a_walk(&0_u16);
 }

@@ -1,0 +1,19 @@
+error: `danger_accept_invalid_certs` stops asking who is on the other end of the connection
+  --> $DIR/main.rs:32:5
+   |
+LL |     Client::new().danger_accept_invalid_certs(1)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: leave verification on, and where a test runs a server of its own, hand the client that server's certificate to trust. Where the peer is proved some other way -- a key pinned in this tree -- allow this rule here and let the reason say what proves it
+   = note: `#[deny(explicit100_no_skipped_verification)]` on by default
+
+error: `danger_accept_invalid_hostnames` stops asking who is on the other end of the connection
+  --> $DIR/main.rs:37:5
+   |
+LL |     Client::new().danger_accept_invalid_hostnames(1)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: leave verification on, and where a test runs a server of its own, hand the client that server's certificate to trust. Where the peer is proved some other way -- a key pinned in this tree -- allow this rule here and let the reason say what proves it
+
+error: aborting due to 2 previous errors
+

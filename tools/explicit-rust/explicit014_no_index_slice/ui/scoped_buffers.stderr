@@ -1,0 +1,39 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/scoped_buffers.rs:13:9
+   |
+LL |         cols[x] = x;
+   |         ^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: iterate over the elements selected by this loop
+   |
+LL ~     for (x, cols_element) in <[_]>::iter_mut(&mut cols).enumerate() {
+LL ~         *cols_element = x;
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/scoped_buffers.rs:22:13
+   |
+LL |             scratch[x] = x as u8;
+   |             ^^^^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~         for (x, scratch_element) in <[_]>::iter_mut(&mut scratch).enumerate() {
+LL ~             *scratch_element = x as u8;
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/scoped_buffers.rs:26:62
+   |
+LL |             if let Some(output) = row.get_mut(x) { *output = scratch[x]; }
+   |                                                              ^^^^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~         for (x, scratch_element) in <[_]>::iter(&scratch).enumerate() {
+LL ~             if let Some(output) = row.get_mut(x) { *output = *scratch_element; }
+   |
+
+error: aborting due to 3 previous errors
+

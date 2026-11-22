@@ -1,0 +1,45 @@
+[package]
+name = "console-core-font-reading"
+version = "0.41.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The tables of an OpenType font file, read in place from its bytes."
+
+[features]
+agl = []
+codegen_test = []
+default = ["std"]
+experimental_font_api = []
+experimental_traverse = ["std"]
+ift = []
+libm = ["dep:libm"]
+scaler_test = []
+serde = ["dep:serde", "font-types/serde", "console-core-integer-sets/serde"]
+spec_next = []
+std = ["console-core-integer-sets/std"]
+
+[dependencies]
+console-core-api-compatibility.workspace = true
+console-core-checksums = { path = "../console-core-checksums" }
+console-core-integer-sets = { workspace = true, features = ["font-types"] }
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+font-types = { package = "console-core-font-types", path = "../console-core-font-types", features = ["bytemuck"] }
+bytemuck = "1.13.1"
+libm = { workspace = true, optional = true }
+once_cell = { version = "1.21.4", default-features = false, features = ["alloc", "race"] }
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[dev-dependencies]
+console-core-font-reading = { path = ".", features = ["experimental_font_api"] }
+font-test-data = { package = "console-core-font-fixtures", path = "../console-core-font-fixtures" }
+criterion.workspace = true
+serde_json = "1.0"
+
+[[bench]]
+name = "table_lookup"
+harness = false
+
+[lints]
+workspace = true

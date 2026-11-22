@@ -28,33 +28,37 @@
 //! `#[repr(packed)]`, which is the wrong answer to the same worry: packing a
 //! struct to fit the wire is layout by trickery, and a misaligned read on
 //! the machine that receives it is a fault no assertion catches. The
-//! assertions and the checksum are review's half, and `console-core-checksums`
-//! is where the checksum half is already written.
+//! assertions compare size, alignment and each field offset with the expected
+//! ABI in a standalone `const`. An opaque pointer type may carry an expectation
+//! explaining that the foreign code never sees its representation.
 //!
-//! It arrives `Warn`. The types the tree hands across today -- to the kernel
-//! through evdev and uinput, to PAM, to the display and to the firmware --
-//! say `repr(C)` already, which is the distance a ratchet starts from: the
-//! next one written without it is the first line it prints.
+//! The rule warns. For generic layouts, review assertions for each foreign
+//! specialization and describe that coverage in a local expectation.
 #![feature(rustc_private)]
 #![warn(unused_extern_crates)]
 
 extern crate rustc_abi;
 extern crate rustc_hir;
+extern crate rustc_middle;
 extern crate rustc_span;
 
+use clippy_utils::consts::{ConstEvalCtxt, Constant};
 use clippy_utils::diagnostics::span_lint_and_help;
+use clippy_utils::macros::{find_assert_args, root_macro_call_first_node};
+use clippy_utils::peel_blocks;
 use rustc_abi::ExternAbi;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::def_id::LocalDefId;
 use rustc_hir::intravisit::{self, Visitor, VisitorExt};
 use rustc_hir::{
-    AmbigArg, FnDecl, ForeignItem, ForeignItemKind, HirId, ImplItem, ImplItemKind, Item, ItemKind,
-    Path, Ty, TyKind,
+    AmbigArg, BinOpKind, Expr, ExprKind, FnDecl, ForeignItem, ForeignItemKind, HirId, ImplItem,
+    ImplItemKind, Item, ItemKind, Node, Path, Ty, TyKind,
 };
 use rustc_lint::{LateContext, LateLintPass};
-use rustc_span::Span;
+use rustc_middle::ty::GenericParamDefKind;
+use rustc_span::{Span, Symbol, sym};
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 dylint_linting::impl_late_lint! {
     /// EXPLICIT074: a type handed across an `extern` signature has a shape
@@ -68,8 +72,9 @@ dylint_linting::impl_late_lint! {
 }
 
 struct Explicit074WireLayoutAsserted {
-    structs: Vec<(LocalDefId, Span, Layout)>,
+    structs: Vec<(LocalDefId, Span, Layout, Vec<Symbol>)>,
     crossing: HashSet<LocalDefId>,
+    assertions: HashMap<LocalDefId, LayoutAssertions>,
 }
 
 impl Explicit074WireLayoutAsserted {
@@ -77,8 +82,87 @@ impl Explicit074WireLayoutAsserted {
         Self {
             structs: Vec::new(),
             crossing: HashSet::new(),
+            assertions: HashMap::new(),
         }
     }
+}
+
+#[derive(Default)]
+struct LayoutAssertions {
+    size: bool,
+    alignment: bool,
+    offsets: HashSet<Symbol>,
+}
+
+enum Measurement {
+    Size,
+    Alignment,
+    Offset(Symbol),
+}
+
+fn layout_measurement(cx: &LateContext<'_>, expr: &Expr<'_>) -> Option<(LocalDefId, Measurement)> {
+    let (expr, types) = match peel_blocks(expr).kind {
+        // The standard offset_of! macro wraps the HIR operation in a const block.
+        ExprKind::ConstBlock(constant) => (
+            peel_blocks(cx.tcx.hir_body(constant.body).value),
+            cx.tcx.typeck_body(constant.body),
+        ),
+        _ => (peel_blocks(expr), cx.typeck_results()),
+    };
+    let (measured, what) = match expr.kind {
+        ExprKind::OffsetOf(_, [field]) => {
+            let &[(measured, _, _)] = types.offset_of_data().get(expr.hir_id)?.as_slice() else {
+                return None;
+            };
+            (measured, Measurement::Offset(field.name))
+        }
+        ExprKind::Call(callee, []) => {
+            let ExprKind::Path(ref path) = callee.kind else {
+                return None;
+            };
+            let id = cx.qpath_res(path, callee.hir_id).opt_def_id()?;
+            if cx.tcx.crate_name(id.krate).as_str() != "core" {
+                return None;
+            }
+            let what = match cx.tcx.item_name(id).as_str() {
+                "size_of" => Measurement::Size,
+                "align_of" => Measurement::Alignment,
+                _ => return None,
+            };
+            (types.node_args(callee.hir_id).type_at(0), what)
+        }
+        _ => return None,
+    };
+    let owner = measured.ty_adt_def()?.did().as_local()?;
+    // An assertion on one specialization cannot establish the layout of another.
+    if cx
+        .tcx
+        .generics_of(owner)
+        .own_params
+        .iter()
+        .any(|param| !matches!(param.kind, GenericParamDefKind::Lifetime))
+    {
+        return None;
+    }
+    Some((owner, what))
+}
+
+fn unconditional_const(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
+    // A comparison inside a conditional, a closure or a const fn can be
+    // skipped, so only accept statements in the const initializer itself.
+    for (_, node) in cx.tcx.hir_parent_iter(expr.hir_id) {
+        match node {
+            Node::Stmt(_)
+            | Node::Block(_)
+            | Node::Expr(Expr {
+                kind: ExprKind::Block(_, None),
+                ..
+            }) => {}
+            Node::Item(item) => return matches!(item.kind, ItemKind::Const(..)),
+            _ => return false,
+        }
+    }
+    false
 }
 
 // What the `repr` says, when it says anything: pinned, packed, or unsaid.
@@ -139,13 +223,21 @@ impl Explicit074WireLayoutAsserted {
 impl<'tcx> LateLintPass<'tcx> for Explicit074WireLayoutAsserted {
     fn check_item(&mut self, cx: &LateContext<'tcx>, item: &'tcx Item<'tcx>) {
         match item.kind {
-            ItemKind::Struct(..) => {
+            ItemKind::Struct(_, _, fields) | ItemKind::Union(_, _, fields) => {
                 if item.span.from_expansion() {
                     return;
                 }
 
-                self.structs
-                    .push((item.owner_id.def_id, item.span, said_layout(cx, item)));
+                self.structs.push((
+                    item.owner_id.def_id,
+                    item.span,
+                    said_layout(cx, item),
+                    fields
+                        .fields()
+                        .iter()
+                        .map(|field| field.ident.name)
+                        .collect(),
+                ));
             }
 
             // A function this program writes for another language to call.
@@ -154,6 +246,45 @@ impl<'tcx> LateLintPass<'tcx> for Explicit074WireLayoutAsserted {
             }
 
             _ => {}
+        }
+    }
+
+    fn check_expr(&mut self, cx: &LateContext<'_>, expr: &'tcx Expr<'tcx>) {
+        let Some(call) = root_macro_call_first_node(cx, expr) else {
+            return;
+        };
+        if cx.tcx.get_diagnostic_name(call.def_id) != Some(sym::assert_macro)
+            || !unconditional_const(cx, expr)
+        {
+            return;
+        }
+        let Some((condition, _)) = find_assert_args(cx, expr, call.expn) else {
+            return;
+        };
+        let ExprKind::Binary(op, left, right) = condition.kind else {
+            return;
+        };
+        if op.node != BinOpKind::Eq {
+            return;
+        }
+        for (measured, expected) in [(left, right), (right, left)] {
+            let Some((owner, measurement)) = layout_measurement(cx, measured) else {
+                continue;
+            };
+            if !matches!(
+                ConstEvalCtxt::new(cx).eval(expected),
+                Some(Constant::Int(_))
+            ) {
+                continue;
+            }
+            let assertions = self.assertions.entry(owner).or_default();
+            match measurement {
+                Measurement::Size => assertions.size = true,
+                Measurement::Alignment => assertions.alignment = true,
+                Measurement::Offset(field) => {
+                    assertions.offsets.insert(field);
+                }
+            }
         }
     }
 
@@ -193,7 +324,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit074WireLayoutAsserted {
     // An impl can come after the struct it is for, so the decision is made
     // once, at the end of the crate.
     fn check_crate_post(&mut self, cx: &LateContext<'tcx>) {
-        for (def_id, span, how) in &self.structs {
+        for (def_id, span, how, fields) in &self.structs {
             if how == &Layout::Packed {
                 span_lint_and_help(
                     cx,
@@ -214,6 +345,32 @@ impl<'tcx> LateLintPass<'tcx> for Explicit074WireLayoutAsserted {
             }
 
             if how == &Layout::Pinned {
+                let mut missing = Vec::new();
+                let assertions = self.assertions.get(def_id);
+                if !assertions.is_some_and(|checked| checked.size) {
+                    missing.push("size".to_owned());
+                }
+                if !assertions.is_some_and(|checked| checked.alignment) {
+                    missing.push("alignment".to_owned());
+                }
+                for field in fields {
+                    if !assertions.is_some_and(|checked| checked.offsets.contains(field)) {
+                        missing.push(format!("offset of `{field}`"));
+                    }
+                }
+                if !missing.is_empty() {
+                    span_lint_and_help(
+                        cx,
+                        EXPLICIT074_WIRE_LAYOUT_ASSERTED,
+                        *span,
+                        format!(
+                            "this foreign layout is missing const assertions for {}",
+                            missing.join(", ")
+                        ),
+                        None,
+                        "compare size_of, align_of and offset_of! with the foreign ABI in a const item; document opaque pointer types with a local expectation",
+                    );
+                }
                 continue;
             }
 

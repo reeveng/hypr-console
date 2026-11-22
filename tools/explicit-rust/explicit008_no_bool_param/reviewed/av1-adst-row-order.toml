@@ -1,0 +1,20 @@
+# The 16x16 macro forwards its flip argument directly to the ADST row helper.
+[[explicit008_enum_families]]
+module = "console_core_video_decoding_av1::src::safe_simd::itx"
+enum = "crate::src::safe_simd::itx::AdstRowOrder"
+when_true = "Reversed"
+when_false = "Normal"
+reviewed_archmage = true
+target = "x86_64-unknown-linux-gnu"
+reviewed_macros = [
+    "console_core_video_decoding_av1::src::safe_simd::itx::impl_16x16_transform_simd_row_adst_col",
+]
+sources = [
+    "console-core-video-decoding-av1/include/safe_simd/itx/part03_adst16_and_small_rect.rs",
+    "console-core-video-decoding-av1/include/safe_simd/itx/part04_rect_idtx_aspect.rs",
+    "console-core-video-decoding-av1/include/safe_simd/itx/part06_adst_flipadst_vh.rs",
+]
+members = { simd_row_adst8_8bpc_8rows = "flipped", simd_row_adst16_8bpc_8rows = "flipped" }
+
+[explicit008_enum_families.forwarded_macro_arguments]
+"console_core_video_decoding_av1::src::safe_simd::itx::impl_16x16_transform_simd_row_adst_col" = "flipped"

@@ -28,81 +28,86 @@ use crate::counting::{CRATES, split};
 
 #[derive(Debug)]
 pub enum Unlisted {
-    Listing(PathBuf, std::io::Error),
+  Listing(PathBuf, std::io::Error),
 }
 
 impl fmt::Display for Unlisted {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Unlisted::Listing(at, fault) => write!(to, "{}: {fault}", at.display()),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Unlisted::Listing(at, fault) => write!(to, "{}: {fault}", at.display()),
     }
+  }
 }
 
 impl std::error::Error for Unlisted {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Name {
-    ACrate,
-    AProgram,
-    APackage,
+  ACrate,
+  AProgram,
+  APackage,
 }
 
 impl Name {
-    pub fn description(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Name::ACrate => "a crate in this tree",
-            Name::AProgram => "a program this desktop runs",
-            Name::APackage => "a package this desktop installs",
-        })
-    }
+  pub fn description(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Name::ACrate => "a crate in this tree",
+      Name::AProgram => "a program this desktop runs",
+      Name::APackage => "a package this desktop installs",
+    })
+  }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Elsewhere {
-    named: BTreeMap<String, Name>,
+  named: BTreeMap<String, Name>,
 }
 
 impl Elsewhere {
-    pub fn read(root: &Path) -> Result<Elsewhere, Unlisted> {
-        let at = root.join(CRATES);
-        let held = std::fs::read_dir(&at).map_err(|fault| Unlisted::Listing(at, fault))?;
-        let mut named = BTreeMap::new();
+  pub fn read(root: &Path) -> Result<Elsewhere, Unlisted> {
+    let at = root.join(CRATES);
+    let held = std::fs::read_dir(&at).map_err(|fault| Unlisted::Listing(at, fault))?;
+    let mut named = BTreeMap::new();
 
-        for entry in held.flatten() {
-            let Ok(words) = split(&entry.file_name().to_string_lossy().replace('-', "_"));
+    for entry in held.flatten() {
+      let filename = entry.file_name();
+      let crate_name = match filename.to_str() {
+        Some(crate_name) => crate_name,
+        None => continue,
+      };
+      let Ok(words) = split(&crate_name.replace('-', "_"));
 
-            for word in words {
-                let _ = named.insert(word, Name::ACrate);
-            }
-        }
-
-        for program in EVERY {
-            let Ok(spelled) = program.name();
-            let Ok(origin) = program.origin();
-            let Ok(words) = split(&spelled.replace('-', "_"));
-
-            for word in words {
-                let _ = named.insert(word, Name::AProgram);
-            }
-
-            match origin {
-                Origin::Package(package) => {
-                    let Ok(words) = split(&package.replace('-', "_"));
-
-                    for word in words {
-                        let _ = named.entry(word).or_insert(Name::APackage);
-                    }
-                },
-                Origin::Arch => {},
-                Origin::Developing => {},
-            }
-        }
-
-        Ok(Elsewhere { named })
+      for word in words {
+        let _ = named.insert(word, Name::ACrate);
+      }
     }
 
-    pub fn names(&self, word: &str) -> Result<Option<Name>, Never> {
-        Ok(self.named.get(word).copied())
+    for program in EVERY {
+      let Ok(spelled) = program.name();
+      let Ok(origin) = program.origin();
+      let Ok(words) = split(&spelled.replace('-', "_"));
+
+      for word in words {
+        let _ = named.insert(word, Name::AProgram);
+      }
+
+      match origin {
+        Origin::Package(package) => {
+          let Ok(words_2) = split(&package.replace('-', "_"));
+
+          for word in words_2 {
+            let _ = named.entry(word).or_insert(Name::APackage);
+          }
+        }
+        Origin::Arch => {}
+        Origin::Developing | Origin::Handheld => {}
+      }
     }
+
+    Ok(Elsewhere { named })
+  }
+
+  pub fn names(&self, word: &str) -> Result<Option<Name>, Never> {
+    Ok(self.named.get(word).copied())
+  }
 }

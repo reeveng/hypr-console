@@ -1,0 +1,39 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_prefix.rs:13:23
+   |
+LL |         true => Some((points[1].x, &points[2], &points[3])),
+   |                       ^^^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: read the element from the fixed prefix that was already checked
+   |
+LL -         true => Some((points[1].x, &points[2], &points[3])),
+LL +         true => Some(((*match curve { [_, _explicit_prefix_element, ..] => _explicit_prefix_element }).x, &points[2], &points[3])),
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_prefix.rs:13:37
+   |
+LL |         true => Some((points[1].x, &points[2], &points[3])),
+   |                                     ^^^^^^^^^
+   |
+help: read the element from the fixed prefix that was already checked
+   |
+LL -         true => Some((points[1].x, &points[2], &points[3])),
+LL +         true => Some((points[1].x, &*match curve { [_, _, _explicit_prefix_element, ..] => _explicit_prefix_element }, &points[3])),
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_prefix.rs:13:49
+   |
+LL |         true => Some((points[1].x, &points[2], &points[3])),
+   |                                                 ^^^^^^^^^
+   |
+help: read the element from the fixed prefix that was already checked
+   |
+LL -         true => Some((points[1].x, &points[2], &points[3])),
+LL +         true => Some((points[1].x, &points[2], &*match curve { [_, _, _, _explicit_prefix_element, ..] => _explicit_prefix_element })),
+   |
+
+error: aborting due to 3 previous errors
+

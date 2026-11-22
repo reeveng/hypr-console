@@ -1,0 +1,19 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/custom_index.rs:19:8
+   |
+LL |     Ok(values[index])
+   |        ^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/custom_index.rs:22:9
+   |
+LL |     Ok(&values[start..])
+   |         ^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: aborting due to 2 previous errors
+

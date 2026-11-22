@@ -1,0 +1,31 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_number_conversion.rs
+
+extern crate console_core_number_conversion;
+
+#[allow(explicit051_no_machine_width)]
+type Position = usize;
+#[allow(explicit051_no_machine_width)]
+type Offset = isize;
+
+#[allow(non_upper_case_globals)]
+const native_shift_input: Position = 7;
+
+fn left(distance: u32, order: &mut Vec<u8>) -> Position {
+    (match ::console_core_number_conversion::index::<::core::primitive::u16>(0x1) { ::core::result::Result::Ok(native_shift_input_) => native_shift_input_ }).wrapping_shl({ order.push(1); distance })
+}
+
+fn right(distance: u32) -> Offset {
+    (match ::console_core_number_conversion::wrapped_offset::<::core::primitive::i16>(6) { ::core::result::Result::Ok(native_shift_input_) => native_shift_input_ }).wrapping_shr(distance)
+}
+
+fn main() {
+    let mut order = Vec::new();
+    for distance in [0, 2, Position::BITS, Position::BITS + 1, u32::MAX] {
+        assert_eq!(left(distance, &mut order), Position::wrapping_shl(1, distance));
+        assert_eq!(right(distance), Offset::wrapping_shr(6, distance));
+    }
+    assert_eq!(order, [1; 5]);
+    assert_eq!(native_shift_input, 7);
+}

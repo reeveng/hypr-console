@@ -6,11 +6,14 @@
 
 use std::process::ExitCode;
 
-use console_input_keyboard::remote::{Show, Sending};
+use console_input_keyboard::remote::{Sending, Show};
 
 fn main() -> ExitCode {
-    let Ok(code) =
-        console_program_runtime::run::<Show, Sending>("keyboard-show", &(), &mut Sending);
+  let Ok(code) = console_operating_system_linux::program_runtime::run::<Show, Sending>(
+    "keyboard-show",
+    &(),
+    &mut Sending,
+  );
 
-    code
+  code
 }

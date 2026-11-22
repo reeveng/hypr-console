@@ -42,111 +42,116 @@ const AND: char = ',';
 
 #[derive(Debug)]
 pub enum Unread {
-    Reading(PathBuf, std::io::Error),
-    Twice(String, String, String),
+  Reading(PathBuf, std::io::Error),
+  Twice(String, String, String),
 }
 
 impl fmt::Display for Unread {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Unread::Reading(at, fault) => write!(to, "{}: {fault}", at.display()),
-            Unread::Twice(word, under, again) => {
-                write!(to, "{word} is declared under [{under}] and again under [{again}]")
-            },
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Unread::Reading(at, fault) => write!(to, "{}: {fault}", at.display()),
+      Unread::Twice(word, under, again) => {
+        write!(
+          to,
+          "{word} is declared under [{under}] and again under [{again}]"
+        )
+      }
     }
+  }
 }
 
 impl std::error::Error for Unread {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Configuration {
-    Under(String),
-    Nowhere,
+  Under(String),
+  Nowhere,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Scope {
-    Anywhere,
-    Only(Vec<String>),
+  Anywhere,
+  Only(Vec<String>),
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Declared {
-    under: BTreeMap<String, String>,
+  under: BTreeMap<String, String>,
 
-    scope: BTreeMap<String, Vec<String>>,
+  scope: BTreeMap<String, Vec<String>>,
 }
 
 impl Declared {
-    pub fn read(at: &Path) -> Result<Declared, Unread> {
-        let said = std::fs::read_to_string(at)
-            .map_err(|fault| Unread::Reading(at.to_path_buf(), fault))?;
-        let Ok(headings) = console_core_ini_files::headings(&said);
-        let mut held: BTreeMap<String, String> = BTreeMap::new();
-        let mut scope: BTreeMap<String, Vec<String>> = BTreeMap::new();
+  pub fn read(at: &Path) -> Result<Declared, Unread> {
+    let said =
+      std::fs::read_to_string(at).map_err(|fault| Unread::Reading(at.to_path_buf(), fault))?;
+    let Ok(headings) = console_core_ini_files::headings(&said);
+    let mut held: BTreeMap<String, String> = BTreeMap::new();
+    let mut scope: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
-        for heading in headings {
-            let Ok(under) = lines(&said, Under(heading));
+    for heading in headings {
+      let Ok(under) = lines(&said, Under(heading));
 
-            for line in under {
-                let Ok(said) = without_a_comment(line);
-                let (word, places) = match said.split_once(ONLY_IN) {
-                    Some((word, places)) => {
-                        let Ok(places) = where_it_belongs(places);
+      for line in under {
+        let Ok(said_2) = without_a_comment(line);
+        let (word, places) = match said_2.split_once(ONLY_IN) {
+          Some((word, places)) => {
+            let Ok(places_2) = where_it_belongs(places);
 
-                        (word.trim(), places)
-                    },
-                    None => (said, Vec::new()),
-                };
+            (word.trim(), places_2)
+          }
+          None => (said_2, Vec::new()),
+        };
 
-                match places.is_empty() {
-                    true => {},
-                    false => {
-                        let _ = scope.insert(word.to_lowercase(), places);
-                    },
-                }
-
-                match held.insert(word.to_lowercase(), heading.to_string()) {
-                    Some(already) => {
-                        return Err(Unread::Twice(
-                            word.to_string(),
-                            already,
-                            heading.to_string(),
-                        ));
-                    },
-                    None => {},
-                }
-            }
+        match ::core::primitive::bool::then_some(places.is_empty(), ()) {
+          ::core::option::Option::Some(()) => {}
+          ::core::option::Option::None => {
+            let _ = scope.insert(word.to_lowercase(), places);
+          }
         }
 
-        Ok(Declared { under: held, scope })
+        match held.insert(word.to_lowercase(), heading.to_string()) {
+          Some(already) => {
+            return Err(Unread::Twice(
+              word.to_string(),
+              already,
+              heading.to_string(),
+            ));
+          }
+          None => {}
+        }
+      }
     }
 
-    pub fn scope(&self, word: &str) -> Result<Scope, Never> {
-        Ok(match self.scope.get(word) {
-            Some(places) => Scope::Only(places.clone()),
-            None => Scope::Anywhere,
-        })
-    }
+    Ok(Declared { under: held, scope })
+  }
 
-    pub fn knows(&self, word: &str) -> Result<Configuration, Never> {
-        Ok(match self.under.get(word) {
-            Some(heading) => Configuration::Under(heading.clone()),
-            None => Configuration::Nowhere,
-        })
-    }
+  pub fn scope(&self, word: &str) -> Result<Scope, Never> {
+    Ok(match self.scope.get(word) {
+      Some(places) => Scope::Only(places.clone()),
+      None => Scope::Anywhere,
+    })
+  }
 
-    pub fn every(&self) -> Result<&BTreeMap<String, String>, Never> {
-        Ok(&self.under)
-    }
+  pub fn knows(&self, word: &str) -> Result<Configuration, Never> {
+    Ok(match self.under.get(word) {
+      Some(heading) => Configuration::Under(heading.clone()),
+      None => Configuration::Nowhere,
+    })
+  }
+
+  pub fn every(&self) -> Result<&BTreeMap<String, String>, Never> {
+    Ok(&self.under)
+  }
 }
 
 fn where_it_belongs(said: &str) -> Result<Vec<String>, Never> {
-    Ok(said
-        .split(AND)
-        .map(str::trim)
-        .filter(|place| !place.is_empty())
-        .map(str::to_string)
-        .collect())
+  Ok(
+    said
+      .split(AND)
+      .map(str::trim)
+      .filter(|place| !place.is_empty())
+      .map(str::to_string)
+      .collect(),
+  )
 }

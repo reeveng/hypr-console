@@ -38,134 +38,150 @@ use std::path::PathBuf;
 use console_core_external_programs::{EVERY, Origin};
 use console_core_internal_programs::EVERY as EVERY_INTERNAL;
 use console_repository::sources::{Spelled, Word, of_every_crate, spells};
-use reading::{Failure, read, root, Section, section};
+use reading::{Failure, Section, read, root, section};
 
 fn sources() -> Result<Vec<(PathBuf, String)>, Failure> {
-    let Ok(root) = root();
-    let ourself = root.join(file!());
-    let declaring = root.join("crates/console-core-external-programs");
-    let Ok(found) = of_every_crate(&root, &[&ourself, &declaring]);
-    let mut read = Vec::new();
+  let Ok(root) = root();
+  let ourself = root.join(file!());
+  let declaring = root.join("crates/console-core-external-programs");
+  let Ok(found) = of_every_crate(&root, &[&ourself, &declaring]);
+  let mut read = Vec::new();
 
-    for at in found {
-        let said = std::fs::read_to_string(&at)?;
+  for at in found {
+    let said = std::fs::read_to_string(&at)?;
 
-        read.push((at, said));
-    }
+    read.push((at, said));
+  }
 
-    Ok(read)
+  Ok(read)
 }
 
 fn all_said() -> Result<String, Failure> {
-    let sources = sources()?;
+  let sources = sources()?;
 
-    Ok(sources.into_iter().map(|(_, said)| said).collect::<Vec<_>>().join("\n"))
+  Ok(
+    sources
+      .into_iter()
+      .map(|(_, said)| said)
+      .collect::<Vec<_>>()
+      .join("\n"),
+  )
 }
 
 #[test]
 fn every_package_a_program_comes_from_is_in_the_manifest() -> Result<(), Failure> {
-    let held = read("desktop.conf")?;
-    let named = section(&held, Section::Packages)?;
-    let packages: BTreeSet<String> = named.into_iter().collect();
-    let missing: Vec<&str> = EVERY
-        .iter()
-        .filter_map(|program| {
-            let Ok(origin) = program.origin();
+  let held = read("desktop.conf")?;
+  let named = section(&held, Section::Packages)?;
+  let packages: BTreeSet<String> = named.into_iter().collect();
+  let missing: Vec<&str> = EVERY
+    .iter()
+    .filter_map(|program| {
+      let Ok(origin) = program.origin();
 
-            match origin {
-                Origin::Package(named) => Some(named),
-                Origin::Arch | Origin::Developing => None,
-            }
-        })
-        .filter(|named| !packages.contains(*named))
-        .collect();
+      match origin {
+        Origin::Package(named_2) => Some(named_2),
+        Origin::Arch | Origin::Developing | Origin::Handheld => None,
+      }
+    })
+    .filter(|named_3| !packages.contains(*named_3))
+    .collect();
 
-    assert!(missing.is_empty(), "[packages] does not name: {missing:?}");
+  assert!(missing.is_empty(), "[packages] does not name: {missing:?}");
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn every_program_of_ours_that_is_run_is_in_the_manifest() -> Result<(), Failure> {
-    let held = read("desktop.conf")?;
-    let named = section(&held, Section::Build)?;
-    let built: BTreeSet<String> = named.into_iter().collect();
-    let missing: Vec<&str> = EVERY_INTERNAL
-        .iter()
-        .map(|ours| {
-            let Ok(name) = ours.name();
+  let held = read("desktop.conf")?;
+  let named = section(&held, Section::Build)?;
+  let built: BTreeSet<String> = named.into_iter().collect();
+  let missing: Vec<&str> = EVERY_INTERNAL
+    .iter()
+    .map(|ours| {
+      let Ok(name) = ours.name();
 
-            name
-        })
-        .filter(|named| !built.contains(*named))
-        .collect();
+      name
+    })
+    .filter(|named_2| !built.contains(*named_2))
+    .collect();
 
-    assert!(missing.is_empty(), "[build] does not name: {missing:?}");
+  assert!(missing.is_empty(), "[build] does not name: {missing:?}");
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn nothing_starts_a_program_by_writing_its_name() -> Result<(), Failure> {
-    let door = format!("{}::new(\"", "Command");
-    let mut strange: Vec<String> = Vec::new();
+  let door = format!("{}::new(\"", "Command");
+  let mut strange: Vec<String> = Vec::new();
 
-    let sources = sources()?;
+  let sources = sources()?;
 
-    for (at, said) in sources {
-        for after in said.split(&door).skip(1) {
-            let name = after.split_once('"').map_or(after, |(name, _)| name);
+  for (at, said) in sources {
+    for after in said.split(&door).skip(1) {
+      let name = after.split_once('"').map_or(after, |(name, _)| name);
 
-            strange.push(format!("{}: {name}", at.display()));
-        }
+      strange.push(format!("{}: {name}", at.display()));
     }
+  }
 
-    assert!(
-        strange.is_empty(),
-        "these name a program instead of asking for one: a program this desktop did not write is a \
+  assert!(
+    strange.is_empty(),
+    "these name a program instead of asking for one: a program this desktop did not write is a \
          console_core_external_programs::Program and one it did write is a console_core_internal_programs::InternalProgram \
          -- {strange:?}"
-    );
+  );
 
-    Ok(())
+  Ok(())
 }
 
 const SPELLED: [&str; 2] = ["Program", "ExternalProgram"];
 
 #[test]
 fn nothing_of_ours_named_here_has_stopped_being_run() -> Result<(), Failure> {
-    let said = all_said()?;
-    let gone: Vec<&str> = EVERY_INTERNAL
-        .iter()
-        .filter(|ours| spells(&said, Word(&format!("{}::{ours:?}", "InternalProgram"))) == Ok(Spelled::No))
-        .map(|ours| {
-            let Ok(name) = ours.name();
+  let said = all_said()?;
+  let gone: Vec<&str> = EVERY_INTERNAL
+    .iter()
+    .filter(|ours| {
+      spells(&said, Word(&format!("{}::{ours:?}", "InternalProgram"))) == Ok(Spelled::No)
+    })
+    .map(|ours| {
+      let Ok(name) = ours.name();
 
-            name
-        })
-        .collect();
+      name
+    })
+    .collect();
 
-    assert!(gone.is_empty(), "the enum names what nothing runs: {gone:?}");
+  assert!(
+    gone.is_empty(),
+    "the enum names what nothing runs: {gone:?}"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn nothing_named_here_has_stopped_being_run() -> Result<(), Failure> {
-    let said = all_said()?;
-    let gone: Vec<&str> = EVERY
-        .iter()
-        .filter(|program| {
-            !SPELLED.iter().any(|spelled| spells(&said, Word(&format!("{spelled}::{program:?}"))) == Ok(Spelled::Yes))
-        })
-        .map(|program| {
-            let Ok(name) = program.name();
+  let said = all_said()?;
+  let gone: Vec<&str> = EVERY
+    .iter()
+    .filter(|program| {
+      !SPELLED.iter().any(|spelled| {
+        spells(&said, Word(&format!("{spelled}::{program:?}"))) == Ok(Spelled::Yes)
+      })
+    })
+    .map(|program| {
+      let Ok(name) = program.name();
 
-            name
-        })
-        .collect();
+      name
+    })
+    .collect();
 
-    assert!(gone.is_empty(), "the enum names what nothing runs: {gone:?}");
+  assert!(
+    gone.is_empty(),
+    "the enum names what nothing runs: {gone:?}"
+  );
 
-    Ok(())
+  Ok(())
 }

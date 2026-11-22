@@ -1,0 +1,7 @@
+repository = "https://github.com/sdroege/ebur128"
+revision = "241d390ce4d64036f03d8a242b59c1c16689d74f"
+version = "0.1.11"
+license = "MIT"
+purpose = "Evaluate perceived-loudness and true-peak measurement for balanced playback"
+local-changes = ["Cargo.toml adds an independent workspace", "UPSTREAM.toml documents provenance"]
+design = "../../BALANCED-PLAYBACK.md"

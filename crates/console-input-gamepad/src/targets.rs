@@ -24,68 +24,77 @@ use console_core_never::Never;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Identity {
-    pub vendor: u16,
-    pub product: u16,
+  pub vendor: u16,
+  pub product: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
-    Mouse,
-    Keyboard,
-    Pad,
+  Mouse,
+  Keyboard,
+  Pad,
 }
 
 pub const ASKED: [Target; 3] = [Target::Mouse, Target::Keyboard, Target::Pad];
 
 impl Target {
-    pub fn as_str(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Target::Mouse => "mouse",
-            Target::Keyboard => "keyboard",
-            Target::Pad => "xbox-elite",
-        })
-    }
+  pub fn as_str(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Target::Mouse => "mouse",
+      Target::Keyboard => "keyboard",
+      Target::Pad => "xbox-elite",
+    })
+  }
 
-    pub fn identity(self) -> Result<Identity, Never> {
-        Ok(match self {
-            Target::Mouse => Identity { vendor: 0x0000, product: 0xffff },
-            Target::Keyboard => Identity { vendor: 0x1234, product: 0x5678 },
-            Target::Pad => Identity { vendor: 0x045e, product: 0x0b00 },
-        })
-    }
+  pub fn identity(self) -> Result<Identity, Never> {
+    Ok(match self {
+      Target::Mouse => Identity {
+        vendor: 0x0000,
+        product: 0xffff,
+      },
+      Target::Keyboard => Identity {
+        vendor: 0x1234,
+        product: 0x5678,
+      },
+      Target::Pad => Identity {
+        vendor: 0x045e,
+        product: 0x0b00,
+      },
+    })
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn no_two_targets_arrive_wearing_the_same_identity() {
-        for one in ASKED {
-            for other in ASKED {
-                let Ok(mine) = one.identity();
-                let Ok(theirs) = other.identity();
+  #[test]
+  fn no_two_targets_arrive_wearing_the_same_identity() {
+    for one in ASKED {
+      for other in ASKED {
+        let Ok(mine) = one.identity();
+        let Ok(theirs) = other.identity();
 
-                match one == other {
-                    true => {},
-                    false => assert_ne!(
-                        mine, theirs,
-                        "{one:?} and {other:?} cannot be told apart on the machine"
-                    ),
-                }
-            }
+        match ::core::primitive::bool::then_some(one == other, ()) {
+          ::core::option::Option::Some(()) => {}
+          ::core::option::Option::None => assert_ne!(
+            mine, theirs,
+            "{one:?} and {other:?} cannot be told apart on the machine"
+          ),
         }
+      }
     }
+  }
 
-    #[test]
-    fn every_target_is_asked_for_by_a_name_of_its_own() {
-        let mut names: Vec<&str> = Vec::new();
+  #[test]
+  fn every_target_is_asked_for_by_a_name_of_its_own() {
+    let mut names: Vec<&str> = Vec::new();
 
-        for target in ASKED {
-            let Ok(asked) = target.as_str();
+    for target in ASKED {
+      let Ok(asked) = target.as_str();
 
-            assert!(!names.contains(&asked), "{asked} is asked for twice");
-            names.push(asked);
-        }
+      assert!(!names.contains(&asked), "{asked} is asked for twice");
+      names.push(asked);
     }
+  }
 }

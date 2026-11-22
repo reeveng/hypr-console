@@ -1,0 +1,19 @@
+error: a `#[must_use]` value is being discarded silently
+  --> $DIR/handling.rs:6:5
+   |
+LL |     parse();
+   |     ^^^^^^^^
+   |
+   = help: handle the value or explicitly discard it while preserving its drop behavior
+   = note: `#[deny(explicit009_explicit_discard)]` on by default
+
+error: a `#[must_use]` value is being discarded silently
+  --> $DIR/handling.rs:8:5
+   |
+LL |     lock.lock();
+   |     ^^^^^^^^^^^^
+   |
+   = help: handle the value or explicitly discard it while preserving its drop behavior
+
+error: aborting due to 2 previous errors
+

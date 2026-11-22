@@ -1,280 +1,46 @@
-'use strict';
+/* Generated from tools/browser-scripts/src/extension/browser.ts.
 
-/* The half of it that is not in the page.
- *
- * A content script can walk a page and press what is on it, and it can do
- * nothing at all about the browser around it: the tab strip, the address bar
- * and the engine a question goes to are all chrome, and chrome is a pointer
- * and a small target. So the page asks for those here, in one place, and each
- * answer is the browser's own rather than a second copy kept by this desktop.
- */
+MIT License
 
-const answers = {
-  /* The engines the browser has, the one it uses first. There is no list of
-     engines in this add-on: the settings panel's Web tab writes a policy that
-     tells the browser which to default to, and this reads back whatever that
-     came to. A list here would be the same choice made twice. */
-  async engines() {
-    const every = await browser.search.get();
-    return every
-      .map((engine) => ({ name: engine.name, here: !!engine.isDefault }))
-      .sort((one, two) => Number(two.here) - Number(one.here));
-  },
+Copyright (c) 2023 Effectful Technologies Inc
 
-  async ask(said) {
-    const asked = { query: said.query };
-    if (said.engine) asked.engine = said.engine;
-    await browser.search.search(asked);
-    return true;
-  },
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-  async find(said, from) {
-    const answer = await browser.find.find(said.query, { tabId: from.tab.id });
-    return { many: (answer && answer.count) || 0 };
-  },
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-  async show(said, from) {
-    await browser.find.highlightResults({ tabId: from.tab.id, rangeIndex: said.at });
-    return true;
-  },
-
-  async unfind() {
-    await browser.find.removeHighlighting();
-    return true;
-  },
-
-  async tabs(_said, from) {
-    const every = await browser.tabs.query({ currentWindow: true });
-    return every.map((tab) => ({
-      id: tab.id,
-      title: tab.title,
-      host: host(tab.url),
-      here: from.tab ? tab.id === from.tab.id : !!tab.active,
-    }));
-  },
-
-  async go(said) {
-    await browser.tabs.update(said.id, { active: true });
-    return true;
-  },
-
-  async new() {
-    await browser.tabs.create({});
-    return true;
-  },
-
-  async close(_said, from) {
-    if (from.tab) await browser.tabs.remove(from.tab.id);
-    return true;
-  },
-
-  /* The tab that was closed. Two presses apart on a strip no one can aim at
-     is the whole reason closing one is offered at all. */
-  async reopen() {
-    await browser.sessions.restore();
-    return true;
-  },
-
-  /* Behind what is being read rather than over it, which is what a new tab is
-     for. The page says so afterwards, because a tab that opened somewhere out
-     of sight and said nothing is a press that looks like it did nothing. */
-  async open(said) {
-    await browser.tabs.create({ url: said.url, active: false });
-    return true;
-  },
-
-  /* The three that are not the browser answering a page at all, but this
-     add-on reaching past what a page is allowed -- `around.js` is what that is
-     and why it is allowed. They are asked for here with everything else, so a
-     page has one place it asks and does not have to know which of its
-     questions needed privileges to answer. */
-  async address() {
-    return browser.around.address();
-  },
-
-  async menu() {
-    return browser.around.menu();
-  },
-
-  /* And the third, which is not the browser at all: the desktop's own
-     keyboard, raised for a card that has a line to type into. */
-  async keyboard() {
-    return browser.around.keyboard();
-  },
-};
-
-/* The bookmarks, said to the desktop rather than kept in here.
- *
- * A bookmark is a thing someone opens, and everything else a person opens on
- * this machine is in the menu and can be put on the home screen from it. So
- * they are written out as desktop entries -- `crates/console-bookmarks` is the
- * argument -- and then the menu, the home screen and the panel need to know
- * nothing about bookmarks at all.
- *
- * Walking the tree and watching it change is what an add-on is for, and is
- * here. Fetching the picture a page has and starting a program of ours is what
- * an add-on may not do, and is in `around.js`.
- *
- * A folder is not a bookmark and neither is a separator: what is handed over
- * is what has an address, and what is not a page -- a keyword search, a query
- * the browser keeps for itself -- is dropped at the other end, where what a
- * desktop entry can hold is decided.
- */
-function under(nodes, found) {
-  for (const node of nodes || []) {
-    if (node.children) under(node.children, found);
-    else if (node.url) found.push({ id: node.id, url: node.url, title: title(node) });
-  }
-  return found;
-}
-
-/* A tab, a line break or a stray space would be a second field or a second
-   line to whatever reads this, so the title is one line before it leaves. */
-function title(node) {
-  return (node.title || '').replace(/\s+/gu, ' ').trim();
-}
-
-/* One run at a time, and one more afterwards if anything changed while it ran.
-   Importing bookmarks fires an event per bookmark, and a program started per
-   event is a thousand programs; this is the same list written twice instead. */
-let telling = null;
-let again = false;
-
-function tell() {
-  if (telling) {
-    again = true;
-    return;
-  }
-
-  telling = browser.bookmarks
-    .getTree()
-    .then((tree) => browser.around.bookmarks(under(tree, [])))
-    .catch(() => null)
-    .then(() => {
-      telling = null;
-      if (again) {
-        again = false;
-        tell();
-      }
-    });
-}
-
-browser.bookmarks.onCreated.addListener(tell);
-browser.bookmarks.onChanged.addListener(tell);
-browser.bookmarks.onRemoved.addListener(tell);
-
-tell();
-
-/* Every page that arrives from outside gets a jar of its own.
- *
- * A bookmark on the home screen, a question typed into the menu and a link in
- * the guide all reach the browser the same way -- `xdg-open`, a command line,
- * a tab -- and a command line cannot say which container to open in. So they
- * all landed in the one the browser starts with, which is the jar every other
- * page on this device also lands in: one machine, one person, and every site
- * she opens sharing a cookie store with every other.
- *
- * What happens here instead is what the Temporary Containers add-on does in
- * its automatic mode, in the add-on this desktop already ships rather than a
- * second one installed beside it. A signed add-on from a store would bring its
- * own preferences page -- a desk-sized surface on a machine with no pointer to
- * aim at it -- to configure a rule this desktop has already made.
- *
- * The rule is the whole of it: a navigation in a tab that is still in the
- * browser's own container is stopped and opened again in a container made for
- * it. A tab that has been moved is no longer in that container, so the only
- * navigation this catches is the first one of a tab nothing else claimed --
- * which is exactly a thing opened from outside. Links followed from there stay
- * where they are, because a tab hands its container to what it opens: one jar
- * per thing opened, not one per page, which is the difference between being
- * isolated and being logged out every time you click.
- *
- * The jar is named for where it went, because the browser draws that name on
- * the tab and `once: example.com` is something a person can read. The mark is
- * what tells ours from a container someone made on purpose.
- *
- * They are taken away when the last tab in one closes, and the sweep looks at
- * all of them rather than the one that just emptied: this desktop stops the
- * browser rather than the person doing it, so a session that went down hard
- * leaves jars behind, and the next tab anyone closes is when they go.
- */
-const ONCE = 'once';
-
-const THE_BROWSERS_OWN = 'firefox-default';
-
-async function apart(tab, url) {
-  const where = host(url);
-
-  const made = await browser.contextualIdentities.create({
-    name: where ? `${ONCE}: ${where}` : ONCE,
-    color: 'pink',
-    icon: 'fingerprint',
-  });
-
-  await browser.tabs.create({
-    url,
-    cookieStoreId: made.cookieStoreId,
-    index: tab.index,
-    active: tab.active,
-    windowId: tab.windowId,
-  });
-
-  await browser.tabs.remove(tab.id);
-}
-
-browser.webRequest.onBeforeRequest.addListener(
-  (asked) => {
-    if (asked.tabId < 0) return {};
-
-    return browser.tabs
-      .get(asked.tabId)
-      .then((tab) => {
-        if (tab.cookieStoreId !== THE_BROWSERS_OWN) return {};
-
-        /* The request is stopped only once the tab it is moving to is open.
-           A browser where containers are switched off answers the making of
-           one with a promise that breaks, and a page stopped on the strength
-           of a tab that was never opened is a press that loads nothing at
-           all -- so what that costs is the jar, and not the page. */
-        return apart(tab, asked.url).then(
-          () => ({ cancel: true }),
-          () => ({}),
-        );
-      })
-      .catch(() => ({}));
-  },
-  { urls: ['<all_urls>'], types: ['main_frame'] },
-  ['blocking'],
-);
-
-async function swept() {
-  const every = await browser.contextualIdentities.query({});
-  const tabs = await browser.tabs.query({});
-  const held = new Set(tabs.map((tab) => tab.cookieStoreId));
-
-  for (const one of every) {
-    if (!one.name.startsWith(ONCE)) continue;
-    if (held.has(one.cookieStoreId)) continue;
-    await browser.contextualIdentities.remove(one.cookieStoreId);
-  }
-}
-
-browser.tabs.onRemoved.addListener(() => {
-  swept().catch(() => null);
-});
-
-function host(url) {
-  try {
-    return new URL(url).host;
-  } catch (_) {
-    return '';
-  }
-}
-
-browser.runtime.onMessage.addListener((said, from) => {
-  const answer = answers[said && said.say];
-  if (!answer) return undefined;
-  /* Anything that goes wrong here goes wrong with no terminal under it, so it
-     is answered with nothing rather than left as a promise the page waits on. */
-  return answer(said, from).catch(() => null);
-});
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+"use strict";(()=>{var k=(t,e)=>{switch(e.length){case 0:return t;case 1:return e[0](t);case 2:return e[1](e[0](t));case 3:return e[2](e[1](e[0](t)));case 4:return e[3](e[2](e[1](e[0](t))));case 5:return e[4](e[3](e[2](e[1](e[0](t)))));case 6:return e[5](e[4](e[3](e[2](e[1](e[0](t))))));case 7:return e[6](e[5](e[4](e[3](e[2](e[1](e[0](t)))))));case 8:return e[7](e[6](e[5](e[4](e[3](e[2](e[1](e[0](t))))))));case 9:return e[8](e[7](e[6](e[5](e[4](e[3](e[2](e[1](e[0](t)))))))));default:{let n=t;for(let r=0,o=e.length;r<o;r++)n=e[r](n);return n}}};var u=function(t,e){if(typeof t=="function")return function(){return t(arguments)?e.apply(this,arguments):n=>e(n,...arguments)};switch(t){case 0:case 1:throw new RangeError(`Invalid arity ${t}`);case 2:return function(n,r){return arguments.length>=2?e(n,r):function(o){return e(o,n)}};case 3:return function(n,r,o){return arguments.length>=3?e(n,r,o):function(s){return e(s,n,r)}};default:return function(){if(arguments.length>=t)return e.apply(this,arguments);let n=arguments;return function(r){return e(r,...n)}}}};var m=t=>t;var oe=t=>()=>t,Oe=oe(!0),Jn=oe(!1);var _t=oe(void 0),ke=_t;function T(t,...e){return k(t,e)}var Bs=["line","column","sourceURL","originalLine","originalColumn"],At=t=>{let e=new Set(Reflect.ownKeys(t));if(t.constructor===Object)return e;if(t instanceof Error){e.delete("stack");for(let o of Bs)Object.prototype.propertyIsEnumerable.call(t,o)||e.delete(o)}let n=Object.getPrototypeOf(t),r=n;for(;r!==null&&r!==Object.prototype;){let o=Reflect.ownKeys(r);for(let s=0;s<o.length;s++)e.add(o[s]);r=Object.getPrototypeOf(r)}return e.has("constructor")&&typeof t.constructor=="function"&&n===t.constructor.prototype&&e.delete("constructor"),e},Pt=new WeakSet,Lt=t=>new Uint8Array(t.buffer,t.byteOffset,t.byteLength),Ut=t=>t instanceof ArrayBuffer||typeof SharedArrayBuffer<"u"&&t instanceof SharedArrayBuffer,Dt=t=>{try{return new Uint8Array(t)}catch{return}};var se=0,Yn=()=>{se++};function J(t){let e=Object.keys(t);for(let n of Object.getOwnPropertySymbols(t))Object.prototype.propertyIsEnumerable.call(t,n)&&e.push(n);return e}function Ce(t,e,n){e==="__proto__"?Object.defineProperty(t,e,{value:n,writable:!0,enumerable:!0,configurable:!0}):t[e]=n}function Gn(t,e){if(!Object.hasOwn(e,"__proto__")){Object.assign(t,e);return}for(let n of J(e))Ce(t,n,e[n])}function Xn(t){return typeof t=="number"}function Ne(t){return typeof t=="function"}function $s(t){return typeof t=="object"&&t!==null||Ne(t)}var x=u(2,(t,e)=>$s(t)&&e in t);var S="~effect/Hash",d=t=>{switch(typeof t){case"number":return Pe(t);case"bigint":return N(t.toString(10));case"string":return N(t);case"function":case"object":{if(t===null)break;if(t instanceof Date)return Number.isNaN(t.getTime())?N("Invalid Date"):N(t.toISOString());if(t instanceof RegExp)return N(t.toString());{if(Pt.has(t))return Re(t);let e=tr.get(t);if(e!==void 0)return e;if(Ae.has(t))return Yn(),N("[Circular]");Ae.add(t);let n=se,r;try{if(qs(t))r=t[S]();else if(typeof t=="function")r=Re(t);else if(Ut(t)){let o=Dt(t);r=o===void 0?Re(t):Wt(o)}else t instanceof DataView?r=Wt(Lt(t)):Array.isArray(t)||ArrayBuffer.isView(t)?r=Wt(t):t instanceof Map?r=js(t):t instanceof Set?r=Hs(t):r=Ue(t)}finally{Ae.delete(t)}return n===se&&tr.set(t,r),r}}}return Y(er(N(String(t))))},Re=t=>(Me.has(t)||Me.set(t,Y(Math.random()*4294967296|0)),Me.get(t)),er=t=>(t^=t>>>16,t=Math.imul(t,2246822507),t^=t>>>13,t=Math.imul(t,3266489909),t^t>>>16),C=u(2,(t,e)=>er(Math.imul(t,2654435761)+Math.imul(e,2246822507))),Y=t=>t&3221225471|t>>>1&1073741824,qs=t=>x(t,S)&&typeof t[S]=="function",Fe=new DataView(new ArrayBuffer(8)),Pe=t=>{let e=t|0;return e===t?Y(e):(Fe.setFloat64(0,t!==t?NaN:t),Y(C(Fe.getInt32(0),Fe.getInt32(4))))},N=t=>{let e=5381,n=t.length;for(;n;)e=e*33^t.charCodeAt(--n);return Y(e)},Le=(t,e)=>{let n=12289;for(let r of e)n^=C(d(r),d(t[r]));return Y(n)},Ue=t=>Le(t,At(t)),nr=(t,e)=>n=>{let r=t;for(let o of n)r^=e(o);return Y(r)},Wt=t=>{let e=6151;for(let n of t)e=C(e,d(n));return Y(e)},js=nr(N("Map"),([t,e])=>C(d(t),d(e))),Qn=N("Set"),Hs=nr(Qn,t=>C(Qn,d(t))),Me=new WeakMap,tr=new WeakMap,Ae=new WeakSet;var _="~effect/Equal";function I(){return arguments.length===1?t=>lt(t,arguments[0]):lt(arguments[0],arguments[1])}function lt(t,e){if(t===e)return!0;if(t==null||e==null)return!1;let n=typeof t;return n!==typeof e?!1:n==="number"&&t!==t&&e!==e?!0:n!=="object"&&n!=="function"||Pt.has(t)||Pt.has(e)?!1:zs(t,e)}function zs(t,e){let n=ie.length;for(let s=n;s-- >0;)if(ie[s]===t&&We[s]===e)return!0;if(n)return rr(t,e);let r=or.get(t);r||or.set(t,r=new WeakMap);let o=r.get(e);return o===void 0&&r.set(e,o=rr(t,e)),o}function rr(t,e){ie.push(t),We.push(e);try{return Vs(t,e)}finally{ie.pop(),We.pop()}}var ie=[],We=[],or=new WeakMap;function Vs(t,e){if(d(t)!==d(e))return!1;if(t instanceof Date){if(!(e instanceof Date))return!1;let r=t.getTime(),o=e.getTime();return r===o||Number.isNaN(r)&&Number.isNaN(o)}else if(t instanceof RegExp)return e instanceof RegExp&&t.toString()===e.toString();let n=ir(t);if(n!==ir(e)||typeof t=="function"&&!n)return!1;if(n)return t[_](e);if(Array.isArray(t))return!Array.isArray(e)||t.length!==e.length?!1:Ks(t,e);if(Ut(t)){if(!Ut(e)||t instanceof ArrayBuffer!=e instanceof ArrayBuffer)return!1;let r=Dt(t),o=Dt(e);return r!==void 0&&o!==void 0&&De(r,o)}else if(ArrayBuffer.isView(t)){let r=t instanceof DataView;return!ArrayBuffer.isView(e)||t.byteLength!==e.byteLength||r!==e instanceof DataView?!1:r?De(Lt(t),Lt(e)):De(t,e)}else{if(t instanceof Map)return!(e instanceof Map)||t.size!==e.size?!1:sr(t,e,Ys,Gs);if(t instanceof Set)return!(e instanceof Set)||t.size!==e.size?!1:sr(t,e,d,lt)}return Js(t,e)}function Ks(t,e){for(let n=0;n<t.length;n++)if(!lt(t[n],e[n]))return!1;return!0}function De(t,e){if(t.length!==e.length)return!1;for(let n=0;n<t.length;n++)if(t[n]!==e[n])return!1;return!0}function Js(t,e){let n=At(t),r=At(e);if(n.size!==r.size)return!1;for(let o of n)if(!r.has(o)||!lt(t[o],e[o]))return!1;return!0}function sr(t,e,n,r){let o=new Map,s=0;for(let i of e){let c=n(i),l=o.get(c);l?l.push(i):o.set(c,[i]),s++}t:for(let i of t){let c=o.get(n(i));if(c){for(let l=0;l<c.length;l++)if(r(i,c[l])){c[l]=c[c.length-1],c.pop(),s--;continue t}}return!1}return s===0}var Ys=t=>d(t[0]),Gs=(t,e)=>lt(t[0],e[0])&&lt(t[1],e[1]);var ir=t=>x(t,_)&&typeof t[_]=="function";var Bt=Symbol.for("~effect/Redactable"),Xs=t=>x(t,Bt);function pt(t){return Xs(t)?Be(t):t}function Be(t){return t[Bt](globalThis[vt]?.context??Zs)}var vt="~effect/Fiber/currentFiber",cr=new Map,Zs={"~effect/Context":{},base:cr,depth:0,mapUnsafe:cr,pipe(){return k(this,arguments)}};function w(t,e){let n=e?.space??0,r=new WeakSet,o=n?typeof n=="number"?" ".repeat(n):n:"",s=a=>o.repeat(a),i=(a,p)=>{let g=a?.constructor;return g&&g!==Object.prototype.constructor&&g.name?`${g.name}(${p})`:p},c=a=>{try{return Reflect.ownKeys(a)}catch{return["[ownKeys threw]"]}};function l(a,p=0){try{return R(a,p)}catch{return(typeof a=="object"&&a!==null||typeof a=="function")&&r.delete(a),"[inspection threw]"}}function R(a,p=0){if(typeof a=="string")return JSON.stringify(a);if(typeof a=="number"||a==null||typeof a=="boolean"||typeof a=="symbol")return String(a);if(typeof a=="bigint")return String(a)+"n";if(typeof a=="object"||typeof a=="function"){if(r.has(a))return Qs;r.add(a);let g;if(Bt in a)g=l(Be(a),p);else if(Array.isArray(a))g=!o||a.length<=1?`[${a.map(f=>l(f,p)).join(",")}]`:`[
+${s(p+1)}${a.map(f=>l(f,p+1)).join(`,
+`+s(p+1))}
+${s(p)}]`;else if(a instanceof Date)g=ti(a);else if(!e?.ignoreToString&&x(a,"toString")&&typeof a.toString=="function"&&a.toString!==Object.prototype.toString&&a.toString!==Array.prototype.toString){let f=ei(a);g=a instanceof Error&&a.cause!==void 0?`${f} (cause: ${l(a.cause,p)})`:f}else if(Symbol.iterator in a)g=`${a.constructor.name}(${l(Array.from(a),p)})`;else{let f=c(a);if(!o||f.length<=1){let at=`{${f.map(K=>`${ar(K)}:${l(ur(a,K),p)}`).join(",")}}`;g=i(a,at)}else{let at=`{
+${f.map(K=>`${s(p+1)}${ar(K)}: ${l(ur(a,K),p+1)}`).join(`,
+`)}
+${s(p)}}`;g=i(a,at)}}return r.delete(a),g}return String(a)}return l(t,0)}var Qs="[Circular]";function ar(t){return typeof t=="string"?JSON.stringify(t):String(t)}function ti(t){try{return t.toISOString()}catch{return"Invalid Date"}}function ei(t){try{let e=t.toString();return typeof e=="string"?e:String(e)}catch{return"[toString threw]"}}function ur(t,e){try{return t[e]}catch{return"[property access threw]"}}function $t(t,e){let n=[],r=new WeakMap;return JSON.stringify(t,function(o,s){let i=Object.getOwnPropertyDescriptor(r.get(this)??this,o)?.value,c=x(i,Bt)?pt(i):pt(s);if(typeof c=="bigint")return w(c);if(typeof c!="object"||c===null)return c;let l=c instanceof Error&&!x(c,"toJSON")?{...c,name:c.name,message:c.message}:c;for(;n.length>0&&n[n.length-1]!==this;)n.pop();if(n.includes(c))return;if(n.push(c),l!==c&&n.push(l),!ni(l)||oi(l))return l;let R=ri(l);return r.set(R,l),n.push(R),R},e?.space)??"null"}function ni(t){for(let e of Object.getOwnPropertyNames(t))if(Object.getOwnPropertyDescriptor(t,e)?.get!==void 0)return!0;return!1}function ri(t){let e=Array.isArray(t)?[]:{},n=Array.isArray(t)?Array.from({length:t.length},(r,o)=>String(o)):Object.keys(t);for(let r of n)Object.defineProperty(e,r,{enumerable:!0,get:()=>{let o=Reflect.get(t,r);return Object.getOwnPropertyDescriptor(t,r)?.get!==void 0?pt(o):o}});return e}function oi(t){for(let e of[Number.prototype.valueOf,Boolean.prototype.valueOf,String.prototype.valueOf])try{return Reflect.apply(e,t,[]),!0}catch{}return!1}var G=Symbol.for("nodejs.util.inspect.custom"),X=t=>{try{return t=pt(t),x(t,"toJSON")&&Ne(t.toJSON)&&t.toJSON.length===0?t.toJSON():Array.isArray(t)?t.map(X):t}catch{return"[toJSON threw]"}},pr=(t,e=2)=>{if(typeof t=="string")return t;try{return typeof t=="object"?$t(t,{space:e}):w(t,{space:e})}catch{return String(t)}},Ra={toJSON(){return X(this)},[G](){return this.toJSON()},toString(){return w(this.toJSON())}},lr=class{[G](){return this.toJSON()}toString(){return w(this.toJSON())}};var si=()=>{let t=Object.getOwnPropertyDescriptor(Error,"stackTraceLimit");return t===void 0?Object.isExtensible(Error):Object.hasOwn(t,"writable")?t.writable===!0:t.set!==void 0},ii=si(),qt=()=>Error.stackTraceLimit,Z=t=>{ii&&(Error.stackTraceLimit=t)};var Q=class{constructor(e){this.value=e,this.done=!1}next(e){return this.done?(this.value=e,this):(this.done=!0,{value:this.value,done:!1})}},ci=()=>{let t="~effect/Utils/internal",e={[t]:s=>s()},n={[t]:s=>{try{return s()}finally{}}},r=qt();if(r===0)return n[t];Z(2);let o=e[t](()=>new Error);return Z(r),o.stack?.includes(t)===!0?e[t]:n[t]},$e=ci();var tt="~effect/Effect",It="~effect/Exit",ai={_A:m,_E:m,_R:m},Ve=`${tt}/identifier`,h=`${tt}/args`,y=`${tt}/evaluate`,E=`${tt}/successCont`,A=`${tt}/failureCont`,ft=`${tt}/ensureCont`,dt=Symbol.for("effect/Effect/Yield"),ht={pipe(){return k(this,arguments)},toJSON(){return{...this}},toString(){return w(this.toJSON(),{ignoreToString:!0,space:2})},[G](){return this.toJSON()}},qa={[S](){return Le(this,J(this))},[_](t){let e=J(this);if(e.length!==J(t).length)return!1;for(let n of e)if(!Object.prototype.propertyIsEnumerable.call(t,n)||!I(this[n],t[n]))return!1;return!0}},ui={[tt]:ai,...ht,[Symbol.iterator](){return new Q(this)},toJSON(){return{_id:"Effect",op:this[Ve],...h in this?{args:this[h]}:void 0}}},hr=t=>x(t,tt),li=t=>x(t,It),je="~effect/Cause",qe="~effect/Cause/Reason",ae=t=>x(t,je);var W=class{constructor(e){this[je]=je,this.reasons=e}pipe(){return k(this,arguments)}toJSON(){return{_id:"Cause",reasons:this.reasons.map(e=>e.toJSON())}}toString(){return`Cause(${w(this.reasons)})`}[G](){return this.toJSON()}[_](e){return ae(e)&&this.reasons.length===e.reasons.length&&this.reasons.every((n,r)=>I(n,e.reasons[r]))}[S](){return Wt(this.reasons)}},fr=new WeakMap,wt=class{[qe];annotations;_tag;constructor(e,n,r){if(this[qe]=qe,this._tag=e,n!==zt&&typeof r=="object"&&r!==null&&n.size>0){let o=fr.get(r);o&&(n=new Map([...o,...n])),fr.set(r,n)}this.annotations=n}annotate(e,n){if(e.mapUnsafe.size===0)return this;let r=new Map(this.annotations);if(e.mapUnsafe.forEach((s,i)=>{n?.overwrite!==!0&&r.has(i)||r.set(i,s)}),n?.overwrite!==!0&&r.size===this.annotations.size)return this;let o=Object.assign(Object.create(Object.getPrototypeOf(this)),this);return o.annotations=r,o}pipe(){return k(this,arguments)}toString(){return w(this)}[G](){return this.toString()}},zt=new Map,ce=class extends wt{constructor(e,n=zt){super("Fail",n,e),this.error=e}toString(){return`Fail(${w(this.error)})`}toJSON(){return{_tag:"Fail",error:this.error}}[_](e){return Ye(e)&&I(this.error,e.error)&&I(this.annotations,e.annotations)}[S](){return C(N(this._tag))(C(d(this.error))(d(this.annotations)))}},Vt=t=>new W(t),pi=(t,e)=>{let n=new Map,r=[];for(let o of t.concat(e)){let s=d(o),i=n.get(s);if(i===void 0)n.set(s,[o]);else{if(i.some(c=>I(c,o)))continue;i.push(o)}r.push(o)}return r},Ke=u(2,(t,e)=>{if(t.reasons.length===0)return e;if(e.reasons.length===0)return t;let n=new W(pi(t.reasons,e.reasons));return I(t,n)?t:n}),Je=(t,e)=>{let n=t.reasons.slice();for(let r of e.reasons)Ht(r)&&!n.some(o=>Ht(o)&&o.fiberId===r.fiberId&&o.annotations===r.annotations)&&n.push(r);return n.length===t.reasons.length?t:new W(n)},xr=new W([]),fi=t=>new W([new ce(t)]),jt=class extends wt{constructor(e,n=zt){super("Die",n,e),this.defect=e}toString(){return`Die(${w(this.defect)})`}toJSON(){return{_tag:"Die",defect:this.defect}}[_](e){return Ge(e)&&I(this.defect,e.defect)&&I(this.annotations,e.annotations)}[S](){return C(N(this._tag))(C(d(this.defect))(d(this.annotations)))}},di=t=>new W([new jt(t)]),ue=u(t=>ae(t[0]),(t,e,n)=>e.mapUnsafe.size===0?t:new W(t.reasons.map(r=>r.annotate(e,n)))),Ye=t=>t._tag==="Fail",Ge=t=>t._tag==="Die",Ht=t=>t._tag==="Interrupt";function hi(t){return et("Effect.evaluate: Not implemented")}var P=t=>({...ui,[Ve]:t.op,[y]:t[y]??hi,[E]:t[E],[A]:t[A],[ft]:t[ft]}),q=t=>{let e=P(t),n=function(r){this[h]=r};return n.prototype=e,function(r){return new n(r)}},mr=t=>{let e={[It]:It,_tag:t.op,get[t.prop](){return this[h]},...P(t),toString(){return`${t.op}(${w(this[h])})`},toJSON(){return{_id:"Exit",_tag:t.op,[t.prop]:this[h]}},[_](r){return li(r)&&r._tag===this._tag&&I(this[h],r[h])},[S](){return C(N(t.op),d(this[h]))}},n=function(r){this[h]=r};return n.prototype=e,function(r){return new n(r)}},L=mr({op:"Success",prop:"value",[y](t){let e=t.getCont(E);return e?e[E](this[h],t,this):t.yieldWith(this)}}),le={key:"effect/Cause/StackTrace"},Xe={key:"effect/Cause/InterruptorStackTrace"},H=mr({op:"Failure",prop:"cause",[y](t){let e=this[h],n=!1;t.cache.stackFrame&&(e=ue(e,{mapUnsafe:new Map([[le.key,t.cache.stackFrame]])}),n=!0);let r=t.getCont(A),o=t._interruptedCause;if(o&&t.interruptible){let s=!1;for(;r&&t.interruptible;)s||=Ve in r,r=t.getCont(A);s&&(e=Vt(e.reasons.filter(i=>i._tag!=="Fail"))),e=Je(e,o),n=!0}return r?r[A](e,t,n?void 0:this):t.yieldWith(n?H(e):this)}}),Ze=t=>H(fi(t)),et=t=>H(di(t)),nt=q({op:"WithFiber",[y](t){return this[h](t)}}),ja=q({op:"WithFiberSucceed",[y](t){let e=this[h](t),n=t.getCont(E);return n?n[E](e,t):t.yieldWith(L(e))}}),xi=(function(){class t extends globalThis.Error{}let e=P({op:"YieldableError",[y](){return Ze(this)}});return delete e.toString,Object.assign(t.prototype,e),t})(),mi=(function(){let t=Symbol.for("effect/Data/Error/plainArgs");return class extends xi{constructor(n){super(n?.message,n?.cause?{cause:n.cause}:void 0),n&&(Gn(this,n),Object.defineProperty(this,t,{value:n,enumerable:!1}))}toJSON(){return{...this[t],...this}}}})(),xt=t=>{class e extends mi{_tag=t}return e.prototype.name=t,e},dr="~effect/Cause/NoSuchElementError";var He=class extends xt("NoSuchElementError"){[dr]=dr;constructor(e){super({message:e})}},ze="~effect/Cause/Done",gr=t=>x(t,ze),za={[ze]:ze,_tag:"Done",value:void 0};var yr="~effect/Option",br={[yr]:{_A:t=>t},...ht,[Symbol.iterator](){return new Q(this)}},gi=Object.defineProperty(Object.assign(Object.create(br),{_tag:"Some",_op:"Some",[_](t){return Qe(t)&&Sr(t)&&I(this.value,t.value)},[S](){return C(d(this._tag))(d(this.value))},toString(){return`some(${w(this.value)})`},toJSON(){return{_id:"Option",_tag:this._tag,value:X(this.value)}}}),"valueOrUndefined",{get(){return this.value}}),yi=d("None"),bi=Object.assign(Object.create(br),{_tag:"None",_op:"None",valueOrUndefined:void 0,[_](t){return Qe(t)&&tn(t)},[S](){return yi},toString(){return"none()"},toJSON(){return{_id:"Option",_tag:this._tag}}}),Qe=t=>x(t,yr),tn=t=>t._tag==="None",Sr=t=>t._tag==="Some",_r=Object.create(bi),Er=function(t){this.value=t};Er.prototype=gi;var vr=t=>new Er(t);var Ir="~effect/Result",wr={[Ir]:{_A:t=>t,_E:t=>t},...ht,[Symbol.iterator](){return new Q(this)}},_i=Object.assign(Object.create(wr),{_tag:"Success",_op:"Success",[_](t){return pe(t)&&nn(t)&&I(this.success,t.success)},[S](){return C(d(this._tag))(d(this.success))},toString(){return`success(${w(this.success)})`},toJSON(){return{_id:"Result",_tag:this._tag,success:X(this.success)}}}),Ei=Object.assign(Object.create(wr),{_tag:"Failure",_op:"Failure",[_](t){return pe(t)&&en(t)&&I(this.failure,t.failure)},[S](){return C(d(this._tag))(d(this.failure))},toString(){return`failure(${w(this.failure)})`},toJSON(){return{_id:"Result",_tag:this._tag,failure:X(this.failure)}}}),pe=t=>x(t,Ir),en=t=>t._tag==="Failure",nn=t=>t._tag==="Success",Or=function(t){this.failure=t};Or.prototype=Ei;var kr=t=>new Or(t),Cr=function(t){this.success=t};Cr.prototype=_i;var Tr=t=>new Cr(t);function Nr(t){return(e,n)=>e===n?0:t(e,n)}var Rr=Nr((t,e)=>globalThis.Number.isNaN(t)&&globalThis.Number.isNaN(e)?0:globalThis.Number.isNaN(t)?-1:globalThis.Number.isNaN(e)?1:t<e?-1:1);var Fr=u(2,(t,e)=>Nr((n,r)=>t(e(n),e(r))));var Mr=t=>u(2,(e,n)=>t(e,n)===1);var Ot=()=>_r,kt=vr;var Ct=tn;var Tt=u(2,(t,{onNone:e,onSome:n})=>Ct(t)?e():n(t.value));var fe=u(2,(t,e)=>Ct(t)?e():t.value);var rt=t=>t==null?Ot():kt(t);var Ar=fe(_t),Pr=t=>(...e)=>{try{return kt(t(...e))}catch{return Ot()}};var de=u(2,(t,e)=>Ct(t)?Ot():kt(e(t.value)));var Lr=u(2,(t,e)=>Ct(t)?Ot():e(t.value));var Ur=t=>Ct(t)?[]:[t.value];var Kt=u(2,(t,e)=>Ct(t)?Ot():e(t.value)?kt(t.value):Ot());var z=Tr,mt=kr;var rn=pe,he=en,Nt=nn;var sn="~effect/Match/Matcher",Oi={[sn]:{_input:m,_filters:m,_remaining:m,_result:m,_return:m,_args:m},_tag:"TypeMatcher",add(t){return ki(this.select,[...this.cases,t])},pipe(){return k(this,arguments)}};function ki(t,e){let n=Object.create(Oi);return n.select=t,n.cases=e,n}var Ci={[sn]:{_input:m,_filters:m,_result:m,_return:m,_flavor:m},_tag:"ValueMatcher",add(t){return Nt(this.value)?this:t._tag==="When"&&t.guard(this.provided)===!0?on(this.provided,z(t.evaluate(this.provided))):t._tag==="Not"&&t.guard(this.provided)===!1?on(this.provided,z(t.evaluate(this.provided))):this},pipe(){return k(this,arguments)}};function on(t,e){let n=Object.create(Ci);return n.provided=t,n.value=e,n}var $r=(t,e)=>({_tag:"When",guard:t,evaluate:e});var xe=t=>{if(typeof t=="function")return t;if(Array.isArray(t)){let e=t.map(xe),n=e.length;return r=>{if(!Array.isArray(r)||r.length<n)return!1;for(let o=0;o<n;o++)if(e[o](r[o])===!1)return!1;return!0}}else if(t!==null&&typeof t=="object"){let e=J(t).map(r=>[r,xe(t[r])]),n=e.length;return r=>{if(typeof r!="object"||r===null)return!1;for(let o=0;o<n;o++){let[s,i]=e[o];if(!(s in r)||i(r[s])===!1)return!1}return!0}}return e=>e===t},Ti=t=>{let e=t.map(xe),n=e.length;return r=>{for(let o=0;o<n;o++)if(e[o](r)===!0)return!0;return!1}};var qr=t=>on(t,mt(t));var jr=(t,e)=>n=>n.add($r(xe(t),e)),Hr=(...t)=>e=>{let n=t[t.length-1],r=t.slice(0,-1);return e.add($r(Ti(r),n))};var zr=t=>e=>{let n=cn(e);return rn(n)?n._tag==="Success"?n.success:t(n.failure):(...r)=>{let o=n(...r);return Nt(o)?o.success:t(o.failure,...r)}};var cn=t=>{if(t._tag==="ValueMatcher")return t.value;let e=t.cases.length;if(e===1){let n=t.cases[0];return(...r)=>{let o=t.select(...r);return n._tag==="When"&&n.guard(o)===!0?z(n.evaluate(o,...r)):n._tag==="Not"&&n.guard(o)===!1?z(n.evaluate(o,...r)):mt(o)}}return(...n)=>{let r=t.select(...n);for(let o=0;o<e;o++){let s=t.cases[o];if(s._tag==="When"&&s.guard(r)===!0)return z(s.evaluate(r,...n));if(s._tag==="Not"&&s.guard(r)===!1)return z(s.evaluate(r,...n))}return mt(r)}};var Br="effect/match/Match/exhaustive: absurd",Vr=t=>{let e=cn(t);if(rn(e)){if(Nt(e))return e.success;throw new Error(Br)}return(...n)=>{let r=e(...n);if(Nt(r))return r.success;throw new Error(Br)}};var Jt=qr;var v=jr,Kr=(...t)=>Hr(...t);var me=zr;var Jr=Vr;var Yr=t=>P({op:t.label,[y]:t.evaluate});var Gr="~effect/Context/Service",Xr=function(){function t(){}let e=t;Object.setPrototypeOf(e,Mi);let n=(r,o)=>(e.key=r,o?.defaultValue&&(e[un]=un,e.defaultValue=o.defaultValue),o?.make&&(e.make=o.make),o?.fiberCached&&Zr.add(r),e);return arguments.length>0?n(arguments[0],arguments[1]):n},Mi={[Gr]:Gr,...Yr({label:"Service",evaluate(t){return L(U(t.context,this))}}),toJSON(){return{_id:"Service",key:this.key}},of(t){return t},context(t){return dn(this,t)},use(t){return nt(e=>t(U(e.context,this)))},useSync(t){return nt(e=>L(t(U(e.context,this))))}},Zr=new Set,un="~effect/Context/Reference",Qr="~effect/Context",Ai=8,ln=(t,e,n,r,o)=>{let s=Object.create(Pi);return s.cacheRoot=t??s,s.base=e,s.overlay=n,s.depth=r,s._flat=void 0,s.baseHits=0,s.maxDepth=o,s},pn=(t,e)=>{e&&(pn(t,e.parent),t.set(e.key,e.value))},to=t=>{if(t._flat)return t._flat;if(!t.overlay)return t._flat=t.base;let e=new Map(t.base);return pn(e,t.overlay),t._flat=e};var fn=Symbol(),eo=(t,e)=>{let n=t;for(let o=n.overlay;o;o=o.parent)if(o.key===e)return o.value;let r=n.base.get(e);return r===void 0&&!n.base.has(e)?fn:(n.overlay&&++n.baseHits>=n.base.size&&n.baseHits>=Ai&&(n.base=to(n),n.overlay=void 0,n.depth=0),r)},ge=(t,e)=>{let n=e?.maxDepth;return ln(void 0,t,void 0,0,Number.isInteger(n)&&n>=0?n:8)},Pi={get mapUnsafe(){return to(this)},...ht,[Qr]:{_Services:t=>t},toJSON(){return{_id:"Context",services:Array.from(this.mapUnsafe).map(([t,e])=>({key:t,value:e}))}},[_](t){if(!Li(t))return!1;let e=this.mapUnsafe,n=t.mapUnsafe;if(e.size!==n.size)return!1;for(let[r,o]of e)if(!n.has(r)||!I(o,n.get(r)))return!1;return!0},[S](){return Pe(this.mapUnsafe.size)}},no=(t,e)=>t.cacheRoot===e.cacheRoot,Li=t=>x(t,Qr);var Ui=t=>!!t[un],ye=()=>Di,Di=ge(new Map),dn=(t,e)=>ge(new Map([[t.key,e]])),ro=u(3,(t,e,n)=>Wi(t,e.key,n)),Wi=(t,e,n)=>{let r=t,o=Zr.has(e)?void 0:r.cacheRoot;if(r.depth>=r.maxDepth){let s=new Map(r._flat??r.base);return r._flat||pn(s,r.overlay),s.set(e,n),ln(o,s,void 0,0,r.maxDepth)}return ln(o,r.base,{key:e,value:n,parent:r.overlay},r.depth+1,r.maxDepth)};var be=(t,e)=>{let n=eo(t,e);return n===fn?void 0:n},oo=u(2,(t,e)=>{let n=eo(t,e.key);if(n===fn){if(Ui(e))return Bi(e);throw $i(e)}return n}),U=oo,an="~effect/Context/defaultValue",Bi=t=>an in t?t[an]:t[an]=t.defaultValue(),$i=t=>{let e=new Error(`Service not found${t.key?`: ${String(t.key)}`:""}`);if(e.stack){let n=e.stack.split(`
+`);n.splice(1,3),e.stack=n.join(`
+`)}return e};var O=Xr;var _e="~effect/Duration",Yt=BigInt(0),fo=BigInt(1),qi=BigInt(2),ji=BigInt(10);var ho=BigInt(1e3),Gt=BigInt(1e6),xo=BigInt(1e9),Hi=BigInt(6e10),zi=BigInt(36e11),Vi=BigInt(864e11),Ki=BigInt(6048e11),mo=t=>BigInt(Math.sign(t)*Math.round(Math.abs(t))),mn=t=>Number.isInteger(t)?BigInt(t)*Gt:mo(t*1e6),so=t=>F(Number.isFinite(t)?mo(t):t),Ji=(t,e)=>{let n=Number(t);if(Number.isFinite(n))return n/e;let r=BigInt(e);return Number(t/r)+Number(t%r)/e},xn=(t,e)=>{let n=t.indexOf(".");if(n===-1)return BigInt(t)*e;let r=t[0]==="-",o=t.slice(n+1),s=ji**BigInt(o.length),i=(BigInt(t.slice(r?1:0,n))*s+BigInt(o))*e;return Yi(r?-i:i,s)},Yi=(t,e)=>{let n=t<Yt?-t:t,r=n/e+(n%e*qi>=e?fo:Yt);return t<Yt?-r:r},Rt=(t,e)=>{let n=Number(t)*e;if(!Number.isFinite(n))return F(n);let r=xn(t,BigInt(e)*Gt);return F(Number.isInteger(n)&&BigInt(n)*Gt===r?n:r)};var Gi=/^(-?\d+(?:\.\d+)?)\s+(nanos?|micros?|millis?|seconds?|minutes?|hours?|days?|weeks?)$/,gn=t=>{switch(typeof t){case"number":return nc(t);case"bigint":return Se(t);case"string":{if(t==="Infinity")return uo;if(t==="-Infinity")return lo;let e=Gi.exec(t);if(!e)break;let[n,r,o]=e;if(o==="nano"||o==="nanos")return Se(xn(r,fo));if(o==="micro"||o==="micros")return Se(xn(r,ho));switch(o){case"milli":case"millis":return Rt(r,1);case"second":case"seconds":return Rt(r,1e3);case"minute":case"minutes":return Rt(r,6e4);case"hour":case"hours":return Rt(r,36e5);case"day":case"days":return Rt(r,864e5);case"week":case"weeks":return Rt(r,6048e5)}break}case"object":{if(t===null)break;if(_e in t)return t;if(Array.isArray(t)){if(t.length!==2||!t.every(Xn))return co(t);if(Number.isNaN(t[0])||Number.isNaN(t[1]))return ec;if(t[0]===-1/0||t[1]===-1/0)return lo;if(t[0]===1/0||t[1]===1/0)return uo;let s=t[0]*1e9+t[1];return Number.isFinite(s)&&Number.isInteger(t[0])&&Number.isInteger(t[1])?F(BigInt(t[0])*xo+BigInt(t[1])):so(s)}let e=t,n=0;if(e.weeks&&(n+=e.weeks*6048e5),e.days&&(n+=e.days*864e5),e.hours&&(n+=e.hours*36e5),e.minutes&&(n+=e.minutes*6e4),e.seconds&&(n+=e.seconds*1e3),e.milliseconds&&(n+=e.milliseconds),!e.microseconds&&!e.nanoseconds){if(!Number.isFinite(n))return F(n);let s=io(e);return s===void 0||BigInt(n)*Gt===s?F(n):F(s)}let r=n*1e6+(e.microseconds??0)*1e3+(e.nanoseconds??0),o=Number.isFinite(r)?io(e):void 0;return o===void 0?so(r):F(o)}}return co(t)},ot=t=>!t||Number.isInteger(t),io=t=>{if(!ot(t.weeks)||!ot(t.days)||!ot(t.hours)||!ot(t.minutes)||!ot(t.seconds)||!ot(t.milliseconds)||!ot(t.microseconds)||!ot(t.nanoseconds))return;let e=Yt;return t.weeks&&(e+=BigInt(t.weeks)*Ki),t.days&&(e+=BigInt(t.days)*Vi),t.hours&&(e+=BigInt(t.hours)*zi),t.minutes&&(e+=BigInt(t.minutes)*Hi),t.seconds&&(e+=BigInt(t.seconds)*xo),t.milliseconds&&(e+=BigInt(t.milliseconds)*Gt),t.microseconds&&(e+=BigInt(t.microseconds)*ho),t.nanoseconds&&(e+=BigInt(t.nanoseconds)),e},co=t=>{throw new Error(`Invalid Input: ${t}`)};var ao={_tag:"Millis",millis:0},Xi={_tag:"Infinity"},Zi={_tag:"NegativeInfinity"},Qi={[_e]:_e,[S](){switch(this.value._tag){case"Millis":return d(mn(this.value.millis));case"Nanos":return d(this.value.nanos);default:return Ue(this.value)}},[_](t){return tc(t)&&ic(this,t)},toString(){switch(this.value._tag){case"Infinity":return"Infinity";case"NegativeInfinity":return"-Infinity";case"Nanos":return`${this.value.nanos} nanos`;case"Millis":return`${this.value.millis} millis`}},toJSON(){switch(this.value._tag){case"Millis":return{_id:"Duration",_tag:"Millis",millis:this.value.millis};case"Nanos":return{_id:"Duration",_tag:"Nanos",nanos:String(this.value.nanos)};case"Infinity":return{_id:"Duration",_tag:"Infinity"};case"NegativeInfinity":return{_id:"Duration",_tag:"NegativeInfinity"}}},[G](){return this.toJSON()},pipe(){return k(this,arguments)}},F=t=>{let e=Object.create(Qi);return typeof t=="number"?isNaN(t)||t===0||Object.is(t,-0)?e.value=ao:Number.isFinite(t)?Number.isInteger(t)?e.value={_tag:"Millis",millis:t}:e.value={_tag:"Nanos",nanos:mn(t)}:e.value=t>0?Xi:Zi:t===Yt?e.value=ao:e.value={_tag:"Nanos",nanos:t},e},tc=t=>x(t,_e);var ec=F(0),uo=F(1/0),lo=F(-1/0),Se=t=>F(t);var nc=t=>F(t);var go=t=>rc(gn(t),{onMillis:m,onNanos:e=>Ji(e,1e6),onInfinity:()=>1/0,onNegativeInfinity:()=>-1/0});var po=t=>{let e=gn(t);switch(e.value._tag){case"Infinity":case"NegativeInfinity":throw new Error("Cannot convert infinite duration to nanos");case"Nanos":return e.value.nanos;case"Millis":return mn(e.value.millis)}};var rc=u(2,(t,e)=>{switch(t.value._tag){case"Millis":return e.onMillis(t.value.millis);case"Nanos":return e.onNanos(t.value.nanos);case"Infinity":return e.onInfinity();case"NegativeInfinity":return(e.onNegativeInfinity??e.onInfinity)()}}),oc=u(3,(t,e,n)=>t.value._tag==="Infinity"||t.value._tag==="NegativeInfinity"||e.value._tag==="Infinity"||e.value._tag==="NegativeInfinity"?n.onInfinity(t,e):t.value._tag==="Millis"?e.value._tag==="Millis"?n.onMillis(t.value.millis,e.value.millis):n.onNanos(po(t),e.value.nanos):n.onNanos(t.value.nanos,po(e)));var sc=(t,e)=>oc(t,e,{onMillis:(n,r)=>n===r,onNanos:(n,r)=>n===r,onInfinity:(n,r)=>n.value._tag===r.value._tag});var ic=u(2,(t,e)=>sc(t,e));var yn=globalThis.Array;var yo=t=>yn.isArray(t)?t:yn.from(t);var ju=yn.isArray;var bo=()=>[];var _n=O("effect/Scheduler",{fiberCached:!0,defaultValue:()=>new Ee}),So=t=>{let e=!1;return Promise.resolve().then(()=>{e||t()}),()=>{e=!0}},uc="setImmediate"in globalThis?t=>{let e=globalThis.setImmediate(t);return()=>globalThis.clearImmediate(e)}:t=>{let e=setTimeout(t,0);return()=>clearTimeout(e)},_o=t=>{try{return uc(t)}catch{return So(t)}},bn=class{buckets=[];scheduleTask(e,n){let r=this.buckets,o=r.length,s,i=0;for(;i<o&&!(r[i][0]>n);i++)s=r[i];s&&s[0]===n?s[1].push(e):i===o?r.push([n,[e]]):r.splice(i,0,[n,[e]])}drain(){let e=this.buckets;return this.buckets=[],e}},Ee=class{executionMode;setImmediate;constructor(e="async",n){this.executionMode=e,this.setImmediate=n??(e==="sync"?So:_o)}shouldYield(e){return e.currentOpCount>=e.cache.maxOpsBeforeYield}makeDispatcher(){return new Sn(this.setImmediate)}},Sn=class{tasks=new bn;running=void 0;setImmediate;constructor(e=_o){this.setImmediate=e}scheduleTask(e,n){this.tasks.scheduleTask(e,n),this.running===void 0&&(this.running=this.setImmediate(this.afterScheduled))}afterScheduled=()=>{this.running=void 0,this.runTasks()};runTasks(){let e=this.tasks.drain();for(let n=0;n<e.length;n++){let r=e[n][1];for(let o=0;o<r.length;o++)r[o]()}}flush(){for(;this.tasks.buckets.length>0;)this.running!==void 0&&(this.running(),this.running=void 0),this.runTasks()}},Eo=O("effect/Scheduler/MaxOpsBeforeYield",{fiberCached:!0,defaultValue:()=>2048}),vo=O("effect/Scheduler/PreventSchedulerYield",{fiberCached:!0,defaultValue:()=>!1});var Io="effect/Tracer/ParentSpan";var wo="effect/Tracer";var Oo="effect/Metric/FiberRuntimeMetrics";var ko=O("effect/References/CurrentStackFrame",{fiberCached:!0,defaultValue:_t}),Co=O("effect/References/TracerEnabled",{fiberCached:!0,defaultValue:Oe});var En=O("effect/References/CurrentLogAnnotations",{defaultValue:()=>({})}),To=O("effect/References/CurrentLogLevel",{fiberCached:!0,defaultValue:()=>"Info"}),No=O("effect/References/MinimumLogLevel",{fiberCached:!0,defaultValue:()=>"Info"}),Ro=O("effect/References/UnhandledLogLevel",{defaultValue:()=>"Error"}),Fo=O("effect/References/CurrentLogSpans",{defaultValue:()=>[]});var In=class extends wt{constructor(e,n=zt){super("Interrupt",n,"Interrupted"),this.fiberId=e}toString(){return`Interrupt(${this.fiberId})`}toJSON(){return{_tag:"Interrupt",fiberId:this.fiberId}}[_](e){return Ht(e)&&this.fiberId===e.fiberId&&this.annotations===e.annotations}[S](){return N(`${this._tag}:${this.fiberId}`)}};var dc=t=>new W([new In(t)]),hc=t=>t.reasons.some(Ye);var xc=t=>{for(let e=0;e<t.reasons.length;e++){let n=t.reasons[e];if(n._tag==="Fail")return z(n.error)}return mt(t)};var Vo=t=>t.reasons.some(Ge),Nn=t=>Vo(t)&&hc(t)?Vt(t.reasons.map(e=>e._tag==="Fail"&&!gr(e.error)?new jt(e.error,e.annotations):e)):t,Rn=t=>Vo(t)?mt(Nn(t)):xc(t);var mc=t=>t.reasons.some(Ht);var gc=t=>{let e;for(let n of t.reasons){if(n._tag==="Fail")return n.error;n._tag==="Die"&&(e??=n)}return e!==void 0?e.defect:t.reasons.length>0?new globalThis.Error("All fibers interrupted without error"):new globalThis.Error("Empty cause")},yc=(t,e)=>{let n=[],r=[];if(t.reasons.length===0)return n;let o=qt();o!==0&&Z(1);try{for(let s of t.reasons){if(s._tag==="Interrupt"){r.push(s);continue}n.push(wn(s._tag==="Die"?s.defect:s.error,s.annotations,e))}if(n.length===0){let s=new Error("The fiber was interrupted by:");s.name="InterruptCause",s.stack=Ec(s,r);let i=new globalThis.Error("All fibers interrupted without error",{cause:s});i.name="InterruptError",i.stack=`${i.name}: ${i.message}`,n.push(wn(i,r[0].annotations,e))}}finally{o!==0&&Z(o)}return n},wn=(t,e,n,r=new Set)=>{let o=typeof t,s;if(t&&o==="object"){r.add(t);let i=t.cause;if(s=new globalThis.Error(bc(t),{cause:i!==void 0&&!r.has(i)?wn(i,void 0,void 0,r):void 0}),typeof t.name=="string"&&(s.name=t.name),typeof t.stack=="string")s.stack=_c(t.stack,s,e);else{let c=`${s.name}: ${s.message}`;s.stack=e?On(c,e):c}n?.includeCauseInStack&&(s.stack=Yo(s));for(let c of Object.keys(t))c in s||(s[c]=t[c])}else{s=new globalThis.Error(t?o==="string"?t:$t(t):`Unknown error: ${t}`);let i=`${s.name}: ${s.message}`;s.stack=e?On(i,e):i}return s},bc=t=>{if(typeof t.message=="string")return t.message;if(typeof t.toString=="function"&&t.toString!==Object.prototype.toString&&t.toString!==Array.prototype.toString)try{return t.toString()}catch{}return $t(t)},Sc=/\((.*)\)/g,_c=(t,e,n)=>{let r=`${e.name}: ${e.message}`,o=(t.startsWith(r)?t.slice(r.length):t).split(`
+`),s=[r];for(let i=1;i<o.length&&!/Generator\.next|~effect\/(?:Effect|Utils)/.test(o[i]);i++)s.push(o[i]);return n?On(s.join(`
+`),n):s.join(`
+`)},On=(t,e)=>{let n=e?.get(le.key);return n&&(t=`${t}
+${Ko(n)}`),t},Ec=(t,e)=>{let n=[`${t.name}: ${t.message}`];for(let r of e){let o=r.fiberId!==void 0?`#${r.fiberId}`:"unknown",s=r.annotations.get(Xe.key);n.push(`    at fiber (${o})`),s&&n.push(Ko(s))}return n.join(`
+`)},Ko=t=>{let e=[],n=t,r=0;for(;n&&r<10;){let o=n.stack();if(o){let s=o.matchAll(Sc),i=!1;for(let[,c]of s)i=!0,e.push(`    at ${n.name} (${c})`);i||e.push(`    at ${n.name} (${o.replace(/^at /,"")})`)}else e.push(`    at ${n.name}`);n=n.parent,r++}return e.join(`
+`)},Jo=t=>yc(t).map(Yo).join(`
+`),Yo=t=>t.cause?`${t.stack} {
+${Go(t.cause,"  ")}
+}`:t.stack,Go=(t,e)=>{let n=t.stack.split(`
+`),r=`${e}[cause]: ${n[0]}`;for(let o=1,s=n.length;o<s;o++)r+=`
+${e}${n[o]}`;return t.cause&&(r+=` {
+${Go(t.cause,`${e}  `)}
+${e}}`),r},vc="~effect/Fiber",Ic={_A:m,_E:m},wc={id:0},Mo=(()=>{try{return globalThis.process?.getBuiltinModule?.("node:async_hooks")?.AsyncResource}catch{return}})(),Xo=()=>Mo===void 0?void 0:new Mo("effect/Fiber"),Oc=()=>globalThis[vt],ve=class{constructor(e,n=!0){this.setContext(e),this.id=++wc.id,this.currentOpCount=0,this.interruptible=n,this._stack=[],this._observers=void 0,this._exit=void 0,this._children=void 0,this._interruptedCause=void 0,this._yielded=void 0,this._autoYielded=!1,this._running=!1,this._deferredInterrupt=!1,this._parent=void 0,this._asyncContext=void 0,this.cache.runtimeMetrics?.recordFiberStart(this.context)}get[vc](){return Ic}get currentDispatcher(){return this._dispatcher??=this.cache.scheduler.makeDispatcher()}getRef(e){return U(this.context,e)}addObserver(e){return this._exit?(e(this._exit),ke):(this._observers===void 0?this._observers=[e]:this._observers.push(e),()=>this.removeObserver(e))}removeObserver(e){if(this._exit||this._observers===void 0)return;let n=this._observers.indexOf(e);n>=0&&this._observers.splice(n,1)}interruptUnsafe(e,n){if(this._exit)return;let r=dc(e);this.cache.stackFrame&&(r=ue(r,dn(le,this.cache.stackFrame))),n&&(r=ue(r,n)),this._interruptedCause=this._interruptedCause?Je(this._interruptedCause,r):r,this.interruptible&&(this._running?this._deferredInterrupt=!0:this.evaluate(D(this._interruptedCause)))}pollUnsafe(){return this._exit}evaluate(e){if(this._exit)return;if(this._asyncContext!==void 0){let s=this._asyncContext;this._asyncContext=void 0;try{return s.runInAsyncScope(this.evaluate,this,e)}finally{s.emitDestroy()}}else if(this._yielded!==void 0){let s=this._yielded;this._yielded=void 0,s()}let n=this.runLoop(e);if(n===dt){this._asyncContext=Xo();return}let r=Ao.interruptChildren&&Ao.interruptChildren(this);if(r!==void 0)return this.interruptible=!1,this.evaluate(it(r,()=>n));if(this._exit=n,this.cache.runtimeMetrics?.recordFiberEnd(this.context,this._exit),this._parent&&(this._parent._children?.delete(this),this._parent=void 0),this._observers!==void 0){let s=this._observers;this._observers=void 0;for(let i=0;i<s.length;i++)s[i](n)}this._stack.length=0,this._children=void 0,this.context=ye();let o=this.cache;(o.span!==void 0||o.stackFrame!==void 0)&&(this.cache={...o,span:void 0,stackFrame:void 0})}runLoop(e){let n=globalThis[vt];globalThis[vt]=this;let r=this._running;this._running=!0;let o=!1,s=this._autoYielded;this._autoYielded=!1;let i=e;this.currentOpCount=s?1:0;try{for(;;)try{this._deferredInterrupt&&(this._deferredInterrupt=!1,i=D(this._interruptedCause)),this.currentOpCount++;let c=this.cache;if(!s&&!o&&!c.preventYield&&c.scheduler.shouldYield(this)?(o=!0,i=this.yieldNow(i,0,!0)):(s=!1,i=c.tracerContext?c.tracerContext(i,this):i[y](this)),i===dt){let l=this._yielded;if(It in l)return this._deferredInterrupt=!1,this._yielded=void 0,l;if(this._deferredInterrupt){this._yielded=void 0,l();continue}return dt}}catch(c){if(!x(i,y))return et(`Fiber.runLoop: Not a valid effect: ${String(i)}`);i=et(c)}}finally{this._running=r,globalThis[vt]=n}}getCont(e){if(this._deferredInterrupt)return this._deferredInterrupt=!1,Cc;for(;;){let n=this._stack.pop();if(!n)return;let r=n[ft];if(r!==void 0){let o=r.call(n,this);if(o)return o[e]=o,o}if(n[e])return n}}succeedWith(e){if((++this.currentOpCount&Tc-1)===0)return L(e);let n=this.getCont(E);return n?n[E](e,this):this.yieldWith(L(e))}yieldWith(e){return this._yielded=e,dt}yieldNow(e,n=0,r=!1){let o=!1;return this.currentDispatcher.scheduleTask(()=>{o||(this._autoYielded=r,this.evaluate(e))},n),this.yieldWith(()=>{o=!0})}children(){return this._children??=new Set}pipe(){return k(this,arguments)}setContext(e){let n=this.context;if(this.context=e,n!==void 0&&no(n,e))return;let r=e.cacheRoot,o=r._fiberCache??=kc(e);this.cache?.scheduler!==o.scheduler&&(this._dispatcher=void 0),this.cache=o}get currentSpanLocal(){let e=this.cache.span;return e?._tag==="Span"?e:void 0}},kc=t=>{let e=be(t,wo);return{scheduler:U(t,_n),tracer:e,tracerContext:e?e.context:void 0,tracerEnabled:U(t,Co),span:be(t,Io),logLevel:U(t,To),minimumLogLevel:U(t,No),stackFrame:U(t,ko),runtimeMetrics:be(t,Oo),maxOpsBeforeYield:U(t,Eo),preventYield:U(t,vo)}},Cc={[E](t,e){return D(e._interruptedCause)},[A](t,e){return D(e._interruptedCause)}},Tc=32,Ao={interruptChildren:void 0},Zo=t=>{if(!t.cache.stackFrame)return;let e=new Map;return e.set(Xe.key,t.cache.stackFrame),ge(e)};var Nc=t=>Xt(e=>{let n=t[Symbol.iterator](),r=[],o;function s(){let i=n.next();for(;!i.done;){if(i.value._exit){r.push(i.value._exit),i=n.next();continue}o=i.value.addObserver(c=>{r.push(c),s()});return}e(V(r))}return s(),st(()=>o?.())});var Po=t=>nt(e=>{let n=Zo(e),r=bo();for(let o of t)o.interruptUnsafe(e.id,n),r.push(o);return as(Nc(r))});var V=L,D=H,Qo=Ze,st=q({op:"Sync",[y](t){let e=this[h],n=e(),r=t.getCont(E);return r?r[E](n,t):t.yieldWith(L(n))}}),yt=q({op:"Suspend",[y](t){let e=this[h];return e()}});var ts=q({op:"Yield",[y](t){return t.yieldNow(bt,this[h]??0)}}),es=ts(0);var ns=t=>et(t);var M=V(void 0);var rs=t=>{let e=typeof t=="function"?t:t.try,n=typeof t=="function"?r=>new Cn(r,"An error occurred in Effect.tryPromise"):t.catch;return os(function(r,o){let s=i=>yt(()=>{try{return Qo($e(()=>n(i)))}catch(c){return ns(c)}});try{e(o).then(i=>r(V(i)),i=>r(s(i)))}catch(i){r(s(i))}},e.length!==0)};var os=(function(){let t=P({op:"Async",[y](n){let r=!1,o=!1,s=this.withSignal?new AbortController:void 0,i=this.register.call(n.cache.scheduler,c=>{r||(r=!0,o?n.evaluate(c):o=c)},s?.signal);return o!==!1?o:(o=!0,n.yieldWith(()=>{r=!0}),s===void 0&&i===void 0?dt:(n._stack.push(Rc(()=>(r=!0,s?.abort(),i??bt))),dt))}}),e=function(n,r){this.register=n,this.withSignal=r};return e.prototype=t,function(n,r){return new e(n,r)}})(),Rc=q({op:"AsyncFinalizer",[ft](t){t.interruptible&&(t.interruptible=!1,t._stack.push(Pn))},[A](t,e){return mc(t)?it(ys(H(t),this[h]()),()=>D(t)):D(t)}}),Xt=t=>os(t,t.length>=2),ss=Xt(ke),is=(...t)=>{if(t.length===1){let r=t[0];return yt(()=>Lo(r()))}let[e,n]=t;return yt(()=>Lo(n.call(e.self)))};var Lo=(function(){let t=P({op:"Iterator",[E](n,r){let o=this.iterator;for(;;){let s=o.next(n);if(s.done)return V(s.value);if(us(s.value)){if(s.value._tag==="Failure")return s.value}else return r._stack.push(this),s.value;n=s.value.value}},[y](n){return this[E](this.initial,n)}}),e=function(n,r){this.iterator=n,this.initial=r};return e.prototype=t,function(n,r){return new e(n,r)}})(),Ie=u(2,(t,e)=>new Zt(t,cs,V(e))),Fn=function(t){return t._stack.push(this),this[h]},Fc=P({op:"OnSuccess",[y]:Fn}),Zt=function(t,e,n){this[h]=t,this[E]=e,this.payload=n};Zt.prototype=Fc;var cs=function(){return this.payload};var Mc=(()=>{let t=qt();if(t===0)return!1;let e="~effect/Effect/stackProbe",n={[e]:function(){return new Error}};Z(1);let r=n[e]();return Z(t),r.stack?.includes("[as "+e+"]")===!0})(),Ac=function(t,e){let n=this.payload;return e.succeedWith(Mc?n(t):$e(()=>n(t)))},Pc=function(t){let e=this.payload;return e(t)};var as=t=>new Zt(t,cs,bt);var it=u(2,(t,e)=>new Zt(t,Pc,e));var us=t=>t[It]!==void 0;var ls=u(2,(t,e)=>new Zt(t,Ac,e));var Lc=t=>t._tag==="Success";var bt=L(void 0);var Mn=u(2,(t,e)=>new ps(t,e.length!==1?n=>e(n):e)),Uc=P({op:"OnFailure",[y]:Fn}),ps=function(t,e){this[h]=t,this[A]=e};ps.prototype=Uc;var fs=u(3,(t,e,n)=>Mn(t,r=>{let o=e(r);return he(o)?D(o.failure):n(o.success,r)})),ds=u(2,(t,e)=>fs(t,Rn,n=>e(n)));var hs=u(2,(t,e)=>ds(t,n=>st(()=>e(n))));var Dc=t=>t==="Unhandled"?(...e)=>nt(n=>{let r=n.getRef(Ro);return r===void 0?M:Tn(r)(...e)}):Tn(t===!0?void 0:t),xs=u(t=>hr(t[0]),(t,e)=>{if(!e?.log)return gs(t,{onFailure:r=>M,onSuccess:r=>M});let n=Dc(e.log);return An(t,{onFailure(r){let o=Rn(r);return he(o)?D(o.failure):e.message===void 0?n(r):n(e.message,r)},onSuccess:r=>M})});var An=u(2,(t,e)=>new ms(t,e.onSuccess.length!==1?n=>e.onSuccess(n):e.onSuccess,e.onFailure.length!==1?n=>e.onFailure(n):e.onFailure)),Wc=P({op:"OnSuccessAndFailure",[y]:Fn}),ms=function(t,e,n){this[h]=t,this[E]=e,this[A]=n};ms.prototype=Wc;var gs=u(2,(t,e)=>An(t,{onFailure:n=>{let r=Rn(n);return he(r)?D(r.failure):e.onFailure(r.success)},onSuccess:e.onSuccess}));var El=q({op:"Exit",[y](t){return t._stack.push(this),this[h]},[E](t,e,n){return e.succeedWith(n??L(t))},[A](t,e,n){return e.succeedWith(n??H(t))}});var ys=(t,e)=>Lc(t)?e:Mn(e,n=>D(Nn(Ke(t.cause,n))));var Bc=(function(){let t=P({op:"OnExit",[y](n){return n._stack.push(this),this.effect},[ft](n){n.interruptible&&this.interruptible!==!0&&(n._stack.push(Pn),n.interruptible=!1)},[E](n,r,o){o??=L(n);let s;try{s=this.onExit(o)}catch(i){s=et(i)}return s?it(s,i=>o):o},[A](n,r,o){o??=H(n);let s;try{s=this.onExit(o)}catch(i){s=et(i)}return s?it(ys(o,s),i=>o):o}}),e=function(n,r,o){this.effect=n,this.onExit=r,this.interruptible=o};return e.prototype=t,e})(),bs=(t,e,n)=>new Bc(t,e,n);var Ss=u(2,bs),_s=u(2,(t,e)=>Ss(t,n=>e));var Es=t=>nt(e=>(e.interruptible&&(e.interruptible=!1,e._stack.push(Pn)),t)),$c=q({op:"SetInterruptible",[ft](t){if(t.interruptible=this[h],t._interruptedCause&&t.interruptible)return()=>D(t._interruptedCause)}}),Pn=$c(!0);var vs=q({op:"While",[E](t,e){return this[h].step(t),this[h].while()?(e._stack.push(this),this[h].body()):bt},[y](t){return this[h].while()?(t._stack.push(this),this[h].body()):bt}}),Is=u(t=>typeof t[1]=="function",(t,e,n)=>yt(()=>{let r=jc(n?.concurrency);if(r===1)return qc(t,e,n);let o=yo(t),s=o.length;if(s===0)return n?.discard?M:V([]);let i=n?.discard?void 0:new Array(s),c=zc({f:e,out:i},o,{concurrency:r});return c?Ie(c,i):V(i)}));var qc=(t,e,n)=>yt(()=>{let r=n?.discard?void 0:[],o=t[Symbol.iterator](),s=o.next(),i=0;return Ie(vs({while:()=>!s.done,body:()=>e(s.value,i++),step:c=>{r&&r.push(c),s=o.next()}}),r)}),jc=t=>t==="unbounded"?Number.POSITIVE_INFINITY:Math.max(1,t??1);var Hc=t=>{let e=t.onItem,n=t.step;return(r,o,s)=>{let i=0,c=s.end??o.length,l=s.concurrency,R=!1,a,p,g,f,at,K=ne=>{let B=et(ne);return f=B,R=!0,p&&p.size>0?it(Es(Po(Array.from(p))),()=>f??B):B},ee=()=>{let ne=!1;for(;!f&&i<c;i++){let B=o[i],St=at??e(r,B,i);if(us(St)){if(f=n(r,B,St,i),f)break}else if(a){at=void 0;let j=Vc(a,St,!0,!0,"inherit");if(j._exit){if(f=n(r,B,j._exit,i),f)break;continue}p.add(j);let Ft=i;if(j.addObserver(Mt=>{p.delete(j);try{if(f){if(Mt._tag==="Failure"){let $=Mt.cause.reasons.filter(re=>re._tag!=="Interrupt");if($.length>0){let re=Vt($);f=H(f._tag==="Failure"?Nn(Ke(f.cause,re)):re)}}}else{let $=n(r,B,Mt,Ft);$&&(f=$,ee())}if(ne){let $=ee();$&&g($)}else R&&p.size===0&&g(f??M)}catch($){g(K($))}}),p.size<l)continue;ne=!0,i++;return}else return Xt(j=>{a=Oc(),p=new Set,at=St,g=j;let Ft;try{Ft=ee()}catch(Mt){return j(K(Mt))}return Ft?j(Ft):yt(()=>(f??=bt,it(p?Po(p):M,()=>f?._tag==="Failure"?f:M)))})}if(R=!0,f){if(p&&p.size>0){let B=Zo(a);p.forEach(St=>St.interruptUnsafe(a.id,B));return}if(g||f._tag==="Failure")return f}else if(g)if(p)p.size===0&&g(M);else return bt};return ee()}};var zc=Hc({onItem(t,e,n){return t.f(e,n)},step(t,e,n,r){if(n._tag==="Failure")return n;t.out&&(t.out[r]=n.value)}});var Vc=(t,e,n=!1,r=!1,o=!1)=>{let s=t,i=o==="inherit"?s.interruptible:!o,c=new ve(s.context,i);return r||(s.children().add(c),c._parent=s),n?c.evaluate(e):(c._asyncContext=Xo(),s.currentDispatcher.scheduleTask(()=>c.evaluate(e),0)),c};var Ln=t=>(e,n)=>{let r=new ve(n?.scheduler?ro(t,_n,n.scheduler):t,n?.uninterruptible!==!0);if(r.evaluate(e),r._exit)return r;if(n?.signal)if(n.signal.aborted)r.interruptUnsafe();else{let o=()=>r.interruptUnsafe();n.signal.addEventListener("abort",o,{once:!0}),r.addObserver(()=>n.signal.removeEventListener("abort",o))}return n?.onFiberStart&&n.onFiberStart(r),r};var ws=Ln(ye());var Os=t=>{let e=Ln(t);return(n,r)=>{let o=e(n,r);return new Promise(s=>{o.addObserver(i=>s(i))})}};var ks=t=>{let e=Os(t);return(n,r)=>e(n,r).then(o=>{if(o._tag==="Failure")throw gc(o.cause);return o.value})},Cs=ks(ye());var Un=O("effect/Clock",{defaultValue:()=>new kn}),vn=2**31-1,kn=class{currentTimeMillisUnsafe(){return Date.now()}currentTimeMillis=st(()=>this.currentTimeMillisUnsafe());currentTimeNanosUnsafe(){return Kc()}currentTimeNanos=st(()=>this.currentTimeNanosUnsafe());monotonicTimeNanosUnsafe(){return Ns()}monotonicTimeNanos=st(()=>this.monotonicTimeNanosUnsafe());sleep(e){return this.sleepMillis(go(e))}sleepMillis(e){return e<=0?es:Number.isFinite(e)?Xt(n=>{let r=e>vn?this.sleepMillis(e-vn):M,o=setTimeout(()=>n(r),Math.min(e,vn));return st(()=>clearTimeout(o))}):ss}},Ts=BigInt(1e6),Ns=(function(){let t=globalThis.process?.hrtime;if(typeof t?.bigint=="function")return()=>t.bigint();if(typeof performance<"u"&&typeof performance.now=="function")return()=>BigInt(Math.round(performance.now()*1e6));let e=BigInt(0);return()=>{let n=BigInt(Date.now())*Ts;return n>e&&(e=n),e}})(),Kc=(function(){let t=BigInt(1e9),e;return()=>{let n=Ns(),r=BigInt(Date.now())*Ts;if(e===void 0)e=r-n;else{let o=e+n;(r>o?r-o:o-r)>t&&(e=r-n)}return e+n}})();var Uo="~effect/Cause/TimeoutError";var Do=class extends xt("TimeoutError"){[Uo]=Uo;constructor(e){super({message:e})}},Wo="~effect/Cause/IllegalArgumentError";var Bo=class extends xt("IllegalArgumentError"){[Wo]=Wo;constructor(e){super({message:e})}},$o="~effect/Cause/ExceededCapacityError";var qo=class extends xt("ExceededCapacityError"){[$o]=$o;constructor(e){super({message:e})}},jo="~effect/Cause/AsyncFiberError";var Ho=class extends xt("AsyncFiberError"){[jo]=jo;constructor(e){super({message:"An asynchronous Effect was executed with Effect.runSync",fiber:e})}},zo="~effect/Cause/UnknownError";var Cn=class extends xt("UnknownError"){[zo]=zo;constructor(e,n){super({message:n,cause:e})}},Jc=O("effect/Console",{defaultValue:()=>globalThis.console}),Yc=t=>{switch(t){case"All":return Number.MIN_SAFE_INTEGER;case"Fatal":return 5e4;case"Error":return 4e4;case"Warn":return 3e4;case"Info":return 2e4;case"Debug":return 1e4;case"Trace":return 0;case"None":return Number.MAX_SAFE_INTEGER}},Gc=Fr(Rr,Yc),Xc=Mr(Gc),Rs=O("effect/Logger/CurrentLoggers",{defaultValue:()=>new Set([oa,sa])}),Zc=O("effect/Logger/LogToStderr",{defaultValue:Jn});var Qc="~effect/Logger",ta={[Qc]:{_Message:m,_Output:m},pipe(){return k(this,arguments)}},Fs=t=>{let e=Object.create(ta);return e.log=t,e},ea=t=>t.replace(/[\s="]/g,"_"),na=(t,e)=>`${ea(t[0])}=${e-t[1]}ms`;var Tn=t=>(...e)=>{let n;for(let r=0,o=e.length;r<o;r++){let s=e[r];ae(s)&&(n?e.splice(r,1):e=e.slice(0,r).concat(e.slice(r+1)),n=n?Vt(n.reasons.concat(s.reasons)):s,r--)}return n===void 0&&(n=xr),nt(r=>{let o=t??r.cache.logLevel;if(Xc(r.cache.minimumLogLevel,o))return M;let s=r.getRef(Un),i=r.getRef(Rs);if(i.size>0){let c=new Date(s.currentTimeMillisUnsafe());for(let l of i)l.log({cause:n,fiber:r,date:c,logLevel:o,message:e})}return M})};var gt={bold:"1",red:"31",green:"32",yellow:"33",blue:"34",cyan:"36",white:"37",gray:"90",black:"30",bgBrightRed:"101"},vl={None:[],All:[],Trace:[gt.gray],Debug:[gt.blue],Info:[gt.green],Warn:[gt.yellow],Error:[gt.red],Fatal:[gt.bgBrightRed,gt.black]};var ra=t=>`${t.getHours().toString().padStart(2,"0")}:${t.getMinutes().toString().padStart(2,"0")}:${t.getSeconds().toString().padStart(2,"0")}.${t.getMilliseconds().toString().padStart(3,"0")}`;var oa=Fs(({cause:t,date:e,fiber:n,logLevel:r,message:o})=>{let s=Array.isArray(o)?o.slice():[o];t.reasons.length>0&&s.push(Jo(t));let i=e.getTime(),c=n.getRef(Fo),l="";for(let g of c)l+=` ${na(g,i)}`;let R=n.getRef(En);Object.keys(R).length>0&&s.push(R);let a=n.getRef(Jc);(n.getRef(Zc)?a.error:a.log)(`[${ra(e)}] ${r.toUpperCase()} (#${n.id})${l}:`,...s)}),sa=Fs(({cause:t,fiber:e,logLevel:n,message:r})=>{let o=e.getRef(Un),s=e.getRef(En),i=e.cache.span;if(i===void 0||i._tag==="ExternalSpan"||i.status._tag==="Ended")return;let c={};for(let[l,R]of Object.entries(s))Ce(c,l,R);c["effect.fiberId"]=e.id,c["effect.logLevel"]=n.toUpperCase(),t.reasons.length>0&&(c["effect.cause"]=Jo(t)),i.event(pr(Array.isArray(r)&&r.length===1?r[0]:r),o.currentTimeNanosUnsafe(),c)});var Ms=Is;var As=rs,Dn=V;var Ps=st;var Wn=is;var Bn=it;var we=ls,Ls=Ie;var $n=xs;var qn=hs;var Us=_s;var jn=ws;var Hn=Cs;var zn=t=>Kt(kt(void 0),()=>t);var ct=t=>Ls(t,!0),b=t=>As(t),Vn=(t,e,n)=>T(rt(t.tab),Tt({onNone:()=>Dn(n),onSome:e})),Ds=t=>T(rt(t),Lr(e=>Pr(()=>new URL(e).host)()),fe(()=>"")),aa=(t,e)=>Jt(t).pipe(v({say:"engines"},()=>T(b(()=>browser.search.get()),we(n=>n.map(r=>({name:r.name,here:!!r.isDefault})).sort((r,o)=>Number(o.here)-Number(r.here))))),v({say:"ask"},({query:n,engine:r})=>ct(b(()=>browser.search.search({query:n,...T(rt(r),Kt(o=>o.length>0),de(o=>({engine:o})),fe(()=>({})))})))),v({say:"find"},({query:n})=>Vn(e,r=>T(b(()=>browser.find.find(n,{tabId:r.id})),we(o=>({many:o?.count??0}))),null)),v({say:"show"},({at:n})=>Vn(e,r=>ct(b(()=>browser.find.highlightResults({tabId:r.id,rangeIndex:n}))),null)),v({say:"unfind"},()=>ct(b(()=>browser.find.removeHighlighting()))),v({say:"tabs"},()=>T(b(()=>browser.tabs.query({currentWindow:!0})),we(n=>n.map(r=>({id:r.id,title:r.title,host:Ds(r.url),here:T(rt(e.tab),Tt({onSome:o=>r.id===o.id,onNone:()=>r.active}))}))))),v({say:"go"},({id:n})=>ct(b(()=>browser.tabs.update(n,{active:!0})))),v({say:"new"},()=>ct(b(()=>browser.tabs.create({})))),v({say:"close"},()=>Vn(e,n=>ct(b(()=>browser.tabs.remove(n.id))),!0)),v({say:"reopen"},()=>ct(b(()=>browser.sessions.restore()))),v({say:"open"},({url:n})=>ct(b(()=>browser.tabs.create({url:n,active:!1})))),v({say:"address"},()=>b(()=>browser.around.address())),v({say:"menu"},()=>b(()=>browser.around.menu())),v({say:"keyboard"},()=>b(()=>browser.around.keyboard())),me(()=>{}));browser.runtime.onMessage.addListener((t,e)=>T(rt(aa(t,e)),de(n=>Hn(qn(n,()=>null))),Ar));var Ws=t=>t.flatMap(e=>T(rt(e.children),Tt({onSome:Ws,onNone:()=>T(rt(e.url),Kt(n=>n.length>0),de(n=>({id:e.id,url:n,title:(e.title??"").replace(/\s+/gu," ").trim()})),Ur)}))),Qt="idle";function te(){Jt(Qt).pipe(Kr("running","again",()=>{Qt="again"}),v("idle",()=>{Qt="running";let t=T(b(()=>browser.bookmarks.getTree()),Bn(e=>b(()=>browser.around.bookmarks(Ws(e)))),$n,Us(Ps(()=>{let e=Qt;Qt="idle",Jt(e).pipe(v("again",te),me(()=>{}))})));jn(t)}),Jr)}browser.bookmarks.onCreated.addListener(te);browser.bookmarks.onChanged.addListener(te);browser.bookmarks.onRemoved.addListener(te);te();var Kn="once",ua="firefox-default",la=(t,e)=>Wn(function*(){let n=Ds(e),r=yield*b(()=>browser.contextualIdentities.create({name:T(zn(n.length>0),Tt({onSome:()=>`${Kn}: ${n}`,onNone:()=>Kn})),color:"pink",icon:"fingerprint"}));return yield*b(()=>browser.tabs.create({url:e,cookieStoreId:r.cookieStoreId,index:t.index,active:t.active,windowId:t.windowId})),yield*b(()=>browser.tabs.remove(t.id)),{cancel:!0}});browser.webRequest.onBeforeRequest.addListener(({tabId:t,url:e})=>T(zn(t>=0),Tt({onNone:()=>({}),onSome:()=>Hn(T(b(()=>browser.tabs.get(t)),Bn(n=>Jt(n.cookieStoreId).pipe(v(ua,()=>la(n,e)),me(()=>Dn({})))),qn(()=>({}))))})),{urls:["<all_urls>"],types:["main_frame"]},["blocking"]);var pa=Wn(function*(){let t=yield*b(()=>browser.contextualIdentities.query({})),e=yield*b(()=>browser.tabs.query({})),n=new Set(e.map(o=>o.cookieStoreId)),r=t.filter(o=>o.name.startsWith(Kn)&&!n.has(o.cookieStoreId));yield*Ms(r,o=>b(()=>browser.contextualIdentities.remove(o.cookieStoreId)),{discard:!0})});browser.tabs.onRemoved.addListener(()=>{jn($n(pa))});})();

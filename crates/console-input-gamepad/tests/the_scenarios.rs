@@ -11,61 +11,68 @@ use std::path::PathBuf;
 use console_input_gamepad::capture::load_capture;
 use console_input_gamepad::devices::Devices;
 use console_input_gamepad::go::LegionGo;
-use console_waiting::clock::TestClock;
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::script::play;
 use console_input_gamepad::world::World;
+use console_waiting::clock::TestClock;
 
 fn scenarios() -> Result<Vec<PathBuf>, Box<dyn Error>> {
-    let root = console_repository::root()?;
-    let mut found = Vec::new();
+  let root = console_repository::root()?;
+  let mut found = Vec::new();
 
-    let entries = std::fs::read_dir(root.join("scenarios"))?;
+  let entries = std::fs::read_dir(root.join("scenarios"))?;
 
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
+  for entry in entries {
+    let entry_2 = entry?;
+    let path = entry_2.path();
 
-        match path.extension().is_some_and(|kind| kind == "txt") {
-            true => found.push(path),
-            false => {}
-        }
+    match ::core::primitive::bool::then_some(path.extension().is_some_and(|kind| kind == "txt"), ()) {
+      ::core::option::Option::Some(()) => found.push(path),
+      ::core::option::Option::None => {}
     }
+  }
 
-    found.sort();
+  found.sort();
 
-    Ok(found)
+  Ok(found)
 }
 
 #[test]
 fn there_are_some() -> Result<(), Box<dyn Error>> {
-    let scenarios = scenarios()?;
+  let scenarios = scenarios()?;
 
-    assert!(!scenarios.is_empty());
+  assert!(!scenarios.is_empty());
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn every_scenario_plays() -> Result<(), Box<dyn Error>> {
-    let root = console_repository::root()?;
+  let root = console_repository::root()?;
 
-    let scenarios = scenarios()?;
+  let scenarios = scenarios()?;
 
-    for path in scenarios {
-        let seen = load_capture()?;
-        let descriptors = load_capture()?;
-        let Ok(world) = World::of(seen);
-        let Ok(devices) = Devices::new(descriptors, world);
-        let profiles = every_profile(&root)?;
-        let mut go = LegionGo::new(profiles, devices, TestClock::default(), console_input_gamepad::router::NAME)?;
-        let said = std::fs::read_to_string(&path)?;
-        let name = path.display();
+  for path in scenarios {
+    let seen = load_capture()?;
+    let descriptors = load_capture()?;
+    let Ok(world) = World::of(seen);
+    let Ok(devices) = Devices::new(descriptors, world);
+    let profiles = every_profile(&root)?;
+    let mut go = LegionGo::new(
+      profiles,
+      devices,
+      TestClock::default(),
+      console_input_gamepad::router::NAME,
+    )?;
+    let said = std::fs::read_to_string(&path)?;
+    let name = path.display();
 
-        play(&mut go, &said).map_err(|fault| format!("{name}: {fault}"))?;
+    play(&mut go, &said).map_err(|fault| format!("{name}: {fault}"))?;
 
-        assert!(!go.devices.sink.log.is_empty(), "{name} pressed nothing");
-    }
+    let Ok(emulated) = go.devices();
 
-    Ok(())
+    assert!(!emulated.sink.log.is_empty(), "{name} pressed nothing");
+  }
+
+  Ok(())
 }

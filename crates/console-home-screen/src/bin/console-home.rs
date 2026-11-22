@@ -21,7 +21,7 @@
 //! loop that waits on everything at once. `console_home_screen::shape::laid`
 //! says where a square goes, this puts a plate, a picture and a name there,
 //! and `console_draw_painting` is the only thing in the tree that has heard of
-//! cairo. The stylesheet is gone and what it said is [`Wears`], which is the
+//! the rasterizer. The stylesheet is gone and what it said is [`Wears`], which is the
 //! same sentences in a type.
 //!
 //! **A plate is a wash, and a wash is not a shape.** `alpha(@night, 0.34)` is
@@ -146,7 +146,7 @@ use std::collections::BTreeMap;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixDatagram;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{self, Receiver, TryRecvError, TrySendError};
 use std::time::{Duration, Instant};
 
 use console_applications::entry::Application;
@@ -154,29 +154,28 @@ use console_applications::found;
 use console_compositor::events::CompositorEvent;
 use console_core_atomic_writes::Stored;
 use console_core_color::palette::{self, PaletteError, WearingError};
-use console_core_color::{Ground, Ansi, Oklch, Rgba, over};
+use console_core_color::{Ansi, Ground, Oklch, Rgba, over};
 use console_core_geometry::{Point, Size};
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_i32};
-use console_events::again::Worth;
-use console_program_contract::EventGroup;
-use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use console_core_shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
 use console_draw_painting::{Rendered, Run, painter};
 use console_draw_surface::{
-    Anchor, Closed, Keyboard, Margin, PointerEvent, Room, Surface, Under, Wanted,
+  Activation, Anchor, Closed, Keyboard, Margin, PointerEvent, Room, Surface, Under, Wanted,
 };
+use console_events::again::Worth;
 use console_home_screen::shape::{self, Layout, Shape as Grid};
 use console_home_screen::{
-    Bare, Flick, LongPress, HomeScreen, Moved, On, Reached, Spot, Touch, Way, flicked, long_press, moved, nudged,
-    on_a_bare_square, paned, classify_touch,
+  Bare, Flick, HomeScreen, LongPress, Moved, On, Reached, Spot, Touch, Way, classify_touch,
+  flicked, long_press, moved, nudged, on_a_bare_square, paned,
 };
-use console_onscreen::{WakeState, Hand, Over, PadInput, over_the_desktop};
+use console_onscreen::{Hand, Over, PadInput, WakeState, over_the_desktop};
 use console_panel::pictures::Side;
+use console_program_contract::EventGroup;
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
 const NAMESPACE: &str = "console-home";
-
 
 const FONT: &str = "Noto Sans";
 
@@ -186,1638 +185,1912 @@ const AND_SO_ON: char = '\u{2026}';
 
 const WIDE_ENOUGH: u32 = 4096;
 
-const WHATEVER_THE_SCREEN_IS: Size<u32> = Size { width: 0, height: 0 };
+const WHATEVER_THE_SCREEN_IS: Size<u32> = Size {
+  width: 0,
+  height: 0,
+};
 
 const SOON: Duration = Duration::from_millis(250);
 
 const A_MOMENT: Duration = Duration::from_millis(10);
 
-const SAID_AT_ONCE: u32 = 64;
+const SAID_AT_ONCE: [u8; 64] = [0; 64];
 
-const A_MOUTHFUL: u32 = 1024;
+const A_MOUTHFUL: [u8; 1024] = [0; 1024];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Showing {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Holds {
-    AWindow,
-    None,
+  AWindow,
+  None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Woke {
-    Already,
-    Just,
+  Already,
+  Just,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Put {
-    Back,
-    None,
+  Back,
+  None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pointer {
-    OnASquare,
-    Elsewhere,
+  OnASquare,
+  Elsewhere,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shows {
-    AHighlight,
-    None,
+  AHighlight,
+  None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Standing {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Carried {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Waiting {
-    ForAPicture,
-    None,
+  ForAPicture,
+  None,
 }
 
 struct Carrying {
-    name: String,
-    from: Spot,
+  name: String,
+  from: Spot,
 }
 
 struct TouchState {
-    from: (f64, f64),
-    at: (f64, f64),
-    since: Instant,
-    on: Option<Spot>,
-    held: LongPress,
+  from: (f64, f64),
+  at: (f64, f64),
+  since: Instant,
+  on: Option<Spot>,
+  held: LongPress,
 }
 
 type Named = BTreeMap<String, (Application, String)>;
 
 struct Screen {
-    here: Spot,
-    home: HomeScreen,
-    applications: Named,
-    carrying: Option<Carrying>,
-    woken: WakeState,
-    pointer: Pointer,
-    seen: Option<(Spot, (f64, f64))>,
-    settled: Option<Showing>,
-    grid: Grid,
-    finger: Option<TouchState>,
-    labels: BTreeMap<(String, u32), MeasuredText>,
+  here: Spot,
+  home: HomeScreen,
+  applications: Named,
+  carrying: Option<Carrying>,
+  woken: WakeState,
+  pointer: Pointer,
+  seen: Option<(Spot, (f64, f64))>,
+  settled: Option<Showing>,
+  grid: Grid,
+  finger: Option<TouchState>,
+  labels: BTreeMap<(String, u32), MeasuredText>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MeasuredText {
-    said: String,
-    width: u32,
+  said: String,
+  width: u32,
 }
 
 struct Wears {
-    plate: Oklch,
-    standing: Oklch,
-    bare: Oklch,
-    edge: Oklch,
-    carried: Oklch,
-    held: Oklch,
-    text: Oklch,
-    dot: Oklch,
-    here: Oklch,
+  plate: Oklch,
+  standing: Oklch,
+  bare: Oklch,
+  edge: Oklch,
+  carried: Oklch,
+  held: Oklch,
+  text: Oklch,
+  dot: Oklch,
+  here: Oklch,
 }
 
 struct Drawing {
-    shapes: Vec<Shape>,
-    touching: Vec<(Spot, Panel)>,
-    waiting: Waiting,
+  shapes: Vec<Shape>,
+  touching: Vec<(Spot, Panel)>,
+  waiting: Waiting,
 }
 
 impl Screen {
-    fn new() -> Result<Screen, Never> {
-        let grid = asked_shape()?;
+  fn new() -> Result<Screen, Never> {
+    let grid = asked_shape()?;
 
-        Ok(Screen {
-            here: Spot::FIRST,
-            home: HomeScreen::default(),
-            applications: BTreeMap::new(),
-            carrying: None,
-            woken: WakeState::No,
-            pointer: Pointer::Elsewhere,
-            seen: None,
-            settled: None,
-            grid,
-            finger: None,
-            labels: BTreeMap::new(),
-        })
+    Ok(Screen {
+      here: Spot::FIRST,
+      home: HomeScreen::default(),
+      applications: BTreeMap::new(),
+      carrying: None,
+      woken: WakeState::No,
+      pointer: Pointer::Elsewhere,
+      seen: None,
+      settled: None,
+      grid,
+      finger: None,
+      labels: BTreeMap::new(),
+    })
+  }
+
+  fn handle_input(&mut self, said: PadInput) -> Result<(), Never> {
+    let way = match said {
+      PadInput::Up => Some(Way::Up),
+      PadInput::Down => Some(Way::Down),
+      PadInput::Left => Some(Way::Left),
+      PadInput::Right => Some(Way::Right),
+      PadInput::Pressed
+      | PadInput::More
+      | PadInput::Back
+      | PadInput::Again
+      | PadInput::Payload
+      | PadInput::Off => None,
+    };
+
+    match way {
+      Some(way_2) => {
+        let woke = self.wakes()?;
+
+        match (woke, self.pointer) {
+          (Woke::Already, _) | (Woke::Just, Pointer::OnASquare) => {
+            let panes = self.panes()?;
+
+            let moved = moved(self.here, way_2, panes, self.grid)?;
+
+            self.here = moved;
+          }
+          (Woke::Just, Pointer::Elsewhere) => {}
+        }
+
+        return Ok(());
+      }
+      None => {}
     }
 
-    fn handle_input(&mut self, said: PadInput) -> Result<(), Never> {
-        let way = match said {
-            PadInput::Up => Some(Way::Up),
-            PadInput::Down => Some(Way::Down),
-            PadInput::Left => Some(Way::Left),
-            PadInput::Right => Some(Way::Right),
-            PadInput::Pressed
-            | PadInput::More
-            | PadInput::Back
-            | PadInput::Again
-            | PadInput::Payload
-            | PadInput::Off => None,
+    match said {
+      PadInput::Pressed => self.press(Activation::Focused),
+      PadInput::More => self.ways(),
+      PadInput::Back => {
+        let put = self.put_back()?;
+
+        match put {
+          Put::Back => Ok(()),
+          Put::None => self.sleeps(),
+        }
+      }
+      PadInput::Again => self.reshaped(),
+      PadInput::Payload => self.lift(),
+      PadInput::Off => self.take_off(),
+      PadInput::Up | PadInput::Down | PadInput::Left | PadInput::Right => Ok(()),
+    }
+  }
+
+  fn wakes(&mut self) -> Result<Woke, Never> {
+    match self.woken {
+      WakeState::Yes => return Ok(Woke::Already),
+      WakeState::No => {}
+    }
+
+    self.woken = WakeState::Yes;
+
+    match console_onscreen::set_awake(WakeState::Yes) {
+      Ok(()) => {}
+      Err(fault) => eprintln!("console-home: no one was told it is awake: {fault}"),
+    }
+
+    Ok(Woke::Just)
+  }
+
+  fn sleeps(&mut self) -> Result<(), Never> {
+    match self.woken {
+      WakeState::Yes => {}
+      WakeState::No => return Ok(()),
+    }
+
+    self.woken = WakeState::No;
+
+    match console_onscreen::set_awake(WakeState::No) {
+      Ok(()) => {}
+      Err(fault) => eprintln!("console-home: no one was told it is asleep: {fault}"),
+    }
+
+    Ok(())
+  }
+
+  fn shows(&self) -> Result<Shows, Never> {
+    Ok(match (self.woken, self.pointer) {
+      (WakeState::Yes, _) | (_, Pointer::OnASquare) => Shows::AHighlight,
+      (WakeState::No, Pointer::Elsewhere) => Shows::None,
+    })
+  }
+
+  fn pointed(&mut self, spot: Spot, at: (f64, f64)) -> Result<(), Never> {
+    let (was, from) = match self.seen.replace((spot, at)) {
+      Some((was, from)) => (was, from),
+      None => return Ok(()),
+    };
+
+    let nudged = nudged(from, at)?;
+
+    match (was == spot, nudged) {
+      (true, Moved::NotAtAll) => Ok(()),
+      (true, Moved::Somewhere) | (false, _) => self.stands_on(spot),
+    }
+  }
+
+  fn stands_on(&mut self, spot: Spot) -> Result<(), Never> {
+    self.here = spot;
+    self.pointer = Pointer::OnASquare;
+
+    Ok(())
+  }
+
+  fn nothing_pointed(&mut self) -> Result<(), Never> {
+    self.pointer = Pointer::Elsewhere;
+    self.seen = None;
+
+    Ok(())
+  }
+
+  fn hand(&self) -> Result<Hand, Never> {
+    Ok(match self.carrying {
+      Some(_) => Hand::Carries,
+      None => Hand::Empty,
+    })
+  }
+
+  fn told_hand(&self) -> Result<(), Never> {
+    let hand = self.hand()?;
+
+    match console_onscreen::set_hand(hand) {
+      Ok(()) => {}
+      Err(fault) => {
+        eprintln!("console-home: no one was told what is in its hand: {fault}");
+      }
+    }
+
+    Ok(())
+  }
+
+  fn panes(&self) -> Result<u32, Never> {
+    let hand = self.hand()?;
+
+    let carried = match hand {
+      Hand::Carries => 1,
+      Hand::Empty => 0,
+    };
+
+    let panes = self.home.panes()?;
+
+    Ok(panes.saturating_add(carried))
+  }
+
+  fn name_at(&self, spot: Spot) -> Result<Option<String>, Never> {
+    let at = self.home.at(spot)?;
+
+    Ok(at.map(str::to_string))
+  }
+
+  fn on(&self, spot: Spot) -> Result<(Option<String>, Carried), Never> {
+    let Ok(standing) = self.name_at(spot);
+
+    let carrying = match self.carrying.as_ref() {
+      Some(carrying) => carrying,
+      None => return Ok((standing, Carried::No)),
+    };
+
+    Ok(match (spot == self.here, spot == carrying.from) {
+      (true, _) => (Some(carrying.name.clone()), Carried::Yes),
+      (false, true) => (None, Carried::No),
+      (false, false) => (standing, Carried::No),
+    })
+  }
+
+  fn press(&mut self, activation: Activation<Spot>) -> Result<(), Never> {
+    let reached = match activation {
+      Activation::Focused => Reached::ByButton,
+      Activation::At(_) => Reached::ByTouch,
+    };
+
+    let target = {
+        let Ok(optional_target) = activation.resolve(|| Some(self.here), Some);
+
+        match optional_target {
+            Some(matched_target) => matched_target,
+            ::core::option::Option::None => return Ok(()),
+        }
+    };
+
+    self.here = target;
+
+    let hand = self.hand()?;
+
+    match hand {
+      Hand::Carries => return self.put_down(),
+      Hand::Empty => {}
+    }
+
+    let name = self.name_at(self.here)?;
+
+    let name_3 = match name {
+      Some(name_2) => name_2,
+      None => {
+        let Ok(bare) = on_a_bare_square(reached);
+
+        return match bare {
+          Bare::Chooses => self.place(),
+          Bare::Waits => Ok(()),
         };
-
-        match way {
-            Some(way) => {
-                let woke = self.wakes()?;
-
-                match (woke, self.pointer) {
-                    (Woke::Already, _) | (Woke::Just, Pointer::OnASquare) => {
-                        let panes = self.panes()?;
-
-                        let moved = moved(self.here, way, panes, self.grid)?;
-
-                        self.here = moved;
-                    },
-                    (Woke::Just, Pointer::Elsewhere) => {},
-                }
-
-                return Ok(());
-            }
-            None => {},
-        }
-
-        match said {
-            PadInput::Pressed => self.press(Reached::ByButton),
-            PadInput::More => self.ways(),
-            PadInput::Back => {
-                let put = self.put_back()?;
-
-                match put {
-                    Put::Back => Ok(()),
-                    Put::None => self.sleeps(),
-                }
-            }
-            PadInput::Again => self.reshaped(),
-            PadInput::Payload => self.lift(),
-            PadInput::Off => self.take_off(),
-            PadInput::Up | PadInput::Down | PadInput::Left | PadInput::Right => Ok(()),
-        }
-    }
-
-    fn wakes(&mut self) -> Result<Woke, Never> {
-        match self.woken {
-            WakeState::Yes => return Ok(Woke::Already),
-            WakeState::No => {},
-        }
-
-        self.woken = WakeState::Yes;
-
-        match console_onscreen::set_awake(WakeState::Yes) {
-            Ok(()) => {},
-            Err(fault) => eprintln!("console-home: no one was told it is awake: {fault}"),
-        }
-
-        Ok(Woke::Just)
-    }
-
-    fn sleeps(&mut self) -> Result<(), Never> {
-        match self.woken {
-            WakeState::Yes => {},
-            WakeState::No => return Ok(()),
-        }
-
-        self.woken = WakeState::No;
-
-        match console_onscreen::set_awake(WakeState::No) {
-            Ok(()) => {},
-            Err(fault) => eprintln!("console-home: no one was told it is asleep: {fault}"),
-        }
-
-        Ok(())
-    }
-
-    fn shows(&self) -> Result<Shows, Never> {
-        Ok(match (self.woken, self.pointer) {
-            (WakeState::Yes, _) | (_, Pointer::OnASquare) => Shows::AHighlight,
-            (WakeState::No, Pointer::Elsewhere) => Shows::None,
-        })
-    }
-
-    fn pointed(&mut self, spot: Spot, at: (f64, f64)) -> Result<(), Never> {
-        let (was, from) = match self.seen.replace((spot, at)) {
-            Some((was, from)) => (was, from),
-            None => return Ok(()),
-        };
-
-        let nudged = nudged(from, at)?;
-
-        match (was == spot, nudged) {
-            (true, Moved::NotAtAll) => Ok(()),
-            (true, Moved::Somewhere) | (false, _) => self.stands_on(spot),
-        }
-    }
-
-    fn stands_on(&mut self, spot: Spot) -> Result<(), Never> {
-        self.here = spot;
-        self.pointer = Pointer::OnASquare;
-
-        Ok(())
-    }
-
-    fn nothing_pointed(&mut self) -> Result<(), Never> {
-        self.pointer = Pointer::Elsewhere;
-        self.seen = None;
-
-        Ok(())
-    }
-
-    fn hand(&self) -> Result<Hand, Never> {
-        Ok(match self.carrying {
-            Some(_) => Hand::Carries,
-            None => Hand::Empty,
-        })
-    }
-
-    fn told_hand(&self) -> Result<(), Never> {
-        let hand = self.hand()?;
-
-        match console_onscreen::set_hand(hand) {
-            Ok(()) => {},
-            Err(fault) => {
-                eprintln!("console-home: no one was told what is in its hand: {fault}");
-            },
-        }
-
-        Ok(())
-    }
-
-    fn panes(&self) -> Result<u32, Never> {
-        let hand = self.hand()?;
-
-        let carried = match hand {
-            Hand::Carries => 1,
-            Hand::Empty => 0,
-        };
-
-        let panes = self.home.panes()?;
-
-        Ok(panes.saturating_add(carried))
-    }
-
-    fn name_at(&self, spot: Spot) -> Result<Option<String>, Never> {
-        let at = self.home.at(spot)?;
-
-        Ok(at.map(str::to_string))
-    }
-
-    fn on(&self, spot: Spot) -> Result<(Option<String>, Carried), Never> {
-        let Ok(standing) = self.name_at(spot);
-
-        let carrying = match self.carrying.as_ref() {
-            Some(carrying) => carrying,
-            None => return Ok((standing, Carried::No)),
-        };
-
-        Ok(match (spot == self.here, spot == carrying.from) {
-            (true, _) => (Some(carrying.name.clone()), Carried::Yes),
-            (false, true) => (None, Carried::No),
-            (false, false) => (standing, Carried::No),
-        })
-    }
-
-    fn press(&mut self, reached: Reached) -> Result<(), Never> {
-        let hand = self.hand()?;
-
-        match hand {
-            Hand::Carries => return self.put_down(),
-            Hand::Empty => {},
-        }
-
-        let name = self.name_at(self.here)?;
-
-        let name = match name {
-            Some(name) => name,
-            None => {
-                let Ok(bare) = on_a_bare_square(reached);
-
-                return match bare {
-                    Bare::Chooses => self.place(),
-                    Bare::Waits => Ok(()),
-                };
-            }
-        };
-
-        let application = self.applications.get(&name).map(|(application, _)| application.clone());
-
-        match application {
-            Some(application) => {
-                self.hands_over()?;
-
-                let command = found::command(&application)?;
-
-                match command {
-                    Some(arguments) => {
-                        let Ok(()) = console_panel::running::left_running(&arguments);
-                    }
-                    None => {}
-                }
-            },
-            None => eprintln!("console-home: {name} is not on this machine any more"),
-        }
-
-        Ok(())
-    }
-
-    fn lift(&mut self) -> Result<(), Never> {
-        let hand = self.hand()?;
-
-        match hand {
-            Hand::Carries => return self.put_down(),
-            Hand::Empty => {},
-        }
-
-        let from = self.here;
-
-        let name = self.name_at(from)?;
-
-        let name = match name {
-            Some(name) => name,
-            None => return self.place(),
-        };
-
-        self.wakes()?;
-
-        self.carrying = Some(Carrying { name, from });
-
-        self.told_hand()
-    }
-
-    fn put_down(&mut self) -> Result<(), Never> {
-        let (name, from) = match self.carrying.take() {
-            Some(Carrying { name, from }) => (name, from),
-            None => return Ok(()),
-        };
-
-        self.told_hand()?;
-
-        let here = self.here;
-        let there = self.name_at(here)?;
-
-        self.home.remove(from)?;
-
-        self.home.place(here, &name)?;
-
-        match there {
-            Some(there) => self.home.place(from, &there)?,
-            None => {},
-        }
-
-        self.keep()
-    }
-
-    fn put_back(&mut self) -> Result<Put, Never> {
-        match self.carrying.take() {
-            Some(_) => {},
-            None => return Ok(Put::None),
-        }
-
-        self.told_hand()?;
-
-        Ok(Put::Back)
-    }
-
-    fn ways(&mut self) -> Result<(), Never> {
-        let hand = self.hand()?;
-
-        match hand {
-            Hand::Carries => return Ok(()),
-            Hand::Empty => {},
-        }
-
-        let name = self.name_at(self.here)?;
-
-        let name = match name {
-            Some(name) => name,
-            None => return self.place(),
-        };
-
+      }
+    };
+
+    let application = self
+      .applications
+      .get(&name_3)
+      .map(|(application, _)| application.clone());
+
+    match application {
+      Some(application_2) => {
         self.hands_over()?;
 
-        console_panel::running::left_running(&["home-square".to_string(), name])
-    }
+        let command = found::command(&application_2)?;
 
-    fn place(&mut self) -> Result<(), Never> {
-        self.hands_over()?;
-
-        let said = self.here.serialize()?;
-
-        console_panel::running::left_running(&[
-            "launcher".to_string(),
-            "--place".to_string(),
-            said,
-        ])
-    }
-
-    fn take_off(&mut self) -> Result<(), Never> {
-        let here = self.here;
-
-        self.home.remove(here)?;
-
-        self.keep()
-    }
-
-    fn hands_over(&mut self) -> Result<(), Never> {
-        self.sleeps()
-    }
-
-    fn reshaped(&mut self) -> Result<(), Never> {
-        let grid = asked_shape()?;
-
-        match self.grid == grid {
-            true => {},
-            false => {
-                self.grid = grid;
-                self.labels.clear();
-            }
+        match command {
+          Some(arguments) => {
+            let Ok(()) = console_panel::running::left_running(&arguments);
+          }
+          None => {}
         }
-
-        self.reread()?;
-
-        let on = self.here.on_the_grid(grid)?;
-
-        match on {
-            On::None => self.here = Spot::FIRST,
-            On::TheGrid => {},
-        }
-
-        Ok(())
+      }
+      None => eprintln!(
+        "console-home: {name} is not on this machine any more",
+        name = name_3
+      ),
     }
 
-    fn reread(&mut self) -> Result<(), Never> {
-        let Ok(home) = console_core_places::home();
+    Ok(())
+  }
 
-        let hers = match home {
-            Some(hers) => hers,
-            None => return Ok(()),
-        };
+  fn lift(&mut self) -> Result<(), Never> {
+    let hand = self.hand()?;
 
-        let Ok(standing) = standing();
-        let Ok(held) = console_home_screen::kept(&hers, standing);
-
-        let home = match held {
-            Stored::Text(said) => HomeScreen::read(&said)?,
-            Stored::Absent => self.first()?,
-            Stored::Failed(fault) => {
-                eprintln!("console-home: the home screen: {fault}");
-
-                return Ok(());
-            }
-        };
-
-        let home = home.fitted(self.grid)?;
-
-        match self.home == home {
-            true => return Ok(()),
-            false => {},
-        }
-
-        self.home = home;
-
-        self.keep()
+    match hand {
+      Hand::Carries => return self.put_down(),
+      Hand::Empty => {}
     }
 
-    fn first(&self) -> Result<HomeScreen, Never> {
-        let names: Vec<String> = self.applications.keys().cloned().collect();
-        let counted = found::load_counts()?;
+    let from = self.here;
 
-        let order = console_applications::counts::order(&names, &counted)?;
+    let name = self.name_at(from)?;
 
-        HomeScreen::first(&order, self.grid)
+    let name_3 = match name {
+      Some(name_2) => name_2,
+      None => return self.place(),
+    };
+
+    self.wakes()?;
+
+    self.carrying = Some(Carrying { name: name_3, from });
+
+    self.told_hand()
+  }
+
+  fn put_down(&mut self) -> Result<(), Never> {
+    let (name, from) = match self.carrying.take() {
+      Some(Carrying { name, from }) => (name, from),
+      None => return Ok(()),
+    };
+
+    self.told_hand()?;
+
+    let here = self.here;
+    let there = self.name_at(here)?;
+
+    self.home.remove(from)?;
+
+    self.home.place(here, &name)?;
+
+    match there {
+      Some(there_2) => self.home.place(from, &there_2)?,
+      None => {}
     }
 
-    fn keep(&self) -> Result<(), Never> {
-        let Ok(home) = console_core_places::home();
+    self.keep()
+  }
 
-        let hers = match home {
-            Some(hers) => hers,
-            None => {
-                eprintln!("console-home: no home to keep the home screen in; leaving it as it is");
-
-                return Ok(());
-            }
-        };
-
-        let Ok(standing) = standing();
-        let Ok(at) = console_home_screen::file(&hers, standing);
-
-        let Ok(mut every) = self.home.every();
-
-        match every.next().is_none() && !at.exists() {
-            true => return Ok(()),
-            false => {},
-        }
-
-        match console_home_screen::keep(&hers, standing, &self.home) {
-            Ok(()) => {},
-            Err(fault) => eprintln!("console-home: {fault}"),
-        }
-
-        Ok(())
+  fn put_back(&mut self) -> Result<Put, Never> {
+    match self.carrying.take() {
+      Some(_) => {}
+      None => return Ok(Put::None),
     }
 
-    fn settle(&mut self, surface: &mut Surface) -> Result<(), Never> {
-        let holds = holds_a_window()?;
+    self.told_hand()?;
 
-        let showing = match holds {
-            Holds::AWindow => Showing::No,
-            Holds::None => Showing::Yes,
-        };
+    Ok(Put::Back)
+  }
 
-        match self.settled.replace(showing) == Some(showing) {
-            true => {},
-            false => match showing {
-                Showing::Yes => {
-                    let Ok(wanted) = covering();
+  fn ways(&mut self) -> Result<(), Never> {
+    let hand = self.hand()?;
 
-                    match surface.show(&wanted) {
-                        Ok(()) => {},
-                        Err(fault) => eprintln!("console-home: no surface to draw on: {fault}"),
-                    }
-                }
-                Showing::No => {
-                    let Ok(()) = surface.hide();
-                },
-            },
-        }
-
-        let over = anything_over_it()?;
-
-        match (showing, over) == (Showing::Yes, Over::None) {
-            true => {},
-            false => {
-                self.nothing_pointed()?;
-
-                self.sleeps()?;
-            }
-        }
-
-        Ok(())
+    match hand {
+      Hand::Carries => return Ok(()),
+      Hand::Empty => {}
     }
+
+    let name = self.name_at(self.here)?;
+
+    let name_3 = match name {
+      Some(name_2) => name_2,
+      None => return self.place(),
+    };
+
+    self.hands_over()?;
+
+    console_panel::running::left_running(&["home-square".to_string(), name_3])
+  }
+
+  fn place(&mut self) -> Result<(), Never> {
+    self.hands_over()?;
+
+    let said = self.here.serialize()?;
+
+    console_panel::running::left_running(&["launcher".to_string(), "--place".to_string(), said])
+  }
+
+  fn take_off(&mut self) -> Result<(), Never> {
+    let here = self.here;
+
+    self.home.remove(here)?;
+
+    self.keep()
+  }
+
+  fn hands_over(&mut self) -> Result<(), Never> {
+    self.sleeps()
+  }
+
+  fn reshaped(&mut self) -> Result<(), Never> {
+    let grid = asked_shape()?;
+
+    match ::core::primitive::bool::then_some(self.grid == grid, ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => {
+        self.grid = grid;
+        self.labels.clear();
+      }
+    }
+
+    self.reread()?;
+
+    let on = self.here.on_the_grid(grid)?;
+
+    match on {
+      On::None => self.here = Spot::FIRST,
+      On::TheGrid => {}
+    }
+
+    Ok(())
+  }
+
+  fn reread(&mut self) -> Result<(), Never> {
+    let Ok(home) = console_core_places::home();
+
+    let hers = match home {
+      Some(hers) => hers,
+      None => return Ok(()),
+    };
+
+    let Ok(standing) = standing();
+    let Ok(held) = console_home_screen::kept(&hers, standing);
+
+    let home_3 = match held {
+      Stored::Text(said) => HomeScreen::read(&said)?,
+      Stored::Absent => self.first()?,
+      Stored::Failed(fault) => {
+        eprintln!("console-home: the home screen: {fault}");
+
+        return Ok(());
+      }
+    };
+
+    let home_2 = home_3.fitted(self.grid)?;
+
+    match ::core::primitive::bool::then_some(self.home == home_2, ()) {
+      ::core::option::Option::Some(()) => return Ok(()),
+      ::core::option::Option::None => {}
+    }
+
+    self.home = home_2;
+
+    self.keep()
+  }
+
+  fn first(&self) -> Result<HomeScreen, Never> {
+    let names: Vec<String> = self.applications.keys().cloned().collect();
+    let counted = found::load_counts()?;
+
+    let order = console_applications::counts::order(&names, &counted)?;
+
+    HomeScreen::first(&order, self.grid)
+  }
+
+  fn keep(&self) -> Result<(), Never> {
+    let Ok(home) = console_core_places::home();
+
+    let hers = match home {
+      Some(hers) => hers,
+      None => {
+        eprintln!("console-home: no home to keep the home screen in; leaving it as it is");
+
+        return Ok(());
+      }
+    };
+
+    let Ok(standing) = standing();
+    let Ok(at) = console_home_screen::file(&hers, standing);
+
+    let Ok(mut every) = self.home.every();
+
+    match every.next() {
+      Some(_) => {}
+      None => {
+        let Ok(existing) = console_core_atomic_writes::read(&at);
+
+        match existing {
+          Stored::Absent => return Ok(()),
+          Stored::Text(_) | Stored::Failed(_) => {}
+        }
+      }
+    }
+
+    match console_home_screen::keep(&hers, standing, &self.home) {
+      Ok(()) => {}
+      Err(fault) => eprintln!("console-home: {fault}"),
+    }
+
+    Ok(())
+  }
+
+  fn settle(&mut self, surface: &mut Surface) -> Result<(), Never> {
+    let holds = holds_a_window()?;
+
+    let showing = match holds {
+      Holds::AWindow => Showing::No,
+      Holds::None => Showing::Yes,
+    };
+
+    match ::core::primitive::bool::then_some(self.settled.replace(showing) == Some(showing), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => match showing {
+        Showing::Yes => {
+          let Ok(wanted) = covering();
+
+          match surface.show(&wanted) {
+            Ok(()) => {}
+            Err(fault) => eprintln!("console-home: no surface to draw on: {fault}"),
+          }
+        }
+        Showing::No => {
+          let Ok(()) = surface.hide();
+        }
+      },
+    }
+
+    let over = anything_over_it()?;
+
+    match ::core::primitive::bool::then_some((showing, over) == (Showing::Yes, Over::None), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => {
+        self.nothing_pointed()?;
+
+        self.sleeps()?;
+      }
+    }
+
+    Ok(())
+  }
 }
 
 fn covering() -> Result<Wanted, Never> {
-    let Ok(bar) = console_status_bar::showing::Fitting::of_em();
-    let Ok(bar) = bar.height();
-    let Ok(top) = out(bar);
+  let Ok(bar) = console_status_bar::showing::Fitting::of_em();
+  let Ok(bar_2) = bar.height();
+  let Ok(top) = out(bar_2);
 
-    Ok(Wanted {
-        namespace: NAMESPACE.to_string(),
-        anchor: Anchor::Whole,
-        size: WHATEVER_THE_SCREEN_IS,
-        margin: Margin { top, right: 0, bottom: 0, left: 0 },
-        keyboard: Keyboard::Declines,
-        room: Room::Over,
-        under: Under::AWindow,
-    })
+  Ok(Wanted {
+    namespace: NAMESPACE.to_string(),
+    anchor: Anchor::Whole,
+    size: WHATEVER_THE_SCREEN_IS,
+    margin: Margin {
+      top,
+      right: 0,
+      bottom: 0,
+      left: 0,
+    },
+    keyboard: Keyboard::Declines,
+    room: Room::Over,
+    under: Under::AWindow,
+  })
 }
 
 fn up(many: i32) -> Result<u32, Never> {
-    fitted(many.max(0))
+  fitted(many.max(0))
 }
 
 fn out(many: u32) -> Result<i32, Never> {
-    fitted(many)
+  fitted(many)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Centred {
-    room: u32,
-    thing: u32,
+  room: u32,
+  thing: u32,
 }
 
 fn middle(centred: Centred) -> Result<i32, Never> {
-    let Centred { room, thing } = centred;
-    let Ok(room) = out(room);
-    let Ok(thing) = out(thing);
+  let Centred { room, thing } = centred;
+  let Ok(room_2) = out(room);
+  let Ok(thing_2) = out(thing);
 
-    Ok(room.saturating_sub(thing).saturating_div(2))
+  Ok(room_2.saturating_sub(thing_2).saturating_div(2))
 }
 
 fn plate(laid: &Layout, rounding: i32) -> Result<Panel, Never> {
-    let Ok(round) = up(rounding);
+  let Ok(round) = up(rounding);
 
-    Ok(Panel {
-        at: laid.plate.at,
-        size: laid.plate.size,
-        round: Round(round),
-        fill: Oklch { lightness: 0.0, chroma: 0.0, hue: 0.0 },
-        edge: Edge::None,
-    })
+  Ok(Panel {
+    at: laid.plate.at,
+    size: laid.plate.size,
+    round: Round(round),
+    fill: Oklch::BLACK,
+    edge: Edge::None,
+  })
 }
 
 fn dressed(
-    holding: Option<&str>,
-    carried: Carried,
-    standing: Standing,
-    wears: &Wears,
+  holding: Option<&str>,
+  carried: Carried,
+  standing: Standing,
+  wears: &Wears,
 ) -> Result<Option<(Oklch, Edge)>, Never> {
-    let Ok(wide) = up(shape::BORDER);
+  let Ok(wide) = up(shape::BORDER);
 
-    Ok(match (holding.is_some(), carried, standing) {
-        (_, Carried::Yes, _) => Some((wears.carried, Edge::Of { wide, color: wears.held })),
-        (true, Carried::No, Standing::Yes) => {
-            Some((wears.standing, Edge::Of { wide, color: wears.edge }))
-        }
-        (true, Carried::No, Standing::No) => Some((wears.plate, Edge::None)),
-        (false, Carried::No, Standing::Yes) => {
-            Some((wears.bare, Edge::Of { wide, color: wears.edge }))
-        }
-        (false, Carried::No, Standing::No) => None,
-    })
+  Ok(match (holding.is_some(), carried, standing) {
+    (_, Carried::Yes, _) => Some((
+      wears.carried,
+      Edge::Of {
+        wide,
+        color: wears.held,
+      },
+    )),
+    (true, Carried::No, Standing::Yes) => Some((
+      wears.standing,
+      Edge::Of {
+        wide,
+        color: wears.edge,
+      },
+    )),
+    (true, Carried::No, Standing::No) => Some((wears.plate, Edge::None)),
+    (false, Carried::No, Standing::Yes) => Some((
+      wears.bare,
+      Edge::Of {
+        wide,
+        color: wears.edge,
+      },
+    )),
+    (false, Carried::No, Standing::No) => None,
+  })
 }
 
 fn icon(at: &str, side: Side, wanted: &mut Vec<String>) -> Result<Option<Pixels>, Never> {
-    match at.is_empty() {
-        true => return Ok(None),
-        false => {},
+  match ::core::primitive::bool::then_some(at.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return Ok(None),
+    ::core::option::Option::None => {}
+  }
+
+  let Ok(held) = console_panel::pictures::pixels_at(Path::new(at), side);
+
+  Ok(match held {
+    Some(held_2) => Some(held_2),
+    None => {
+      wanted.push(at.to_string());
+
+      None
     }
-
-    let Ok(held) = console_panel::pictures::pixels_at(Path::new(at), side);
-
-    Ok(match held {
-        Some(held) => Some(held),
-        None => {
-            wanted.push(at.to_string());
-
-            None
-        }
-    })
+  })
 }
 
 fn words(said: &str, wide: u32, font: &Font) -> Result<MeasuredText, Never> {
-    let whole = console_draw_painting::measure_text(
-        Run { said, weight: Weight::Plain, width: WIDE_ENOUGH },
-        font,
-    )?;
+  let whole = console_draw_painting::measure_text(
+    Run {
+      said,
+      weight: Weight::Plain,
+      width: WIDE_ENOUGH,
+    },
+    font,
+  )?;
 
-    match whole.width <= wide {
-        true => return Ok(MeasuredText { said: said.to_string(), width: whole.width }),
-        false => {},
+  match ::core::primitive::bool::then_some(whole.width <= wide, ()) {
+    ::core::option::Option::Some(()) => {
+      return Ok(MeasuredText {
+        said: said.to_string(),
+        width: whole.width,
+      });
     }
+    ::core::option::Option::None => {}
+  }
 
-    let letters: Vec<char> = said.chars().collect();
+  let letters: Vec<char> = said.chars().collect();
 
-    let fits = (0..letters.len()).rev().find_map(|keep| {
-        let mut cut: String = letters.iter().take(keep).collect();
+  let fits = (0..letters.len()).rev().find_map(|keep| {
+    let mut cut: String = letters.iter().take(keep).collect();
 
-        cut.push(AND_SO_ON);
+    cut.push(AND_SO_ON);
 
-        let Ok(size) = console_draw_painting::measure_text(
-            Run { said: &cut, weight: Weight::Plain, width: WIDE_ENOUGH },
-            font,
-        );
+    let Ok(size) = console_draw_painting::measure_text(
+      Run {
+        said: &cut,
+        weight: Weight::Plain,
+        width: WIDE_ENOUGH,
+      },
+      font,
+    );
 
-        match size.width <= wide {
-            true => Some(MeasuredText { said: cut, width: size.width }),
-            false => None,
-        }
-    });
+    match ::core::primitive::bool::then_some(size.width <= wide, ()) {
+      ::core::option::Option::Some(()) => Some(MeasuredText {
+        said: cut,
+        width: size.width,
+      }),
+      ::core::option::Option::None => None,
+    }
+  });
 
-    Ok(match fits {
-        Some(fits) => fits,
-        None => MeasuredText { said: String::new(), width: 0 },
-    })
+  Ok(match fits {
+    Some(fits_2) => fits_2,
+    None => MeasuredText {
+      said: String::new(),
+      width: 0,
+    },
+  })
 }
 
 fn label(screen: &mut Screen, said: &str, wide: u32, font: &Font) -> Result<MeasuredText, Never> {
-    let asked = (said.to_string(), wide);
+  let asked = (said.to_string(), wide);
 
-    match screen.labels.get(&asked) {
-        Some(found) => return Ok(found.clone()),
-        None => {},
-    }
+  match screen.labels.get(&asked) {
+    Some(found) => return Ok(found.clone()),
+    None => {}
+  }
 
-    let Ok(fitted) = words(said, wide, font);
+  let Ok(fitted) = words(said, wide, font);
 
-    screen.labels.insert(asked, fitted.clone());
+  screen.labels.insert(asked, fitted.clone());
 
-    Ok(fitted)
+  Ok(fitted)
 }
 
 fn drawing(screen: &mut Screen, wears: &Wears, room: (i32, i32)) -> Result<Drawing, Never> {
-    let grid = screen.grid;
-    let square = shape::square(room, grid)?;
-    let Ok(side) = up(square.icon);
-    let Ok(tall) = up(square.named);
-    let font = Font { family: FONT.to_string(), height: tall };
-    let panes = screen.panes()?;
+  let grid = screen.grid;
+  let square = shape::square(room, grid)?;
+  let Ok(side) = up(square.icon);
+  let Ok(tall) = up(square.named);
+  let font = Font {
+    family: FONT.to_string(),
+    height: tall,
+  };
+  let panes = screen.panes()?;
 
-    match screen.here.pane >= panes {
-        true => screen.here.pane = panes.saturating_sub(1),
-        false => {},
+  match ::core::primitive::bool::then_some(screen.here.pane >= panes, ()) {
+    ::core::option::Option::Some(()) => screen.here.pane = panes.saturating_sub(1),
+    ::core::option::Option::None => {}
+  }
+
+  let here = screen.here;
+  let shows = screen.shows()?;
+  let inset = square
+    .padding
+    .saturating_add(shape::BORDER)
+    .saturating_mul(2);
+  let Ok(label_inset) = up(inset);
+  let mut shapes: Vec<Shape> = Vec::new();
+  let mut touching: Vec<(Spot, Panel)> = Vec::new();
+  let mut wanted: Vec<String> = Vec::new();
+
+  for row in 0..grid.rows {
+    'over_columns: for column in 0..grid.columns {
+      let spot = Spot {
+        pane: here.pane,
+        row,
+        column,
+      };
+      let laid = shape::layout(room, grid, spot)?;
+      let plate = plate(&laid, square.rounding)?;
+
+      touching.push((spot, plate));
+
+      let standing = match (shows, spot == here) {
+        (Shows::AHighlight, true) => Standing::Yes,
+        (Shows::AHighlight, false) | (Shows::None, _) => Standing::No,
+      };
+      let (holding, carried) = screen.on(spot)?;
+      let dressed = dressed(holding.as_deref(), carried, standing, wears)?;
+
+      match dressed {
+        Some((fill, edge)) => shapes.push(Shape::Panel(Panel {
+          fill,
+          edge,
+          ..plate
+        })),
+        None => {}
+      }
+
+      let holding_3 = match holding {
+        Some(holding_2) => holding_2,
+        None => continue 'over_columns,
+      };
+
+      let at = screen
+        .applications
+        .get(&holding_3)
+        .map(|(_, at)| at.clone());
+
+      let pixels = match at {
+        Some(at_2) => icon(&at_2, Side(side), &mut wanted)?,
+        None => None,
+      };
+
+      match pixels {
+        Some(pixels_2) => shapes.push(Shape::Picture(Picture {
+          at: laid.icon.at,
+          size: laid.icon.size,
+          pixels: pixels_2,
+        })),
+        None => {}
+      }
+
+      let caption = app_label(screen, &holding_3, &laid, label_inset, &font, wears.text)?;
+
+      shapes.push(Shape::Text(caption));
     }
+  }
 
-    let here = screen.here;
-    let shows = screen.shows()?;
-    let inset = square.padding.saturating_add(shape::BORDER).saturating_mul(2);
-    let mut shapes: Vec<Shape> = Vec::new();
-    let mut touching: Vec<(Spot, Panel)> = Vec::new();
-    let mut wanted: Vec<String> = Vec::new();
+  let dots = dots(screen, room, panes, &font, wears)?;
 
-    for row in 0..grid.rows {
-        'over_columns: for column in 0..grid.columns {
-            let spot = Spot { pane: here.pane, row, column };
-            let laid = shape::layout(room, grid, spot)?;
-            let plate = plate(&laid, square.rounding)?;
+  shapes.extend(dots);
 
-            touching.push((spot, plate));
+  let waiting = match ::core::primitive::bool::then_some(wanted.is_empty(), ()) {
+    ::core::option::Option::Some(()) => Waiting::None,
+    ::core::option::Option::None => {
+      let Ok(()) = console_panel::pictures::make_at(&wanted, Side(side));
 
-            let standing = match (shows, spot == here) {
-                (Shows::AHighlight, true) => Standing::Yes,
-                (Shows::AHighlight, false) | (Shows::None, _) => Standing::No,
-            };
-            let (holding, carried) = screen.on(spot)?;
-            let dressed = dressed(holding.as_deref(), carried, standing, wears)?;
-
-            match dressed {
-                Some((fill, edge)) => shapes.push(Shape::Panel(Panel { fill, edge, ..plate })),
-                None => {},
-            }
-
-            let holding = match holding {
-                Some(holding) => holding,
-                None => continue 'over_columns,
-            };
-
-            let at = screen.applications.get(&holding).map(|(_, at)| at.clone());
-
-            let pixels = match at {
-                Some(at) => icon(&at, Side(side), &mut wanted)?,
-                None => None,
-            };
-
-            match pixels {
-                Some(pixels) => shapes.push(Shape::Picture(Picture {
-                    at: laid.icon.at,
-                    size: laid.icon.size,
-                    pixels,
-                })),
-                None => {},
-            }
-
-            let Ok(room_for_words) = up(inset);
-            let room_for_words = laid.plate.size.width.saturating_sub(room_for_words);
-            let words = label(screen, &holding, room_for_words, &font)?;
-            let Ok(inside) = middle(Centred { room: laid.plate.size.width, thing: words.width });
-            let across = laid.plate.at.x.saturating_add(inside);
-
-            shapes.push(Shape::Text(Text {
-                at: Point { x: across, y: laid.named.y },
-                width: WIDE_ENOUGH,
-                said: words.said,
-                weight: Weight::Plain,
-                font: font.clone(),
-                ink: wears.text,
-            }));
-        }
+      Waiting::ForAPicture
     }
+  };
 
-    let dots = dots(screen, room, panes, &font, wears)?;
+  Ok(Drawing {
+    shapes,
+    touching,
+    waiting,
+  })
+}
 
-    shapes.extend(dots);
+fn app_label(
+  screen: &mut Screen,
+  name: &str,
+  laid: &Layout,
+  inset: u32,
+  font: &Font,
+  ink: Oklch,
+) -> Result<Text, Never> {
+  let label_width = laid.plate.size.width.saturating_sub(inset);
+  let words = label(screen, name, label_width, font)?;
+  let Ok(inside) = middle(Centred {
+    room: laid.plate.size.width,
+    thing: words.width,
+  });
+  let across = laid.plate.at.x.saturating_add(inside);
 
-    let waiting = match wanted.is_empty() {
-        true => Waiting::None,
-        false => {
-            let Ok(()) = console_panel::pictures::make_at(&wanted, Side(side));
-
-            Waiting::ForAPicture
-        }
-    };
-
-    Ok(Drawing { shapes, touching, waiting })
+  Ok(Text {
+    at: Point {
+      x: across,
+      y: laid.named.y,
+    },
+    width: WIDE_ENOUGH,
+    said: words.said,
+    weight: Weight::Plain,
+    font: font.clone(),
+    ink,
+  })
 }
 
 fn dots(
-    screen: &mut Screen,
-    room: (i32, i32),
-    panes: u32,
-    font: &Font,
-    wears: &Wears,
+  screen: &mut Screen,
+  room: (i32, i32),
+  panes: u32,
+  font: &Font,
+  wears: &Wears,
 ) -> Result<Vec<Shape>, Never> {
-    match panes < 2 {
-        true => return Ok(Vec::new()),
-        false => {},
-    }
+  match ::core::primitive::bool::then_some(panes < 2, ()) {
+    ::core::option::Option::Some(()) => return Ok(Vec::new()),
+    ::core::option::Option::None => {}
+  }
 
-    let one = label(screen, A_DOT, WIDE_ENOUGH, font)?;
-    let Ok(many) = fitted::<_, u32>(panes);
-    let Ok(between) = up(shape::BETWEEN);
-    let whole = one
-        .width
-        .saturating_mul(many)
-        .saturating_add(between.saturating_mul(many.saturating_sub(1)));
-    let at = shape::dotted(room)?;
-    let Ok(half) = middle(Centred { room: whole, thing: 0 });
-    let mut across = at.x.saturating_sub(half);
-    let mut drawn: Vec<Shape> = Vec::new();
+  let one = label(screen, A_DOT, WIDE_ENOUGH, font)?;
+  let Ok(many) = fitted::<_, u32>(panes);
+  let Ok(between) = up(shape::BETWEEN);
+  let whole = one
+    .width
+    .saturating_mul(many)
+    .saturating_add(between.saturating_mul(many.saturating_sub(1)));
+  let at = shape::dotted(room)?;
+  let Ok(half) = middle(Centred {
+    room: whole,
+    thing: 0,
+  });
+  let mut across = at.x.saturating_sub(half);
+  let mut drawn: Vec<Shape> = Vec::new();
 
-    for pane in 0..panes {
-        let ink = match pane == screen.here.pane {
-            true => wears.here,
-            false => wears.dot,
-        };
+  for pane in 0..panes {
+    let ink = match ::core::primitive::bool::then_some(pane == screen.here.pane, ()) {
+      ::core::option::Option::Some(()) => wears.here,
+      ::core::option::Option::None => wears.dot,
+    };
 
-        drawn.push(Shape::Text(Text {
-            at: Point { x: across, y: at.y },
-            width: WIDE_ENOUGH,
-            said: A_DOT.to_string(),
-            weight: Weight::Plain,
-            font: font.clone(),
-            ink,
-        }));
+    drawn.push(Shape::Text(Text {
+      at: Point { x: across, y: at.y },
+      width: WIDE_ENOUGH,
+      said: A_DOT.to_string(),
+      weight: Weight::Plain,
+      font: font.clone(),
+      ink,
+    }));
 
-        let Ok(step) = out(one.width.saturating_add(between));
+    let Ok(step) = out(one.width.saturating_add(between));
 
-        across = across.saturating_add(step);
-    }
+    across = across.saturating_add(step);
+  }
 
-    Ok(drawn)
+  Ok(drawn)
 }
 
 fn dressing() -> Result<Wears, WearingError> {
-    let spent = palette::spent()?;
-    let wears = wears(&spent)?;
+  let spent = palette::spent()?;
+  let wears = wears(&spent)?;
 
-    Ok(wears)
+  Ok(wears)
 }
 
 fn wears(spent: &BTreeMap<String, String>) -> Result<Wears, PaletteError> {
-    let ground = hex(spent, "ground")?;
+  let ground = hex(spent, "ground")?;
 
-    let plate = washed(spent, "night", Ground(ground), 0.34)?;
-    let standing = palette::find_color(spent, "panel")?;
-    let bare = washed(spent, "panel", Ground(ground), 0.55)?;
-    let edge = palette::find_color(spent, "mint")?;
-    let carried = washed(spent, "pink", Ground(ground), 0.22)?;
-    let held = palette::find_color(spent, "pink")?;
-    let text = palette::find_color(spent, "text")?;
-    let dot = washed(spent, "text", Ground(ground), 0.3)?;
-    let here = palette::find_color(spent, "pink")?;
+  let plate = washed(spent, "night", Ground(ground), Opacity(0.34))?;
+  let standing = palette::find_color(spent, "panel")?;
+  let bare = washed(spent, "panel", Ground(ground), Opacity(0.55))?;
+  let edge = palette::find_color(spent, "mint")?;
+  let carried = washed(spent, "pink", Ground(ground), Opacity(0.22))?;
+  let held = palette::find_color(spent, "pink")?;
+  let text = palette::find_color(spent, "text")?;
+  let dot = washed(spent, "text", Ground(ground), Opacity(0.3))?;
+  let here = palette::find_color(spent, "pink")?;
 
-    Ok(Wears { plate, standing, bare, edge, carried, held, text, dot, here })
+  Ok(Wears {
+    plate,
+    standing,
+    bare,
+    edge,
+    carried,
+    held,
+    text,
+    dot,
+    here,
+  })
 }
 
 fn hex<'a>(
-    spent: &'a BTreeMap<String, String>,
-    what: &'static str,
+  spent: &'a BTreeMap<String, String>,
+  what: &'static str,
 ) -> Result<&'a str, PaletteError> {
-    match spent.get(what) {
-        Some(said) => Ok(said),
-        None => Err(PaletteError::Absent(what)),
-    }
+  match spent.get(what) {
+    Some(said) => Ok(said),
+    None => Err(PaletteError::Absent(what)),
+  }
 }
 
-fn washed(
-    spent: &BTreeMap<String, String>,
-    what: &'static str,
-    ground: Ground<'_>,
-    share: f64,
-) -> Result<Oklch, PaletteError> {
-    let ink = hex(spent, what)?;
-    let Ok(mixed) = over(Ansi(ink), ground, share);
-    let channels = Rgba::of(&mixed)
-        .map_err(|_| PaletteError::Invalid { color: what, value: mixed.clone() })?;
-    let Ok(washed) = Oklch::of(channels);
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "alpha blending uses a dimensionless opacity between zero and one"
+  )
+)]
+struct Opacity(f64);
 
-    Ok(washed)
+fn washed(
+  spent: &BTreeMap<String, String>,
+  what: &'static str,
+  ground: Ground<'_>,
+  Opacity(share): Opacity,
+) -> Result<Oklch, PaletteError> {
+  let ink = hex(spent, what)?;
+  let Ok(mixed) = over(Ansi(ink), ground, share);
+  let channels = Rgba::of(&mixed).map_err(|_| PaletteError::Invalid {
+    color: what,
+    value: mixed.clone(),
+  })?;
+  let Ok(washed) = Oklch::of(channels);
+
+  Ok(washed)
 }
 
 fn bind_socket() -> Result<Option<UnixDatagram>, Never> {
-    let at = match console_onscreen::homeward() {
-        Ok(at) => at,
-        Err(fault) => {
-            eprintln!("console-home: nothing can be said to me: {fault}");
+  let at = match console_onscreen::homeward() {
+    Ok(at) => at,
+    Err(fault) => {
+      eprintln!("console-home: nothing can be said to me: {fault}");
 
-            return Ok(None);
-        }
-    };
-
-    match at.parent() {
-        Some(above) => {
-            let _ = std::fs::create_dir_all(above);
-        }
-        None => {},
+      return Ok(None);
     }
+  };
 
-    let _ = std::fs::remove_file(&at);
+  Ok(match open_home_socket(&at) {
+    Ok(socket) => Some(socket),
+    Err(fault) => {
+      eprintln!("console-home: {}: {fault}", at.display());
 
-    Ok(match UnixDatagram::bind(&at) {
-        Ok(socket) => Some(socket),
-        Err(fault) => {
-            eprintln!("console-home: {}: {fault}", at.display());
+      None
+    }
+  })
+}
 
-            None
-        }
-    })
+fn open_home_socket(at: &Path) -> Result<UnixDatagram, std::io::Error> {
+  match at.parent() {
+    Some(above) => std::fs::create_dir_all(above)?,
+    None => {}
+  }
+
+  let cleared = std::fs::remove_file(at).or_else(|fault| {
+    match (fault.kind() == std::io::ErrorKind::NotFound).then_some(()) {
+      Some(()) => Ok(()),
+      None => Err(fault),
+    }
+  });
+  cleared?;
+
+  let socket = UnixDatagram::bind(at)?;
+  socket.set_nonblocking(true)?;
+
+  Ok(socket)
 }
 
 fn listened(socket: &UnixDatagram) -> Result<Option<PadInput>, Never> {
-    let Ok(room) = index(SAID_AT_ONCE);
-    let mut said = vec![0u8; room];
+  let mut said = SAID_AT_ONCE;
 
-    let heard = match socket.recv(&mut said) {
-        Ok(got) => said.get(..got),
-        Err(fault) => {
-            eprintln!("console-home: nothing more can be said to me: {fault}");
+  let heard = match socket.recv(&mut said) {
+    Ok(got) => said.get(..got),
+    Err(fault) => {
+      let interrupted = matches!(
+        fault.kind(),
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+      );
 
-            return Ok(None);
-        }
-    };
-
-    match heard {
-        Some(bytes) => match std::str::from_utf8(bytes) {
-            Ok(word) => PadInput::read(word),
-            Err(fault) => {
-                eprintln!("console-home: something said {} bytes that are not words: {fault}", bytes.len());
-
-                Ok(None)
-            }
-        },
+      match interrupted.then_some(()) {
+        Some(()) => return Ok(None),
         None => {
-            eprintln!("console-home: something said it wrote more than the {SAID_AT_ONCE} bytes it had room for");
+          eprintln!("console-home: nothing more can be said to me: {fault}");
 
-            Ok(None)
+          return Ok(None);
         }
+      }
     }
+  };
+
+  match heard {
+    Some(bytes) => match std::str::from_utf8(bytes) {
+      Ok(word) => PadInput::read(word),
+      Err(fault) => {
+        eprintln!(
+          "console-home: something said {} bytes that are not words: {fault}",
+          bytes.len()
+        );
+
+        Ok(None)
+      }
+    },
+    None => {
+      eprintln!("console-home: invalid datagram length");
+
+      Ok(None)
+    }
+  }
 }
 
 fn stirring() -> Result<Option<OwnedFd>, Never> {
-    let (hear, tell) = match rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC) {
-        Ok(ends) => ends,
-        Err(fault) => {
-            eprintln!("console-home: nothing to hear the compositor on: {fault}");
+  let flags = rustix::pipe::PipeFlags::CLOEXEC | rustix::pipe::PipeFlags::NONBLOCK;
+  let (hear, tell) = match rustix::pipe::pipe_with(flags) {
+    Ok(ends) => ends,
+    Err(fault) => {
+      eprintln!("console-home: nothing to hear the compositor on: {fault}");
 
-            return Ok(None);
-        }
-    };
+      return Ok(None);
+    }
+  };
 
-    let (say, heard) = std::sync::mpsc::channel();
-    let Ok(()) = console_events::again::about(&EventGroup::Compositor, worth_asking_after, say);
+  let (say, heard) = mpsc::sync_channel(1);
+  let Ok(()) = console_events::again::about(&EventGroup::Compositor, worth_asking_after, say);
 
-    let Ok(()) = console_program_lifetime::threads::let_go(std::thread::spawn(move || {
-        for () in heard.iter() {
-            match rustix::io::write(&tell, &[1]) {
-                Ok(_) => {},
-                Err(_the_loop_has_gone) => return,
-            }
-        }
-    }));
+  let Ok(()) = console_program_lifetime::threads::let_go(std::thread::spawn(move || {
+    let Ok(()) = relay_stirs(heard, tell);
+  }));
 
-    Ok(Some(hear))
+  Ok(Some(hear))
 }
 
-fn stirred(hear: &OwnedFd) -> Result<(), Never> {
-    let Ok(room) = index(A_MOUTHFUL);
-    let mut said = vec![0u8; room];
-    let _as_many_as_arrived_are_one_look = rustix::io::read(hear, &mut said);
+#[cfg_attr(
+  dylint_lib = "explicit055_no_unbounded_loop",
+  expect(
+    explicit055_no_unbounded_loop,
+    reason = "this relay lives for the home surface. It exits on subscription closure or when the surface drops the reading end of the nonblocking pipe"
+  )
+)]
+fn relay_stirs(stirs: Receiver<()>, wake: OwnedFd) -> Result<(), Never> {
+  for () in stirs.iter() {
+    match rustix::io::write(&wake, &[1]) {
+      Ok(_) => {}
+      Err(rustix::io::Errno::AGAIN | rustix::io::Errno::INTR) => continue,
+      Err(rustix::io::Errno::PIPE) => return Ok(()),
+      Err(fault) => {
+        eprintln!("console-home: waking for a compositor event: {fault}");
 
-    Ok(())
+        return Ok(());
+      }
+    }
+  }
+
+  Ok(())
 }
 
-type Filling = Arc<Mutex<Vec<found::Found>>>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stirring {
+  Active,
+  Gone,
+}
 
-fn searching() -> Result<Option<(OwnedFd, Filling)>, Never> {
-    let (hear, tell) = match rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC) {
-        Ok(ends) => ends,
+fn stirred(hear: &OwnedFd) -> Result<Stirring, Never> {
+  let mut said = A_MOUTHFUL;
+
+  Ok(match rustix::io::read(hear, &mut said) {
+    Ok(0) => Stirring::Gone,
+    Ok(_) | Err(rustix::io::Errno::AGAIN | rustix::io::Errno::INTR) => Stirring::Active,
+    Err(fault) => {
+      eprintln!("console-home: reading compositor wakeups: {fault}");
+
+      Stirring::Gone
+    }
+  })
+}
+
+const SEARCHES: [fn() -> Result<found::Found, Never>; 2] = [found::quickly, found::machine];
+
+struct AppSearch {
+  wake: OwnedFd,
+  found: Receiver<found::Found>,
+}
+
+fn searching() -> Result<Option<AppSearch>, Never> {
+  let flags = rustix::pipe::PipeFlags::CLOEXEC | rustix::pipe::PipeFlags::NONBLOCK;
+  let (hear, tell) = match rustix::pipe::pipe_with(flags) {
+    Ok(ends) => ends,
+    Err(fault) => {
+      eprintln!("console-home: nothing to hear the search on: {fault}");
+
+      return Ok(None);
+    }
+  };
+
+  let (publish, found) = mpsc::sync_channel(SEARCHES.len());
+
+  let Ok(()) = console_program_lifetime::threads::let_go(std::thread::spawn(move || {
+    for look in SEARCHES {
+      let Ok(discovered) = look();
+
+      match publish.try_send(discovered) {
+        Ok(()) => {}
+        Err(TrySendError::Disconnected(_)) => return,
+        Err(TrySendError::Full(_)) => {
+          eprintln!("console-home: no room for an application search result");
+
+          return;
+        }
+      }
+
+      match rustix::io::write(&tell, &[1]) {
+        Ok(_) => {}
+        Err(rustix::io::Errno::AGAIN | rustix::io::Errno::INTR) => continue,
+        Err(rustix::io::Errno::PIPE) => return,
         Err(fault) => {
-            eprintln!("console-home: nothing to hear the search on: {fault}");
+          eprintln!("console-home: waking for an application search result: {fault}");
 
-            return Ok(None);
+          return;
         }
-    };
+      }
+    }
+  }));
 
-    let held: Filling = Arc::new(Mutex::new(Vec::new()));
-    let filling = Arc::clone(&held);
-
-    let Ok(()) = console_program_lifetime::threads::let_go(std::thread::spawn(move || {
-        let telling = tell;
-        let looking: [fn() -> Result<found::Found, Never>; 2] = [found::quickly, found::machine];
-
-        for look in looking {
-            let Ok(found) = look();
-
-            match filling.lock() {
-                Ok(mut filling) => filling.push(found),
-                Err(_no_one_is_reading) => return,
-            }
-
-            let _ = rustix::io::write(&telling, &[1]);
-        }
-    }));
-
-    Ok(Some((hear, held)))
+  Ok(Some(AppSearch { wake: hear, found }))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Search {
-    Going,
-    Finished,
+  Going,
+  Finished,
 }
 
 fn read_search(hear: &OwnedFd) -> Result<Search, Never> {
-    let Ok(room) = index(A_MOUTHFUL);
-    let mut said = vec![0u8; room];
+  let mut said = [0u8; SEARCHES.len()];
 
-    Ok(match rustix::io::read(hear, &mut said) {
-        Ok(0) => Search::Finished,
-        Err(_the_read_failed) => Search::Finished,
-        Ok(_) => Search::Going,
-    })
+  Ok(match rustix::io::read(hear, &mut said) {
+    Ok(0) => Search::Finished,
+    Ok(_) | Err(rustix::io::Errno::AGAIN | rustix::io::Errno::INTR) => Search::Going,
+    Err(fault) => {
+      eprintln!("console-home: reading application search wakeups: {fault}");
+
+      Search::Finished
+    }
+  })
 }
 
-fn found_more(
-    screen: &mut Screen,
-    hear: &OwnedFd,
-    held: &Filling,
-) -> Result<Search, Never> {
-    let Ok(search) = read_search(hear);
+fn found_more(screen: &mut Screen, searching: &AppSearch) -> Result<Search, Never> {
+  let Ok(search) = read_search(&searching.wake);
 
-    let taken = match held.lock() {
-        Ok(mut held) => std::mem::take(&mut *held),
-        Err(_the_search_gave_up) => Vec::new(),
+  for _ in SEARCHES {
+    let found = match searching.found.try_recv() {
+      Ok(result) => result,
+      Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
     };
+    let applications = applications_with_icons(found)?;
 
-    for found in taken {
-        let applications = applications_with_icons(found)?;
+    screen.applications = applications;
 
-        screen.applications = applications;
+    screen.reread()?;
+  }
 
-        screen.reread()?;
-    }
-
-    Ok(search)
+  Ok(search)
 }
 
 fn ready(watching: &[BorrowedFd<'_>]) -> Result<Vec<u32>, Never> {
-    let mut watch: Vec<PollFd<'_>> =
-        watching.iter().map(|fd| PollFd::from_borrowed_fd(*fd, PollFlags::IN)).collect();
-    let now = Timespec { tv_sec: 0, tv_nsec: 0 };
+  let mut watch: Vec<PollFd<'_>> = watching
+    .iter()
+    .map(|fd| PollFd::from_borrowed_fd(*fd, PollFlags::IN))
+    .collect();
+  let now = Timespec {
+    tv_sec: 0,
+    tv_nsec: 0,
+  };
 
-    match poll(&mut watch, Some(&now)) {
-        Ok(_) => {},
-        Err(_nothing_to_watch) => return Ok(Vec::new()),
-    }
+  match poll(&mut watch, Some(&now)) {
+    Ok(_) => {}
+    Err(_nothing_to_watch) => return Ok(Vec::new()),
+  }
 
-    Ok(watch
-        .iter()
-        .enumerate()
-        .filter(|(_, fd)| fd.revents().intersects(PollFlags::IN | PollFlags::HUP))
-        .map(|(which, _)| {
-            let Ok(which) = fitted(which);
+  Ok(
+    watch
+      .iter()
+      .enumerate()
+      .filter(|(_, fd)| fd.revents().intersects(PollFlags::IN | PollFlags::HUP))
+      .map(|(which, _)| {
+        let Ok(which_2) = fitted(which);
 
-            which
-        })
-        .collect())
+        which_2
+      })
+      .collect(),
+  )
 }
 
 fn least(soonest: Option<Duration>, asked: Duration) -> Result<Option<Duration>, Never> {
-    Ok(match soonest {
-        Some(soonest) => Some(soonest.min(asked)),
-        None => Some(asked),
-    })
+  Ok(match soonest {
+    Some(soonest_2) => Some(soonest_2.min(asked)),
+    None => Some(asked),
+  })
 }
 
-fn until(
-    screen: &Screen,
-    waiting: Waiting,
-) -> Result<Option<Duration>, Never> {
-    let mut soonest: Option<Duration> = None;
+fn until(screen: &Screen, waiting: Waiting) -> Result<Option<Duration>, Never> {
+  let mut soonest: Option<Duration> = None;
 
-    match screen.finger.as_ref() {
-        Some(finger) => match finger.held {
-            LongPress::NotYet => {
-                let left = console_home_screen::HELD.saturating_sub(finger.since.elapsed());
+  match screen.finger.as_ref() {
+    Some(finger) => match finger.held {
+      LongPress::NotYet => {
+        let left = console_home_screen::HELD.saturating_sub(finger.since.elapsed());
 
-                let Ok(sooner) = least(soonest, left.max(A_MOMENT));
+        let Ok(sooner) = least(soonest, left.max(A_MOMENT));
 
-                soonest = sooner;
-            }
-            LongPress::LongEnough => {},
-        },
-        None => {},
-    }
+        soonest = sooner;
+      }
+      LongPress::LongEnough => {}
+    },
+    None => {}
+  }
 
-    match waiting {
-        Waiting::ForAPicture => least(soonest, SOON),
-        Waiting::None => Ok(soonest),
-    }
+  match waiting {
+    Waiting::ForAPicture => least(soonest, SOON),
+    Waiting::None => Ok(soonest),
+  }
 }
 
 fn under(touching: &[(Spot, Panel)], at: (f64, f64)) -> Result<Option<Spot>, Never> {
-    let Ok(across) = toward_zero_i32(at.0);
-    let Ok(down) = toward_zero_i32(at.1);
-    let point = Point { x: across, y: down };
+  let Ok(across) = toward_zero_i32(at.0);
+  let Ok(down) = toward_zero_i32(at.1);
+  let point = Point { x: across, y: down };
 
-    for (spot, panel) in touching {
-        let covers = panel.covers(point)?;
+  for (spot, panel) in touching {
+    let covers = panel.covers(point)?;
 
-        match covers {
-            console_core_shapes::Covers::Yes => return Ok(Some(*spot)),
-            console_core_shapes::Covers::No => {},
-        }
+    match covers {
+      console_core_shapes::Covers::Yes => return Ok(Some(*spot)),
+      console_core_shapes::Covers::No => {}
     }
+  }
 
-    Ok(None)
+  Ok(None)
 }
 
 fn wandered(
-    screen: &mut Screen,
-    touching: &[(Spot, Panel)],
-    room: (i32, i32),
-    at: (f64, f64),
+  screen: &mut Screen,
+  touching: &[(Spot, Panel)],
+  room: (i32, i32),
+  at: (f64, f64),
 ) -> Result<(), Never> {
-    match screen.finger.as_mut() {
-        Some(finger) => finger.at = at,
-        None => {},
-    }
+  match screen.finger.as_mut() {
+    Some(finger) => finger.at = at,
+    None => {}
+  }
 
-    let on = under(touching, at)?;
+  let on = under(touching, at)?;
 
-    match on {
-        Some(spot) => return screen.pointed(spot, at),
-        None => {},
-    }
+  match on {
+    Some(spot) => return screen.pointed(spot, at),
+    None => {}
+  }
 
-    let Ok(across) = toward_zero_i32(at.0);
-    let Ok(down) = toward_zero_i32(at.1);
-    let over = shape::over(room, Point { x: across, y: down })?;
+  let Ok(across) = toward_zero_i32(at.0);
+  let Ok(down) = toward_zero_i32(at.1);
+  let over = shape::over(room, Point { x: across, y: down })?;
 
-    match over {
-        On::TheGrid => Ok(()),
-        On::None => screen.nothing_pointed(),
-    }
+  match over {
+    On::TheGrid => Ok(()),
+    On::None => screen.nothing_pointed(),
+  }
 }
 
 fn lifted(screen: &mut Screen) -> Result<(), Never> {
-    let finger = match screen.finger.take() {
-        Some(finger) => finger,
-        None => return Ok(()),
-    };
+  let finger = match screen.finger.take() {
+    Some(finger) => finger,
+    None => return Ok(()),
+  };
 
-    let Ok(flick) = flicked(finger.from, finger.at);
+  let Ok(flick) = flicked(finger.from, finger.at);
 
-    match flick {
-        Flick::Upward => {
-            screen.hands_over()?;
+  match flick {
+    Flick::Upward => {
+      screen.hands_over()?;
 
-            return console_panel::running::left_running(&["launcher".to_string()]);
-        }
-        Flick::Across(along) => {
-            let panes = screen.panes()?;
-
-            let paned = paned(screen.here, along, panes)?;
-
-            screen.here = paned;
-
-            return Ok(());
-        }
-        Flick::Nowhere => {},
+      return console_panel::running::left_running(&["launcher".to_string()]);
     }
+    Flick::Across(along) => {
+      let panes = screen.panes()?;
 
-    match finger.held {
-        LongPress::LongEnough => return Ok(()),
-        LongPress::NotYet => {},
+      let paned = paned(screen.here, along, panes)?;
+
+      screen.here = paned;
+
+      return Ok(());
     }
+    Flick::Nowhere => {}
+  }
 
-    let touched = classify_touch(finger.from, finger.at)?;
+  match finger.held {
+    LongPress::LongEnough => return Ok(()),
+    LongPress::NotYet => {}
+  }
 
-    match (touched, finger.on) {
-        (Touch::Pressed, Some(spot)) => {
-            screen.here = spot;
+  let touched = classify_touch(finger.from, finger.at)?;
 
-            screen.press(Reached::ByTouch)
-        }
-        (Touch::Pressed, None) | (Touch::Travelled, _) => Ok(()),
-    }
+  match (touched, finger.on) {
+    (Touch::Pressed, Some(spot)) => screen.press(Activation::At(spot)),
+    (Touch::Pressed, None) | (Touch::Travelled, _) => Ok(()),
+  }
 }
 
 fn check_long_press(screen: &mut Screen, now: Instant) -> Result<(), Never> {
-    let ripe = match screen.finger.as_mut() {
-        Some(finger) => {
-            let since = now.saturating_duration_since(finger.since);
-            let Ok(held) = long_press(since, finger.from, finger.at);
+  let ripe = match screen.finger.as_mut() {
+    Some(finger) => {
+      let since = now.saturating_duration_since(finger.since);
+      let Ok(held) = long_press(since, finger.from, finger.at);
 
-            match (held, finger.held) {
-                (LongPress::LongEnough, LongPress::NotYet) => {
-                    finger.held = LongPress::LongEnough;
+      match (held, finger.held) {
+        (LongPress::LongEnough, LongPress::NotYet) => {
+          finger.held = LongPress::LongEnough;
 
-                    finger.on
-                }
-                (LongPress::LongEnough, LongPress::LongEnough) | (LongPress::NotYet, _) => None,
-            }
+          finger.on
         }
-        None => None,
-    };
-
-    match ripe {
-        Some(spot) => {
-            screen.here = spot;
-
-            screen.lift()
-        }
-        None => Ok(()),
+        (LongPress::LongEnough, LongPress::LongEnough) | (LongPress::NotYet, _) => None,
+      }
     }
+    None => None,
+  };
+
+  match ripe {
+    Some(spot) => {
+      screen.here = spot;
+
+      screen.lift()
+    }
+    None => Ok(()),
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Watching {
-    Signal,
-    Subscriber,
-    Searching,
-    Stirred,
+  Signal,
+  Subscriber,
+  Searching,
+  Stirred,
 }
 
 fn worth_asking_after(line: &str) -> Result<Worth, Never> {
-    let stirred = console_compositor::events::read(line)?;
+  let stirred = console_compositor::events::read(line)?;
 
-    Ok(match stirred {
-        CompositorEvent::WindowOpened(_)
-        | CompositorEvent::WindowClosed(_)
-        | CompositorEvent::WindowMoved
-        | CompositorEvent::WindowFilled
-        | CompositorEvent::LayerOpened
-        | CompositorEvent::LayerClosed
-        | CompositorEvent::WorkspaceChanged
-        | CompositorEvent::ScreenFocused => Worth::Querying,
-        CompositorEvent::WindowRenamed(_)
-        | CompositorEvent::WindowFloated
-        | CompositorEvent::WindowPinned
-        | CompositorEvent::WindowFocused
-        | CompositorEvent::ConfigurationReloaded
-        | CompositorEvent::Ignored => Worth::Ignoring,
-    })
+  Ok(match stirred {
+    CompositorEvent::WindowOpened(_)
+    | CompositorEvent::WindowClosed(_)
+    | CompositorEvent::WindowMoved
+    | CompositorEvent::WindowFilled
+    | CompositorEvent::LayerOpened
+    | CompositorEvent::LayerClosed
+    | CompositorEvent::WorkspaceChanged
+    | CompositorEvent::ScreenFocused => Worth::Querying,
+    CompositorEvent::WindowRenamed(_)
+    | CompositorEvent::WindowFloated
+    | CompositorEvent::WindowPinned
+    | CompositorEvent::WindowFocused
+    | CompositorEvent::ConfigurationReloaded
+    | CompositorEvent::Ignored => Worth::Ignoring,
+  })
 }
 
 fn standing() -> Result<console_screen::Shape, Never> {
-    Ok(match console_home_screen::standing() {
-        Ok(standing) => standing,
-        Err(fault) => {
-            eprintln!("console-home: which way up the screen stands: {fault}");
+  Ok(match console_home_screen::standing() {
+    Ok(standing) => standing,
+    Err(fault) => {
+      eprintln!("console-home: which way up the screen stands: {fault}");
 
-            console_screen::Shape::Wider
-        }
-    })
+      console_screen::Shape::Wider
+    }
+  })
 }
 
 fn asked_shape() -> Result<Grid, Never> {
-    let Ok(standing) = standing();
-    let usual = Grid::usual(standing)?;
-    let hers = console_core_places::home()?;
+  let Ok(standing) = standing();
+  let usual = Grid::usual(standing)?;
+  let hers = console_core_places::home()?;
 
-    let at = match hers {
-        Some(hers) => shape::at(&hers, standing)?,
-        None => return Ok(usual),
-    };
+  let at = match hers {
+    Some(hers_2) => shape::at(&hers_2, standing)?,
+    None => return Ok(usual),
+  };
 
-    let Ok(held) = console_core_atomic_writes::read(&at);
+  let Ok(held) = console_core_atomic_writes::read(&at);
 
-    match held {
-        Stored::Text(said) => Grid::read(&said, standing),
-        Stored::Absent => Ok(usual),
-        Stored::Failed(fault) => {
-            eprintln!("console-home: {}: {fault}", at.display());
+  match held {
+    Stored::Text(said) => Grid::read(&said, standing),
+    Stored::Absent => Ok(usual),
+    Stored::Failed(fault) => {
+      eprintln!("console-home: {}: {fault}", at.display());
 
-            Ok(usual)
-        }
+      Ok(usual)
     }
+  }
 }
 
 fn holds_a_window() -> Result<Holds, Never> {
-    let workspace = match console_compositor::ask(console_compositor::ActiveWorkspace) {
-        Ok(workspace) => workspace,
-        Err(_the_compositor_said_nothing) => return Ok(Holds::AWindow),
-    };
+  let workspace = match console_compositor::ask(console_compositor::ActiveWorkspace) {
+    Ok(workspace) => workspace,
+    Err(_the_compositor_said_nothing) => return Ok(Holds::AWindow),
+  };
 
-    Ok(match workspace {
-        Some(front) => match front.windows {
-            Some(0) => Holds::None,
-            Some(_held) => Holds::AWindow,
-            None => Holds::AWindow,
-        },
-        None => Holds::AWindow,
-    })
+  Ok(match workspace {
+    Some(front) => match front.windows {
+      Some(0) => Holds::None,
+      Some(_held) => Holds::AWindow,
+      None => Holds::AWindow,
+    },
+    None => Holds::AWindow,
+  })
 }
 
 fn anything_over_it() -> Result<Over, Never> {
-    let screens = match console_onscreen::screens() {
-        Ok(screens) => screens,
-        Err(_the_compositor_said_nothing) => return Ok(Over::Some),
-    };
+  let screens = match console_onscreen::screens() {
+    Ok(screens) => screens,
+    Err(_the_compositor_said_nothing) => return Ok(Over::Some),
+  };
 
-    over_the_desktop(&screens)
+  over_the_desktop(&screens)
 }
 
 fn applications_with_icons(found: found::Found) -> Result<Named, Never> {
-    Ok(found
-        .applications
-        .into_iter()
-        .map(|(name, application)| {
-            let picture = match found.icon.get(&name) {
-                Some(picture) => picture.clone(),
-                None => String::new(),
-            };
+  Ok(
+    found
+      .applications
+      .into_iter()
+      .map(|(name, application)| {
+        let picture = match found.icon.get(&name) {
+          Some(picture) => picture.clone(),
+          None => String::new(),
+        };
 
-            (name, (application, picture))
-        })
-        .collect())
+        (name, (application, picture))
+      })
+      .collect(),
+  )
 }
 
 fn main() {
-    let Ok(stopping) = console_panel::asked::signal_pipe();
+  let Ok(stopping) = console_panel::asked::signal_pipe();
 
-    let wears = match dressing() {
-        Ok(wears) => wears,
-        Err(why) => {
-            eprintln!("console-home: no palette: {why}");
+  let wears = match dressing() {
+    Ok(wears) => wears,
+    Err(why) => {
+      eprintln!("console-home: no palette: {why}");
 
-            return;
-        }
-    };
-
-    let mut surface = match Surface::connect() {
-        Ok(surface) => surface,
-        Err(fault) => {
-            eprintln!("console-home: no surface: {fault}");
-
-            return;
-        }
-    };
-
-    let Ok(mut screen) = Screen::new();
-    let Ok(remembered) = found::load_cached();
-    let Ok(applications) = applications_with_icons(remembered);
-
-    screen.applications = applications;
-
-    let Ok(()) = screen.reread();
-    let Ok(()) = screen.settle(&mut surface);
-    let Ok(listening) = bind_socket();
-    let Ok(stirring) = stirring();
-    let Ok(searching) = searching();
-
-    match console_onscreen::set_awake(WakeState::No) {
-        Ok(()) => {},
-        Err(fault) => eprintln!("console-home: no one was told it is asleep: {fault}"),
+      return;
     }
+  };
 
-    match console_onscreen::set_hand(Hand::Empty) {
-        Ok(()) => {},
-        Err(fault) => eprintln!("console-home: no one was told its hand is empty: {fault}"),
+  let mut surface = match Surface::connect() {
+    Ok(surface) => surface,
+    Err(fault) => {
+      eprintln!("console-home: no surface: {fault}");
+
+      return;
     }
+  };
 
-    let turning = Turning {
-        surface,
-        screen,
-        searching,
-        drew: Rendered::default(),
-        waiting: Waiting::None,
-        touching: Vec::new(),
-        room: (0, 0),
-    };
-    let around = Around { wears: &wears, stopping: &stopping, listening: &listening, stirring: &stirring };
+  let Ok(mut screen) = Screen::new();
+  let Ok(remembered) = found::load_cached();
+  let Ok(applications) = applications_with_icons(remembered);
 
-    match console_core_iteration::iterate(turning, |turning| turned(turning, around)) {
-        Ok(()) => {},
-        Err(_endless) => {},
-    }
+  screen.applications = applications;
+
+  let Ok(()) = screen.reread();
+  let Ok(()) = screen.settle(&mut surface);
+  let Ok(listening) = bind_socket();
+  let Ok(stirring) = stirring();
+  let Ok(searching) = searching();
+
+  match console_onscreen::set_awake(WakeState::No) {
+    Ok(()) => {}
+    Err(fault) => eprintln!("console-home: no one was told it is asleep: {fault}"),
+  }
+
+  match console_onscreen::set_hand(Hand::Empty) {
+    Ok(()) => {}
+    Err(fault) => eprintln!("console-home: no one was told its hand is empty: {fault}"),
+  }
+
+  let turning = Turning {
+    surface,
+    screen,
+    searching,
+    stirring,
+    drew: Rendered::default(),
+    waiting: Waiting::None,
+    touching: Vec::new(),
+    room: (0, 0),
+  };
+  let around = Around {
+    wears: &wears,
+    stopping: &stopping,
+    listening: &listening,
+  };
+
+  match console_core_iteration::iterate(turning, |turning_2| turned(turning_2, around)) {
+    Ok(()) => {}
+    Err(fault) => eprintln!("console-home: surface loop ended: {fault}"),
+  }
 }
 
 struct Turning {
-    surface: Surface,
-    screen: Screen,
-    searching: Option<(OwnedFd, Filling)>,
-    drew: Rendered,
-    waiting: Waiting,
-    touching: Vec<(Spot, Panel)>,
-    room: (i32, i32),
+  surface: Surface,
+  screen: Screen,
+  searching: Option<AppSearch>,
+  stirring: Option<OwnedFd>,
+  drew: Rendered,
+  waiting: Waiting,
+  touching: Vec<(Spot, Panel)>,
+  room: (i32, i32),
 }
 
 #[derive(Clone, Copy)]
 struct Around<'a> {
-    wears: &'a Wears,
-    stopping: &'a Option<OwnedFd>,
-    listening: &'a Option<UnixDatagram>,
-    stirring: &'a Option<OwnedFd>,
+  wears: &'a Wears,
+  stopping: &'a Option<OwnedFd>,
+  listening: &'a Option<UnixDatagram>,
+}
+
+fn redraw(
+  surface: &mut Surface,
+  drew: &mut Rendered,
+  logical: Size<u32>,
+  shapes: Vec<Shape>,
+) -> Result<(), Never> {
+  let Ok(wanted) = drew.wanted(shapes);
+
+  match wanted {
+    Some(changed) => {
+      let Ok(painting) = painter(logical, changed, "console-home");
+
+      match surface.draw(painting) {
+        Ok(()) => {}
+        Err(fault) => eprintln!("console-home: {fault}"),
+      }
+    }
+    None => {}
+  }
+
+  Ok(())
 }
 
 fn turned(turning: Turning, around: Around<'_>) -> Result<Step<Turning, ()>, Never> {
-    let Around { wears, stopping, listening, stirring } = around;
-    let Turning { mut surface, mut screen, mut searching, mut drew, mut waiting, mut touching, mut room } = turning;
+  let Around {
+    wears,
+    stopping,
+    listening,
+  } = around;
+  let Turning {
+    mut surface,
+    mut screen,
+    mut searching,
+    mut stirring,
+    mut drew,
+    mut waiting,
+    mut touching,
+    mut room,
+  } = turning;
 
-    let now = Instant::now();
+  let now = Instant::now();
 
-    let Ok(()) = check_long_press(&mut screen, now);
-    let Ok(events) = surface.pointer_events();
+  let Ok(()) = check_long_press(&mut screen, now);
+  let Ok(events) = surface.pointer_events();
 
-    for event in events {
-        match event {
-            PointerEvent::Moved { at } => {
-                let Ok(()) = wandered(&mut screen, &touching, room, at);
-            }
-            PointerEvent::Down { at } => {
-                let Ok(on) = under(&touching, at);
+  for event in events {
+    match event {
+      PointerEvent::Moved { at } => {
+        let Ok(()) = wandered(&mut screen, &touching, room, at);
+      }
+      PointerEvent::Down { at } => {
+        let Ok(on) = under(&touching, at);
 
-                screen.finger =
-                    Some(TouchState { from: at, at, since: now, on, held: LongPress::NotYet });
-            }
-            PointerEvent::Up => {
-                let Ok(()) = lifted(&mut screen);
-            }
-            PointerEvent::Left => {
-                screen.finger = None;
+        screen.finger = Some(TouchState {
+          from: at,
+          at,
+          since: now,
+          on,
+          held: LongPress::NotYet,
+        });
+      }
+      PointerEvent::Up => {
+        let Ok(()) = lifted(&mut screen);
+      }
+      PointerEvent::Left => {
+        screen.finger = None;
 
-                let Ok(()) = screen.nothing_pointed();
-            }
-            PointerEvent::Scrolled { by: _ } | PointerEvent::Pinched { by: _ } => {},
+        let Ok(()) = screen.nothing_pointed();
+      }
+      PointerEvent::Scrolled { by: _ } | PointerEvent::Pinched { by: _ } => {}
+    }
+  }
+
+  let Ok(logical) = surface.logical();
+
+  match logical {
+    Some(logical_2) => {
+      let Ok(across) = out(logical_2.width);
+      let Ok(down) = out(logical_2.height);
+
+      match ::core::primitive::bool::then_some(room == (across, down), ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => {
+          let Ok(()) = screen.reshaped();
         }
+      }
+
+      room = (across, down);
+
+      let Ok(drawing) = drawing(&mut screen, wears, room);
+
+      waiting = drawing.waiting;
+      touching = drawing.touching;
+
+      let Ok(()) = redraw(&mut surface, &mut drew, logical_2, drawing.shapes);
+    }
+    None => {
+      let Ok(()) = drew.forget();
+    }
+  }
+
+  let Ok(until) = until(&screen, waiting);
+
+  let woke = {
+    let mut watching: Vec<(Watching, BorrowedFd<'_>)> = Vec::new();
+
+    match stopping.as_ref() {
+      Some(fd) => watching.push((Watching::Signal, fd.as_fd())),
+      None => {}
     }
 
-    let Ok(logical) = surface.logical();
-
-    match logical {
-        Some(logical) => {
-            let Ok(across) = out(logical.width);
-            let Ok(down) = out(logical.height);
-
-            match room == (across, down) {
-                true => {},
-                false => {
-                    let Ok(()) = screen.reshaped();
-                }
-            }
-
-            room = (across, down);
-
-            let Ok(drawing) = drawing(&mut screen, wears, room);
-
-            waiting = drawing.waiting;
-            touching = drawing.touching;
-
-            let Ok(wanted) = drew.wanted(drawing.shapes);
-
-            match wanted {
-                Some(shapes) => {
-                    let Ok(painting) = painter(logical, shapes, "console-home");
-                    let painted = surface.draw(painting);
-
-                    match painted {
-                        Ok(()) => {},
-                        Err(fault) => eprintln!("console-home: {fault}"),
-                    }
-                }
-                None => {},
-            }
-        }
-        None => {
-            let Ok(()) = drew.forget();
-        }
+    match listening.as_ref() {
+      Some(socket) => watching.push((Watching::Subscriber, socket.as_fd())),
+      None => {}
     }
 
-    let Ok(until) = until(&screen, waiting);
-
-    let woke = {
-        let mut watching: Vec<(Watching, BorrowedFd<'_>)> = Vec::new();
-
-        match stopping.as_ref() {
-            Some(fd) => watching.push((Watching::Signal, fd.as_fd())),
-            None => {},
-        }
-
-        match listening.as_ref() {
-            Some(socket) => watching.push((Watching::Subscriber, socket.as_fd())),
-            None => {},
-        }
-
-        match searching.as_ref() {
-            Some((fd, _)) => watching.push((Watching::Searching, fd.as_fd())),
-            None => {},
-        }
-
-        match stirring.as_ref() {
-            Some(fd) => watching.push((Watching::Stirred, fd.as_fd())),
-            None => {},
-        }
-
-        let also: Vec<BorrowedFd<'_>> = watching.iter().map(|(_, fd)| *fd).collect();
-
-        match surface.wait(&also, until) {
-            Ok(()) => {},
-            Err(fault) => {
-                eprintln!("console-home: {fault}");
-
-                return Ok(Step::Halt(()));
-            }
-        }
-
-        let Ok(ready) = ready(&also);
-
-        ready
-            .iter()
-            .filter_map(|which| {
-                let Ok(at) = index(*which);
-
-                watching.get(at).map(|(what, _)| *what)
-            })
-            .collect::<Vec<Watching>>()
-    };
-
-    let Ok(closed) = surface.closed();
-
-    match closed {
-        Closed::Yes => return Ok(Step::Halt(())),
-        Closed::No => {},
+    match searching.as_ref() {
+      Some(search) => watching.push((Watching::Searching, search.wake.as_fd())),
+      None => {}
     }
 
-    for what in woke {
-        match what {
-            Watching::Signal => return Ok(Step::Halt(())),
-            Watching::Subscriber => {
-                let said = match listening.as_ref() {
-                    Some(socket) => {
-                        let Ok(said) = listened(socket);
-
-                        said
-                    }
-                    None => None,
-                };
-
-                match said {
-                    Some(said) => {
-                        let Ok(()) = screen.handle_input(said);
-                    }
-                    None => {},
-                }
-            }
-            Watching::Searching => {
-                let search = match searching.as_ref() {
-                    Some((fd, held)) => {
-                        let Ok(search) = found_more(&mut screen, fd, held);
-
-                        search
-                    }
-                    None => Search::Finished,
-                };
-
-                match search {
-                    Search::Finished => searching = None,
-                    Search::Going => {},
-                }
-            }
-            Watching::Stirred => {
-                let stirred = match stirring.as_ref() {
-                    Some(hear) => stirred(hear),
-                    None => Ok(()),
-                };
-                let Ok(()) = stirred;
-                let Ok(()) = screen.settle(&mut surface);
-                let Ok(()) = screen.reread();
-            }
-        }
+    match stirring.as_ref() {
+      Some(fd) => watching.push((Watching::Stirred, fd.as_fd())),
+      None => {}
     }
 
-    Ok(Step::Again(Turning { surface, screen, searching, drew, waiting, touching, room }))
+    let also: Vec<BorrowedFd<'_>> = watching.iter().map(|(_, fd)| *fd).collect();
+
+    match surface.wait(&also, until) {
+      Ok(()) => {}
+      Err(fault) => {
+        eprintln!("console-home: {fault}");
+
+        return Ok(Step::Halt(()));
+      }
+    }
+
+    let Ok(ready) = ready(&also);
+
+    ready
+      .iter()
+      .filter_map(|which| {
+        let Ok(at) = index(*which);
+
+        watching.get(at).map(|(what, _)| *what)
+      })
+      .collect::<Vec<Watching>>()
+  };
+
+  let Ok(closed) = surface.closed();
+
+  match closed {
+    Closed::Yes => return Ok(Step::Halt(())),
+    Closed::No => {}
+  }
+
+  for what in woke {
+    match what {
+      Watching::Signal => return Ok(Step::Halt(())),
+      Watching::Subscriber => {
+        let said = match listening.as_ref() {
+          Some(socket) => {
+            let Ok(said) = listened(socket);
+
+            said
+          }
+          None => None,
+        };
+
+        match said {
+          Some(said_2) => {
+            let Ok(()) = screen.handle_input(said_2);
+          }
+          None => {}
+        }
+      }
+      Watching::Searching => {
+        let search = match searching.as_ref() {
+          Some(job) => {
+            let Ok(search) = found_more(&mut screen, job);
+
+            search
+          }
+          None => Search::Finished,
+        };
+
+        match search {
+          Search::Finished => searching = None,
+          Search::Going => {}
+        }
+      }
+      Watching::Stirred => {
+        let Ok(state) = match stirring.as_ref() {
+          Some(hear) => stirred(hear),
+          None => Ok(Stirring::Gone),
+        };
+
+        match state {
+          Stirring::Active => {}
+          Stirring::Gone => stirring = None,
+        }
+
+        let Ok(()) = screen.settle(&mut surface);
+        let Ok(()) = screen.reread();
+      }
+    }
+  }
+
+  Ok(Step::Again(Turning {
+    surface,
+    screen,
+    searching,
+    stirring,
+    drew,
+    waiting,
+    touching,
+    room,
+  }))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_search_that_has_told_everything_it_found_is_finished_and_not_ready_forever() -> Result<(), rustix::io::Errno> {
-        let (hear, tell) = rustix::pipe::pipe()?;
-        let _ = rustix::io::write(&tell, &[1]);
+  #[test]
+  fn the_compositor_relay_stops_being_watched_when_its_writer_closes()
+  -> Result<(), rustix::io::Errno> {
+    let flags = rustix::pipe::PipeFlags::CLOEXEC | rustix::pipe::PipeFlags::NONBLOCK;
+    let (hear, tell) = rustix::pipe::pipe_with(flags)?;
 
-        assert_eq!(read_search(&hear), Ok(Search::Going), "something was found and more may follow");
+    assert_eq!(stirred(&hear), Ok(Stirring::Active));
 
-        drop(tell);
+    rustix::io::write(&tell, &[1])?;
+    drop(tell);
 
-        assert_eq!(
-            read_search(&hear),
-            Ok(Search::Finished),
-            "the search is over, and a pipe nobody writes to is ready on every poll: watched, it spins a core"
-        );
+    assert_eq!(stirred(&hear), Ok(Stirring::Active));
+    assert_eq!(stirred(&hear), Ok(Stirring::Gone));
 
-        Ok(())
-    }
+    Ok(())
+  }
+
+  #[test]
+  fn a_search_that_has_told_everything_it_found_is_finished_and_not_ready_forever()
+  -> Result<(), rustix::io::Errno> {
+    let flags = rustix::pipe::PipeFlags::CLOEXEC | rustix::pipe::PipeFlags::NONBLOCK;
+    let (hear, tell) = rustix::pipe::pipe_with(flags)?;
+
+    assert_eq!(read_search(&hear), Ok(Search::Going));
+
+    rustix::io::write(&tell, &[1])?;
+
+    assert_eq!(
+      read_search(&hear),
+      Ok(Search::Going),
+      "something was found and more may follow"
+    );
+
+    drop(tell);
+
+    assert_eq!(
+      read_search(&hear),
+      Ok(Search::Finished),
+      "the search is over, and a pipe nobody writes to is ready on every poll: watched, it spins a core"
+    );
+
+    Ok(())
+  }
 }

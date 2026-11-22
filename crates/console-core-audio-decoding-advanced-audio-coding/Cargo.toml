@@ -1,0 +1,30 @@
+[package]
+name = "console-core-audio-decoding-advanced-audio-coding"
+version = "0.5.5"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "AAC low-complexity decoder and ADTS demuxer, from Symphonia."
+
+[lib]
+name = "console_core_audio_decoding_advanced_audio_coding"
+path = "src/lib.rs"
+
+[[test]]
+name = "the_decoder"
+path = "tests/the_decoder.rs"
+
+[dependencies]
+console-core-audio-decoding-interfaces = { path = "../console-core-audio-decoding-interfaces" }
+console-core-audio-windows.workspace = true
+console-core-byte-streams.workspace = true
+console-core-frequency-transforms.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+
+[dev-dependencies]
+console-core-checksums.workspace = true
+console-core-number-conversion.workspace = true
+
+[lints]
+workspace = true

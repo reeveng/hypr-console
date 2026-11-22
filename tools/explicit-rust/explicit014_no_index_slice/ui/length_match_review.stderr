@@ -1,0 +1,19 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/length_match_review.rs:5:28
+   |
+LL |         1 => { data = &[]; data[0] }
+   |                            ^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/length_match_review.rs:13:14
+   |
+LL |         _ => data[0],
+   |              ^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: aborting due to 2 previous errors
+

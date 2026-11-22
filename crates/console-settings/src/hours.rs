@@ -24,82 +24,92 @@ use console_core_never::Never;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
-    pub zone: String,
-    pub says: String,
+  pub zone: String,
+  pub says: String,
 }
 
 pub fn zones(said: &str) -> Result<Vec<String>, Never> {
-    Ok(said.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_string).collect())
+  Ok(
+    said
+      .lines()
+      .map(str::trim)
+      .filter(|line| !line.is_empty())
+      .map(str::to_string)
+      .collect(),
+  )
 }
 
 pub fn part_of(zone: &str) -> Result<String, Never> {
-    Ok(match zone.split('/').next() {
-        Some(part) => part.to_string(),
-        None => zone.to_string(),
-    })
+  Ok(match zone.split('/').next() {
+    Some(part) => part.to_string(),
+    None => zone.to_string(),
+  })
 }
 
 pub fn regions(zones: &[String]) -> Result<Vec<String>, Never> {
-    let mut parts: BTreeSet<String> = BTreeSet::new();
+  let mut parts: BTreeSet<String> = BTreeSet::new();
 
-    for zone in zones {
-        let Ok(part) = part_of(zone);
+  for zone in zones {
+    let Ok(part) = part_of(zone);
 
-        match part.is_empty() {
-            true => {},
-            false => {
-                let _ = parts.insert(part);
-            },
-        }
+    match ::core::primitive::bool::then_some(part.is_empty(), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => {
+        let _ = parts.insert(part);
+      }
     }
+  }
 
-    Ok(parts.into_iter().collect())
+  Ok(parts.into_iter().collect())
 }
 
 pub fn says(zone: &str) -> Result<String, Never> {
-    let after = match zone.split_once('/') {
-        Some((_, after)) => after,
-        None => zone,
-    };
+  let after = match zone.split_once('/') {
+    Some((_, after)) => after,
+    None => zone,
+  };
 
-    Ok(after.replace('_', " ").replace('/', " / "))
+  Ok(after.replace('_', " ").replace('/', " / "))
 }
 
 pub fn places(zones: &[String], region: &str) -> Result<Vec<Place>, Never> {
-    let mut kept: Vec<Place> = Vec::new();
+  let mut kept: Vec<Place> = Vec::new();
 
-    for zone in zones {
-        let Ok(part) = part_of(zone);
+  for zone in zones {
+    let Ok(part) = part_of(zone);
 
-        match part == region {
-            true => {
-                let Ok(says) = says(zone);
+    match ::core::primitive::bool::then_some(part == region, ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(says) = says(zone);
 
-                kept.push(Place { zone: zone.clone(), says });
-            }
-            false => {},
-        }
+        kept.push(Place {
+          zone: zone.clone(),
+          says,
+        });
+      }
+      ::core::option::Option::None => {}
     }
+  }
 
-    kept.sort_by_key(|place| place.says.to_lowercase());
+  kept.sort_by_key(|place| place.says.to_lowercase());
 
-    Ok(kept)
+  Ok(kept)
 }
 
 pub fn parse_zone(said: &str) -> Result<Option<String>, Never> {
-    let zone = said.trim();
+  let zone = said.trim();
 
-    Ok(match zone.is_empty() {
-        true => None,
-        false => Some(zone.to_string()),
-    })
+  Ok(match ::core::primitive::bool::then_some(zone.is_empty(), ()) {
+    ::core::option::Option::Some(()) => None,
+    ::core::option::Option::None => Some(zone.to_string()),
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const SAID: &str = "\
+  const SAID: &str = "\
 America/Argentina/Buenos_Aires
 America/New_York
 Asia/Bangkok
@@ -108,47 +118,56 @@ Europe/London
 UTC
 ";
 
-    fn zones() -> Result<Vec<String>, Never> {
-        super::zones(SAID)
-    }
+  fn zones() -> Result<Vec<String>, Never> {
+    super::zones(SAID)
+  }
 
-    #[test]
-    fn the_parts_of_the_world_are_the_first_walk_and_they_are_in_order() {
-        let Ok(zones) = zones();
-        let Ok(regions) = regions(&zones);
+  #[test]
+  fn the_parts_of_the_world_are_the_first_walk_and_they_are_in_order() {
+    let Ok(zones) = zones();
+    let Ok(regions) = regions(&zones);
 
-        assert_eq!(regions, ["America", "Asia", "Europe", "UTC"]);
-    }
+    assert_eq!(regions, ["America", "Asia", "Europe", "UTC"]);
+  }
 
-    #[test]
-    fn a_part_of_the_world_holds_the_places_in_it_and_nothing_else() {
-        let Ok(zones) = zones();
-        let Ok(places) = places(&zones, "Europe");
-        let says: Vec<String> = places.into_iter().map(|place| place.says).collect();
+  #[test]
+  fn a_part_of_the_world_holds_the_places_in_it_and_nothing_else() {
+    let Ok(zones) = zones();
+    let Ok(places) = places(&zones, "Europe");
+    let says: Vec<String> = places.into_iter().map(|place| place.says).collect();
 
-        assert_eq!(says, ["Amsterdam", "London"]);
-    }
+    assert_eq!(says, ["Amsterdam", "London"]);
+  }
 
-    #[test]
-    fn a_zone_with_a_country_inside_it_keeps_the_country_in_the_words() {
-        let Ok(zones) = zones();
-        let Ok(places) = places(&zones, "America");
-        let says: Vec<String> = places.into_iter().map(|place| place.says).collect();
+  #[test]
+  fn a_zone_with_a_country_inside_it_keeps_the_country_in_the_words() {
+    let Ok(zones) = zones();
+    let Ok(places) = places(&zones, "America");
+    let says: Vec<String> = places.into_iter().map(|place| place.says).collect();
 
-        assert_eq!(says, ["Argentina / Buenos Aires", "New York"]);
-    }
+    assert_eq!(says, ["Argentina / Buenos Aires", "New York"]);
+  }
 
-    #[test]
-    fn the_one_that_is_a_zone_and_not_a_place_is_still_reachable() {
-        let Ok(zones) = zones();
-        let Ok(places) = places(&zones, "UTC");
+  #[test]
+  fn the_one_that_is_a_zone_and_not_a_place_is_still_reachable() {
+    let Ok(zones) = zones();
+    let Ok(places) = places(&zones, "UTC");
 
-        assert_eq!(places, vec![Place { zone: "UTC".to_string(), says: "UTC".to_string() }]);
-    }
+    assert_eq!(
+      places,
+      vec![Place {
+        zone: "UTC".to_string(),
+        says: "UTC".to_string()
+      }]
+    );
+  }
 
-    #[test]
-    fn a_machine_that_will_not_say_where_it_is_is_not_a_machine_in_greenwich() {
-        assert_eq!(parse_zone("Europe/Amsterdam\n"), Ok(Some("Europe/Amsterdam".to_string())));
-        assert_eq!(parse_zone("   \n"), Ok(None));
-    }
+  #[test]
+  fn a_machine_that_will_not_say_where_it_is_is_not_a_machine_in_greenwich() {
+    assert_eq!(
+      parse_zone("Europe/Amsterdam\n"),
+      Ok(Some("Europe/Amsterdam".to_string()))
+    );
+    assert_eq!(parse_zone("   \n"), Ok(None));
+  }
 }

@@ -10,7 +10,7 @@
 //! now, and this asks it.
 
 use std::error::Error;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use console_core_never::Never;
 
@@ -19,66 +19,90 @@ use console_input_controller::profile::{COMMAND, ProfileName, ProfileState};
 use console_input_gamepad::router::{self, PROFILES};
 
 fn root() -> Result<PathBuf, Never> {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+  let from = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
 
-    match from.canonicalize() {
-        Ok(found) => Ok(found),
-        Err(_not_there) => Ok(from),
-    }
+  match from.canonicalize() {
+    Ok(found) => Ok(found),
+    Err(_not_there) => Ok(from),
+  }
 }
 
 fn every_word() -> Result<Vec<(&'static str, Option<String>)>, Never> {
-    Ok(ProfileName::VARIANTS
-        .iter()
-        .map(|named| {
-            let Ok(word) = named.word();
-            let Ok(which) = ProfileState::of(Some(*named));
-            let Ok(file) = which.file();
+  Ok(
+    ProfileName::VARIANTS
+      .iter()
+      .map(|named| {
+        let Ok(word) = named.word();
+        let Ok(which) = ProfileState::of(Some(*named));
+        let Ok(file) = which.file();
 
-            (word, file)
-        })
-        .collect())
+        (word, file)
+      })
+      .collect(),
+  )
 }
 
 #[test]
+#[cfg_attr(
+  dylint_lib = "explicit086_no_climbing_join",
+  expect(
+    explicit086_no_climbing_join,
+    reason = "the relative profile path is checked for normal components before joining it to the fixture root"
+  )
+)]
 fn every_profile_the_switcher_names_is_one_of_these() -> Result<(), Box<dyn Error>> {
-    let written = format!("{PROFILES}{}", router::FILE);
-    let Ok(every) = every_word();
-    let Ok(root) = root();
+  let written = format!("{PROFILES}{}", router::FILE);
+  let Ok(every) = every_word();
+  let Ok(root) = root();
 
-    for (word, file) in every {
-        let path = file.ok_or_else(|| format!("{word} loads no profile at all"))?;
+  for (word, file) in every {
+    let path = file.ok_or_else(|| format!("{word} loads no profile at all"))?;
 
-        match path == written {
-            true => continue,
-            false => {}
-        }
-
-        let held = root.join("files").join(path.trim_start_matches('/'));
-
-        assert!(held.is_file(), "controller-profile loads {path} for {word}, which is not in the tree");
+    match ::core::primitive::bool::then_some(path == written, ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
     }
 
-    Ok(())
+    let relative = Path::new(&path).strip_prefix("/")?;
+
+    assert!(
+      relative
+        .components()
+        .all(|part| matches!(part, Component::Normal(_))),
+      "{path}"
+    );
+    let held = root.join("files").join(relative);
+    let metadata = std::fs::metadata(held)?;
+
+    assert!(
+      metadata.is_file(),
+      "controller-profile loads {path} for {word}, which is not in the tree"
+    );
+  }
+
+  Ok(())
 }
 
 #[test]
 fn the_switcher_knows_the_profile_that_is_made_rather_than_kept() {
-    let written = format!("{PROFILES}{}", router::FILE);
-    let Ok(every) = every_word();
-    let named: Vec<String> = every.into_iter().filter_map(|(_, file)| file).collect();
+  let written = format!("{PROFILES}{}", router::FILE);
+  let Ok(every) = every_word();
+  let named: Vec<String> = every.into_iter().filter_map(|(_, file)| file).collect();
 
-    assert!(
-        named.contains(&written),
-        "controller-profile takes no word for {written}, which is the profile the desktop wears"
-    );
+  assert!(
+    named.contains(&written),
+    "controller-profile takes no word for {written}, which is the profile the desktop wears"
+  );
 }
 
 #[test]
 fn a_word_no_one_defined_is_refused_and_no_word_loads_nothing() {
-    let keyboard = read_with::<ProfileName, &str>(&COMMAND, &["keyboard"]);
-    let Ok(nothing) = ProfileState::of(None);
+  let keyboard = read_with::<ProfileName, &str>(&COMMAND, &["keyboard"]);
+  let Ok(nothing) = ProfileState::of(None);
 
-    assert_eq!(keyboard.map(drop).map_err(|refusal| refusal.reason), Err(Reason::NoSuchSubcommand("keyboard".to_string())));
-    assert_eq!(nothing.file(), Ok(None));
+  assert_eq!(
+    keyboard.map(drop).map_err(|refusal| refusal.reason),
+    Err(Reason::NoSuchSubcommand("keyboard".to_string()))
+  );
+  assert_eq!(nothing.file(), Ok(None));
 }

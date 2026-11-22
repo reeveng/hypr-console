@@ -22,153 +22,170 @@ use console_compositor::{DispatchResult, Request};
 use console_core_never::Never;
 
 pub fn eval(lua: &str) -> Result<DispatchResult, Never> {
-    console_compositor::request(Request::Script, lua)
+  console_compositor::request(Request::Script, lua)
 }
 
 pub fn dispatch(dispatcher: &str) -> Result<DispatchResult, Never> {
-    eval(&format!("hl.dispatch({dispatcher})"))
+  eval(&format!("hl.dispatch({dispatcher})"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Start<'a> {
-    pub rules: String,
-    pub command: &'a str,
+  pub rules: String,
+  pub command: &'a str,
 }
 
 pub fn exec(start: &Start<'_>) -> Result<DispatchResult, Never> {
-    let Ok(quoted) = quote(start.command);
-    let rules = &start.rules;
+  let Ok(quoted) = quote(start.command);
+  let rules = &start.rules;
 
-    eval(&format!("hl.exec_cmd({quoted}, {{{rules}}})"))
+  eval(&format!("hl.exec_cmd({quoted}, {{{rules}}})"))
 }
 
 pub fn window(address: &str) -> Result<String, Never> {
-    quote(&format!("address:{address}"))
+  quote(&format!("address:{address}"))
 }
 
 pub fn quote(text: &str) -> Result<String, Never> {
-    let mut quoted = String::with_capacity(text.len().saturating_add(2));
-    quoted.push('"');
+  let mut quoted = String::with_capacity(text.len().saturating_add(2));
+  quoted.push('"');
 
-    for character in text.chars() {
-        match character {
-            '"' => quoted.push_str("\\\""),
-            '\\' => quoted.push_str("\\\\"),
-            '\n' => quoted.push_str("\\n"),
-            '\r' => quoted.push_str("\\r"),
-            '\t' => quoted.push_str("\\t"),
-            plain => match u32::from(plain) < 0x20 {
-                true => quoted.push_str(&format!("\\{:03}", u32::from(plain))),
-                false => quoted.push(plain),
-            },
-        }
+  for character in text.chars() {
+    match character {
+      '"' => quoted.push_str("\\\""),
+      '\\' => quoted.push_str("\\\\"),
+      '\n' => quoted.push_str("\\n"),
+      '\r' => quoted.push_str("\\r"),
+      '\t' => quoted.push_str("\\t"),
+      plain => match ::core::primitive::bool::then_some(u32::from(plain) < 0x20, ()) {
+        ::core::option::Option::Some(()) => quoted.push_str(&format!("\\{:03}", u32::from(plain))),
+        ::core::option::Option::None => quoted.push(plain),
+      },
     }
+  }
 
-    quoted.push('"');
+  quoted.push('"');
 
-    Ok(quoted)
+  Ok(quoted)
 }
 
 pub fn rules_table(prefix: &str) -> Result<String, Never> {
-    Ok(prefix
-        .split(';')
-        .map(str::trim)
-        .filter(|rule| !rule.is_empty())
-        .map(|rule| {
-            let named = |effect: &str| {
-                let Ok(spelled) = effect_name(effect);
-                let Ok(quoted) = quote(&spelled);
+  Ok(
+    prefix
+      .split(';')
+      .map(str::trim)
+      .filter(|rule| !rule.is_empty())
+      .map(|rule| {
+        let named = |effect: &str| {
+          let Ok(spelled) = effect_name(effect);
+          let Ok(quoted) = quote(&spelled);
 
-                quoted
-            };
+          quoted
+        };
 
-            let valued = |value: &str| {
-                let Ok(quoted) = quote(value);
+        let valued = |value: &str| {
+          let Ok(quoted) = quote(value);
 
-                quoted
-            };
+          quoted
+        };
 
-            match rule.split_once(' ') {
-                Some((effect, value)) => format!("[{}] = {}", named(effect), valued(value)),
-                None => format!("[{}] = true", named(rule)),
-            }
-        })
-        .collect::<Vec<String>>()
-        .join(", "))
+        match rule.split_once(' ') {
+          Some((effect, value)) => format!("[{}] = {}", named(effect), valued(value)),
+          None => format!("[{}] = true", named(rule)),
+        }
+      })
+      .collect::<Vec<String>>()
+      .join(", "),
+  )
 }
 
 fn effect_name(legacy: &str) -> Result<String, Never> {
-    Ok(match legacy {
-        "fullscreenstate" => "fullscreen_state".to_string(),
-        "noinitialfocus" => "no_initial_focus".to_string(),
-        "keepaspectratio" => "keep_aspect_ratio".to_string(),
-        "maxsize" => "max_size".to_string(),
-        "minsize" => "min_size".to_string(),
-        other => other.to_string(),
-    })
+  Ok(match legacy {
+    "fullscreenstate" => "fullscreen_state".to_string(),
+    "noinitialfocus" => "no_initial_focus".to_string(),
+    "keepaspectratio" => "keep_aspect_ratio".to_string(),
+    "maxsize" => "max_size".to_string(),
+    "minsize" => "min_size".to_string(),
+    other => other.to_string(),
+  })
 }
 
 pub fn split_exec_line(line: &str) -> Result<Start<'_>, Never> {
-    let line = line.trim();
+  let line_2 = line.trim();
 
-    let inside = match line.strip_prefix('[') {
-        Some(rest) => rest.split_once(']'),
-        None => None,
-    };
+  let inside = match line_2.strip_prefix('[') {
+    Some(rest) => rest.split_once(']'),
+    None => None,
+  };
 
-    match inside {
-        Some((prefix, command)) => {
-            let Ok(rules) = rules_table(prefix);
+  match inside {
+    Some((prefix, command)) => {
+      let Ok(rules) = rules_table(prefix);
 
-            Ok(Start { rules, command: command.trim() })
-        },
-        None => Ok(Start { rules: String::new(), command: line }),
+      Ok(Start {
+        rules,
+        command: command.trim(),
+      })
     }
+    None => Ok(Start {
+      rules: String::new(),
+      command: line_2,
+    }),
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn quotes_what_would_otherwise_end_the_string() {
-        assert_eq!(quote(r#"say "hi""#), Ok(r#""say \"hi\"""#.to_string()));
-        assert_eq!(quote(r"C:\path"), Ok(r#""C:\\path""#.to_string()));
-        assert_eq!(quote("two\nlines"), Ok(r#""two\nlines""#.to_string()));
-    }
+  #[test]
+  fn quotes_what_would_otherwise_end_the_string() {
+    assert_eq!(quote(r#"say "hi""#), Ok(r#""say \"hi\"""#.to_string()));
+    assert_eq!(quote(r"C:\path"), Ok(r#""C:\\path""#.to_string()));
+    assert_eq!(quote("two\nlines"), Ok(r#""two\nlines""#.to_string()));
+  }
 
-    #[test]
-    fn a_character_no_keyboard_types_is_spelled_rather_than_sent() {
-        assert_eq!(quote("a\u{7}b"), Ok(r#""a\007b""#.to_string()));
-    }
+  #[test]
+  fn a_character_no_keyboard_types_is_spelled_rather_than_sent() {
+    assert_eq!(quote("a\u{7}b"), Ok(r#""a\007b""#.to_string()));
+  }
 
-    #[test]
-    fn reads_a_rule_prefix_as_a_lua_table() {
-        assert_eq!(
-            rules_table("monitor 0;workspace 2 silent;float"),
-            Ok(r#"["monitor"] = "0", ["workspace"] = "2 silent", ["float"] = true"#.to_string())
-        );
-    }
+  #[test]
+  fn reads_a_rule_prefix_as_a_lua_table() {
+    assert_eq!(
+      rules_table("monitor 0;workspace 2 silent;float"),
+      Ok(r#"["monitor"] = "0", ["workspace"] = "2 silent", ["float"] = true"#.to_string())
+    );
+  }
 
-    #[test]
-    fn renames_the_effects_lua_spells_differently() {
-        assert_eq!(rules_table("fullscreenstate 0"), Ok(r#"["fullscreen_state"] = "0""#.to_string()));
-    }
+  #[test]
+  fn renames_the_effects_lua_spells_differently() {
+    assert_eq!(
+      rules_table("fullscreenstate 0"),
+      Ok(r#"["fullscreen_state"] = "0""#.to_string())
+    );
+  }
 
-    #[test]
-    fn splits_a_line_into_rules_and_command() {
-        assert_eq!(
-            split_exec_line("[workspace 2 silent] foot --working-directory=/home"),
-            Ok(Start {
-                rules: r#"["workspace"] = "2 silent""#.to_string(),
-                command: "foot --working-directory=/home"
-            })
-        );
-        assert_eq!(split_exec_line("foot"), Ok(Start { rules: String::new(), command: "foot" }));
-    }
+  #[test]
+  fn splits_a_line_into_rules_and_command() {
+    assert_eq!(
+      split_exec_line("[workspace 2 silent] foot --working-directory=/home"),
+      Ok(Start {
+        rules: r#"["workspace"] = "2 silent""#.to_string(),
+        command: "foot --working-directory=/home"
+      })
+    );
+    assert_eq!(
+      split_exec_line("foot"),
+      Ok(Start {
+        rules: String::new(),
+        command: "foot"
+      })
+    );
+  }
 
-    #[test]
-    fn a_window_is_named_to_a_dispatcher_by_the_address_it_answers_to() {
-        assert_eq!(window("0x55f1"), Ok(r#""address:0x55f1""#.to_string()));
-    }
+  #[test]
+  fn a_window_is_named_to_a_dispatcher_by_the_address_it_answers_to() {
+    assert_eq!(window("0x55f1"), Ok(r#""address:0x55f1""#.to_string()));
+  }
 }

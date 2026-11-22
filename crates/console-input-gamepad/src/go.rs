@@ -22,383 +22,420 @@
 //! read directly. It is left alone here too.
 
 use std::collections::{BTreeMap, BTreeSet};
-use console_core_number_conversion::duration_from_seconds;
+use std::time::Duration;
 
 use console_core_geometry::Point;
 use console_core_never::Never;
+use console_core_number_conversion::duration_from_seconds;
 use console_input_event_devices::{EventType, KeyCode};
 use console_waiting::clock::Clock;
 
 use crate::GamepadError;
-use crate::devices::{Devices, Has, Report, Sink};
+use crate::devices::{Devices, Has, Report, Sink, StickDeflection, TriggerTravel};
 use crate::profile::{Kind, Profile, Target};
 use crate::vocabulary::{self, Names};
 
 const NO_DISTANCE: i32 = 0;
 
-
 pub const PRESS_SECONDS: f64 = 0.02;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the inner value holds fractional seconds from the script until each step's delay is rounded"
+  )
+)]
+pub struct DragSeconds(pub f64);
+
 fn role_of(target_device: &str) -> Result<Option<&'static str>, Never> {
-    Ok(match target_device {
-        "keyboard" => Some("keyboard"),
-        "mouse" => Some("mouse"),
-        "xbox-elite" => Some("pad"),
-        _ => None,
-    })
+  Ok(match target_device {
+    "keyboard" => Some("keyboard"),
+    "mouse" => Some("mouse"),
+    "xbox-elite" => Some("pad"),
+    _ => None,
+  })
 }
 
 pub struct LegionGo<S: Sink, C: Clock> {
-    pub profiles: BTreeMap<String, Profile>,
-    pub devices: Devices<S>,
-    pub clock: C,
-    profile: String,
-    held: BTreeSet<String>,
-    nothing: Profile,
+  profiles: BTreeMap<String, Profile>,
+  devices: Devices<S>,
+  clock: C,
+  profile: String,
+  held: BTreeSet<String>,
+  nothing: Profile,
 }
 
 impl<S: Sink, C: Clock> LegionGo<S, C> {
-    pub fn new(
-        profiles: BTreeMap<String, Profile>,
-        devices: Devices<S>,
-        clock: C,
-        profile: &str,
-    ) -> Result<Self, GamepadError> {
-        let mut go = LegionGo {
-            profiles,
-            devices,
-            clock,
-            profile: String::new(),
-            held: BTreeSet::new(),
-            nothing: Profile::default(),
-        };
-        go.load_profile(profile)?;
-        Ok(go)
+  pub fn new(
+    profiles: BTreeMap<String, Profile>,
+    devices: Devices<S>,
+    clock: C,
+    profile: &str,
+  ) -> Result<Self, GamepadError> {
+    let mut go = LegionGo {
+      profiles,
+      devices,
+      clock,
+      profile: String::new(),
+      held: BTreeSet::new(),
+      nothing: Profile::default(),
+    };
+    go.load_profile(profile)?;
+    Ok(go)
+  }
+
+  pub fn devices(&self) -> Result<&Devices<S>, Never> {
+    Ok(&self.devices)
+  }
+
+  pub fn devices_mut(&mut self) -> Result<&mut Devices<S>, Never> {
+    Ok(&mut self.devices)
+  }
+
+  pub fn load_profile(&mut self, name: &str) -> Result<(), GamepadError> {
+    match ::core::primitive::bool::then_some(self.profiles.contains_key(name), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => {
+        let every: Vec<String> = self.profiles.keys().cloned().collect();
+
+        return Err(GamepadError::NoSuchProfile(name.to_string(), every));
+      }
     }
 
-    pub fn load_profile(&mut self, name: &str) -> Result<(), GamepadError> {
-        match self.profiles.contains_key(name) {
-            true => {},
-            false => {
-                let every: Vec<String> = self.profiles.keys().cloned().collect();
+    self.profile = name.to_string();
+    Ok(())
+  }
 
-                return Err(GamepadError::NoSuchProfile(name.to_string(), every));
-            }
-        }
+  pub fn profile_name(&self) -> Result<&str, Never> {
+    Ok(&self.profile)
+  }
 
-        self.profile = name.to_string();
-        Ok(())
+  pub fn profile(&self) -> Result<&Profile, Never> {
+    Ok(match self.profiles.get(&self.profile) {
+      Some(profile) => profile,
+      None => &self.nothing,
+    })
+  }
+
+  pub fn held_buttons(&self) -> Result<Vec<&str>, Never> {
+    Ok(self.held.iter().map(String::as_str).collect())
+  }
+
+  pub fn button_down(&mut self, spoken: &str) -> Result<(), GamepadError> {
+    self.held.insert(spoken.to_string());
+    self.button(spoken, 1)
+  }
+
+  pub fn up(&mut self, spoken: &str) -> Result<(), GamepadError> {
+    self.held.remove(spoken);
+    self.button(spoken, 0)
+  }
+
+  pub fn press(&mut self, spoken: &str) -> Result<(), GamepadError> {
+    self.button_down(spoken)?;
+
+    let Ok(gap) = duration_from_seconds(PRESS_SECONDS);
+    let Ok(()) = self.wait(gap);
+
+    self.up(spoken)
+  }
+
+  pub fn hold(&mut self, spoken: &str) -> Result<(), GamepadError> {
+    self.button_down(spoken)
+  }
+
+  pub fn release(&mut self, spoken: &str) -> Result<(), GamepadError> {
+    self.up(spoken)
+  }
+
+  pub fn release_all(&mut self) -> Result<(), GamepadError> {
+    let held: Vec<String> = self.held.iter().cloned().collect();
+
+    for spoken in &held {
+      self.up(spoken)?;
     }
 
-    pub fn profile_name(&self) -> Result<&str, Never> {
-        Ok(&self.profile)
-    }
+    Ok(())
+  }
 
-    pub fn profile(&self) -> Result<&Profile, Never> {
-        Ok(match self.profiles.get(&self.profile) {
-            Some(profile) => profile,
-            None => &self.nothing,
-        })
-    }
+  fn button(&mut self, spoken: &str, value: i32) -> Result<(), GamepadError> {
+    let Ok(names) = vocabulary::is_trigger(spoken);
 
-    pub fn held_buttons(&self) -> Result<Vec<&str>, Never> {
-        Ok(self.held.iter().map(String::as_str).collect())
-    }
-
-    pub fn button_down(&mut self, spoken: &str) -> Result<(), GamepadError> {
-        self.held.insert(spoken.to_string());
-        self.button(spoken, 1)
-    }
-
-    pub fn up(&mut self, spoken: &str) -> Result<(), GamepadError> {
-        self.held.remove(spoken);
-        self.button(spoken, 0)
-    }
-
-    pub fn press(&mut self, spoken: &str) -> Result<(), GamepadError> {
-        self.button_down(spoken)?;
-
-        let Ok(()) = self.wait(PRESS_SECONDS);
-
-        self.up(spoken)
-    }
-
-    pub fn hold(&mut self, spoken: &str) -> Result<(), GamepadError> {
-        self.button_down(spoken)
-    }
-
-    pub fn release(&mut self, spoken: &str) -> Result<(), GamepadError> {
-        self.up(spoken)
-    }
-
-    pub fn release_all(&mut self) -> Result<(), GamepadError> {
-        #[cfg_attr(
-            dylint_lib = "explicit027_no_needless_collection",
-            allow(
-                explicit027_no_needless_collection,
-                reason = "`up` takes `&mut self` and `self.held` is what would be walked, so the list is what ends the borrow before the first release changes it"
-            )
-        )]
-        let held: Vec<String> = self.held.iter().cloned().collect();
-
-        for spoken in &held {
-            self.up(spoken)?;
-        }
-
-        Ok(())
-    }
-
-    fn button(&mut self, spoken: &str, value: i32) -> Result<(), GamepadError> {
-        let Ok(names) = vocabulary::is_trigger(spoken);
-
-        match names {
-            Names::ATrigger => {
-                let pulled = match value {
-                    0 => 0.0,
-                    _ => 1.0,
-                };
-
-                return self.trigger(spoken, pulled);
-            }
-            Names::AButton => {},
-        }
-
-        let name = vocabulary::button_name(spoken)?;
-
-        let Ok(profile) = self.profile();
-
-        let aimed = profile.targets_of(spoken)?;
-        let targets: Vec<Target> = aimed.into_iter().cloned().collect();
-
-        match targets.is_empty() {
-            true => self.passthrough(name, value),
-            false => {
-                for target in &targets {
-                    self.send(target, value)?;
-                }
-
-                Ok(())
-            }
-        }
-    }
-
-    fn passthrough(&mut self, name: &str, value: i32) -> Result<(), GamepadError> {
-        let Ok(profile) = self.profile();
-
-        let Ok(publishes) = profile.publishes("xbox-elite");
-
-        match publishes {
-            Has::Yes => self.on_the_pad(name, value),
-            Has::No => Ok(()),
-        }
-    }
-
-    fn send(&mut self, target: &Target, value: i32) -> Result<(), GamepadError> {
-        let Ok(needs) = target.kind.needs();
-
-        let Ok(named) = role_of(needs);
-
-        let Ok(profile) = self.profile();
-
-        let Ok(publishes) = profile.publishes(needs);
-
-        let role = match (named, publishes) {
-            (Some(role), Has::Yes) => role,
-            (Some(_), Has::No) | (None, _) => return Ok(()),
+    match names {
+      Names::ATrigger => {
+        let pulled = match value {
+          0 => 0.0,
+          _ => 1.0,
         };
 
-        let Ok(has) = self.devices.has(role);
-
-        match target.kind {
-            Kind::GamepadButton => match has {
-                Has::Yes => self.on_the_pad(&target.name, value),
-                Has::No => Ok(()),
-            },
-            Kind::Key | Kind::MouseButton => match has {
-                Has::No => Ok(()),
-                Has::Yes => {
-                    let code = target.code()?;
-
-                    self.emit_key(role, code, value)
-                }
-            },
-            Kind::MouseMotion | Kind::GamepadAxis | Kind::GamepadTrigger => Ok(()),
-        }
+        return self.trigger(spoken, TriggerTravel(pulled));
+      }
+      Names::AButton => {}
     }
 
-    fn on_the_pad(&mut self, name: &str, value: i32) -> Result<(), GamepadError> {
-        let Ok(hat) = vocabulary::hat_code(name);
+    let name = vocabulary::button_name(spoken)?;
 
-        match hat {
-            Some((axis, end)) => {
-                let at = match value {
-                    0 => 0,
-                    _ => end,
-                };
+    let Ok(profile) = self.profile();
 
-                let Ok(()) = self.devices.emit("pad", EventType::ABSOLUTE, axis.0, at, Report::Now);
+    let aimed = profile.targets_of(spoken)?;
+    let targets: Vec<Target> = aimed.into_iter().cloned().collect();
 
-                return Ok(());
-            }
-            None => {},
+    match ::core::primitive::bool::then_some(targets.is_empty(), ()) {
+      ::core::option::Option::Some(()) => self.passthrough(name, value),
+      ::core::option::Option::None => {
+        for target in &targets {
+          self.send(target, value)?;
         }
-
-        let Ok(code) = vocabulary::gamepad_code(name);
-
-        match code {
-            Some(code) => self.emit_key("pad", code, value),
-            None => Ok(()),
-        }
-    }
-
-    fn emit_key(&mut self, role: &str, code: KeyCode, value: i32) -> Result<(), GamepadError> {
-        let Ok(()) = self.devices.emit(role, EventType::KEY, code.0, value, Report::Now);
 
         Ok(())
+      }
     }
+  }
 
-    pub fn thumbstick(&mut self, which: &str, to: Point<f64>) -> Result<(), GamepadError> {
-        let Ok(name) = vocabulary::axis_named(which);
+  fn passthrough(&mut self, name: &str, value: i32) -> Result<(), GamepadError> {
+    let Ok(profile) = self.profile();
 
-        let Ok(found) = vocabulary::axis_codes(name);
+    let Ok(publishes) = profile.publishes("xbox-elite");
 
-        let codes = found.ok_or_else(|| GamepadError::NoThumbstick(which.to_string()))?;
+    match publishes {
+      Has::Yes => self.on_the_pad(name, value),
+      Has::No => Ok(()),
+    }
+  }
 
-        let Ok(profile) = self.profile();
+  fn send(&mut self, target: &Target, value: i32) -> Result<(), GamepadError> {
+    let Ok(needs) = target.kind.needs();
 
-        let Ok(publishes) = profile.publishes("xbox-elite");
+    let Ok(named) = role_of(needs);
 
-        match publishes {
-            Has::No => return Ok(()),
-            Has::Yes => {},
+    let Ok(profile) = self.profile();
+
+    let Ok(publishes) = profile.publishes(needs);
+
+    let role = match (named, publishes) {
+      (Some(role), Has::Yes) => role,
+      (Some(_), Has::No) | (None, _) => return Ok(()),
+    };
+
+    let Ok(has) = self.devices.has(role);
+
+    match target.kind {
+      Kind::GamepadButton => match has {
+        Has::Yes => self.on_the_pad(&target.name, value),
+        Has::No => Ok(()),
+      },
+      Kind::Key | Kind::MouseButton => match has {
+        Has::No => Ok(()),
+        Has::Yes => {
+          let code = target.code()?;
+
+          self.emit_key(role, code, value)
         }
-
-        for (code, amount) in [(codes.0, to.x), (codes.1, to.y)] {
-            let at = self.devices.absolute("pad", code.0, amount)?;
-
-            let Ok(()) = self.devices.emit("pad", EventType::ABSOLUTE, code.0, at, Report::Later);
-        }
-
-        let Ok(()) = self.devices.syn("pad");
-
-        Ok(())
+      },
+      Kind::MouseMotion | Kind::GamepadAxis | Kind::GamepadTrigger => Ok(()),
     }
+  }
 
-    pub fn center(&mut self, which: &str) -> Result<(), GamepadError> {
-        self.thumbstick(which, Point { x: 0.0, y: 0.0 })
-    }
+  fn on_the_pad(&mut self, name: &str, value: i32) -> Result<(), GamepadError> {
+    let Ok(hat) = vocabulary::hat_code(name);
 
-    pub fn trigger(&mut self, which: &str, amount: f64) -> Result<(), GamepadError> {
-        let Ok(name) = vocabulary::trigger_named(which);
-
-        let Ok(found) = vocabulary::trigger_code(name);
-
-        let code = found.ok_or_else(|| GamepadError::NoTrigger(which.to_string()))?;
-
-        let Ok(profile) = self.profile();
-
-        let Ok(publishes) = profile.publishes("xbox-elite");
-
-        match publishes {
-            Has::No => return Ok(()),
-            Has::Yes => {},
-        }
-
-        let at = self.devices.along("pad", code.0, amount)?;
-
-        let Ok(()) = self.devices.emit("pad", EventType::ABSOLUTE, code.0, at, Report::Now);
-
-        Ok(())
-    }
-
-    pub fn touch_down(&mut self, at: Point<i32>) -> Result<(), Never> {
-        self.devices.emit("touchpad", EventType::KEY, KeyCode::BTN_TOUCH.0, 1, Report::Later)?;
-
-        self.touch_at(at)
-    }
-
-    pub fn touch_move(&mut self, at: Point<i32>) -> Result<(), Never> {
-        self.touch_at(at)
-    }
-
-    pub fn touch_up(&mut self) -> Result<(), Never> {
-        self.devices.emit("touchpad", EventType::KEY, KeyCode::BTN_TOUCH.0, 0, Report::Now)
-    }
-
-    pub fn touch_click(&mut self, value: i32) -> Result<(), Never> {
-        self.devices.emit("touchpad", EventType::KEY, KeyCode::BTN_0.0, value, Report::Now)
-    }
-
-    pub fn tap(&mut self, at: Point<i32>) -> Result<(), Never> {
-        self.touch_down(at)?;
-
-        self.touch_up()
-    }
-
-    pub fn drag(
-        &mut self,
-        from: Point<i32>,
-        to: Point<i32>,
-        steps: i32,
-        seconds: f64,
-    ) -> Result<(), Never> {
-        self.touch_down(from)?;
-
-        let part = |from: i32, to: i32, step: i32| {
-            let across = to.saturating_sub(from).saturating_mul(step);
-
-            let part = match across.checked_div(steps) {
-                Some(part) => part,
-                None => NO_DISTANCE,
-            };
-
-            from.saturating_add(part)
+    match hat {
+      Some((axis, end)) => {
+        let at = match value {
+          0 => 0,
+          _ => end,
         };
 
-        for step in 1..=steps {
-            self.touch_move(Point {
-                x: part(from.x, to.x, step),
-                y: part(from.y, to.y, step),
-            })?;
+        let Ok(()) = self
+          .devices
+          .emit("pad", EventType::ABSOLUTE, axis.0, at, Report::Now);
 
-            match seconds > 0.0 {
-                true => {
-                    let Ok(()) = self.wait(seconds / f64::from(steps));
-                },
-                false => {},
-            }
+        return Ok(());
+      }
+      None => {}
+    }
+
+    let Ok(code) = vocabulary::gamepad_code(name);
+
+    match code {
+      Some(code_2) => self.emit_key("pad", code_2, value),
+      None => Ok(()),
+    }
+  }
+
+  fn emit_key(&mut self, role: &str, code: KeyCode, value: i32) -> Result<(), GamepadError> {
+    let Ok(()) = self
+      .devices
+      .emit(role, EventType::KEY, code.0, value, Report::Now);
+
+    Ok(())
+  }
+
+  pub fn thumbstick(&mut self, which: &str, to: Point<f64>) -> Result<(), GamepadError> {
+    let Ok(name) = vocabulary::axis_named(which);
+
+    let Ok(found) = vocabulary::axis_codes(name);
+
+    let codes = found.ok_or_else(|| GamepadError::NoThumbstick(which.to_string()))?;
+
+    let Ok(profile) = self.profile();
+
+    let Ok(publishes) = profile.publishes("xbox-elite");
+
+    match publishes {
+      Has::No => return Ok(()),
+      Has::Yes => {}
+    }
+
+    for (code, amount) in [(codes.0, to.x), (codes.1, to.y)] {
+      let at = self
+        .devices
+        .absolute("pad", code.0, StickDeflection(amount))?;
+
+      let Ok(()) = self
+        .devices
+        .emit("pad", EventType::ABSOLUTE, code.0, at, Report::Later);
+    }
+
+    let Ok(()) = self.devices.syn("pad");
+
+    Ok(())
+  }
+
+  pub fn center(&mut self, which: &str) -> Result<(), GamepadError> {
+    self.thumbstick(which, Point { x: 0.0, y: 0.0 })
+  }
+
+  pub fn trigger(&mut self, which: &str, amount: TriggerTravel) -> Result<(), GamepadError> {
+    let Ok(name) = vocabulary::trigger_named(which);
+
+    let Ok(found) = vocabulary::trigger_code(name);
+
+    let code = found.ok_or_else(|| GamepadError::NoTrigger(which.to_string()))?;
+
+    let Ok(profile) = self.profile();
+
+    let Ok(publishes) = profile.publishes("xbox-elite");
+
+    match publishes {
+      Has::No => return Ok(()),
+      Has::Yes => {}
+    }
+
+    let at = self.devices.along("pad", code.0, amount)?;
+
+    let Ok(()) = self
+      .devices
+      .emit("pad", EventType::ABSOLUTE, code.0, at, Report::Now);
+
+    Ok(())
+  }
+
+  pub fn touch_down(&mut self, at: Point<i32>) -> Result<(), Never> {
+    self.devices.emit(
+      "touchpad",
+      EventType::KEY,
+      KeyCode::BTN_TOUCH.0,
+      1,
+      Report::Later,
+    )?;
+
+    self.touch_at(at)
+  }
+
+  pub fn touch_move(&mut self, at: Point<i32>) -> Result<(), Never> {
+    self.touch_at(at)
+  }
+
+  pub fn touch_up(&mut self) -> Result<(), Never> {
+    self.devices.emit(
+      "touchpad",
+      EventType::KEY,
+      KeyCode::BTN_TOUCH.0,
+      0,
+      Report::Now,
+    )
+  }
+
+  pub fn touch_click(&mut self, value: i32) -> Result<(), Never> {
+    self.devices.emit(
+      "touchpad",
+      EventType::KEY,
+      KeyCode::BTN_0.0,
+      value,
+      Report::Now,
+    )
+  }
+
+  pub fn tap(&mut self, at: Point<i32>) -> Result<(), Never> {
+    self.touch_down(at)?;
+
+    self.touch_up()
+  }
+
+  pub fn drag(
+    &mut self,
+    from: Point<i32>,
+    to: Point<i32>,
+    steps: i32,
+    DragSeconds(seconds): DragSeconds,
+  ) -> Result<(), Never> {
+    self.touch_down(from)?;
+
+    let part = |from_2: i32, to_2: i32, step: i32| {
+      let across = to_2.saturating_sub(from_2).saturating_mul(step);
+
+      let part = match across.checked_div(steps) {
+        Some(part) => part,
+        None => NO_DISTANCE,
+      };
+
+      from_2.saturating_add(part)
+    };
+
+    for step in 1..=steps {
+      self.touch_move(Point {
+        x: part(from.x, to.x, step),
+        y: part(from.y, to.y, step),
+      })?;
+
+      match ::core::primitive::bool::then_some(seconds > 0.0, ()) {
+        ::core::option::Option::Some(()) => {
+          let Ok(gap) = duration_from_seconds(seconds / f64::from(steps));
+          let Ok(()) = self.wait(gap);
         }
-
-        self.touch_up()
+        ::core::option::Option::None => {}
+      }
     }
 
-    fn touch_at(&mut self, at: Point<i32>) -> Result<(), Never> {
-        self.devices.emit("touchpad", EventType::ABSOLUTE, 0, at.x, Report::Later)?;
+    self.touch_up()
+  }
 
-        self.devices.emit("touchpad", EventType::ABSOLUTE, 1, at.y, Report::Later)?;
+  fn touch_at(&mut self, at: Point<i32>) -> Result<(), Never> {
+    self
+      .devices
+      .emit("touchpad", EventType::ABSOLUTE, 0, at.x, Report::Later)?;
 
-        self.devices.syn("touchpad")
-    }
+    self
+      .devices
+      .emit("touchpad", EventType::ABSOLUTE, 1, at.y, Report::Later)?;
 
-    pub fn raw(
-        &mut self,
-        role: &str,
-        kind: EventType,
-        code: u16,
-        value: i32,
-    ) -> Result<(), Never> {
-        self.devices.emit(role, kind, code, value, Report::Now)
-    }
+    self.devices.syn("touchpad")
+  }
 
-    pub fn wait(&mut self, seconds: f64) -> Result<(), Never> {
-        let Ok(gap) = duration_from_seconds(seconds);
+  pub fn raw(&mut self, role: &str, kind: EventType, code: u16, value: i32) -> Result<(), Never> {
+    self.devices.emit(role, kind, code, value, Report::Now)
+  }
 
-        self.clock.pause(gap)
-    }
+  pub fn wait(&mut self, gap: Duration) -> Result<(), Never> {
+    self.clock.pause(gap)
+  }
 
-    pub fn close(&mut self) -> Result<(), Never> {
-        self.devices.close()
-    }
+  pub fn close(&mut self) -> Result<(), Never> {
+    self.devices.close()
+  }
 }
 
 pub const MIDDLE: i32 = 512;

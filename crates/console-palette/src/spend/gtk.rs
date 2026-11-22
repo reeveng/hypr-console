@@ -6,27 +6,41 @@
 //! references rather than as colors, so that a role changing its shade
 //! changes every name that stands for it.
 
-use console_core_color::Short;
 use crate::palette::{Palette, Spent};
+use console_core_color::Short;
 use console_core_number_conversion::{fitted, index};
 
 use crate::spend::{ROLES, breeze, widest};
 
 const ADWAITA: [(&str, &str); 28] = [
-    ("accent_bg_color", "pink"), ("accent_color", "pink"),
-    ("accent_fg_color", "night"), ("borders", "edge"),
-    ("card_bg_color", "panel"), ("card_fg_color", "text"),
-    ("destructive_bg_color", "coral"), ("destructive_color", "coral"),
-    ("destructive_fg_color", "night"), ("dialog_bg_color", "panel"),
-    ("dialog_fg_color", "text"), ("error_color", "coral"),
-    ("headerbar_bg_color", "ground"), ("headerbar_fg_color", "text"),
-    ("popover_bg_color", "panel"), ("popover_fg_color", "text"),
-    ("selected_bg_color", "pink"), ("selected_fg_color", "night"),
-    ("sidebar_bg_color", "ground"), ("sidebar_fg_color", "text"),
-    ("success_color", "leaf"), ("theme_selected_bg_color", "pink"),
-    ("theme_selected_fg_color", "night"), ("view_bg_color", "night"),
-    ("view_fg_color", "text"), ("warning_color", "butter"),
-    ("window_bg_color", "panel"), ("window_fg_color", "text"),
+  ("accent_bg_color", "pink"),
+  ("accent_color", "pink"),
+  ("accent_fg_color", "night"),
+  ("borders", "edge"),
+  ("card_bg_color", "panel"),
+  ("card_fg_color", "text"),
+  ("destructive_bg_color", "coral"),
+  ("destructive_color", "coral"),
+  ("destructive_fg_color", "night"),
+  ("dialog_bg_color", "panel"),
+  ("dialog_fg_color", "text"),
+  ("error_color", "coral"),
+  ("headerbar_bg_color", "ground"),
+  ("headerbar_fg_color", "text"),
+  ("popover_bg_color", "panel"),
+  ("popover_fg_color", "text"),
+  ("selected_bg_color", "pink"),
+  ("selected_fg_color", "night"),
+  ("sidebar_bg_color", "ground"),
+  ("sidebar_fg_color", "text"),
+  ("success_color", "leaf"),
+  ("theme_selected_bg_color", "pink"),
+  ("theme_selected_fg_color", "night"),
+  ("view_bg_color", "night"),
+  ("view_fg_color", "text"),
+  ("warning_color", "butter"),
+  ("window_bg_color", "panel"),
+  ("window_fg_color", "text"),
 ];
 
 const ADWAITA_WIDTH: u32 = 28;
@@ -34,125 +48,149 @@ const ADWAITA_WIDTH: u32 = 28;
 const SUFFIX: &str = "_breeze";
 
 pub fn spend(palette: &Palette) -> Result<String, Short> {
-    let Ok(width) = widest(&ROLES);
-    let Ok(width) = index(width);
-    let colors = palette.lines(&ROLES, |Spent { name, color }| format!("@define-color {name:<width$} #{color};"))?;
-    let colors = colors.into_iter();
+  let Ok(width) = widest(&ROLES);
+  let Ok(width_2) = index(width);
+  let colors = palette.lines(&ROLES, |Spent { name, color }| {
+    format!("@define-color {name:<width$} #{color};", width = width_2)
+  })?;
+  let colors_2 = colors.into_iter();
 
-    let Ok(adwaita_width) = index(ADWAITA_WIDTH);
-    let adwaita = ADWAITA.iter().map(move |(name, role)| {
-        format!("@define-color {name:<adwaita_width$} @{role};")
-    });
+  let Ok(adwaita_width) = index(ADWAITA_WIDTH);
+  let adwaita = ADWAITA
+    .iter()
+    .map(move |(name, role)| format!("@define-color {name:<adwaita_width$} @{role};"));
 
-    let Ok(widest) = widest(&breeze::NAMES);
-    let Ok(suffix) = fitted::<_, u32>(SUFFIX.len());
-    let Ok(breeze_width) = index(widest.saturating_add(suffix));
-    let sorted = {
-        let mut names = breeze::NAMES;
-        names.sort_unstable();
-        names
-    };
-    let breeze = sorted.into_iter().filter_map(move |name| {
-        let Ok(role) = breeze::role(name);
+  let Ok(widest) = widest(&breeze::NAMES);
+  let Ok(suffix) = fitted::<_, u32>(SUFFIX.len());
+  let Ok(breeze_width) = index(widest.saturating_add(suffix));
+  let sorted = {
+    let mut names = breeze::NAMES;
+    names.sort_unstable();
+    names
+  };
+  let breeze = sorted.into_iter().filter_map(move |name| {
+    let Ok(role) = breeze::role(name);
 
-        let role = role?;
+    let role_2 = role?;
 
-        Some(format!("@define-color {:<breeze_width$} @{role};", format!("{name}{SUFFIX}")))
-    });
+    Some(format!(
+      "@define-color {:<breeze_width$} @{role};",
+      format!("{name}{SUFFIX}"),
+      role = role_2
+    ))
+  });
 
-    let lines = [
-        "/* Written by console-palette from theme/palette.toml.".to_string(),
-        "   Everything on this machine that speaks GTK's stylesheet language".to_string(),
-        "   imports this file. Nothing else among them holds a color. */".to_string(),
-        String::new(),
-    ]
-    .into_iter()
-    .chain(colors)
-    .chain([
-        String::new(),
-        "/* The names libadwaita reads, as references: a role changing its".to_string(),
-        "   shade changes every name that stands for it. */".to_string(),
-    ])
-    .chain(adwaita)
-    .chain([
-        String::new(),
-        "/* The names Breeze GTK reads, which are not libadwaita's and are many.".to_string(),
-        "   Left alone this list is written by Plasma's settings, which this".to_string(),
-        "   machine does not run, so it sat a whole flavour behind the screen. */".to_string(),
-    ])
-    .chain(breeze)
-    .collect::<Vec<_>>();
+  let lines = [
+    "/* Written by console-palette from theme/palette.toml.".to_string(),
+    "   Everything on this machine that speaks GTK's stylesheet language".to_string(),
+    "   imports this file. Nothing else among them holds a color. */".to_string(),
+    String::new(),
+  ]
+  .into_iter()
+  .chain(colors_2)
+  .chain([
+    String::new(),
+    "/* The names libadwaita reads, as references: a role changing its".to_string(),
+    "   shade changes every name that stands for it. */".to_string(),
+  ])
+  .chain(adwaita)
+  .chain([
+    String::new(),
+    "/* The names Breeze GTK reads, which are not libadwaita's and are many.".to_string(),
+    "   Left alone this list is written by Plasma's settings, which this".to_string(),
+    "   machine does not run, so it sat a whole flavour behind the screen. */".to_string(),
+  ])
+  .chain(breeze)
+  .collect::<Vec<_>>();
 
-    Ok(format!("{}\n", lines.join("\n")))
+  Ok(format!("{}\n", lines.join("\n")))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
-    use crate::spend::tests::blossom;
+  use super::*;
+  use crate::spend::tests::blossom;
+  use std::error::Error;
 
-    #[test]
-    fn every_role_is_written_once_as_a_color() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let css = spend(&palette)?;
+  #[test]
+  fn every_role_is_written_once_as_a_color() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let css = spend(&palette)?;
 
-        for name in ROLES {
-            let written: Vec<&str> = css.lines().filter(|line| line.starts_with(&format!("@define-color {name} "))).collect();
-            assert_eq!(written.len(), 1, "{name} is defined as {written:?}");
-        }
-
-        Ok(())
+    for name in ROLES {
+      let written: Vec<&str> = css
+        .lines()
+        .filter(|line| line.starts_with(&format!("@define-color {name} ")))
+        .collect();
+      assert_eq!(written.len(), 1, "{name} is defined as {written:?}");
     }
 
-    #[test]
-    fn only_the_roles_hold_a_hex_and_every_other_name_is_a_reference() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let css = spend(&palette)?;
-        let holds_hex = |line: &str| line.contains('#');
+    Ok(())
+  }
 
-        for line in css.lines().filter(|line| line.starts_with("@define-color")).filter(|line| holds_hex(line)) {
-            let name = line.split_whitespace().nth(1).ok_or("a name")?;
-            assert!(ROLES.contains(&name), "{name} holds a hex and is not a role");
-        }
+  #[test]
+  fn only_the_roles_hold_a_hex_and_every_other_name_is_a_reference() -> Result<(), Box<dyn Error>>
+  {
+    let palette = blossom()?;
+    let css = spend(&palette)?;
+    let holds_hex = |line: &str| line.contains('#');
 
-        Ok(())
+    for line in css
+      .lines()
+      .filter(|line| line.starts_with("@define-color"))
+      .filter(|line| holds_hex(line))
+    {
+      let name = line.split_whitespace().nth(1).ok_or("a name")?;
+      assert!(
+        ROLES.contains(&name),
+        "{name} holds a hex and is not a role"
+      );
     }
 
-    #[test]
-    fn every_reference_points_at_a_role_that_exists() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let css = spend(&palette)?;
+    Ok(())
+  }
 
-        for line in css.lines().filter(|line| line.contains(" @")) {
-            let role = line.rsplit(" @").next().and_then(|rest| rest.strip_suffix(';')).ok_or("a role")?;
-            assert!(ROLES.contains(&role), "{line} points at {role}, which is not a role");
-        }
+  #[test]
+  fn every_reference_points_at_a_role_that_exists() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let css = spend(&palette)?;
 
-        Ok(())
+    for line in css.lines().filter(|line| line.contains(" @")) {
+      let role = line
+        .rsplit(" @")
+        .next()
+        .and_then(|rest| rest.strip_suffix(';'))
+        .ok_or("a role")?;
+      assert!(
+        ROLES.contains(&role),
+        "{line} points at {role}, which is not a role"
+      );
     }
 
-    #[test]
-    fn breeze_gets_every_name_it_asks_for() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let css = spend(&palette)?;
+    Ok(())
+  }
 
-        for name in breeze::NAMES {
-            assert!(
-                css.contains(&format!("@define-color {name}_breeze ")),
-                "Breeze asks for {name} and it was not written"
-            );
-        }
+  #[test]
+  fn breeze_gets_every_name_it_asks_for() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let css = spend(&palette)?;
 
-        Ok(())
+    for name in breeze::NAMES {
+      assert!(
+        css.contains(&format!("@define-color {name}_breeze ")),
+        "Breeze asks for {name} and it was not written"
+      );
     }
 
-    #[test]
-    fn it_ends_in_exactly_one_newline() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let css = spend(&palette)?;
-        assert!(css.ends_with(";\n") && !css.ends_with("\n\n"));
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn it_ends_in_exactly_one_newline() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let css = spend(&palette)?;
+    assert!(css.ends_with(";\n") && !css.ends_with("\n\n"));
+
+    Ok(())
+  }
 }

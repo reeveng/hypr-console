@@ -1,0 +1,24 @@
+[package]
+name = "console-core-video-decoding-mpeg-4-container"
+version = "0.4.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The MPEG-4 and QuickTime reader: a film's tracks, their sample tables and their codec records."
+
+[lib]
+name = "console_core_video_decoding_mpeg_4_container"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-byte-sources.workspace = true
+console-core-iso-media-boxes.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-video-decoding-bitstream = { path = "../console-core-video-decoding-bitstream" }
+
+[dev-dependencies]
+console-core-size.workspace = true
+
+[lints]
+workspace = true

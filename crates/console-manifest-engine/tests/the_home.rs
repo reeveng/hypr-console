@@ -32,49 +32,56 @@ mod reading;
 
 use reading::{Failure, missing, naming, read};
 
-const EXCUSED: [&str; 3] = ["console-core-places", "console-login-window", "console-test-desktop"];
+const EXCUSED: [&str; 3] = [
+  "console-core-places",
+  "console-login-window",
+  "console-test-desktop",
+];
 
 #[test]
 fn one_crate_asks_where_a_person_lives() -> Result<(), Failure> {
-    let asking = naming("\"HOME\"", &EXCUSED)?;
+  let asking = naming("\"HOME\"", &EXCUSED)?;
 
-    assert!(
-        asking.is_empty(),
-        "these work out where a person's home is for themselves; ask \
+  assert!(
+    asking.is_empty(),
+    "these work out where a person's home is for themselves; ask \
          console_core_places::home and meet the None: {asking:?}"
-    );
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn nobody_asks_a_toolkit_where_a_person_lives_either() -> Result<(), Failure> {
-    let asking = naming("home_dir", &EXCUSED)?;
+  let asking = naming("home_dir", &EXCUSED)?;
 
-    assert!(
-        asking.is_empty(),
-        "a toolkit is asked where a person's home is; ask console_core_places::home \
+  assert!(
+    asking.is_empty(),
+    "a toolkit is asked where a person's home is; ask console_core_places::home \
          and meet the None: {asking:?}"
-    );
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn the_crate_that_answers_still_carries_the_absence() -> Result<(), Failure> {
-    let said = read("crates/console-core-places/src/lib.rs")?;
+  let said = read("crates/console-core-places/src/lib.rs")?;
 
-    assert!(
-        said.contains("pub fn home() -> Result<Option<PathBuf>, Never>"),
-        "an absent home is no longer absent, and /root is back within reach"
-    );
+  assert!(
+    said.contains("pub fn home() -> Result<Option<PathBuf>, Never>"),
+    "an absent home is no longer absent, and /root is back within reach"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn every_excused_crate_is_a_crate() {
-    let Ok(missing) = missing(&EXCUSED);
+  let Ok(missing) = missing(&EXCUSED);
 
-    assert!(missing.is_empty(), "excused from a rule but not in the tree: {missing:?}");
+  assert!(
+    missing.is_empty(),
+    "excused from a rule but not in the tree: {missing:?}"
+  );
 }

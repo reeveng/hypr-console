@@ -44,132 +44,136 @@ const A_SECOND: f64 = 1_000_000.0;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Words)]
 pub enum Status {
-    #[words(said = "Playing")]
-    Playing,
-    #[words(said = "Paused")]
-    Paused,
-    #[default]
-    #[words(said = "Stopped")]
-    Stopped,
+  #[words(said = "Playing")]
+  Playing,
+  #[words(said = "Paused")]
+  Paused,
+  #[default]
+  #[words(said = "Stopped")]
+  Stopped,
 }
 
 pub fn over_said(over: Over) -> Result<&'static str, Never> {
-    Ok(match over {
-        Over::On => "None",
-        Over::Again => "Track",
-        Over::Round => "Playlist",
-    })
+  Ok(match over {
+    Over::On => "None",
+    Over::Again => "Track",
+    Over::Round => "Playlist",
+  })
 }
 
 pub fn over_read(said: &str) -> Result<Over, Never> {
-    Ok(match said {
-        "None" => Over::On,
-        "Track" => Over::Again,
-        "Playlist" => Over::Round,
-        _unknown_to_this_player => Over::default(),
-    })
+  Ok(match said {
+    "None" => Over::On,
+    "Track" => Over::Again,
+    "Playlist" => Over::Round,
+    _unknown_to_this_player => Over::default(),
+  })
 }
 
-pub fn micros(seconds: f64) -> Result<i64, Never> {
-    toward_zero_i64(seconds * A_SECOND)
+pub fn micros(crate::Seconds(seconds): crate::Seconds) -> Result<i64, Never> {
+  toward_zero_i64(seconds * A_SECOND)
 }
 
-pub fn seconds(micros: i64) -> Result<f64, Never> {
-    let Ok(held) = micros.float();
+pub fn seconds(micros: i64) -> Result<crate::Seconds, Never> {
+  let Ok(held) = micros.float();
 
-    Ok(held / A_SECOND)
+  Ok(crate::Seconds(held / A_SECOND))
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Song {
-    pub title: String,
-    pub artist: String,
-    pub album: String,
-    pub art: Option<PathBuf>,
-    pub length: f64,
+  pub title: String,
+  pub artist: String,
+  pub album: String,
+  pub art: Option<PathBuf>,
+  pub length: crate::Seconds,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reply {
-    Track(String),
-    Word(String),
-    Strings(Vec<String>),
-    Long(i64),
+  Track(String),
+  Word(String),
+  Strings(Vec<String>),
+  Long(i64),
 }
 
 pub fn metadata(song: &Song) -> Result<Vec<(String, Reply)>, Never> {
-    let Ok(length) = micros(song.length);
+  let Ok(length) = micros(song.length);
 
-    let mut said = vec![
-        ("mpris:trackid".to_string(), Reply::Track(TRACK.to_string())),
-        ("mpris:length".to_string(), Reply::Long(length)),
-        ("xesam:title".to_string(), Reply::Word(song.title.clone())),
-        ("xesam:artist".to_string(), Reply::Strings(vec![song.artist.clone()])),
-        ("xesam:album".to_string(), Reply::Word(song.album.clone())),
-    ];
+  let mut said = vec![
+    ("mpris:trackid".to_string(), Reply::Track(TRACK.to_string())),
+    ("mpris:length".to_string(), Reply::Long(length)),
+    ("xesam:title".to_string(), Reply::Word(song.title.clone())),
+    (
+      "xesam:artist".to_string(),
+      Reply::Strings(vec![song.artist.clone()]),
+    ),
+    ("xesam:album".to_string(), Reply::Word(song.album.clone())),
+  ];
 
-    match &song.art {
-        Some(art) => {
-            let Ok(url) = console_core_file_urls::url(art);
+  match &song.art {
+    Some(art) => {
+      let Ok(url) = console_core_file_urls::url(art);
 
-            said.push(("mpris:artUrl".to_string(), Reply::Word(url)));
-        },
-        None => {},
+      said.push(("mpris:artUrl".to_string(), Reply::Word(url)));
     }
+    None => {}
+  }
 
-    Ok(said)
+  Ok(said)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn every_loop_status_the_panel_can_press_comes_back_as_itself() {
-        for over in [Over::On, Over::Again, Over::Round] {
-            let Ok(said) = over_said(over);
-            let Ok(read) = over_read(said);
+  #[test]
+  fn every_loop_status_the_panel_can_press_comes_back_as_itself() {
+    for over in [Over::On, Over::Again, Over::Round] {
+      let Ok(said) = over_said(over);
+      let Ok(read) = over_read(said);
 
-            assert_eq!(read, over);
-        }
+      assert_eq!(read, over);
     }
+  }
 
-    #[test]
-    fn a_loop_status_this_player_does_not_know_is_the_ordinary_one() {
-        let Ok(read) = over_read("Sideways");
+  #[test]
+  fn a_loop_status_this_player_does_not_know_is_the_ordinary_one() {
+    let Ok(read) = over_read("Sideways");
 
-        assert_eq!(read, Over::default());
-    }
+    assert_eq!(read, Over::default());
+  }
 
-    #[test]
-    fn a_position_goes_out_in_microseconds_and_comes_back_in_seconds() {
-        let Ok(out) = micros(90.5);
-        let Ok(back) = seconds(out);
+  #[test]
+  fn a_position_goes_out_in_microseconds_and_comes_back_in_seconds() {
+    let Ok(out) = micros(crate::Seconds(90.5));
+    let Ok(back) = seconds(out);
 
-        assert_eq!(out, 90_500_000);
-        assert_eq!(back, 90.5);
-    }
+    assert_eq!(out, 90_500_000);
+    assert_eq!(back, crate::Seconds(90.5));
+  }
 
-    #[test]
-    fn a_song_with_a_space_in_its_name_is_spelled_as_the_specification_spells_it() {
-        let Ok(url) = console_core_file_urls::url(&PathBuf::from("/music/The Last Shadow Puppets.opus"));
+  #[test]
+  fn a_song_with_a_space_in_its_name_is_spelled_as_the_specification_spells_it() {
+    let Ok(url) =
+      console_core_file_urls::url(&PathBuf::from("/music/The Last Shadow Puppets.opus"));
 
-        assert_eq!(url, "file:///music/The%20Last%20Shadow%20Puppets.opus");
-    }
+    assert_eq!(url, "file:///music/The%20Last%20Shadow%20Puppets.opus");
+  }
 
-    #[test]
-    fn the_track_being_sought_in_is_named_and_the_file_playing_is_not() {
-        let Ok(said) = metadata(&Song {
-            title: "505".to_string(),
-            artist: "Arctic Monkeys".to_string(),
-            album: "Favourite Worst Nightmare".to_string(),
-            art: None,
-            length: 253.0,
-        });
+  #[test]
+  fn the_track_being_sought_in_is_named_and_the_file_playing_is_not() {
+    let Ok(said) = metadata(&Song {
+      title: "505".to_string(),
+      artist: "Arctic Monkeys".to_string(),
+      album: "Favourite Worst Nightmare".to_string(),
+      art: None,
+      length: crate::Seconds(253.0),
+    });
 
-        let named: Vec<&str> = said.iter().map(|(name, _told)| name.as_str()).collect();
+    let named: Vec<&str> = said.iter().map(|(name, _told)| name.as_str()).collect();
 
-        assert!(named.contains(&"mpris:trackid"));
-        assert!(!named.contains(&"xesam:url"));
-    }
+    assert!(named.contains(&"mpris:trackid"));
+    assert!(!named.contains(&"xesam:url"));
+  }
 }

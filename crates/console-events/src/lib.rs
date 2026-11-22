@@ -32,44 +32,49 @@
 //! understood every source it relays is a pool that has to be changed whenever
 //! a source says something new, and the program that asked to hear an event
 //! group is the one that knows what its words mean. So a line arrives as a
-//! line, and `pool` is arithmetic over who wants what.
+//! line, and `pool` is arithmetic over who wants what. The one source that is
+//! not a line is bluez, which is heard on the system bus as messages: those
+//! are narrowed where they arrive, by `bluetooth`, because a match rule cannot
+//! narrow them far enough and a message handed on as text is a format the
+//! listener would have to read back into a message.
 
 pub mod again;
+pub mod bluetooth;
 pub mod bus;
-pub mod subscription;
-pub mod place;
 pub mod pool;
 pub mod serving;
 pub mod sources;
 pub mod watching;
-pub mod wire;
+
+pub use console_operating_system_linux::events::{subscription, wire};
+pub mod place;
 
 pub use pool::{Pool, Who};
 
 #[derive(Debug)]
 pub enum Unserved {
-    Sessionless,
-    Rootless,
-    Holding(std::path::PathBuf, std::io::Error),
-    Unbound(std::path::PathBuf, std::io::Error),
-    Waking(std::io::Error),
-    Waiting(rustix::io::Errno),
+  Sessionless,
+  Rootless,
+  Holding(std::path::PathBuf, std::io::Error),
+  Unbound(std::path::PathBuf, std::io::Error),
+  Waking(std::io::Error),
+  Waiting(rustix::io::Errno),
 }
 
 impl std::fmt::Display for Unserved {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unserved::Sessionless => write!(
-                to,
-                "XDG_RUNTIME_DIR: nothing says where this session keeps its sockets"
-            ),
-            Unserved::Rootless => write!(to, "the socket has no directory"),
-            Unserved::Holding(at, fault) => write!(to, "{}: {fault}", at.display()),
-            Unserved::Unbound(at, fault) => write!(to, "{}: {fault}", at.display()),
-            Unserved::Waking(fault) => write!(to, "the pipe a source wakes the pool through: {fault}"),
-            Unserved::Waiting(fault) => write!(to, "waiting for anything to happen: {fault}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unserved::Sessionless => write!(
+        to,
+        "XDG_RUNTIME_DIR: nothing says where this session keeps its sockets"
+      ),
+      Unserved::Rootless => write!(to, "the socket has no directory"),
+      Unserved::Holding(at, fault) => write!(to, "{}: {fault}", at.display()),
+      Unserved::Unbound(at, fault) => write!(to, "{}: {fault}", at.display()),
+      Unserved::Waking(fault) => write!(to, "the pipe a source wakes the pool through: {fault}"),
+      Unserved::Waiting(fault) => write!(to, "waiting for anything to happen: {fault}"),
     }
+  }
 }
 
 impl std::error::Error for Unserved {}

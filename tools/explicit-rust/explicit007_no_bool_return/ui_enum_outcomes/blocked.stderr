@@ -1,0 +1,123 @@
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:9:30
+   |
+LL | pub fn exported(byte: u8) -> bool {
+   |                              ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+   = note: `#[deny(explicit007_no_bool_return)]` on by default
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:13:36
+   |
+LL | extern "C" fn foreign(byte: u8) -> bool {
+   |                                    ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:17:32
+   |
+LL | const fn constant(byte: u8) -> bool {
+   |                                ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:21:29
+   |
+LL | fn first_class(byte: u8) -> bool {
+   |                             ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:30:47
+   |
+LL | fn take_function(classify: fn(u8) -> bool) -> bool {
+   |                                               ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:34:27
+   |
+LL | fn alternate(byte: u8) -> bool {
+   |                           ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:43:31
+   |
+LL | fn returns_early(byte: u8) -> bool {
+   |                               ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:47:36
+   |
+LL | fn conditional_return(byte: u8) -> bool {
+   |                                    ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:53:33
+   |
+LL | fn missing_variant(byte: u8) -> bool {
+   |                                 ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:65:30
+   |
+LL |     fn classify(byte: u8) -> bool {
+   |                              ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:76:30
+   |
+LL |     fn classify(byte: u8) -> bool {
+   |                              ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:95:30
+   |
+LL |     fn classify(byte: u8) -> bool {
+   |                              ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:109:30
+   |
+LL |     fn classify(byte: u8) -> bool {
+   |                              ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:124:34
+   |
+LL |         fn classify(byte: u8) -> bool;
+   |                                  ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: boolean return value is forbidden
+  --> $DIR/blocked.rs:138:30
+   |
+LL |     fn classify(byte: u8) -> bool {
+   |                              ^^^^
+   |
+   = help: name both outcomes in an enum, including inside an `Option` or `Result`
+
+error: aborting due to 15 previous errors
+

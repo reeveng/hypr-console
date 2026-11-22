@@ -1,0 +1,17 @@
+// run-rustfix
+// edition:2024
+
+#[derive(Clone, Copy)]
+enum Shortcut {
+    Available,
+    Unavailable,
+}
+
+fn thresholds(enabled: crate::Shortcut) -> (i32, u16) {
+    ((match enabled { crate::Shortcut::Available => 1_i32, crate::Shortcut::Unavailable => 0_i32 }) - 1, (match enabled { crate::Shortcut::Available => 1_u16, crate::Shortcut::Unavailable => 0_u16 }))
+}
+
+fn main() {
+    assert_eq!(thresholds(crate::Shortcut::Available), (0, 1));
+    assert_eq!(thresholds(crate::Shortcut::Unavailable), (-1, 0));
+}

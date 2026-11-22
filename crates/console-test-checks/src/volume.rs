@@ -6,6 +6,7 @@
 //! and back from wherever they left it is heard twice. The run puts their
 //! level back after the last check.
 
+use console_test_stages::device::TriggerTravel;
 use console_test_stages::checking::{Body, Check, CheckResult};
 use console_test_stages::device::{Device, Way};
 use console_test_stages::here::Here;
@@ -17,56 +18,70 @@ const SILENT: i64 = 0;
 const BARELY: i64 = 1;
 
 pub const LOUDER: Check = Check {
-    name: "092-louder",
-    about: "L2 and the d-pad up make it louder.",
-    feature: "volume",
-    since: "2026-09-01",
-    bodies: &[Body::Here(louder_here), Body::Device(louder_there)],
+  name: "092-louder",
+  about: "L2 and the d-pad up make it louder.",
+  feature: "volume",
+  since: "2026-09-01",
+  bodies: &[Body::Here(louder_here), Body::Device(louder_there)],
 };
 
 pub const QUIETER: Check = Check {
-    name: "093-quieter",
-    about: "L2 and the d-pad down make it quieter.",
-    feature: "volume",
-    since: "2026-09-01",
-    bodies: &[Body::Here(quieter_here), Body::Device(quieter_there)],
+  name: "093-quieter",
+  about: "L2 and the d-pad down make it quieter.",
+  feature: "volume",
+  since: "2026-09-01",
+  bodies: &[Body::Here(quieter_here), Body::Device(quieter_there)],
 };
 
 fn louder_here(stage: &mut Here) -> CheckResult {
-    stage.trigger("l2", 1.0)?;
-    stage.press("dpad-up")?;
-    stage.ran(&[&["/usr/local/bin/console-volume", "up"]])
+  stage.trigger("l2", TriggerTravel(1.0))?;
+  stage.press("dpad-up")?;
+  stage.ran(&[&["/usr/local/bin/console-volume", "up"]])
 }
 
 fn louder_there(stage: &mut Device) -> CheckResult {
-    check_step(stage, Step { from: SILENT, button: "dpad-up", way: Way::Up })
+  check_step(
+    stage,
+    Step {
+      from: SILENT,
+      button: "dpad-up",
+      way: Way::Up,
+    },
+  )
 }
 
 fn quieter_here(stage: &mut Here) -> CheckResult {
-    stage.trigger("l2", 1.0)?;
-    stage.press("dpad-down")?;
-    stage.ran(&[&["/usr/local/bin/console-volume", "down"]])
+  stage.trigger("l2", TriggerTravel(1.0))?;
+  stage.press("dpad-down")?;
+  stage.ran(&[&["/usr/local/bin/console-volume", "down"]])
 }
 
 fn quieter_there(stage: &mut Device) -> CheckResult {
-    check_step(stage, Step { from: BARELY, button: "dpad-down", way: Way::Down })
+  check_step(
+    stage,
+    Step {
+      from: BARELY,
+      button: "dpad-down",
+      way: Way::Down,
+    },
+  )
 }
 
 struct Step {
-    from: i64,
-    button: &'static str,
-    way: Way,
+  from: i64,
+  button: &'static str,
+  way: Way,
 }
 
 fn check_step(stage: &mut Device, Step { from, button, way }: Step) -> CheckResult {
-    stage.trigger("l2", 1.0)?;
+  stage.trigger("l2", TriggerTravel(1.0))?;
 
-    let Ok(()) = stage.volume_to(from);
-    let Ok(was) = stage.press_and_wait(button, Device::volume);
+  let Ok(()) = stage.volume_to(from);
+  let Ok(was) = stage.press_and_wait(button, Device::volume);
 
-    stage.trigger("l2", 0.0)?;
+  stage.trigger("l2", TriggerTravel(0.0))?;
 
-    let Ok(now) = stage.volume();
+  let Ok(now) = stage.volume();
 
-    now.expect_moved(way, was, UNSAID)
+  now.expect_moved(way, was, UNSAID)
 }

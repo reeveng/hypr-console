@@ -1,0 +1,52 @@
+// run-rustfix
+// edition:2024
+// compile-flags: --test
+
+#[derive(Debug, PartialEq)]
+struct ReadError;
+
+struct Font;
+impl Font {
+    fn table(&self) -> Result<i32, ReadError> { Ok(5) }
+}
+fn read() -> Result<Font, ReadError> { Ok(Font) }
+
+#[test]
+fn font_tables() -> Result<(), ReadError> {
+    let mut before = Vec::new();
+    assert!({ before.push(1); true } && (match match read() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }.table() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }) > 0);
+    assert_ne!(match match read() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }.table() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }, { before.push(2); 6 }, "table mismatch");
+    debug_assert_eq!(match match read() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }.table() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }.abs(), 5);
+    assert_eq!(before, vec![1, 2]);
+    Ok(())
+}
+
+#[test]
+fn optional_glyphs() -> ::core::result::Result<(), &'static str> {
+    let glyphs = [".notdef", "space"];
+    let mut names = glyphs.iter();
+    assert!(match names.next() { ::core::option::Option::Some(read_value) => read_value, ::core::option::Option::None => return ::core::result::Result::Err("missing first glyph") }.starts_with('.'));
+    assert_eq!(match names.next() { ::core::option::Option::Some(read_value) => read_value, ::core::option::Option::None => return ::core::result::Result::Err(::core::concat!(::core::file!(), ":", ::core::line!(), ": expected Some, found None")) }.len(), "space".len());
+    ::core::result::Result::Ok(())
+}
+
+#[test]
+fn buffered_sources() -> Result<(), Box<dyn std::error::Error>> {
+    let bytes = [0x61];
+    assert!(match std::str::from_utf8(&bytes) { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(::core::convert::From::from(read_error)) }.starts_with('a'));
+    assert_ne!(match std::str::from_utf8(&bytes) { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(::core::convert::From::from({ extern crate alloc as test_report_alloc; test_report_alloc::format!("{}: {:?}", "UTF-8 glyph name", read_error) })) }.len(), 0);
+    assert_eq!(match bytes.first() { ::core::option::Option::Some(read_value) => read_value, ::core::option::Option::None => return ::core::result::Result::Err(::core::convert::From::from("buffer was empty")) }.count_ones(), 3);
+    Ok(())
+}
+
+#[test]
+fn guard_lives_through_assertion() -> Result<(), ReadError> {
+    struct Reader;
+    impl Reader { fn read(&self) -> Result<i32, ReadError> { Ok(5) } }
+    let reader = std::cell::RefCell::new(Reader);
+    assert_eq!(match reader.borrow().read() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) }, {
+        assert!(reader.try_borrow_mut().is_err());
+        5
+    });
+    Ok(())
+}

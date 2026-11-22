@@ -25,13 +25,22 @@
 //!
 //! Numbers are left to EXPLICIT010, which says more about them than this can:
 //! it can name the two widths.
+//!
+//! The fixer uses qualified `From` when the compiler proves the corresponding
+//! implementation. Where a local value has only an `Into` implementation or
+//! bound, it qualifies that call with the destination type instead.
 #![feature(rustc_private)]
 #![warn(unused_extern_crates)]
 
+extern crate rustc_errors;
 extern crate rustc_hir;
 extern crate rustc_middle;
+extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+mod fixes;
+
+use clippy_utils::diagnostics::span_lint_and_then;
+use rustc_errors::Applicability;
 use rustc_hir::{Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::Ty;
@@ -46,7 +55,10 @@ dylint_linting::declare_late_lint! {
 }
 
 fn is_numeric(ty: Ty<'_>) -> bool {
-    matches!(ty.kind(), rustc_middle::ty::Int(_) | rustc_middle::ty::Uint(_) | rustc_middle::ty::Float(_))
+    matches!(
+        ty.kind(),
+        rustc_middle::ty::Int(_) | rustc_middle::ty::Uint(_) | rustc_middle::ty::Float(_)
+    )
 }
 
 impl<'tcx> LateLintPass<'tcx> for Explicit045NoUnnamedConversion {
@@ -74,15 +86,22 @@ impl<'tcx> LateLintPass<'tcx> for Explicit045NoUnnamedConversion {
             return;
         }
 
-        span_lint_and_help(
+        span_lint_and_then(
             cx,
             EXPLICIT045_NO_UNNAMED_CONVERSION,
             expr.span,
             format!("`into()` turns `{from}` into `{to}` and the line says neither"),
-            None,
-            "write the destination out -- `Target::from(x)` -- so the reader sees what this becomes \
-             without asking the compiler, and so the call stops compiling when the type around it \
-             changes rather than converting to the new one behind the line",
+            |diagnostic| {
+                if let Some(edits) = fixes::named_conversion(cx, expr, receiver, from, to) {
+                    diagnostic.multipart_suggestion(
+                        "name the destination of the same conversion",
+                        edits,
+                        Applicability::MachineApplicable,
+                    );
+                } else {
+                    diagnostic.help("write the destination out -- `Target::from(x)` -- so the reader sees what this becomes without asking the compiler, and so the call stops compiling when the type around it changes rather than converting to the new one behind the line");
+                }
+            },
         );
     }
 }

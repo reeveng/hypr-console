@@ -1,0 +1,38 @@
+error: `step` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/wrapping_assignment.rs:14:13
+   |
+LL |         let step = 2;
+   |             ^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+
+error: `place` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/wrapping_assignment.rs:15:13
+   |
+LL | /     {
+LL | |         let step = 2;
+LL | |         let place = &mut position;
+   | |             ^^^^^
+LL | |         *place = Position::wrapping_add(*place, step);
+LL | |     };
+   | |_____- help: update the position through the named wrapping boundary: `let ::core::result::Result::Ok(()) = ::console_core_number_conversion::wrapping_add_index(2, &mut position)`
+
+error: `place` holds a `isize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/wrapping_assignment.rs:23:13
+   |
+LL |           let place = &mut displacement;
+   |  _________-   ^^^^^
+LL | |         *place = (*place).wrapping_sub(step);
+   | |_____________________________________________- help: update the position through the named wrapping boundary: `let ::core::result::Result::Ok(()) = ::console_core_number_conversion::wrapping_sub_offset(step, &mut displacement);`
+
+error: `place` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/wrapping_assignment.rs:32:13
+   |
+LL |           let place = &mut positions[{ values.borrow_mut()[0] = 9; 0 }];
+   |  _________-   ^^^^^
+LL | |         *place = (core::num::Wrapping(*place) * core::num::Wrapping(_factor)).0;
+   | |________________________________________________________________________________- help: update the position through the named wrapping boundary: `let ::core::result::Result::Ok(()) = ::console_core_number_conversion::wrapping_mul_index(_factor, &mut positions[{ values.borrow_mut()[0] = 9; 0 }]);`
+
+error: aborting due to 4 previous errors
+

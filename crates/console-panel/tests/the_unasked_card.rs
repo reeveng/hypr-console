@@ -15,19 +15,27 @@ const CARD: &str = env!("CARGO_BIN_EXE_console-confirm");
 
 #[test]
 fn every_call_the_card_cannot_read_comes_back_unasked() -> Result<(), std::io::Error> {
-    let calls: [(&[&str], &str); 5] = [
-        (&[], "Go"),
-        (&["--help"], "Go"),
-        (&["   "], "Go"),
-        (&["Go ahead?", "Really?"], "Go"),
-        (&["Go ahead?"], ""),
-    ];
+  let calls: [(&[&str], &str); 5] = [
+    (&[], "Go"),
+    (&["--help"], "Go"),
+    (&["   "], "Go"),
+    (&["Go ahead?", "Really?"], "Go"),
+    (&["Go ahead?"], ""),
+  ];
 
-    for (asked, does) in calls {
-        let ran = Command::new(CARD).args(asked).env_clear().env(CONFIRM_DOES, does).output()?;
+  for (asked, does) in calls {
+    let ran = Command::new(CARD)
+      .args(asked)
+      .env_clear()
+      .env(CONFIRM_DOES, does)
+      .output()?;
 
-        assert_eq!(ran.status.code(), Some(i32::from(CONFIRM_UNASKED)), "{asked:?} with {CONFIRM_DOES}={does:?}");
-    }
+    assert_eq!(
+      ran.status.code(),
+      Some(i32::from(CONFIRM_UNASKED)),
+      "{asked:?} with {CONFIRM_DOES}={does:?}"
+    );
+  }
 
-    Ok(())
+  Ok(())
 }

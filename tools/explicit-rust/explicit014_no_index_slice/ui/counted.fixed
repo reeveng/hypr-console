@@ -1,0 +1,26 @@
+// run-rustfix
+// edition:2024
+// rustc-env:CARGO_PKG_RUST_VERSION=1.88
+
+fn zipped(source: &[u8; 4], out: &mut [u8; 6]) {
+    for (row, (out_element, source_element)) in <[_]>::iter_mut(out).take(4).zip(<[_]>::iter(source)).enumerate() {
+        *out_element = *source_element;
+        *out_element = (*out_element).saturating_add(u8::try_from(row).unwrap());
+    }
+}
+
+fn flattened(source: &[u8; 6], out: &mut [[u8; 2]; 3]) {
+    for ([out_lane_0, out_lane_1], [source_lane_0, source_lane_1]) in <[_]>::iter_mut(out).zip(<[_]>::iter(<[_]>::as_chunks::<2>(source).0)) {
+        *out_lane_0 = *source_lane_1;
+        *out_lane_1 = *source_lane_0;
+    }
+}
+
+fn main() {
+    let mut out = [0; 6];
+    zipped(&[10, 20, 30, 40], &mut out);
+    assert_eq!(out, [10, 21, 32, 43, 0, 0]);
+    let mut grid = [[0; 2]; 3];
+    flattened(&[1, 2, 3, 4, 5, 6], &mut grid);
+    assert_eq!(grid, [[2, 1], [4, 3], [6, 5]]);
+}

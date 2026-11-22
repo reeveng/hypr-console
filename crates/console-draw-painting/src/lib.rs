@@ -6,7 +6,7 @@
 //! first shape is drawn. [`Frame`] carries both sizes with their names on, so
 //! there is no order to get wrong and no scale passed about as a bare ratio.
 //! After that line every coordinate a caller wrote is the coordinate it meant,
-//! and how a corner lands on a half pixel is cairo's problem rather than
+//! and how a corner lands on a half pixel is the rasterizer's problem rather than
 //! something worked out again at every rounded rectangle.
 //!
 //! **It knows about no compositor, and that is the point.** What it is given is
@@ -23,7 +23,7 @@
 //! one, because a measurement is asked about a run that has not been placed yet.
 //!
 //! **Measuring is separate from drawing and comes first.** [`measured`] asks
-//! Pango how tall a run wraps to, with no surface in the room, and hands back a
+//! the text engine how tall a run wraps to, with no surface in the room, and hands back a
 //! size. Placement is arithmetic over that answer somewhere else. The order
 //! matters: a placement that measured as it went would be a placement that
 //! could only be checked where there is a font, and the whole reason the shape
@@ -31,22 +31,16 @@
 //!
 //! **A page of a book is lines, so where a run breaks is said as well.**
 //! [`wrapped`] is the same question as [`measured`] with the answer kept in
-//! pieces: the text of each line Pango broke the run into, at the width it was
+//! pieces: the text of each line the engine broke the run into, at the width it was
 //! given. A reader turning pages has to know which line is the last one that
 //! fits, and the only thing that knows where a paragraph breaks is the thing
 //! that shapes it -- a count of letters is wrong in every proportional face and
 //! in every script without spaces.
 //!
-//! **Both of them shape without hinting, and that is not a preference.**
-//! Measuring happens on a context with no surface under it and drawing happens
-//! on one scaled by the compositor's own factor, and cairo hints glyph
-//! advances to whole *device* pixels. So the same string in the same face is a
-//! different width at 1x and at 2x, and a run placed at the width it measured
-//! is a run given slightly less room than it turns out to need -- which shows
-//! up as a word wrapping onto a second line inside a slab that was made to fit
-//! one, which is how it was found. Hint metrics off is the only setting under
-//! which a measurement taken with no screen is true on every screen, which is
-//! the whole claim the split is making.
+//! **The layout is independent of the screen.** Measurement and painting use
+//! the same logical coordinates without metrics hinting. The text engine
+//! rasterizes glyphs at the device scale only after wrapping has been decided,
+//! so a word placed at its measured width stays on the same line at every scale.
 //!
 //! **A film is drawn over what was already there.** [`onto`] clears the
 //! buffer and draws every shape, which is right for a card that changed and
@@ -64,118 +58,98 @@
 //! is spent, so a shape and the stylesheet beside it cannot disagree about what
 //! a color was.
 //!
-//! **Every color here is opaque and the buffer agrees.** Cairo's `ARgb32`
-//! wants premultiplied alpha and `wl_shm`'s `Argb8888` is the same bytes in the
-//! same order on a little-endian machine, so the two agree for free while
-//! nothing is translucent. The first shape drawn at less than full alpha is the
-//! one that has to multiply, and it will be wrong in a way that looks like a
-//! color rather than like a fault.
+//! **The buffer holds premultiplied native ARGB.** The rasterizer borrows it
+//! through the raster canvas, which arranges incoming colors for that buffer.
+//! Images arrive with straight alpha and are premultiplied once before they
+//! are composited.
 
 use console_core_color::{Oklch, fit, oklch_to_rgb};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
-use console_core_number_conversion::{fitted, index, toward_zero_i32, whole_u32};
-use console_core_shapes::{Clip, Cropped, Edge, Line, Panel, Picture, Pixels, Round, Shape, Weight, Text};
+use console_core_number_conversion::{fitted, index, narrow_f32, whole_u8};
+use console_core_shapes::{
+  Cropped, Edge, Line, Panel, Picture, Pixels, Round, Shape, Text, Weight,
+};
 
-use cairo::{Context, Format, ImageSurface};
-use pango::FontDescription;
-use pango::prelude::FontMapExt;
+use console_core_path_rasterizer::{
+  Color, ColorU8, FillRule, FilterQuality, LineCap, Paint, PathBuilder, Pattern, Pixmap, Rect,
+  SpreadMode, Stroke, Transform,
+};
+
+use raster::Canvas;
 
 pub mod painted;
+pub mod raster;
+pub mod text;
 
 pub use console_core_shapes::Font;
 pub use painted::{Rendered, painter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Frame {
-    pub device: Size<u32>,
-    pub points: Size<u32>,
+  pub device: Size<u32>,
+  pub points: Size<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Run<'a> {
-    pub said: &'a str,
-    pub weight: Weight,
-    pub width: u32,
+  pub said: &'a str,
+  pub weight: Weight,
+  pub width: u32,
 }
 
 #[derive(Debug)]
 pub enum Cannot {
-    Surface(cairo::Error),
-    Context(cairo::Error),
-    Drawing(cairo::Error),
+  Buffer {
+    device: Size<u32>,
+    bytes: u64,
+  },
+  Transform,
+  Mask,
+  TextBusy,
+  Pixels {
+    size: Size<u32>,
+    stride: u32,
+    bytes: u64,
+  },
 }
 
 impl std::fmt::Display for Cannot {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Cannot::Surface(why) => write!(to, "no surface over the frame: {why}"),
-            Cannot::Context(why) => write!(to, "nothing to draw the frame with: {why}"),
-            Cannot::Drawing(why) => write!(to, "a shape would not draw: {why}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Cannot::Buffer { device, bytes } => write!(
+        to,
+        "{bytes} bytes cannot hold a {} by {} frame",
+        device.width, device.height
+      ),
+      Cannot::Transform => write!(to, "the frame scale must be finite and positive"),
+      Cannot::Mask => write!(to, "no clipping mask fits the frame"),
+      Cannot::TextBusy => write!(to, "the drawing thread is already using its text cache"),
+      Cannot::Pixels {
+        size,
+        stride,
+        bytes,
+      } => write!(
+        to,
+        "{bytes} bytes at stride {stride} cannot hold a {} by {} picture",
+        size.width, size.height
+      ),
     }
+  }
 }
 
 impl std::error::Error for Cannot {}
 
-fn unhinted(context: &pango::Context) -> Result<(), Never> {
-    let mut options = match cairo::FontOptions::new() {
-        Ok(options) => options,
-        Err(_cairo_would_not_make_one_and_the_default_shaping_stands) => return Ok(()),
-    };
-
-    options.set_hint_metrics(cairo::HintMetrics::Off);
-    pangocairo::functions::context_set_font_options(context, Some(&options));
-
-    Ok(())
-}
-
 pub fn measure_text(run: Run<'_>, font: &Font) -> Result<Size<u32>, Never> {
-    let context = pangocairo::FontMap::default().create_context();
-    let Ok(()) = unhinted(&context);
-    let layout = pango::Layout::new(&context);
-    let Ok(described) = font_description(font, run.weight);
-    let Ok(wide) = fitted::<u32, i32>(run.width);
+  let Ok(layout) = text::layout(run.said, font, run.weight, run.width);
 
-    layout.set_font_description(Some(&described));
-    layout.set_wrap(pango::WrapMode::WordChar);
-    layout.set_width(wide.saturating_mul(pango::SCALE));
-    layout.set_text(run.said);
-
-    let (across, down) = layout.pixel_size();
-    let Ok(wide) = whole_u32(f64::from(across));
-    let Ok(tall) = whole_u32(f64::from(down));
-
-    Ok(Size { width: wide, height: tall })
+  layout.measured()
 }
 
 pub fn wrapped(run: Run<'_>, font: &Font) -> Result<Vec<String>, Never> {
-    let context = pangocairo::FontMap::default().create_context();
-    let Ok(()) = unhinted(&context);
-    let layout = pango::Layout::new(&context);
-    let Ok(described) = font_description(font, run.weight);
-    let Ok(wide) = fitted::<u32, i32>(run.width);
+  let Ok(layout) = text::layout(run.said, font, run.weight, run.width);
 
-    layout.set_font_description(Some(&described));
-    layout.set_wrap(pango::WrapMode::WordChar);
-    layout.set_width(wide.saturating_mul(pango::SCALE));
-    layout.set_text(run.said);
-
-    let mut lines: Vec<String> = Vec::new();
-
-    for line in layout.lines_readonly() {
-        let Ok(from) = fitted::<i32, u32>(line.start_index());
-        let Ok(long) = fitted::<i32, u32>(line.length());
-        let Ok(start) = index(from);
-        let Ok(past) = index(from.saturating_add(long));
-
-        match run.said.get(start..past) {
-            Some(said) => lines.push(said.trim_end().to_string()),
-            None => lines.push(String::new()),
-        }
-    }
-
-    Ok(lines)
+  layout.wrapped()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -184,347 +158,365 @@ pub struct Lines(pub u32);
 pub const CUT: char = '\u{2026}';
 
 pub fn at_most(run: Run<'_>, font: &Font, most: Lines) -> Result<String, Never> {
-    let Ok(lines) = wrapped(run, font);
-    let Ok(many) = fitted::<_, u32>(lines.len());
+  let Ok(lines) = wrapped(run, font);
+  let Ok(many) = fitted::<_, u32>(lines.len());
 
-    let before = match (many > most.0, most.0.checked_sub(1)) {
-        (true, Some(before)) => before,
-        (false, _) | (true, None) => return Ok(run.said.to_string()),
-    };
+  let before = match (many > most.0, most.0.checked_sub(1)) {
+    (true, Some(before)) => before,
+    (false, _) | (true, None) => return Ok(run.said.to_string()),
+  };
 
-    let Ok(at) = index(before);
-    let mut said: Vec<String> = lines.iter().take(at).cloned().collect();
+  let Ok(at) = index(before);
+  let mut said: Vec<String> = lines.iter().take(at).cloned().collect();
 
-    let last = match lines.get(at) {
-        Some(last) => last.trim_end(),
-        None => "",
-    };
+  let last = match lines.get(at) {
+    Some(last) => last.trim_end(),
+    None => "",
+  };
 
-    let shortened = match (last.rsplit_once(' '), last.char_indices().rev().nth(1)) {
-        (Some((before, _word)), _) => before.trim_end(),
-        (None, Some((cut, _))) => match last.get(..cut) {
-            Some(kept) => kept,
-            None => "",
-        },
-        (None, None) => "",
-    };
+  let shortened = match (last.rsplit_once(' '), last.char_indices().rev().nth(1)) {
+    (Some((before_2, _word)), _) => before_2.trim_end(),
+    (None, Some((cut, _))) => match last.get(..cut) {
+      Some(kept) => kept,
+      None => "",
+    },
+    (None, None) => "",
+  };
 
-    said.push(format!("{shortened}{CUT}"));
+  said.push(format!("{shortened}{CUT}"));
 
-    Ok(said.join("\n"))
+  Ok(said.join("\n"))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Ground {
-    Cleared,
-    Preserved,
+enum Ground<'a> {
+  Cleared,
+  Preserved,
+  Picture(Picture<&'a Pixels>),
 }
 
 pub fn onto(pixels: &mut [u8], frame: Frame, shapes: &[Shape]) -> Result<(), Cannot> {
-    paint(pixels, frame, shapes, Ground::Cleared)
+  paint(pixels, frame, shapes, Ground::Cleared)
 }
 
 pub fn over(pixels: &mut [u8], frame: Frame, shapes: &[Shape]) -> Result<(), Cannot> {
-    paint(pixels, frame, shapes, Ground::Preserved)
+  paint(pixels, frame, shapes, Ground::Preserved)
 }
 
-fn paint(pixels: &mut [u8], frame: Frame, shapes: &[Shape], ground: Ground) -> Result<(), Cannot> {
-    let Ok(stride) = fitted::<u32, i32>(frame.device.width.saturating_mul(4));
-    let Ok(wide) = fitted::<u32, i32>(frame.device.width);
-    let Ok(tall) = fitted::<u32, i32>(frame.device.height);
+pub fn over_picture(
+  pixels: &mut [u8],
+  frame: Frame,
+  picture: Picture<&Pixels>,
+  above: &[Shape],
+) -> Result<(), Cannot> {
+  paint(pixels, frame, above, Ground::Picture(picture))
+}
 
-    // SAFETY: cairo writes into `pixels` only while this borrow is alive, and
-    // the surface is finished before the borrow ends.
-    let image = unsafe {
-        ImageSurface::create_for_data_unsafe(pixels.as_mut_ptr(), Format::ARgb32, wide, tall, stride)
+fn paint(
+  pixels: &mut [u8],
+  frame: Frame,
+  shapes: &[Shape],
+  ground: Ground<'_>,
+) -> Result<(), Cannot> {
+  let Ok(ratio) = ratio(frame);
+  let Ok(across) = narrow_f32(ratio.width);
+  let Ok(down) = narrow_f32(ratio.height);
+  let Ok(transform) =
+    Transform::from_scale_factors(console_core_paths::ScaleFactors { x: across, y: down });
+  let mut canvas = Canvas::new(pixels, frame.device, transform)?;
+
+  match ground {
+    Ground::Cleared => {
+      let Ok(()) = canvas.pixels.fill(Color::TRANSPARENT);
     }
-    .map_err(Cannot::Surface)?;
-    let cairo = Context::new(&image).map_err(Cannot::Context)?;
-    let Ok(ratio) = ratio(frame);
+    Ground::Preserved => {}
+    Ground::Picture(picture) => draw_picture(&mut canvas, picture)?,
+  }
 
-    match ground {
-        Ground::Cleared => {
-            cairo.set_operator(cairo::Operator::Source);
-            cairo.set_source_rgba(0.0, 0.0, 0.0, 0.0);
-            cairo.paint().map_err(Cannot::Drawing)?;
+  for shape in shapes {
+    match shape {
+      Shape::Panel(panel) => draw_panel(&mut canvas, panel)?,
+      Shape::Text(words) => draw_text(&mut canvas, words)?,
+      Shape::Picture(picture) => draw_picture(
+        &mut canvas,
+        Picture {
+          at: picture.at,
+          size: picture.size,
+          pixels: &picture.pixels,
         },
-        Ground::Preserved => {},
+      )?,
+      Shape::Cropped(picture) => cropped(
+        &mut canvas,
+        Cropped {
+          at: picture.at,
+          size: picture.size,
+          pixels: &picture.pixels,
+          from: picture.from,
+          seen: picture.seen,
+        },
+      )?,
+      Shape::Line(line) => {
+        let Ok(()) = draw_line(&mut canvas, line);
+      }
+      Shape::Clip(clip) => canvas.set_clip(*clip)?,
     }
+  }
 
-    cairo.set_operator(cairo::Operator::Over);
-    cairo.scale(ratio.width, ratio.height);
-
-    for shape in shapes {
-        match shape {
-            Shape::Panel(panel) => draw_panel(&cairo, panel)?,
-            Shape::Text(words) => draw_text(&cairo, words)?,
-            Shape::Picture(picture) => draw_picture(&cairo, picture)?,
-            Shape::Cropped(picture) => cropped(&cairo, picture)?,
-            Shape::Line(line) => draw_line(&cairo, line)?,
-            Shape::Clip(clip) => {
-                let Ok(()) = apply_clip(&cairo, *clip);
-            }
-        }
-    }
-
-    image.finish();
-
-    Ok(())
-}
-
-fn apply_clip(cairo: &Context, clip: Clip) -> Result<(), Never> {
-    cairo.reset_clip();
-
-    match clip {
-        Clip::To { at, size } => {
-            cairo.rectangle(f64::from(at.x), f64::from(at.y), f64::from(size.width), f64::from(size.height));
-            cairo.clip();
-        }
-        Clip::Lifted => {},
-    }
-
-    Ok(())
+  Ok(())
 }
 
 fn ratio(frame: Frame) -> Result<Size<f64>, Never> {
-    let wide = match frame.points.width {
-        0 => 1.0,
-        many => f64::from(frame.device.width) / f64::from(many),
-    };
-    let tall = match frame.points.height {
-        0 => 1.0,
-        many => f64::from(frame.device.height) / f64::from(many),
-    };
+  let wide = match frame.points.width {
+    0 => 1.0,
+    many => f64::from(frame.device.width) / f64::from(many),
+  };
+  let tall = match frame.points.height {
+    0 => 1.0,
+    many => f64::from(frame.device.height) / f64::from(many),
+  };
 
-    Ok(Size { width: wide, height: tall })
+  Ok(Size {
+    width: wide,
+    height: tall,
+  })
 }
 
-fn font_description(font: &Font, weight: Weight) -> Result<FontDescription, Never> {
-    let mut described = FontDescription::new();
+fn draw_line(canvas: &mut Canvas<'_>, line: &Line) -> Result<(), Never> {
+  let Ok(color) = color(line.color);
+  let Ok(width) = narrow_f32(f64::from(line.width));
+  let Ok(from_x) = narrow_f32(f64::from(line.from.x));
+  let Ok(from_y) = narrow_f32(f64::from(line.from.y));
+  let Ok(to_x) = narrow_f32(f64::from(line.to.x));
+  let Ok(to_y) = narrow_f32(f64::from(line.to.y));
+  let Ok(mut path) = PathBuilder::new();
 
-    described.set_family(&font.family);
-    let Ok(tall) = fitted::<u32, i32>(font.height);
+  let ::core::result::Result::Ok(()) = ::console_core_paths::PathBuilder::move_to_pt(
+    &mut path,
+    ::console_core_paths::Point {
+      x: from_x,
+      y: from_y,
+    },
+  );
+  let ::core::result::Result::Ok(()) = ::console_core_paths::PathBuilder::line_to_pt(
+    &mut path,
+    ::console_core_paths::Point { x: to_x, y: to_y },
+  );
 
-    described.set_absolute_size(f64::from(tall.saturating_mul(pango::SCALE)));
-    described.set_weight(match weight {
-        Weight::Plain => pango::Weight::Normal,
-        Weight::Bold => pango::Weight::Bold,
-    });
+  let Ok(finish) = path.finish();
 
-    Ok(described)
-}
-
-fn draw_line(cairo: &Context, line: &Line) -> Result<(), Cannot> {
-    let Ok(()) = set_color(cairo, line.color);
-
-    cairo.set_line_width(f64::from(line.width));
-    cairo.set_line_cap(cairo::LineCap::Round);
-    cairo.move_to(f64::from(line.from.x), f64::from(line.from.y));
-    cairo.line_to(f64::from(line.to.x), f64::from(line.to.y));
-    cairo.stroke().map_err(Cannot::Drawing)?;
-
-    Ok(())
-}
-
-fn draw_panel(cairo: &Context, panel: &Panel) -> Result<(), Cannot> {
-    let Ok(()) = trace_panel(cairo, panel, Inset::None);
-    let Ok(()) = set_color(cairo, panel.fill);
-
-    cairo.fill().map_err(Cannot::Drawing)?;
-
-    match panel.edge {
-        Edge::None => {}
-        Edge::Of { wide, color } => {
-            let half = f64::from(wide) / 2.0;
-            let Ok(()) = trace_panel(cairo, panel, Inset::By(half));
-            let Ok(()) = set_color(cairo, color);
-
-            cairo.set_line_width(f64::from(wide));
-            cairo.stroke().map_err(Cannot::Drawing)?;
-        }
-    }
-
-    Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Inset {
-    By(f64),
-    None,
-}
-
-fn trace_panel(cairo: &Context, panel: &Panel, inset: Inset) -> Result<(), Never> {
-    let by = match inset {
-        Inset::By(by) => by,
-        Inset::None => 0.0,
-    };
-    let left = f64::from(panel.at.x) + by;
-    let top = f64::from(panel.at.y) + by;
-    let wide = (f64::from(panel.size.width) - by * 2.0).max(0.0);
-    let tall = (f64::from(panel.size.height) - by * 2.0).max(0.0);
-    let Round(round) = panel.round;
-    let most = wide.min(tall) / 2.0;
-    let radius = f64::from(round).min(most);
-
-    cairo.new_path();
-
-    match radius <= 0.0 {
-        true => {
-            cairo.rectangle(left, top, wide, tall);
-
-            return Ok(());
-        }
-        false => {},
-    }
-
-    let half = std::f64::consts::FRAC_PI_2;
-    let whole = std::f64::consts::PI;
-
-    cairo.new_sub_path();
-    cairo.arc(left + wide - radius, top + radius, radius, -half, 0.0);
-    cairo.arc(left + wide - radius, top + tall - radius, radius, 0.0, half);
-    cairo.arc(left + radius, top + tall - radius, radius, half, whole);
-    cairo.arc(left + radius, top + radius, radius, whole, whole + half);
-    cairo.close_path();
-
-    Ok(())
-}
-
-fn draw_text(cairo: &Context, words: &Text) -> Result<(), Cannot> {
-    let Ok(()) = set_color(cairo, words.ink);
-    let Ok(described) = font_description(&words.font, words.weight);
-    let layout = pangocairo::functions::create_layout(cairo);
-    let Ok(()) = unhinted(&layout.context());
-    let Ok(wide) = fitted::<u32, i32>(words.width);
-
-    layout.set_font_description(Some(&described));
-    layout.set_wrap(pango::WrapMode::WordChar);
-    layout.set_width(wide.saturating_mul(pango::SCALE));
-    layout.set_text(&words.said);
-
-    let Ok(across) = toward_zero_i32(f64::from(words.at.x));
-    let Ok(down) = toward_zero_i32(f64::from(words.at.y));
-
-    cairo.move_to(f64::from(across), f64::from(down));
-    pangocairo::functions::show_layout(cairo, &layout);
-
-    Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Alpha(u8);
-
-fn premultiplied(pixels: &Pixels) -> Result<Vec<u8>, Never> {
-    let Ok(step) = index(pixels.stride);
-    let across = pixels.width;
-    let mut argb: Vec<u8> = Vec::new();
-
-    for line in pixels.bytes.chunks(step) {
-        let mut many = 0u32;
-
-        'over_pixels: for pixel in line.as_chunks::<4>().0 {
-            match many < across {
-                true => many = many.saturating_add(1),
-                false => break 'over_pixels,
-            }
-
-            let [red, green, blue, alpha] = *pixel;
-            let alpha = Alpha(alpha);
-
-            let Ok(red) = lit(red, alpha);
-            let Ok(green) = lit(green, alpha);
-            let Ok(blue) = lit(blue, alpha);
-            let Alpha(alpha) = alpha;
-
-            argb.extend_from_slice(&u32::from_be_bytes([alpha, red, green, blue]).to_le_bytes());
-        }
-
-        for _short_of_the_width in many..across {
-            argb.extend_from_slice(&0u32.to_le_bytes());
-        }
-    }
-
-    Ok(argb)
-}
-
-fn lit(channel: u8, alpha: Alpha) -> Result<u8, Never> {
-    const OPAQUE: u16 = 255;
-
-    let Alpha(alpha) = alpha;
-
-    let lit = u16::from(channel)
-        .saturating_mul(u16::from(alpha))
-        .saturating_add(OPAQUE.saturating_div(2))
-        .saturating_div(OPAQUE);
-
-    fitted(lit)
-}
-
-fn draw_picture(cairo: &Context, picture: &Picture) -> Result<(), Cannot> {
-    cropped(
-        cairo,
-        &Cropped {
-            at: picture.at,
-            size: picture.size,
-            pixels: picture.pixels.clone(),
-            from: Point { x: 0.0, y: 0.0 },
-            seen: Size { width: f64::from(picture.pixels.width), height: f64::from(picture.pixels.height) },
+  match finish {
+    Some(path_2) => {
+      let mut paint = Paint::default();
+      let Ok(color_2) = raster::buffer_color(color);
+      let ::core::result::Result::Ok(()) = paint.set_color(color_2);
+      let ::core::result::Result::Ok(()) = canvas.pixels.stroke_path(
+        &path_2,
+        &paint,
+        &Stroke {
+          width,
+          line_cap: LineCap::Round,
+          ..Stroke::default()
         },
-    )
-}
-
-fn cropped(cairo: &Context, picture: &Cropped) -> Result<(), Cannot> {
-    let Ok(wide) = fitted::<u32, i32>(picture.pixels.width);
-    let Ok(tall) = fitted::<u32, i32>(picture.pixels.height);
-
-    match wide > 0 && tall > 0 && picture.seen.width > 0.0 && picture.seen.height > 0.0 {
-        true => {},
-        false => return Ok(()),
+        canvas.transform,
+        canvas.clip.as_ref(),
+      );
     }
+    None => {}
+  }
 
-    let Ok(mut argb) = premultiplied(&picture.pixels);
-    let Ok(stride) = fitted::<u32, i32>(picture.pixels.width.saturating_mul(4));
-
-    let drawn = {
-        // SAFETY: cairo reads `argb` only while this borrow is alive, and the
-        // surface is finished before the borrow ends.
-        let image = unsafe {
-            ImageSurface::create_for_data_unsafe(argb.as_mut_ptr(), Format::ARgb32, wide, tall, stride)
-        }
-        .map_err(Cannot::Surface)?;
-
-        let stretch = Size {
-            width: f64::from(picture.size.width) / picture.seen.width,
-            height: f64::from(picture.size.height) / picture.seen.height,
-        };
-
-        cairo.save().map_err(Cannot::Drawing)?;
-        cairo.translate(f64::from(picture.at.x), f64::from(picture.at.y));
-        cairo.scale(stretch.width, stretch.height);
-        cairo.set_source_surface(&image, -picture.from.x, -picture.from.y).map_err(Cannot::Drawing)?;
-        cairo.source().set_extend(cairo::Extend::Pad);
-        cairo.rectangle(0.0, 0.0, picture.seen.width, picture.seen.height);
-        cairo.clip();
-
-        let drawn = cairo.paint();
-
-        cairo.restore().map_err(Cannot::Drawing)?;
-        image.finish();
-
-        drawn
-    };
-
-    drawn.map_err(Cannot::Drawing)?;
-
-    Ok(())
+  Ok(())
 }
 
-fn set_color(cairo: &Context, color: Oklch) -> Result<(), Never> {
-    let Ok(narrowed) = fit(color);
-    let Ok(within) = color.with(narrowed);
-    let Ok([red, green, blue]) = oklch_to_rgb(within);
+fn draw_panel(canvas: &mut Canvas<'_>, panel: &Panel) -> Result<(), Cannot> {
+  let Ok(fill) = color(panel.fill);
+  let Ok(()) = panel_path(canvas, panel, fill, None);
 
-    cairo.set_source_rgb(red.clamp(0.0, 1.0), green.clamp(0.0, 1.0), blue.clamp(0.0, 1.0));
+  match panel.edge {
+    Edge::None => {}
+    Edge::Of { wide, color: ink } => {
+      let Ok(ink_2) = color(ink);
+      let Ok(width) = narrow_f32(f64::from(wide));
+      let Ok(()) = panel_path(canvas, panel, ink_2, Some(width));
+    }
+  }
 
-    Ok(())
+  Ok(())
+}
+
+fn panel_path(
+  canvas: &mut Canvas<'_>,
+  panel: &Panel,
+  color: Color,
+  stroke: Option<f32>,
+) -> Result<(), Never> {
+  let inset = stroke.map_or(0.0, |width| width / 2.0);
+  let Ok(left) = narrow_f32(f64::from(panel.at.x));
+  let Ok(top) = narrow_f32(f64::from(panel.at.y));
+  let Ok(width) = narrow_f32(f64::from(panel.size.width));
+  let Ok(height) = narrow_f32(f64::from(panel.size.height));
+  let Round(round) = panel.round;
+  let Ok(radius) = narrow_f32(f64::from(round));
+  let rect = match {
+    let Ok(explicit_value) = Rect::from_xywh(
+      left + inset,
+      top + inset,
+      width - inset * 2.0,
+      height - inset * 2.0,
+    );
+    explicit_value
+  } {
+    Some(rect) => rect,
+    None => return Ok(()),
+  };
+  let Ok(path) = raster::rounded(rect, radius);
+  let path_3 = match path {
+    Some(path_2) => path_2,
+    None => return Ok(()),
+  };
+  let mut paint = Paint::default();
+
+  let Ok(color_2) = raster::buffer_color(color);
+  let ::core::result::Result::Ok(()) = paint.set_color(color_2);
+
+  let Ok(()) = match stroke {
+    Some(width_2) => canvas.pixels.stroke_path(
+      &path_3,
+      &paint,
+      &Stroke {
+        width: width_2,
+        ..Stroke::default()
+      },
+      canvas.transform,
+      canvas.clip.as_ref(),
+    ),
+    None => canvas.fill_path(&path_3, &paint, FillRule::Winding),
+  };
+
+  Ok(())
+}
+
+fn draw_text(canvas: &mut Canvas<'_>, words: &Text) -> Result<(), Cannot> {
+  let Ok(ink) = color(words.ink);
+  let Ok(layout) = text::layout(&words.said, &words.font, words.weight, words.width);
+
+  layout.draw(
+    canvas,
+    Point {
+      x: f64::from(words.at.x),
+      y: f64::from(words.at.y),
+    },
+    ink,
+  )
+}
+
+fn premultiplied(pixels: &Pixels) -> Result<Pixmap, Cannot> {
+  let Ok(size) = pixels.size();
+  let Ok(bytes) = fitted::<_, u64>(pixels.bytes.len());
+  let fault = || Cannot::Pixels {
+    size,
+    stride: pixels.stride,
+    bytes,
+  };
+  let Ok(rows) = pixels.rows();
+  let rows_2 = rows.ok_or_else(fault)?;
+  let Ok(pixmap) = Pixmap::new(pixels.width, pixels.height);
+  let mut image = pixmap.ok_or_else(fault)?;
+  let Ok(width) = index(pixels.width);
+  let Ok(target) = image.data_mut();
+
+  for (source, target_2) in rows_2.zip(target.as_chunks_mut::<4>().0.chunks_mut(width.max(1))) {
+    for (&[red, green, blue, alpha], target_3) in source.iter().zip(target_2) {
+      let Ok(color_u8) = ColorU8::from_rgba(red, green, blue, alpha);
+      let Ok(pixel) = raster::buffer_pixel(color_u8);
+
+      *target_3 = pixel;
+    }
+  }
+
+  Ok(image)
+}
+
+fn draw_picture(canvas: &mut Canvas<'_>, picture: Picture<&Pixels>) -> Result<(), Cannot> {
+  cropped(
+    canvas,
+    Cropped {
+      at: picture.at,
+      size: picture.size,
+      pixels: picture.pixels,
+      from: Point { x: 0.0, y: 0.0 },
+      seen: Size {
+        width: f64::from(picture.pixels.width),
+        height: f64::from(picture.pixels.height),
+      },
+    },
+  )
+}
+
+fn cropped(canvas: &mut Canvas<'_>, picture: Cropped<&Pixels>) -> Result<(), Cannot> {
+  match ::core::primitive::bool::then_some(picture.pixels.width > 0
+    && picture.pixels.height > 0
+    && picture.seen.width > 0.0
+    && picture.seen.height > 0.0, ())
+  {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => return Ok(()),
+  }
+
+  let Ok(x) = narrow_f32(f64::from(picture.at.x));
+  let Ok(y) = narrow_f32(f64::from(picture.at.y));
+  let Ok(width) = narrow_f32(f64::from(picture.size.width));
+  let Ok(height) = narrow_f32(f64::from(picture.size.height));
+  let rect = match {
+    let Ok(explicit_value) = Rect::from_xywh(x, y, width, height);
+    explicit_value
+  } {
+    Some(rect) => rect,
+    None => return Ok(()),
+  };
+  let image = premultiplied(picture.pixels)?;
+  let Ok(across) = narrow_f32(f64::from(picture.size.width) / picture.seen.width);
+  let Ok(down) = narrow_f32(f64::from(picture.size.height) / picture.seen.height);
+  let Ok(from_x) = narrow_f32(picture.from.x);
+  let Ok(from_y) = narrow_f32(picture.from.y);
+  let Ok(translation) = Transform::from_translation(console_core_paths::Point { x, y });
+  let Ok(scaled) =
+    translation.pre_scale_by(console_core_paths::ScaleFactors { x: across, y: down });
+  let Ok(transform) = scaled.pre_translate_by(console_core_paths::Point {
+    x: -from_x,
+    y: -from_y,
+  });
+  let Ok(shader) = Pattern::new(
+    {
+      let Ok(explicit_value) = image.as_ref();
+      explicit_value
+    },
+    SpreadMode::Pad,
+    FilterQuality::Bilinear,
+    1.0,
+    transform,
+  );
+  let paint = Paint {
+    shader,
+    ..Paint::default()
+  };
+
+  let ::core::result::Result::Ok(()) =
+    canvas
+      .pixels
+      .fill_rect(rect, &paint, canvas.transform, canvas.clip.as_ref());
+
+  Ok(())
+}
+
+fn color(color: Oklch) -> Result<Color, Never> {
+  let Ok(narrowed) = fit(color);
+  let Ok(within) = color.with(narrowed);
+  let Ok([red, green, blue]) = oklch_to_rgb(within);
+  let Ok(red_2) = whole_u8(red.clamp(0.0, 1.0) * 255.0);
+  let Ok(green_2) = whole_u8(green.clamp(0.0, 1.0) * 255.0);
+  let Ok(blue_2) = whole_u8(blue.clamp(0.0, 1.0) * 255.0);
+
+  Ok({
+    let Ok(explicit_value) = Color::from_rgba8(red_2, green_2, blue_2, 255);
+    explicit_value
+  })
 }

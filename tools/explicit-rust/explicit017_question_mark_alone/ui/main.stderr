@@ -4,8 +4,12 @@ error: this `?` is buried in a larger expression: an early return with no shape 
 LL |     Ok(frame(settle(x)?, 3))
    |              ^^^^^^^^^^
    |
-   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
    = note: `#[deny(explicit017_question_mark_alone)]` on by default
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = settle(x)?;
+LL ~     Ok(frame(checked_value, 3))
+   |
 
 error: this `?` is buried in a larger expression: an early return with no shape on the screen
   --> $DIR/main.rs:20:16
@@ -13,7 +17,11 @@ error: this `?` is buried in a larger expression: an early return with no shape 
 LL |     let kept = settle(x)?.checked_add(1).ok_or("full")?;
    |                ^^^^^^^^^^
    |
-   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = settle(x)?;
+LL ~     let kept = checked_value.checked_add(1).ok_or("full")?;
+   |
 
 error: aborting due to 2 previous errors
 

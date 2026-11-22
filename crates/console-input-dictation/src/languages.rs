@@ -26,15 +26,27 @@
 use console_core_never::Never;
 
 pub struct Language {
-    pub key: &'static str,
-    pub says: &'static str,
+  pub key: &'static str,
+  pub says: &'static str,
 }
 
 pub const EVERY: [Language; 4] = [
-    Language { key: "auto", says: "Automatic" },
-    Language { key: "en", says: "English" },
-    Language { key: "nl", says: "Dutch" },
-    Language { key: "th", says: "Thai" },
+  Language {
+    key: "auto",
+    says: "Automatic",
+  },
+  Language {
+    key: "en",
+    says: "English",
+  },
+  Language {
+    key: "nl",
+    says: "Dutch",
+  },
+  Language {
+    key: "th",
+    says: "Thai",
+  },
 ];
 
 pub const UNLESS_TOLD: &str = "auto";
@@ -42,62 +54,69 @@ pub const UNLESS_TOLD: &str = "auto";
 const SETTING: &str = "dictation";
 
 pub fn current() -> Result<String, Never> {
-    console_defaults::current_value(console_defaults::Choice { setting: SETTING, unless_told: UNLESS_TOLD, known: one })
+  console_defaults::current_value(console_defaults::Choice {
+    setting: SETTING,
+    unless_told: UNLESS_TOLD,
+    known: one,
+  })
 }
 
 pub fn one(key: &str) -> Result<Option<&'static Language>, Never> {
-    Ok(EVERY.iter().find(|language| language.key == key))
+  Ok(EVERY.iter().find(|language| language.key == key))
 }
 
 pub fn choose(key: &str) -> Result<(), Never> {
-    console_defaults::set(console_defaults::Setting {
-        key: SETTING,
-        value: key,
-    })
+  console_defaults::set(console_defaults::Setting {
+    key: SETTING,
+    value: key,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::collections::BTreeSet;
+  use super::*;
+  use std::collections::BTreeSet;
 
-    #[test]
-    fn the_one_used_when_nothing_has_been_chosen_is_one_of_them() {
-        assert_eq!(one(UNLESS_TOLD).map(|found| found.is_some()), Ok(true));
-        assert_eq!(one("elvish").map(|found| found.is_none()), Ok(true));
+  #[test]
+  fn the_one_used_when_nothing_has_been_chosen_is_one_of_them() {
+    assert_eq!(one(UNLESS_TOLD).map(|found| found.is_some()), Ok(true));
+    assert_eq!(one("elvish").map(|found| found.is_none()), Ok(true));
+  }
+
+  #[test]
+  fn every_language_is_named_the_way_the_hearing_names_it() {
+    for language in &EVERY {
+      let spelled = language.key == UNLESS_TOLD || language.key.len() == 2;
+      assert!(spelled, "{} is not a language whisper takes", language.key);
+      assert!(language.key.chars().all(|one| one.is_ascii_lowercase()));
+    }
+  }
+
+  #[test]
+  fn deciding_for_itself_is_offered_and_offered_first() {
+    assert_eq!(
+      EVERY.first().map(|language| language.key),
+      Some(UNLESS_TOLD)
+    );
+  }
+
+  #[test]
+  fn every_language_is_named_once() {
+    let mut seen = BTreeSet::new();
+    let mut twice: Vec<&str> = Vec::new();
+
+    for language in EVERY {
+      match ::core::primitive::bool::then_some(seen.insert(language.key), ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => twice.push(language.key),
+      }
     }
 
-    #[test]
-    fn every_language_is_named_the_way_the_hearing_names_it() {
-        for language in &EVERY {
-            let spelled = language.key == UNLESS_TOLD || language.key.len() == 2;
-            assert!(spelled, "{} is not a language whisper takes", language.key);
-            assert!(language.key.chars().all(|one| one.is_ascii_lowercase()));
-        }
-    }
+    assert!(twice.is_empty(), "{twice:?} is named twice");
+  }
 
-    #[test]
-    fn deciding_for_itself_is_offered_and_offered_first() {
-        assert_eq!(EVERY.first().map(|language| language.key), Some(UNLESS_TOLD));
-    }
-
-    #[test]
-    fn every_language_is_named_once() {
-        let mut seen = BTreeSet::new();
-        let mut twice: Vec<&str> = Vec::new();
-
-        for language in EVERY {
-            match seen.insert(language.key) {
-                true => {}
-                false => twice.push(language.key),
-            }
-        }
-
-        assert!(twice.is_empty(), "{twice:?} is named twice");
-    }
-
-    #[test]
-    fn chinese_is_not_offered() {
-        assert_eq!(one("zh").map(|found| found.is_none()), Ok(true));
-    }
+  #[test]
+  fn chinese_is_not_offered() {
+    assert_eq!(one("zh").map(|found| found.is_none()), Ok(true));
+  }
 }

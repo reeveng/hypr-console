@@ -25,244 +25,305 @@ use std::path::Path;
 
 use crate::Error;
 
-pub const PATCH: f64 = 0.02;
+pub const PATCH: PatchWidth = PatchWidth(0.02);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the inner value is the sampled patch width as a fraction of image width"
+  )
+)]
+pub struct PatchWidth(pub f64);
 
 pub struct Picture {
-    pub width: u32,
-    pub height: u32,
-    bands: Vec<u8>,
+  pub width: u32,
+  pub height: u32,
+  bands: Vec<u8>,
 }
 
 impl Picture {
-    pub fn read(path: &Path) -> Result<Self, Error> {
-        let mut file = std::fs::File::open(path)
-            .map_err(|fault| Error::Read(path.to_path_buf(), fault))?;
-        let mut surface = cairo::ImageSurface::create_from_png(&mut file)
-            .map_err(|fault| Error::NotAPicture(path.to_path_buf(), fault))?;
-        let Ok(width) = fitted::<i32, u32>(surface.width());
-        let Ok(height) = fitted::<i32, u32>(surface.height());
-        let Ok(stride) = fitted::<i32, u32>(surface.stride());
-        let Ok(room) = index(width.saturating_mul(height).saturating_mul(3));
+  pub fn read(path: &Path) -> Result<Self, Error> {
+    let bytes = std::fs::read(path).map_err(|fault| Error::Read(path.to_path_buf(), fault))?;
+    let picture = console_core_png_files::decoded(&bytes)
+      .map_err(|fault| Error::NotAPicture(path.to_path_buf(), fault))?;
+    let Size { width, height } = picture.size;
+    let Ok(pixels) = picture.pixels();
+    let mut bands = Vec::with_capacity(pixels.len().saturating_mul(3));
 
-        let data = surface.data().map_err(Error::NothingToRead)?;
-        let mut bands = Vec::with_capacity(room);
+    for pixel in pixels {
+      let [red, green, blue, alpha] = *pixel;
+      let channel = |value: u8| {
+        let product = u16::from(value)
+          .saturating_mul(u16::from(alpha))
+          .saturating_add(127)
+          .saturating_div(255);
+        let Ok(product_2) = fitted::<_, u8>(product);
 
-        for down in 0..height {
-            for across in 0..width {
-                let Ok(at) = index(down.saturating_mul(stride).saturating_add(across.saturating_mul(4)));
+        product_2
+      };
 
-                match data.get(at..at.saturating_add(3)) {
-                    Some([blue, green, red]) => bands.extend([*red, *green, *blue]),
-                    Some(_) | None => bands.extend([0, 0, 0]),
-                }
-            }
-        }
-
-        Ok(Picture { width, height, bands })
+      bands.extend([channel(red), channel(green), channel(blue)]);
     }
 
-    fn band(&self, spot: Point<u32>) -> Result<[u8; 3], Never> {
-        let Ok(at) = index(
-            spot.y.saturating_mul(self.width).saturating_add(spot.x).saturating_mul(3),
-        );
+    Ok(Picture {
+      width,
+      height,
+      bands,
+    })
+  }
 
-        Ok(match self.bands.get(at..at.saturating_add(3)) {
-            Some([red, green, blue]) => [*red, *green, *blue],
-            Some(_) | None => [0, 0, 0],
-        })
+  fn band(&self, spot: Point<u32>) -> Result<[u8; 3], Never> {
+    let Ok(at) = index(
+      spot
+        .y
+        .saturating_mul(self.width)
+        .saturating_add(spot.x)
+        .saturating_mul(3),
+    );
+
+    Ok(match self.bands.get(at..at.saturating_add(3)) {
+      Some([red, green, blue]) => [*red, *green, *blue],
+      Some(_) | None => [0, 0, 0],
+    })
+  }
+
+  pub fn at(&self, spot: Point<f64>) -> Result<String, Error> {
+    let Ok(across) = toward_zero_i64(spot.x);
+    let Ok(down) = toward_zero_i64(spot.y);
+
+    let inside =
+      (0..i64::from(self.width)).contains(&across) && (0..i64::from(self.height)).contains(&down);
+
+    match ::core::primitive::bool::then_some(inside, ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => {
+        return Err(Error::OffTheEdge(
+          Point { x: across, y: down },
+          Size {
+            width: self.width,
+            height: self.height,
+          },
+        ));
+      }
     }
 
-    pub fn at(&self, spot: Point<f64>) -> Result<String, Error> {
-        let Ok(across) = toward_zero_i64(spot.x);
-        let Ok(down) = toward_zero_i64(spot.y);
+    let Ok(column) = fitted(across);
+    let Ok(row) = fitted(down);
+    let Ok(band) = self.band(Point { x: column, y: row });
+    let Ok(said) = hex(band);
 
-        let inside = (0..i64::from(self.width)).contains(&across)
-            && (0..i64::from(self.height)).contains(&down);
+    Ok(said)
+  }
 
-        match inside {
-            true => {},
-            false => {
-                return Err(Error::OffTheEdge(
-                    Point { x: across, y: down },
-                    Size { width: self.width, height: self.height },
-                ));
-            }
+  pub fn average(&self, spot: Point<f64>, size: PatchWidth) -> Result<String, Never> {
+    let Ok(side) = toward_zero_u32(f64::from(self.width) * size.0);
+    let Ok(from_the_left) = toward_zero_u32(f64::from(self.width) * spot.x);
+    let Ok(from_the_top) = toward_zero_u32(f64::from(self.height) * spot.y);
+
+    let wide = side.max(1);
+    let left = from_the_left
+      .saturating_sub(wide.saturating_div(2))
+      .min(self.width.saturating_sub(wide));
+    let top = from_the_top
+      .saturating_sub(wide.saturating_div(2))
+      .min(self.height.saturating_sub(wide));
+    let mut totals = [0u64; 3];
+    let mut seen = 0u64;
+
+    for down in top..top.saturating_add(wide).min(self.height) {
+      for across in left..left.saturating_add(wide).min(self.width) {
+        let Ok(bands) = self.band(Point { x: across, y: down });
+
+        for (total, band) in totals.iter_mut().zip(bands) {
+          *total = total.saturating_add(u64::from(band));
         }
 
-        let Ok(column) = fitted(across);
-        let Ok(row) = fitted(down);
-        let Ok(band) = self.band(Point { x: column, y: row });
+        seen = seen.saturating_add(1);
+      }
+    }
+
+    let seen_2 = seen.max(1);
+
+    let mut bands = [0u8; 3];
+
+    for (band, total) in bands.iter_mut().zip(totals) {
+      let Ok(much) = fitted(total.saturating_div(seen_2));
+
+      *band = much;
+    }
+
+    hex(bands)
+  }
+
+  pub fn most_common(&self) -> Result<String, Never> {
+    let mut seen: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    let every = |size: u32| size.saturating_div(64).max(1);
+
+    let Ok(rows) = index(every(self.height));
+    let Ok(columns) = index(every(self.width));
+
+    for down in (0..self.height).step_by(rows.max(1)) {
+      for across in (0..self.width).step_by(columns.max(1)) {
+        let Ok(band) = self.band(Point { x: across, y: down });
         let Ok(said) = hex(band);
+        let often = seen.entry(said).or_insert(0);
 
-        Ok(said)
+        *often = often.saturating_add(1);
+      }
     }
 
-    pub fn average(&self, spot: Point<f64>, size: f64) -> Result<String, Never> {
-        let Ok(side) = toward_zero_u32(f64::from(self.width) * size);
-        let Ok(from_the_left) = toward_zero_u32(f64::from(self.width) * spot.x);
-        let Ok(from_the_top) = toward_zero_u32(f64::from(self.height) * spot.y);
+    let most = seen
+      .into_iter()
+      .max_by_key(|(_, often)| *often)
+      .map(|(color, _)| color);
 
-        let wide = side.max(1);
-        let left = from_the_left
-            .saturating_sub(wide.saturating_div(2))
-            .min(self.width.saturating_sub(wide));
-        let top = from_the_top
-            .saturating_sub(wide.saturating_div(2))
-            .min(self.height.saturating_sub(wide));
-        let mut totals = [0u64; 3];
-        let mut seen = 0u64;
-
-        for down in top..top.saturating_add(wide).min(self.height) {
-            for across in left..left.saturating_add(wide).min(self.width) {
-                let Ok(bands) = self.band(Point { x: across, y: down });
-
-                for (total, band) in totals.iter_mut().zip(bands) {
-                    *total = total.saturating_add(u64::from(band));
-                }
-
-                seen = seen.saturating_add(1);
-            }
-        }
-
-        let seen = seen.max(1);
-
-        let mut bands = [0u8; 3];
-
-        for (band, total) in bands.iter_mut().zip(totals) {
-            let Ok(much) = fitted(total.saturating_div(seen));
-
-            *band = much;
-        }
-
-        hex(bands)
-    }
-
-    pub fn most_common(&self) -> Result<String, Never> {
-        let mut seen: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
-        let every = |size: u32| size.saturating_div(64).max(1);
-
-        let Ok(rows) = index(every(self.height));
-        let Ok(columns) = index(every(self.width));
-
-        for down in (0..self.height).step_by(rows) {
-            for across in (0..self.width).step_by(columns) {
-                let Ok(band) = self.band(Point { x: across, y: down });
-                let Ok(said) = hex(band);
-                let often = seen.entry(said).or_insert(0);
-
-                *often = often.saturating_add(1);
-            }
-        }
-
-        let most = seen.into_iter().max_by_key(|(_, often)| *often).map(|(color, _)| color);
-
-        Ok(match most {
-            Some(color) => color,
-            None => String::new(),
-        })
-    }
+    Ok(match most {
+      Some(color) => color,
+      None => String::new(),
+    })
+  }
 }
 
 fn hex([red, green, blue]: [u8; 3]) -> Result<String, Never> {
-    Ok(format!("{red:02x}{green:02x}{blue:02x}"))
+  Ok(format!("{red:02x}{green:02x}{blue:02x}"))
 }
 
-pub fn where_(
-    picture: &Picture,
-    spot: Point<f64>,
-    logical: Size<u32>,
-) -> Result<String, Error> {
-    let each = f64::from(picture.width) / f64::from(logical.width.max(1));
+pub fn where_(picture: &Picture, spot: Point<f64>, logical: Size<u32>) -> Result<String, Error> {
+  let each = f64::from(picture.width) / f64::from(logical.width.max(1));
 
-    picture.at(Point { x: spot.x * each, y: spot.y * each })
+  picture.at(Point {
+    x: spot.x * each,
+    y: spot.y * each,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    fn paint_picture(named: &str, size: Size<i32>, paint: impl Fn(&cairo::Context)) -> Result<Picture, Failure> {
-        let surface = cairo::ImageSurface::create(cairo::Format::Rgb24, size.width, size.height)?;
-        let context = cairo::Context::new(&surface)?;
+  fn paint_picture(
+    named: &str,
+    size: Size<u32>,
+    paint: impl Fn(Point<u32>) -> [u8; 3],
+  ) -> Result<Picture, Failure> {
+    let mut rgba = Vec::new();
 
-        paint(&context);
-        drop(context);
+    for y in 0..size.height {
+      for x in 0..size.width {
+        let [red, green, blue] = paint(Point { x, y });
 
-        let fresh = console_core_temporary_directories::fresh(&format!("picture-{named}"))?;
-        let at = fresh.join("picture.png");
-        let mut png = Vec::new();
-
-        surface.write_to_png(&mut png)?;
-        console_core_atomic_writes::whole(&at, &png)?;
-
-        let picture = Picture::read(&at)?;
-        let _ = std::fs::remove_file(&at);
-
-        Ok(picture)
+        rgba.extend([red, green, blue, 255]);
+      }
     }
 
-    fn plain(named: &str, size: Size<i32>, color: (f64, f64, f64)) -> Result<Picture, Failure> {
-        paint_picture(named, size, |context| {
-            context.set_source_rgb(color.0, color.1, color.2);
-            let _ = context.paint();
-        })
-    }
+    let fresh = console_core_temporary_directories::fresh(&format!("picture-{named}"))?;
+    let at = fresh.join("picture.png");
+    let png =
+      console_core_png_files::encoded(&console_core_png_files::Picture { size, bytes: rgba })?;
 
-    #[test]
-    fn a_color_is_read_as_a_stylesheet_would_write_it() -> Result<(), Failure> {
-        let picture = plain("one-color", Size { width: 8, height: 8 }, (1.0, 0.0, 0.5))?;
+    console_core_atomic_writes::whole(&at, &png)?;
 
-        let color = picture.at(Point { x: 0.0, y: 0.0 })?;
+    let picture = Picture::read(&at)?;
+    crate::missing_is_removed(std::fs::remove_file(&at))?;
 
-        assert_eq!(color, "ff0080");
+    Ok(picture)
+  }
 
-        Ok(())
-    }
+  fn plain(named: &str, size: Size<u32>, color: [u8; 3]) -> Result<Picture, Failure> {
+    paint_picture(named, size, |_point| color)
+  }
 
-    #[test]
-    fn somewhere_off_the_edge_is_said_rather_than_answered() -> Result<(), Failure> {
-        let picture = plain("off-the-edge", Size { width: 8, height: 8 }, (0.0, 0.0, 0.0))?;
+  #[test]
+  fn a_color_is_read_as_a_stylesheet_would_write_it() -> Result<(), Failure> {
+    let picture = plain(
+      "one-color",
+      Size {
+        width: 8,
+        height: 8,
+      },
+      [255, 0, 128],
+    )?;
 
-        assert!(matches!(picture.at(Point { x: 8.0, y: 0.0 }), Err(Error::OffTheEdge(..))));
-        assert!(matches!(picture.at(Point { x: -1.0, y: 0.0 }), Err(Error::OffTheEdge(..))));
+    let color = picture.at(Point { x: 0.0, y: 0.0 })?;
 
-        Ok(())
-    }
+    assert_eq!(color, "ff0080");
 
-    #[test]
-    fn a_patch_is_the_average_of_what_is_in_it() -> Result<(), Failure> {
-        let picture = paint_picture("halves", Size { width: 100, height: 100 }, |context| {
-            context.set_source_rgb(0.0, 0.0, 0.0);
-            let _ = context.paint();
-            context.set_source_rgb(1.0, 1.0, 1.0);
-            context.rectangle(0.0, 0.0, 50.0, 100.0);
-            let _ = context.fill();
-        })?;
+    Ok(())
+  }
 
-        assert_eq!(picture.average(Point { x: 0.25, y: 0.5 }, 0.02), Ok("ffffff".to_string()));
-        assert_eq!(picture.average(Point { x: 0.75, y: 0.5 }, 0.02), Ok("000000".to_string()));
+  #[test]
+  fn somewhere_off_the_edge_is_said_rather_than_answered() -> Result<(), Failure> {
+    let picture = plain(
+      "off-the-edge",
+      Size {
+        width: 8,
+        height: 8,
+      },
+      [0, 0, 0],
+    )?;
 
-        Ok(())
-    }
+    assert!(matches!(
+      picture.at(Point { x: 8.0, y: 0.0 }),
+      Err(Error::OffTheEdge(..))
+    ));
+    assert!(matches!(
+      picture.at(Point { x: -1.0, y: 0.0 }),
+      Err(Error::OffTheEdge(..))
+    ));
 
-    #[test]
-    fn the_commonest_color_is_what_most_of_the_screen_is() -> Result<(), Failure> {
-        let picture = paint_picture("a-square", Size { width: 100, height: 100 }, |context| {
-            context.set_source_rgb(0.1, 0.1, 0.1);
-            let _ = context.paint();
-            context.set_source_rgb(1.0, 1.0, 1.0);
-            context.rectangle(0.0, 0.0, 20.0, 20.0);
-            let _ = context.fill();
-        })?;
+    Ok(())
+  }
 
-        assert_eq!(
-            picture.most_common(),
-            Ok("191919".to_string()),
-            "the ground, not the square on it"
-        );
+  #[test]
+  fn a_patch_is_the_average_of_what_is_in_it() -> Result<(), Failure> {
+    let picture = paint_picture(
+      "halves",
+      Size {
+        width: 100,
+        height: 100,
+      },
+      |point| match ::core::primitive::bool::then_some(point.x < 50, ()) {
+        ::core::option::Option::Some(()) => [255, 255, 255],
+        ::core::option::Option::None => [0, 0, 0],
+      },
+    )?;
 
-        Ok(())
-    }
+    assert_eq!(
+      picture.average(Point { x: 0.25, y: 0.5 }, PATCH),
+      Ok("ffffff".to_string())
+    );
+    assert_eq!(
+      picture.average(Point { x: 0.75, y: 0.5 }, PATCH),
+      Ok("000000".to_string())
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_commonest_color_is_what_most_of_the_screen_is() -> Result<(), Failure> {
+    let picture = paint_picture(
+      "a-square",
+      Size {
+        width: 100,
+        height: 100,
+      },
+      |point| match ::core::primitive::bool::then_some(point.x < 20 && point.y < 20, ()) {
+        ::core::option::Option::Some(()) => [255, 255, 255],
+        ::core::option::Option::None => [25, 25, 25],
+      },
+    )?;
+
+    assert_eq!(
+      picture.most_common(),
+      Ok("191919".to_string()),
+      "the ground, not the square on it"
+    );
+
+    Ok(())
+  }
 }

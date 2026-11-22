@@ -222,6 +222,40 @@ The model earns its keep only if the familiar things fall out of it.
                 permits. The architectural graph and the execution graph are
                 deliberately not required to be the same graph.
 
+### Object identity
+
+Objects that services refer to independently have typed IDs in their owning
+namespaces. Execution contexts, shared memory, channels, devices, service
+instances, and files are examples. An ID remains stable for the object's
+lifetime. Capability handles are local to their holders and carry the
+authority to act on the objects they reference.
+
+An event has an ID of its own. It records the source PID when a process
+originated it and identifies the target object when the event has one.
+The event service gets the source PID from the sending context. Kernel and
+device events use their own source identities.
+
+Each file has a unique, stable ID within its filesystem. Names are mutable
+metadata. A directory may contain several files with the same displayed name,
+so lookup by name returns the matching entries the caller can see. Rename
+preserves the file ID. A deleted ID stays retired so a stale reference cannot
+resolve to a different file, including after a restart. Opening a file by ID
+still requires a capability that authorizes access to that file.
+
+### Event transitions and recovery
+
+The kernel event primitives commit state, effect slots, and effect credits
+together. A full queue returns the incoming event to its producer. Input
+edges stay ordered. Only a newer pointer snapshot for the same device can
+replace the snapshot at the tail. Each completion matches a pending operation
+ID, target, generation, and trusted source before returning its charge.
+
+The filesystem recovery model persists a complete copy-on-write root before
+publishing its durable selector. The file-ID counter is part of the committed
+root. The I9 fusion model verifies the sender, receiver, channel, and grant
+generation against the capability graph. Its ordinary and fused paths must
+agree on effects and charges through receipt, cancellation, and peer exit.
+
 ## Experiments, in order
 
 **E0 — Baseline and attack.** Build the smallest object/capability/channel/
@@ -242,6 +276,18 @@ merely slow.
 
 **E3 — Revocation curves (Fork 3).** Steady-state access cost and revocation
 cost as separate curves, over a churn rate taken from E0 rather than assumed.
+
+The single-core round-robin selector uses 64 slots, one per admitted
+context. A continuously runnable context is selected within 64 decisions even
+if other contexts wake or park. With a stable set of `N` runnable contexts,
+each gets one turn in `N` decisions. The bound depends on timer preemption
+for a bound in elapsed time.
+
+The revocation slice model spends the same budget on discovery, detachment,
+and cleanup. It counts individual derivation edges, handle removals and
+releases, child relinks, queued messages, and job reaping steps. To use this
+in the kernel, the revoked authority must become unavailable before the
+first yield, and cleanup must retain its position between slices.
 
 **E4 — Everything about devices and networking.** Only after E1 through E3.
 These are the questions the conversation reached for first and they cannot be
@@ -299,3 +345,64 @@ priced out, and the design should retreat to long-lived services with static
 authority graphs.
 
 Either result is worth more than continuing to reason about it.
+
+## Notes
+
+### Lessons from Bend
+
+**Parallel work within one budget (I1, I8).** Bend 1's HVM2 runtime can rewrite
+independent pairs of nodes in an interaction net concurrently. Bend 2 exposes a
+binary fork/join operation. Independent branches can run together, and the
+slower branch determines when the join can finish. A filesystem service could
+use this shape to hash immutable blocks. Each branch needs only its input bytes.
+The service keeps the device capability, and CPU time on every core counts
+against the same budget. The runtime can choose the batch size while the OS
+decides how much CPU time the service gets.
+[Bend 1](https://github.com/HigherOrderCO/Bend1) ·
+[HVM2 evaluation rules](https://github.com/HigherOrderCO/HVM2/blob/main/paper/HVM2.pdf) ·
+[Bend 2 parallelism](https://github.com/bendlang/bend/blob/main/guide/GUIDE.md#parallelism)
+
+**Ownership of a pending send (I4–I6, E2).** Bend 2 makes I/O handles affine.
+Each operation consumes its handle and can return it for the next use. A
+pending send could expose an affine cancellation handle. The channel would
+still have to settle the race between receipt and withdrawal atomically.
+Receipt transfers the payload and its charge together. Withdrawal returns the
+payload to the sender and releases the peer-window reservation. Affine means
+*at most once*, so the caller can also drop the handle. E2 should cover both
+a dropped handle and sender exit while a receive is pending, and check who
+owns the message and when the reservation is released.
+[Bend 2 quantities](https://github.com/bendlang/bend/blob/main/guide/GUIDE.md#quantities) ·
+[Bend 2 I/O handles](https://github.com/bendlang/bend/blob/main/guide/GUIDE.md#io-and-concurrency)
+
+**Laws for channel fusion (I4–I6, I9).** Bend 2 lets an author state a law
+independently of its implementation and supply a machine-checked proof. Apply
+that pattern to I9 when the compiler fuses a send/receive pair into a direct
+call. Alongside the authority check, require evidence that the fused call
+preserves the protocol's withdrawal points, the owner charged while the
+receiver stalls, and the bound on resources that peer can retain.
+[Bend 2 laws and proofs](https://github.com/bendlang/bend/blob/main/guide/GUIDE.md#laws-and-proofs)
+
+**Memory retained at a join (I7, E1).** Bend 2's fork/join example suggests
+a parked-footprint test. Construct a chain of nested joins with one completed
+sibling result of fixed size at each level. Park the deepest unfinished branch
+and vary the depth. Record the scheduler descriptor, pending join records, and
+bytes of sibling results kept live solely for resumption. If only the descriptor
+stays constant, report the depth-dependent continuation cost and identify the
+budget that pays it. I7 as written concerns the whole parked footprint.
+[Bend 2 fork/join example](https://github.com/bendlang/bend/blob/main/guide/GUIDE.md#parallelism)
+
+**Parallel frame experiment (I1, I5, I8, I10).** A scheduler transition
+changes ownership of a continuation atomically. A generation-tagged lease
+identifies the current core. A wake racing with a park leaves one queue entry.
+
+The renderer model splits a four-pixel surface into two tiles. Each tile reads
+the same immutable display list, preserves draw order, and owns a disjoint
+output range. The join publishes only the wanted submission, after both tile
+results are visible. Display scanout and DMA release can arrive in either
+order. The frame is scrubbed after both have released it and before reuse.
+
+The queue model gives each job two reservations and caps the charged bytes
+and work per batch. A completed batch remains charged while it owns buffers.
+At the next batch boundary, ready interactive work precedes background work.
+These proofs count dispatches and work units. Hardware timing and the actual
+CPU/GPU memory dependencies belong to the driver experiment.

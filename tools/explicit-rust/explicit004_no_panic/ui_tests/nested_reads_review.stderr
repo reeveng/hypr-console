@@ -1,0 +1,47 @@
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads_review.rs:12:21
+   |
+LL |     assert!(opaque!(value().unwrap()) > 0);
+   |                     ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+   = note: `#[deny(explicit004_no_panic)]` on by default
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads_review.rs:7:60
+   |
+LL | macro_rules! exact_tokens { ($value:ident().unwrap()) => { $value().unwrap() }; }
+   |                                                            ^^^^^^^^^^^^^^^^^
+...
+LL |     assert!(exact_tokens!(value().unwrap()) > 0);
+   |             ------------------------------- in this macro invocation
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+   = note: this error originates in the macro `exact_tokens` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: `expect` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads_review.rs:15:13
+   |
+LL |     assert!(value().expect(&text) > 0);
+   |             ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads_review.rs:16:23
+   |
+LL |     let callback = || value().unwrap();
+   |                       ^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `expect` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/nested_reads_review.rs:23:13
+   |
+LL |     assert!(Option::<u8>::None.expect("missing glyph") > 0);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: aborting due to 5 previous errors
+

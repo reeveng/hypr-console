@@ -29,6 +29,11 @@
 //! where a thing that can be rebuilt belongs. Someone who clears the cache
 //! gets a panel that opens the way it did before there was one, which is the
 //! only thing any of this is allowed to cost.
+//!
+//! An answer that never came from a program is kept here too, as the bytes it
+//! arrived in. Bluetooth asks bluez over the bus, and what it keeps is bluez's
+//! reply as it came off the wire, which the tab reads back with the reading it
+//! gave the live one -- the rule above, held for an answer that was never text.
 
 use std::path::PathBuf;
 
@@ -39,114 +44,139 @@ use console_core_places::Base;
 use crate::running;
 
 fn beside(note: &str) -> Result<Option<PathBuf>, Never> {
-    let ours = Base::Cache.ours()?;
+  let ours = Base::Cache.ours()?;
 
-    let Ok(whose) = crate::whose::argv0();
-    let Ok(filed) = filed(note);
+  let Ok(whose) = crate::whose::argv0();
+  let Ok(filed) = filed(note);
 
-    Ok(ours.map(|ours| ours.join("asked").join(format!("{whose}.{filed}"))))
+  let name = format!("{whose}.{filed}");
+  let Ok(file) = crate::notes::NoteFile::new(&name);
+
+  Ok(
+    ours
+      .zip(file)
+      .map(|(base, leaf)| base.join("asked").join(leaf)),
+  )
 }
 
 fn filed(note: &str) -> Result<String, Never> {
-    let filed: String = note
-        .chars()
-        .map(|letter| match letter.is_ascii_alphanumeric() {
-            true => letter.to_ascii_lowercase(),
-            false => '-',
-        })
-        .collect();
-
-    Ok(match filed.is_empty() {
-        true => "asked".to_string(),
-        false => filed,
+  let filed: String = note
+    .chars()
+    .map(|letter| match ::core::primitive::bool::then_some(letter.is_ascii_alphanumeric(), ()) {
+      ::core::option::Option::Some(()) => letter.to_ascii_lowercase(),
+      ::core::option::Option::None => '-',
     })
+    .collect();
+
+  Ok(match ::core::primitive::bool::then_some(filed.is_empty(), ()) {
+    ::core::option::Option::Some(()) => "asked".to_string(),
+    ::core::option::Option::None => filed,
+  })
+}
+
+pub fn kept(note: &str) -> Result<Vec<u8>, Never> {
+  let Ok(beside) = beside(note);
+
+  let path = match beside {
+    Some(path) => path,
+    None => return Ok(Vec::new()),
+  };
+
+  let said = match std::fs::read(path) {
+    Ok(said) => said,
+    Err(_unreadable) => return Ok(Vec::new()),
+  };
+
+  Ok(said)
 }
 
 pub fn last(note: &str) -> Result<String, Never> {
-    let Ok(beside) = beside(note);
+  let Ok(kept) = kept(note);
 
-    let path = match beside {
-        Some(path) => path,
-        None => return Ok(String::new()),
-    };
-
-    let said = match std::fs::read_to_string(path) {
-        Ok(said) => said,
-        Err(_unreadable) => return Ok(String::new()),
-    };
-
-    Ok(said)
+  Ok(match String::from_utf8(kept) {
+    Ok(said) => said,
+    Err(_not_text) => String::new(),
+  })
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Output<'a>(&'a str);
 
 pub fn run_and_note(note: &str, program: Program, rest: &[&str]) -> Result<String, Never> {
-    let Ok(said) = running::run_output(program, rest);
-    let Ok(()) = keep(note, Output(&said));
+  let Ok(said) = running::run_output(program, rest);
+  let Ok(()) = keep(note, said.as_bytes());
 
-    Ok(said)
+  Ok(said)
 }
 
-fn keep(note: &str, said: Output<'_>) -> Result<(), Never> {
-    let Ok(last) = last(note);
+pub fn keep(note: &str, said: &[u8]) -> Result<(), Never> {
+  let Ok(kept) = kept(note);
 
-    match last == said.0 {
-        true => return Ok(()),
-        false => {},
+  match ::core::primitive::bool::then_some(kept == said, ()) {
+    ::core::option::Option::Some(()) => return Ok(()),
+    ::core::option::Option::None => {}
+  }
+
+  let Ok(beside) = beside(note);
+
+  let path = match beside {
+    Some(path) => path,
+    None => return Ok(()),
+  };
+
+  let holding = match path.parent() {
+    Some(holding) => holding,
+    None => return Ok(()),
+  };
+
+  match std::fs::create_dir_all(holding) {
+    Ok(()) => {}
+    Err(fault) => {
+      console_core_logging::warn!(
+        "console: {}: keeping what a tab last said: {fault}",
+        holding.display()
+      );
+
+      return Ok(());
     }
+  }
 
-    let Ok(beside) = beside(note);
+  match console_core_atomic_writes::whole(&path, said) {
+    Ok(()) => {}
+    Err(fault) => console_core_logging::warn!(
+      "console: {}: keeping what a tab last said: {fault}",
+      path.display()
+    ),
+  }
 
-    let path = match beside {
-        Some(path) => path,
-        None => return Ok(()),
-    };
-
-    let holding = match path.parent() {
-        Some(holding) => holding,
-        None => return Ok(()),
-    };
-
-    match std::fs::create_dir_all(holding) {
-        Ok(()) => {},
-        Err(fault) => {
-            eprintln!("console: {}: keeping what a tab last said: {fault}", holding.display());
-
-            return Ok(());
-        }
-    }
-
-    let _ = console_core_atomic_writes::whole(&path, said.0.as_bytes());
-
-    Ok(())
+  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_question_is_filed_under_a_name_any_filesystem_would_take() {
-        assert_eq!(filed("sinks"), Ok("sinks".to_string()));
-        assert_eq!(
-            filed("bluetooth AA:BB:CC:DD:EE:FF"),
-            Ok("bluetooth-aa-bb-cc-dd-ee-ff".to_string())
-        );
-        assert_eq!(filed("opens audio/x-opus+ogg"), Ok("opens-audio-x-opus-ogg".to_string()));
-    }
+  #[test]
+  fn a_question_is_filed_under_a_name_any_filesystem_would_take() {
+    assert_eq!(filed("sinks"), Ok("sinks".to_string()));
+    assert_eq!(
+      filed("bluetooth AA:BB:CC:DD:EE:FF"),
+      Ok("bluetooth-aa-bb-cc-dd-ee-ff".to_string())
+    );
+    assert_eq!(
+      filed("opens audio/x-opus+ogg"),
+      Ok("opens-audio-x-opus-ogg".to_string())
+    );
+  }
 
-    #[test]
-    fn a_question_with_no_name_is_still_a_file() {
-        assert_eq!(filed(""), Ok("asked".to_string()));
-        assert_eq!(filed("///"), Ok("---".to_string()));
-    }
+  #[test]
+  fn a_question_with_no_name_is_still_a_file() {
+    assert_eq!(filed(""), Ok("asked".to_string()));
+    assert_eq!(filed("///"), Ok("---".to_string()));
+  }
 
-    #[test]
-    fn a_question_no_one_has_asked_says_nothing() {
-        assert_eq!(
-            last("a question nothing on this machine has ever asked"),
-            Ok(String::new())
-        );
-    }
+  #[test]
+  fn a_question_no_one_has_asked_says_nothing() {
+    assert_eq!(
+      last("a question nothing on this machine has ever asked"),
+      Ok(String::new())
+    );
+  }
 }

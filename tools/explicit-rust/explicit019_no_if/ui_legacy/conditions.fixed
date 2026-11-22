@@ -1,0 +1,42 @@
+// run-rustfix
+// edition:2021
+
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static DROPPED: AtomicBool = AtomicBool::new(false);
+
+struct Observe;
+
+impl Drop for Observe {
+    fn drop(&mut self) {
+        DROPPED.store(true, Ordering::Relaxed);
+    }
+}
+
+const FAILED: Result<bool, Observe> = Err(Observe);
+
+fn main() {
+    let state = RefCell::new(true);
+    match {
+        let _explicit_decision = ::core::primitive::bool::then_some(*state.borrow(), ());
+        _explicit_decision
+    } {
+        ::core::option::Option::Some(()) => {
+            *state.borrow_mut() = false;
+        },
+        ::core::option::Option::None => {},
+    }
+    assert!(!*state.borrow());
+
+    let saw_drop = match FAILED {
+        Ok(answer) => {
+            answer
+        },
+        ::core::result::Result::Err(_) => {
+            DROPPED.load(Ordering::Relaxed)
+        },
+    };
+    assert!(!saw_drop);
+    assert!(DROPPED.load(Ordering::Relaxed));
+}

@@ -1,0 +1,57 @@
+// run-rustfix
+// edition:2024
+
+use std::collections::VecDeque;
+use std::convert::Infallible;
+
+struct Queue {
+    pending: VecDeque<u8>,
+    sum: u8,
+}
+
+impl Queue {
+    fn drain(&mut self) {
+        while let Some(value) = self.pending.pop_front() {
+            self.sum = self.sum.wrapping_add(value);
+        }
+    }
+}
+
+struct Reader(u8);
+
+impl Reader {
+    fn read(&mut self, width: u8) -> Result<Option<u8>, Infallible> {
+        let current = self.0;
+        self.0 = self.0.saturating_sub(width);
+        Ok(match current {
+            0 => None,
+            value => Some(value),
+        })
+    }
+}
+
+fn limited(reader: &mut Reader, width: u8) -> Vec<u8> {
+    let mut output = Vec::new();
+    'read: while let Some(value) = {
+        let Ok(next) = reader.read(width);
+        next
+    } {
+        output.push(value);
+        if value < 4 {
+            break 'read;
+        }
+    }
+    output
+}
+
+fn main() {
+    let mut queue = Queue { pending: VecDeque::from([1, 3, 4]), sum: 0 };
+    queue.drain();
+    assert_eq!(queue.sum, 8);
+    assert!(queue.pending.is_empty());
+
+    let mut reader = Reader(8);
+    assert_eq!(limited(&mut reader, 2), [8, 6, 4, 2]);
+    assert_eq!(reader.0, 0);
+    assert!(limited(&mut reader, 2).is_empty());
+}

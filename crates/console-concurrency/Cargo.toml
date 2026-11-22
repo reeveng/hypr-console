@@ -10,8 +10,10 @@ name = "console_concurrency"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
+console-core-parallel-execution.workspace = true
 
 [lints]
 workspace = true

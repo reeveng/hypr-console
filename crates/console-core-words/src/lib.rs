@@ -64,57 +64,63 @@ use quote::{ToTokens, format_ident, quote};
 use syn::punctuated::Punctuated;
 use syn::{Data, DeriveInput, Error, Fields, Ident, LitStr, MetaNameValue, Token, Variant};
 
-#[cfg_attr(dylint_lib = "explicit002_infallible_result", allow(explicit002_infallible_result, reason = "a derive answers the compiler in token streams, and a `Result` does not cross that boundary any more than it crosses an `extern` one"))]
+#[cfg_attr(
+  dylint_lib = "explicit002_infallible_result",
+  allow(
+    explicit002_infallible_result,
+    reason = "a derive answers the compiler in token streams, and a `Result` does not cross that boundary any more than it crosses an `extern` one"
+  )
+)]
 #[proc_macro_derive(Words, attributes(words))]
 pub fn words(asked: TokenStream) -> TokenStream {
-    let read = syn::parse::<DeriveInput>(asked);
-    let written = read.and_then(|enumeration| expand_derive(&enumeration));
+  let read = syn::parse::<DeriveInput>(asked);
+  let written = read.and_then(|enumeration| expand_derive(&enumeration));
 
-    match written {
-        Ok(spelled) => proc_macro::TokenStream::from(spelled),
-        Err(fault) => proc_macro::TokenStream::from(fault.to_compile_error()),
-    }
+  match written {
+    Ok(spelled) => proc_macro::TokenStream::from(spelled),
+    Err(fault) => proc_macro::TokenStream::from(fault.to_compile_error()),
+  }
 }
 
 struct Spelled {
-    variant: Ident,
-    words: Vec<(Ident, LitStr)>,
+  variant: Ident,
+  words: Vec<(Ident, LitStr)>,
 }
 
 struct Word {
-    name: Ident,
-    over: Vec<(Ident, LitStr)>,
+  name: Ident,
+  over: Vec<(Ident, LitStr)>,
 }
 
 fn expand_derive(asked: &DeriveInput) -> Result<Written, Error> {
-    let held = match &asked.data {
-        Data::Enum(held) => Ok(&held.variants),
-        Data::Struct(_) | Data::Union(_) => Err(Error::new_spanned(
-            &asked.ident,
-            "only an enum spells words: a variant is what carries one",
-        )),
-    };
+  let held = match &asked.data {
+    Data::Enum(held) => Ok(&held.variants),
+    Data::Struct(_) | Data::Union(_) => Err(Error::new_spanned(
+      &asked.ident,
+      "only an enum spells words: a variant is what carries one",
+    )),
+  };
 
-    let variants = held?;
-    let mut spelled = Vec::new();
+  let variants = held?;
+  let mut spelled = Vec::new();
 
-    for variant in variants {
-        let said = variant_words(variant)?;
+  for variant in variants {
+    let said = variant_words(variant)?;
 
-        spelled.push(said);
-    }
+    spelled.push(said);
+  }
 
-    let every = gather_words(&asked.ident, &spelled)?;
-    let holding = &asked.ident;
-    let declared = spelled.iter().map(|said| {
-        let variant = &said.variant;
+  let every = gather_words(&asked.ident, &spelled)?;
+  let holding = &asked.ident;
+  let declared = spelled.iter().map(|said| {
+    let variant = &said.variant;
 
-        quote! { #holding::#variant }
-    });
-    let visibility = &asked.vis;
-    let (outside, inside, clause) = asked.generics.split_for_impl();
+    quote! { #holding::#variant }
+  });
+  let visibility = &asked.vis;
+  let (outside, inside, clause) = asked.generics.split_for_impl();
 
-    let each = every.into_iter().map(|word| {
+  let each = every.into_iter().map(|word| {
         let name = word.name;
         let reverse = format_ident!("from_{}", name);
         let arms = word.over.iter().map(|(variant, said)| quote! { #holding::#variant => #said, });
@@ -136,153 +142,177 @@ fn expand_derive(asked: &DeriveInput) -> Result<Written, Error> {
         }
     });
 
-    Ok(quote! {
-        impl #outside #holding #inside #clause {
-            #[allow(dead_code, reason = "every variant is listed for every enum that says words, and an enum only ever read one word at a time never walks it")]
-            #visibility const VARIANTS: &'static [Self] = &[#(#declared),*];
+  Ok(quote! {
+      impl #outside #holding #inside #clause {
+          #[allow(dead_code, reason = "every variant is listed for every enum that says words, and an enum only ever read one word at a time never walks it")]
+          #visibility const VARIANTS: &'static [Self] = &[#(#declared),*];
 
-            #(#each)*
-        }
-    })
+          #(#each)*
+      }
+  })
 }
 
 fn variant_words(variant: &Variant) -> Result<Spelled, Error> {
-    let unit = match &variant.fields {
-        Fields::Unit => Ok(()),
-        Fields::Named(_) | Fields::Unnamed(_) => Err(Error::new_spanned(
-            variant,
-            "a variant that carries a value has no one word: what it spells would depend on what is in it",
-        )),
+  let unit = match &variant.fields {
+    Fields::Unit => Ok(()),
+    Fields::Named(_) | Fields::Unnamed(_) => Err(Error::new_spanned(
+      variant,
+      "a variant that carries a value has no one word: what it spells would depend on what is in it",
+    )),
+  };
+
+  unit?;
+
+  let mut words = Vec::new();
+
+  for attribute in &variant.attrs {
+    let word_attribute = attribute.path().get_ident().filter(|name| *name == "words");
+
+    match word_attribute {
+      Some(_) => {
+        let read =
+          attribute.parse_args_with(Punctuated::<MetaNameValue, Token![,]>::parse_terminated);
+
+        let said = read?;
+
+        for one in said {
+          let named = match one.path.get_ident() {
+            Some(name) => Ok(name.clone()),
+            None => Err(Error::new_spanned(
+              &one.path,
+              "a word is said as `name = \"the word\"`",
+            )),
+          };
+
+          let name = named?;
+          let word = syn::parse2::<LitStr>(one.value.to_token_stream())?;
+
+          words.push((name, word));
+        }
+      }
+      None => {}
+    }
+  }
+
+  for (name, _) in &words {
+    let once = match words.iter().filter(|(called, _)| called == name).count() {
+      1 => Ok(()),
+      _ => Err(Error::new_spanned(
+        name,
+        format!("`{name}` is said twice by this variant"),
+      )),
     };
 
-    unit?;
+    once?;
+  }
 
-    let mut words = Vec::new();
-
-    for attribute in &variant.attrs {
-        let mine = attribute.path().is_ident("words");
-
-        match mine {
-            true => {
-                let read = attribute
-                    .parse_args_with(Punctuated::<MetaNameValue, Token![,]>::parse_terminated);
-
-                let said = read?;
-
-                for one in said {
-                    let named = match one.path.get_ident() {
-                        Some(name) => Ok(name.clone()),
-                        None => Err(Error::new_spanned(
-                            &one.path,
-                            "a word is said as `name = \"the word\"`",
-                        )),
-                    };
-
-                    let name = named?;
-                    let word = syn::parse2::<LitStr>(one.value.to_token_stream())?;
-
-                    words.push((name, word));
-                }
-            }
-            false => {}
-        }
-    }
-
-    for (name, _) in &words {
-        let once = match words.iter().filter(|(called, _)| called == name).count() {
-            1 => Ok(()),
-            _ => Err(Error::new_spanned(name, format!("`{name}` is said twice by this variant"))),
-        };
-
-        once?;
-    }
-
-    Ok(Spelled { variant: variant.ident.clone(), words })
+  Ok(Spelled {
+    variant: variant.ident.clone(),
+    words,
+  })
 }
 
 fn gather_words(holding: &Ident, spelled: &[Spelled]) -> Result<Vec<Word>, Error> {
-    let found = match spelled.first() {
-        Some(first) => Ok(first),
-        None => Err(Error::new_spanned(holding, "an enum with no variants has nothing to spell")),
-    };
+  let found = match spelled.first() {
+    Some(first) => Ok(first),
+    None => Err(Error::new_spanned(
+      holding,
+      "an enum with no variants has nothing to spell",
+    )),
+  };
 
-    let first = found?;
+  let first = found?;
 
-    let any = match first.words.is_empty() {
-        true => Err(Error::new_spanned(
-            &first.variant,
-            "a variant says what it is called: `#[words(word = \"the word\")]`",
-        )),
-        false => Ok(()),
-    };
+  let any = match first.words.as_slice() {
+    [] => Err(Error::new_spanned(
+      &first.variant,
+      "a variant says what it is called: `#[words(word = \"the word\")]`",
+    )),
+    [_first, ..] => Ok(()),
+  };
 
-    any?;
+  any?;
 
-    let spoken: Vec<BTreeMap<String, &LitStr>> = spelled
+  let spoken: Vec<BTreeMap<String, &LitStr>> = spelled
+    .iter()
+    .map(|one| {
+      one
+        .words
         .iter()
-        .map(|one| one.words.iter().map(|(called, word)| (called.to_string(), word)).collect())
-        .collect();
+        .map(|(called, word)| (called.to_string(), word))
+        .collect()
+    })
+    .collect();
 
-    let asked: BTreeSet<String> = first.words.iter().map(|(called, _)| called.to_string()).collect();
+  let asked: BTreeSet<String> = first
+    .words
+    .iter()
+    .map(|(called, _)| called.to_string())
+    .collect();
 
-    for one in spelled {
-        for (name, _) in &one.words {
-            let known = asked.contains(&name.to_string());
+  for one in spelled {
+    for (name, _) in &one.words {
+      let shared = match asked.get(&name.to_string()) {
+        Some(_) => Ok(()),
+        None => Err(Error::new_spanned(
+          name,
+          format!(
+            "`{}` says nothing called `{name}`, and every variant says the same words",
+            first.variant
+          ),
+        )),
+      };
 
-            let shared = match known {
-                true => Ok(()),
-                false => Err(Error::new_spanned(
-                    name,
-                    format!("`{}` says nothing called `{name}`, and every variant says the same words", first.variant),
-                )),
-            };
+      shared?;
+    }
+  }
 
-            shared?;
-        }
+  let mut every = Vec::new();
+
+  for (name, _) in &first.words {
+    let mut words = Vec::new();
+
+    for (one, spoken_words) in spelled.iter().zip(&spoken) {
+      let named_word = spoken_words.get(&name.to_string());
+
+      let word = match named_word {
+        Some(word) => Ok(*word),
+        None => Err(Error::new_spanned(
+          &one.variant,
+          format!("every variant says `{name}` and this one does not"),
+        )),
+      };
+
+      let literal = word?;
+
+      words.push((one.variant.clone(), literal.clone()));
     }
 
-    let mut every = Vec::new();
+    every.push(Word {
+      name: name.clone(),
+      over: words,
+    });
+  }
 
-    for (name, _) in &first.words {
-        let mut words = Vec::new();
-
-        for (one, said) in spelled.iter().zip(&spoken) {
-            let found = said.get(&name.to_string());
-
-            let word = match found {
-                Some(word) => Ok(*word),
-                None => Err(Error::new_spanned(
-                    &one.variant,
-                    format!("every variant says `{name}` and this one does not"),
-                )),
-            };
-
-            let said = word?;
-
-            words.push((one.variant.clone(), said.clone()));
-        }
-
-        every.push(Word { name: name.clone(), over: words });
-    }
-
-    Ok(every)
+  Ok(every)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn expand(from: &str) -> Result<String, Error> {
-        let read = syn::parse_str::<DeriveInput>(from)?;
-        let written = expand_derive(&read)?;
+  fn expand(from: &str) -> Result<String, Error> {
+    let read = syn::parse_str::<DeriveInput>(from)?;
+    let written = expand_derive(&read)?;
 
-        Ok(written.to_string())
-    }
+    Ok(written.to_string())
+  }
 
-    #[test]
-    fn one_function_is_written_for_each_word_over_every_variant() -> Result<(), Box<dyn std::error::Error>> {
-        let written = expand(
-            r#"
+  #[test]
+  fn one_function_is_written_for_each_word_over_every_variant()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let written = expand(
+      r#"
             pub enum Layer {
                 #[words(tag = "us", written = "ABC")]
                 Latin,
@@ -290,21 +320,22 @@ mod tests {
                 Thai,
             }
             "#,
-        )?;
+    )?;
 
-        assert!(written.contains("pub const fn tag"), "{written}");
-        assert!(written.contains("pub const fn written"), "{written}");
-        assert!(written.contains(r#"Layer :: Latin => "us""#), "{written}");
-        assert!(written.contains(r#"Layer :: Thai => "th""#), "{written}");
-        assert!(written.contains(r#"Layer :: Thai => "ไทย""#), "{written}");
+    assert!(written.contains("pub const fn tag"), "{written}");
+    assert!(written.contains("pub const fn written"), "{written}");
+    assert!(written.contains(r#"Layer :: Latin => "us""#), "{written}");
+    assert!(written.contains(r#"Layer :: Thai => "th""#), "{written}");
+    assert!(written.contains(r#"Layer :: Thai => "ไทย""#), "{written}");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn every_variant_stands_in_the_order_the_enum_declares_it() -> Result<(), Box<dyn std::error::Error>> {
-        let written = expand(
-            r#"
+  #[test]
+  fn every_variant_stands_in_the_order_the_enum_declares_it()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let written = expand(
+      r#"
             pub enum Layer {
                 #[words(tag = "us")]
                 Latin,
@@ -314,35 +345,39 @@ mod tests {
                 Greek,
             }
             "#,
-        )?;
+    )?;
 
-        assert!(written.contains("pub const VARIANTS"), "{written}");
-        assert!(written.contains("[Layer :: Latin , Layer :: Thai , Layer :: Greek]"), "{written}");
+    assert!(written.contains("pub const VARIANTS"), "{written}");
+    assert!(
+      written.contains("[Layer :: Latin , Layer :: Thai , Layer :: Greek]"),
+      "{written}"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_word_is_as_public_as_the_enum_that_says_it() -> Result<(), Box<dyn std::error::Error>> {
-        let written = expand(
-            r#"
+  #[test]
+  fn a_word_is_as_public_as_the_enum_that_says_it() -> Result<(), Box<dyn std::error::Error>> {
+    let written = expand(
+      r#"
             enum Note {
                 #[words(word = "awake")]
                 Awake,
             }
             "#,
-        )?;
+    )?;
 
-        assert!(written.contains("const fn word"), "{written}");
-        assert!(!written.contains("pub const fn word"), "{written}");
+    assert!(written.contains("const fn word"), "{written}");
+    assert!(!written.contains("pub const fn word"), "{written}");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_variant_that_says_nothing_the_others_say_is_refused() -> Result<(), Box<dyn std::error::Error>> {
-        let fault = match expand(
-            r#"
+  #[test]
+  fn a_variant_that_says_nothing_the_others_say_is_refused()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let fault = match expand(
+      r#"
             pub enum Layer {
                 #[words(tag = "us", written = "ABC")]
                 Latin,
@@ -350,20 +385,24 @@ mod tests {
                 Thai,
             }
             "#,
-        ) {
-            Err(fault) => fault,
-            Ok(written) => return Err(Box::from(format!("a variant that says one of the two words was spelled rather than refused: {written}"))),
-        };
+    ) {
+      Err(fault) => fault,
+      Ok(written) => {
+        return Err(Box::from(format!(
+          "a variant that says one of the two words was spelled rather than refused: {written}"
+        )));
+      }
+    };
 
-        assert!(fault.to_string().contains("written"), "{fault}");
+    assert!(fault.to_string().contains("written"), "{fault}");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_word_nothing_else_says_is_refused() -> Result<(), Box<dyn std::error::Error>> {
-        let fault = match expand(
-            r#"
+  #[test]
+  fn a_word_nothing_else_says_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let fault = match expand(
+      r#"
             pub enum Layer {
                 #[words(tag = "us")]
                 Latin,
@@ -371,39 +410,47 @@ mod tests {
                 Thai,
             }
             "#,
-        ) {
-            Err(fault) => fault,
-            Ok(written) => return Err(Box::from(format!("a word only one variant says was spelled rather than refused: {written}"))),
-        };
+    ) {
+      Err(fault) => fault,
+      Ok(written) => {
+        return Err(Box::from(format!(
+          "a word only one variant says was spelled rather than refused: {written}"
+        )));
+      }
+    };
 
-        assert!(fault.to_string().contains("flag"), "{fault}");
+    assert!(fault.to_string().contains("flag"), "{fault}");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_word_said_twice_by_one_variant_is_refused() -> Result<(), Box<dyn std::error::Error>> {
-        let fault = match expand(
-            r#"
+  #[test]
+  fn a_word_said_twice_by_one_variant_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let fault = match expand(
+      r#"
             pub enum Layer {
                 #[words(tag = "us", tag = "en")]
                 Latin,
             }
             "#,
-        ) {
-            Err(fault) => fault,
-            Ok(written) => return Err(Box::from(format!("one variant, one word, two answers was spelled rather than refused: {written}"))),
-        };
+    ) {
+      Err(fault) => fault,
+      Ok(written) => {
+        return Err(Box::from(format!(
+          "one variant, one word, two answers was spelled rather than refused: {written}"
+        )));
+      }
+    };
 
-        assert!(fault.to_string().contains("twice"), "{fault}");
+    assert!(fault.to_string().contains("twice"), "{fault}");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_variant_carrying_a_value_has_no_one_word() -> Result<(), Box<dyn std::error::Error>> {
-        let fault = match expand(
-            r#"
+  #[test]
+  fn a_variant_carrying_a_value_has_no_one_word() -> Result<(), Box<dyn std::error::Error>> {
+    let fault = match expand(
+      r#"
             pub enum Expiry {
                 #[words(said = "0")]
                 Stays,
@@ -411,60 +458,75 @@ mod tests {
                 Milliseconds(u32),
             }
             "#,
-        ) {
-            Err(fault) => fault,
-            Ok(written) => return Err(Box::from(format!("a variant with a field in it was spelled rather than refused: {written}"))),
-        };
+    ) {
+      Err(fault) => fault,
+      Ok(written) => {
+        return Err(Box::from(format!(
+          "a variant with a field in it was spelled rather than refused: {written}"
+        )));
+      }
+    };
 
-        assert!(fault.to_string().contains("carries a value"), "{fault}");
+    assert!(fault.to_string().contains("carries a value"), "{fault}");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_variant_that_says_nothing_at_all_is_refused() -> Result<(), Box<dyn std::error::Error>> {
-        let fault = match expand(
-            r#"
+  #[test]
+  fn a_variant_that_says_nothing_at_all_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let fault = match expand(
+      r#"
             pub enum Layer {
                 Latin,
             }
             "#,
-        ) {
-            Err(fault) => fault,
-            Ok(written) => return Err(Box::from(format!("an enum with no words on it was spelled rather than refused: {written}"))),
-        };
+    ) {
+      Err(fault) => fault,
+      Ok(written) => {
+        return Err(Box::from(format!(
+          "an enum with no words on it was spelled rather than refused: {written}"
+        )));
+      }
+    };
 
-        assert!(fault.to_string().contains("says what it is called"), "{fault}");
+    assert!(
+      fault.to_string().contains("says what it is called"),
+      "{fault}"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn only_an_enum_spells_words() -> Result<(), Box<dyn std::error::Error>> {
-        let fault = match expand("pub struct Where { pub latitude: f64 }") {
-            Err(fault) => fault,
-            Ok(written) => return Err(Box::from(format!("a struct has no variants to carry a word was spelled rather than refused: {written}"))),
-        };
+  #[test]
+  fn only_an_enum_spells_words() -> Result<(), Box<dyn std::error::Error>> {
+    let fault = match expand("pub struct Where { pub latitude: f64 }") {
+      Err(fault) => fault,
+      Ok(written) => {
+        return Err(Box::from(format!(
+          "a struct has no variants to carry a word was spelled rather than refused: {written}"
+        )));
+      }
+    };
 
-        assert!(fault.to_string().contains("only an enum"), "{fault}");
+    assert!(fault.to_string().contains("only an enum"), "{fault}");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_variant_may_carry_another_attribute_as_well() -> Result<(), Box<dyn std::error::Error>> {
-        let written = expand(
-            r#"
+  #[test]
+  fn a_variant_may_carry_another_attribute_as_well() -> Result<(), Box<dyn std::error::Error>> {
+    let written = expand(
+      r#"
             pub enum Kind {
                 #[words(said = "key")]
                 #[serde(rename = "key")]
                 Key,
             }
             "#,
-        )?;
+    )?;
 
-        assert!(written.contains(r#"Kind :: Key => "key""#), "{written}");
+    assert!(written.contains(r#"Kind :: Key => "key""#), "{written}");
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

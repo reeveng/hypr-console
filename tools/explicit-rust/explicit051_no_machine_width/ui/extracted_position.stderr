@@ -1,0 +1,27 @@
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/extracted_position.rs:16:8
+   |
+LL |     Ok(usize::wrapping_mul(position, 8))
+   |        ^^^^^
+   |
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+help: use the conversion that names this machine-width boundary
+   |
+LL -     Ok(usize::wrapping_mul(position, 8))
+LL +     Ok(position.wrapping_mul(8))
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/extracted_position.rs:22:5
+   |
+LL |     usize::wrapping_add(offset, 4)
+   |     ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     usize::wrapping_add(offset, 4)
+LL +     offset.wrapping_add(4)
+   |
+
+error: aborting due to 2 previous errors
+

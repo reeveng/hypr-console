@@ -1,0 +1,23 @@
+[package]
+name = "console-core-portable-document-functions"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Reads and evaluates PDF function objects."
+
+[features]
+logging = ["dep:console-core-logging", "console-core-portable-document-syntax/logging"]
+
+[dependencies]
+console-core-portable-document-syntax = { path = "../console-core-portable-document-syntax", default-features = false, features = ["std"] }
+console-core-logging = { workspace = true, optional = true, features = ["std"] }
+
+[lints]
+workspace = true
+
+[dependencies.console-core-never]
+workspace = true
+
+[dependencies.console-core-number-conversion]
+workspace = true

@@ -1,137 +1,261 @@
-//! The calls, the request numbers and the structs, as the kernel spells them.
-//!
-//! Declared against the C library std already links, so nothing here is
-//! anybody else's crate. A request number is written out rather than put
-//! together from `_IOC`'s pieces: it is a fact about this architecture's ABI,
-//! each was checked against what the kernel's own headers expand to, and a
-//! number that is read is one nobody has to trust a shift for.
+//! The typed evdev and uinput calls, request numbers, and structures from
+//! Linux's `input.h` and `uinput.h`. Only this module speaks the ioctl ABI.
 
-use std::ffi::{c_char, c_int, c_short, c_ulong};
+use std::ffi::{CStr, c_char, c_void};
 use std::io;
+use std::os::fd::BorrowedFd;
+use std::ptr;
 
-use crate::codes::BusType;
+use console_core_number_conversion::index;
+use rustix::ioctl::{Ioctl, IoctlOutput, Opcode, ioctl};
 
-pub const IN: c_short = 0x0001;
+use crate::codes::{AbsoluteAxisCode, BusType};
 
-pub const CLOSE_ON_EXEC: c_int = 0o2_000_000;
-
-pub const NOT_BLOCKING: c_int = 0o4_000;
-
-pub const GET_FLAGS: c_int = 3;
-
-pub const SET_FLAGS: c_int = 4;
-
-pub const CREATED: u32 = 0x0000_0100;
-
-pub const CHANGED: u32 = 0x0000_0004;
-
-pub const TEXT: u32 = 256;
-
-pub const BITS: u32 = 96;
-
-pub const GET_ID: c_ulong = 0x8008_4502;
-
-pub const GET_NAME: c_ulong = 0x8100_4506;
-
-pub const GET_PHYSICAL_PATH: c_ulong = 0x8100_4507;
-
-pub const GET_PROPERTIES: c_ulong = 0x8060_4509;
-
-pub const GET_KEYS: c_ulong = 0x8060_4521;
-
-pub const GET_RELATIVE_AXES: c_ulong = 0x8060_4522;
-
-pub const GET_ABSOLUTE_AXES: c_ulong = 0x8060_4523;
-
-pub const GET_MISC: c_ulong = 0x8060_4524;
-
-pub const GET_FORCE_FEEDBACK: c_ulong = 0x8060_4535;
-
-pub const GET_ABSOLUTE: c_ulong = 0x8018_4540;
-
-pub const GRAB: c_ulong = 0x4004_4590;
-
-pub const CREATE: c_ulong = 0x5501;
-
-pub const SETUP: c_ulong = 0x405c_5503;
-
-pub const ABSOLUTE_SETUP: c_ulong = 0x401c_5504;
-
-pub const SET_EVENT_TYPE: c_ulong = 0x4004_5564;
-
-pub const SET_KEY: c_ulong = 0x4004_5565;
-
-pub const SET_RELATIVE_AXIS: c_ulong = 0x4004_5566;
-
-pub const SET_ABSOLUTE_AXIS: c_ulong = 0x4004_5567;
-
-pub const SET_MISC: c_ulong = 0x4004_5568;
-
-pub const SET_PHYSICAL_PATH: c_ulong = 0x4008_556c;
-
-pub const SET_PROPERTY: c_ulong = 0x4004_556e;
-
-pub const GET_SYSTEM_NAME: c_ulong = 0x8040_552c;
-
-pub const SYSTEM_NAME: u32 = 64;
-
-pub const NAME: u32 = 80;
-
-#[repr(C)]
-pub struct Waiting {
-    pub descriptor: c_int,
-    pub events: c_short,
-    pub returned: c_short,
-}
+pub(crate) const NAME: u32 = 80;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct InputId {
-    pub bus: BusType,
-    pub vendor: u16,
-    pub product: u16,
-    pub version: u16,
+  pub bus: BusType,
+  pub vendor: u16,
+  pub product: u16,
+  pub version: u16,
 }
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AbsInfo {
-    pub value: i32,
-    pub minimum: i32,
-    pub maximum: i32,
-    pub fuzz: i32,
-    pub flat: i32,
-    pub resolution: i32,
+  pub value: i32,
+  pub minimum: i32,
+  pub maximum: i32,
+  pub fuzz: i32,
+  pub flat: i32,
+  pub resolution: i32,
 }
 
 #[repr(C)]
-pub struct UinputSetup {
-    pub id: InputId,
-    pub name: [c_char; 80],
-    pub effects: u32,
+pub(crate) struct UinputSetup {
+  pub id: InputId,
+  pub name: [c_char; 80],
+  pub effects: u32,
 }
 
 #[repr(C)]
-pub struct AbsoluteSetup {
-    pub code: u16,
-    pub information: AbsInfo,
+pub(crate) struct AbsoluteSetup {
+  pub code: u16,
+  pub information: AbsInfo,
 }
 
-unsafe extern "C" {
-    pub fn poll(waiting: *mut Waiting, many: c_ulong, patience: c_int) -> c_int;
-
-    pub fn inotify_init1(flags: c_int) -> c_int;
-
-    pub fn inotify_add_watch(descriptor: c_int, path: *const c_char, mask: u32) -> c_int;
-
-    pub fn ioctl(file: c_int, request: c_ulong, ...) -> c_int;
-
-    pub fn fcntl(file: c_int, command: c_int, ...) -> c_int;
+pub(crate) enum Description {
+  Name,
+  PhysicalPath,
 }
 
-pub fn check(code: c_int) -> io::Result<c_int> {
-    match code {
-        -1 => Err(io::Error::last_os_error()),
-        code => Ok(code),
+pub(crate) enum Capability {
+  Keys,
+  RelativeAxes,
+  AbsoluteAxes,
+  Miscellaneous,
+  ForceFeedback,
+  Properties,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum UinputCode {
+  EventType,
+  Key,
+  RelativeAxis,
+  AbsoluteAxis,
+  Miscellaneous,
+  Property,
+}
+
+pub(crate) enum Grab {
+  Take,
+  Release,
+}
+
+struct Axis(u16);
+
+enum Call<'a> {
+  Identity(&'a mut InputId),
+  Text(Description, &'a mut [u8; 256]),
+  Bits(Capability, &'a mut [u8; 96]),
+  Absolute(Axis, &'a mut AbsInfo),
+  Grab(Grab),
+  Create,
+  Setup(&'a UinputSetup),
+  AbsoluteSetup(&'a AbsoluteSetup),
+  Code(UinputCode, u16),
+  PhysicalPath(&'a CStr),
+  SystemName(&'a mut [u8; 64]),
+}
+
+impl Call<'_> {
+  #[cfg_attr(
+    dylint_lib = "explicit058_contain_unsafe",
+    expect(
+      explicit058_contain_unsafe,
+      reason = "each private Call variant pairs a Linux evdev or uinput request with its required argument and preserves the borrowed buffer until the syscall finishes"
+    )
+  )]
+  fn run(self, file: BorrowedFd<'_>) -> io::Result<()> {
+    // SAFETY: Call stores the lifetime and argument type for each request.
+    // The kernel checks that the descriptor supports the request.
+    unsafe { ioctl(file, self) }.map_err(io::Error::from)
+  }
+}
+
+#[cfg_attr(
+  dylint_lib = "explicit058_contain_unsafe",
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the private evdev and uinput request variants bind each ABI opcode to the matching live buffer or immediate argument"
+  )
+)]
+// SAFETY: The request numbers and the argument layouts match the Linux
+// input and uinput headers. Write requests borrow initialized buffers,
+// and read requests borrow exclusive buffers of the size in the opcode.
+unsafe impl Ioctl for Call<'_> {
+  type Output = ();
+
+  const IS_MUTATING: bool = true;
+
+  fn opcode(&self) -> Opcode {
+    match self {
+      Self::Identity(_) => 0x8008_4502,
+      Self::Text(Description::Name, _) => 0x8100_4506,
+      Self::Text(Description::PhysicalPath, _) => 0x8100_4507,
+      Self::Bits(Capability::Keys, _) => 0x8060_4521,
+      Self::Bits(Capability::RelativeAxes, _) => 0x8060_4522,
+      Self::Bits(Capability::AbsoluteAxes, _) => 0x8060_4523,
+      Self::Bits(Capability::Miscellaneous, _) => 0x8060_4524,
+      Self::Bits(Capability::ForceFeedback, _) => 0x8060_4535,
+      Self::Bits(Capability::Properties, _) => 0x8060_4509,
+      Self::Absolute(Axis(axis), _) => 0x8018_4540 | Opcode::from(*axis),
+      Self::Grab(_) => 0x4004_4590,
+      Self::Create => 0x5501,
+      Self::Setup(_) => 0x405c_5503,
+      Self::AbsoluteSetup(_) => 0x401c_5504,
+      Self::Code(UinputCode::EventType, _) => 0x4004_5564,
+      Self::Code(UinputCode::Key, _) => 0x4004_5565,
+      Self::Code(UinputCode::RelativeAxis, _) => 0x4004_5566,
+      Self::Code(UinputCode::AbsoluteAxis, _) => 0x4004_5567,
+      Self::Code(UinputCode::Miscellaneous, _) => 0x4004_5568,
+      Self::Code(UinputCode::Property, _) => 0x4004_556e,
+      Self::PhysicalPath(_) => 0x4008_556c,
+      Self::SystemName(_) => 0x8040_552c,
     }
+  }
+
+  fn as_ptr(&mut self) -> *mut c_void {
+    match self {
+      Self::Identity(output) => ptr::from_mut(*output).cast(),
+      Self::Text(_, output) => output.as_mut_ptr().cast(),
+      Self::Bits(_, output) => output.as_mut_ptr().cast(),
+      Self::Absolute(_, output) => ptr::from_mut(*output).cast(),
+      Self::Grab(Grab::Take) => ptr::without_provenance_mut(1),
+      Self::Grab(Grab::Release) | Self::Create => ptr::null_mut(),
+      Self::Setup(setup) => ptr::from_ref(*setup).cast_mut().cast(),
+      Self::AbsoluteSetup(setup) => ptr::from_ref(*setup).cast_mut().cast(),
+      Self::Code(_, code) => {
+        let Ok(argument) = index(*code);
+
+        ptr::without_provenance_mut(argument)
+      }
+      Self::PhysicalPath(path) => path.as_ptr().cast_mut().cast(),
+      Self::SystemName(output) => output.as_mut_ptr().cast(),
+    }
+  }
+
+  unsafe fn output_from_ptr(
+    _output: IoctlOutput,
+    _argument: *mut c_void,
+  ) -> rustix::io::Result<()> {
+    Ok(())
+  }
+}
+
+pub(crate) fn identity(file: BorrowedFd<'_>) -> io::Result<InputId> {
+  let mut id = InputId::default();
+  Call::Identity(&mut id).run(file)?;
+
+  Ok(id)
+}
+
+pub(crate) fn text(file: BorrowedFd<'_>, field: Description) -> io::Result<[u8; 256]> {
+  let mut bytes = [0; 256];
+  Call::Text(field, &mut bytes).run(file)?;
+
+  Ok(bytes)
+}
+
+pub(crate) fn bits(file: BorrowedFd<'_>, what: Capability) -> io::Result<[u8; 96]> {
+  let mut bytes = [0; 96];
+  Call::Bits(what, &mut bytes).run(file)?;
+
+  Ok(bytes)
+}
+
+pub(crate) fn absolute(file: BorrowedFd<'_>, axis: AbsoluteAxisCode) -> io::Result<AbsInfo> {
+  let requested_axis = match axis.0 {
+    code @ 0..=0x3f => Axis(code),
+    unknown => {
+      return Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("absolute axis {unknown} is outside the kernel's axis range"),
+      ));
+    }
+  };
+  let mut information = AbsInfo::default();
+  Call::Absolute(requested_axis, &mut information).run(file)?;
+
+  Ok(information)
+}
+
+pub(crate) fn grab(file: BorrowedFd<'_>, grabbed: Grab) -> io::Result<()> {
+  Call::Grab(grabbed).run(file)
+}
+
+pub(crate) fn create(file: BorrowedFd<'_>) -> io::Result<()> {
+  Call::Create.run(file)
+}
+
+pub(crate) fn setup(file: BorrowedFd<'_>, described: &UinputSetup) -> io::Result<()> {
+  Call::Setup(described).run(file)
+}
+
+pub(crate) fn absolute_setup(file: BorrowedFd<'_>, setup: &AbsoluteSetup) -> io::Result<()> {
+  Call::AbsoluteSetup(setup).run(file)
+}
+
+pub(crate) fn code(file: BorrowedFd<'_>, what: UinputCode, number: u16) -> io::Result<()> {
+  Call::Code(what, number).run(file)
+}
+
+pub(crate) fn physical_path(file: BorrowedFd<'_>, path: &CStr) -> io::Result<()> {
+  Call::PhysicalPath(path).run(file)
+}
+
+pub(crate) fn system_name(file: BorrowedFd<'_>) -> io::Result<[u8; 64]> {
+  let mut bytes = [0; 64];
+  Call::SystemName(&mut bytes).run(file)?;
+
+  Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn ioctl_structs_match_the_linux_input_abi() {
+    assert_eq!(std::mem::size_of::<InputId>(), 8);
+    assert_eq!(std::mem::size_of::<AbsInfo>(), 24);
+    assert_eq!(std::mem::size_of::<AbsoluteSetup>(), 28);
+    assert_eq!(std::mem::offset_of!(AbsoluteSetup, information), 4);
+    assert_eq!(std::mem::size_of::<UinputSetup>(), 92);
+    assert_eq!(std::mem::offset_of!(UinputSetup, name), 8);
+    assert_eq!(std::mem::offset_of!(UinputSetup, effects), 88);
+  }
 }

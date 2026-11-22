@@ -1,18 +1,12 @@
-//! Where the pool is, said once.
+//! The daemon's event socket location.
 
 use std::path::PathBuf;
 
+use console_operating_system_linux::events::place;
+pub use console_operating_system_linux::events::place::SOCKET;
+
 use crate::Unserved;
 
-pub const SOCKET: &str = "events.sock";
-
 pub fn socket() -> Result<PathBuf, Unserved> {
-    let Ok(ours) = console_core_places::application_runtime();
-
-    let ours = match ours {
-        Some(ours) => ours,
-        None => return Err(Unserved::Sessionless),
-    };
-
-    Ok(ours.join(SOCKET))
+  place::socket().map_err(|_missing| Unserved::Sessionless)
 }

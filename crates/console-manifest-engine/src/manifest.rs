@@ -36,8 +36,12 @@
 //! old word and means the same thing by it. A manifest being applied is read as
 //! [`Reading::Today`] and refuses it, because a word nobody writes any more is
 //! one somebody wrote by mistake.
+//!
+//! `LiveFile` gives an absolute manifest path a relative view for source
+//! lookup. A `BuildName` fits in a single executable-name component.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use console_core_ini_files::{heading, without_a_comment};
 use console_core_never::Never;
@@ -52,20 +56,72 @@ pub const ONCE_AS_IT_WAS: &str = "theirs";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reading {
-    Today,
-    Recorded,
+  Today,
+  Recorded,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Written {
-    Always,
-    Once,
+  Always,
+  Once,
+}
+
+pub struct LiveFile<'a>(&'a str);
+
+impl<'a> LiveFile<'a> {
+  pub fn parse(live: &'a str) -> Result<Self, Unapplied> {
+    let relative = live.strip_prefix('/');
+
+    let path = match relative {
+      Some(path) => path,
+      None => return Err(Unapplied::InvalidFilePath(live.to_string())),
+    };
+
+    match ::core::primitive::bool::then_some(path
+      .split('/')
+      .all(|name| !matches!(name, "" | "." | "..") && !name.contains('\0')), ())
+    {
+      ::core::option::Option::Some(()) => Ok(Self(path)),
+      ::core::option::Option::None => Err(Unapplied::InvalidFilePath(live.to_string())),
+    }
+  }
+}
+
+impl AsRef<Path> for LiveFile<'_> {
+  fn as_ref(&self) -> &Path {
+    Path::new(self.0)
+  }
+}
+
+#[derive(Clone, Copy)]
+pub struct BuildName<'a>(&'a str);
+
+impl<'a> BuildName<'a> {
+  pub fn parse(name: &'a str) -> Result<Self, Unapplied> {
+    match ::core::primitive::bool::then_some(!matches!(name, "" | "." | "..")
+      && !name.starts_with('-')
+      && !name.contains(['/', '\0']), ())
+    {
+      ::core::option::Option::Some(()) => Ok(Self(name)),
+      ::core::option::Option::None => Err(Unapplied::InvalidBuildName(name.to_string())),
+    }
+  }
+
+  pub fn as_str(self) -> Result<&'a str, Never> {
+    Ok(self.0)
+  }
+}
+
+impl AsRef<Path> for BuildName<'_> {
+  fn as_ref(&self) -> &Path {
+    Path::new(self.0)
+  }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Manifest {
-    sections: BTreeMap<Section, Vec<String>>,
-    written_once: BTreeSet<String>,
+  sections: BTreeMap<Section, Vec<String>>,
+  written_once: BTreeSet<String>,
 }
 
 pub use console_repository::MARK;
@@ -74,461 +130,549 @@ pub use console_repository::MARK;
 pub struct Configuration<'a>(pub &'a str);
 
 impl Manifest {
-    pub fn read(text: &str) -> Result<Self, Unapplied> {
-        Manifest::read_as(text, Reading::Today)
-    }
+  pub fn read(text: &str) -> Result<Self, Unapplied> {
+    Manifest::read_as(text, Reading::Today)
+  }
 
-    pub fn read_as(text: &str, reading: Reading) -> Result<Self, Unapplied> {
-        Manifest::default().folding(Configuration(MARK), text, reading)
-    }
+  pub fn read_as(text: &str, reading: Reading) -> Result<Self, Unapplied> {
+    Manifest::default().folding(Configuration(MARK), text, reading)
+  }
 
-    pub fn and(self, configuration: Configuration<'_>, text: &str) -> Result<Self, Unapplied> {
-        self.and_as(configuration, text, Reading::Today)
-    }
+  pub fn and(self, configuration: Configuration<'_>, text: &str) -> Result<Self, Unapplied> {
+    self.and_as(configuration, text, Reading::Today)
+  }
 
-    pub fn and_as(self, configuration: Configuration<'_>, text: &str, reading: Reading) -> Result<Self, Unapplied> {
-        let Configuration(file) = configuration;
-        let added = Manifest::default().folding(configuration, text, reading)?;
+  pub fn and_as(
+    self,
+    configuration: Configuration<'_>,
+    text: &str,
+    reading: Reading,
+  ) -> Result<Self, Unapplied> {
+    let Configuration(file) = configuration;
+    let added = Manifest::default().folding(configuration, text, reading)?;
 
-        for section in Section::EVERY {
-            let Ok(held) = self.of(section);
-            let Ok(coming) = added.of(section);
-            let already: BTreeSet<&String> = held.iter().collect();
-            let twice = coming.iter().find(|entry| already.contains(entry));
-            let Ok(under) = section.name();
+    for section in Section::EVERY {
+      let Ok(held) = self.of(section);
+      let Ok(coming) = added.of(section);
+      let already: BTreeSet<&String> = held.iter().collect();
+      let twice = coming.iter().find(|entry| already.contains(entry));
+      let Ok(under) = section.name();
 
-            match twice {
-                Some(entry) => {
-                    return Err(Unapplied::TwiceSaid(
-                        file.to_string(),
-                        entry.to_string(),
-                        under.to_string(),
-                    ));
-                }
-                None => {},
-            }
+      match twice {
+        Some(entry) => {
+          return Err(Unapplied::TwiceSaid(
+            file.to_string(),
+            entry.to_string(),
+            under.to_string(),
+          ));
         }
+        None => {}
+      }
+    }
 
-        let mut held = self;
+    let mut held = self;
 
-        for (section, entries) in &added.sections {
-            let Ok(opened) = held.opening(*section);
+    for (section, entries) in &added.sections {
+      let Ok(opened) = held.opening(*section);
 
-            held = opened;
+      held = opened;
 
-            for entry in entries {
-                let Ok(written) = added.write_policy(entry);
-                let Ok(holding) = held.with_entry(*section, entry, written);
+      for entry in entries {
+        let Ok(written) = added.write_policy(entry);
+        let Ok(holding) = held.with_entry(*section, entry, written);
 
-                held = holding;
+        held = holding;
+      }
+    }
+
+    Ok(held)
+  }
+
+  fn folding(
+    self,
+    configuration: Configuration<'_>,
+    text: &str,
+    reading: Reading,
+  ) -> Result<Self, Unapplied> {
+    let Configuration(file) = configuration;
+
+    text
+      .lines()
+      .map(|line| {
+        let Ok(said) = without_a_comment(line);
+
+        said
+      })
+      .filter(|line| !line.is_empty())
+      .try_fold((self, None), |(held, current), line| {
+        let Ok(heading) = heading(line);
+
+        match heading {
+          Some(name) => {
+            let Ok(named) = Section::from_name(name);
+
+            match named {
+              Some(section) => {
+                let Ok(opened) = held.opening(section);
+
+                Ok((opened, Some(section)))
+              }
+              None => Err(Unapplied::NoSuchSection(file.to_string(), name.to_string())),
             }
-        }
+          }
+          None => match current {
+            Some(section) => {
+              let (name, written) = said_in(configuration, section, line, reading)?;
+              let Ok(holding) = held.with_entry(section, &name, written);
 
-        Ok(held)
-    }
-
-    fn folding(self, configuration: Configuration<'_>, text: &str, reading: Reading) -> Result<Self, Unapplied> {
-        let Configuration(file) = configuration;
-
-        text.lines()
-            .map(|line| {
-                let Ok(said) = without_a_comment(line);
-
-                said
-            })
-            .filter(|line| !line.is_empty())
-            .try_fold(
-                (self, None),
-                |(held, current), line| {
-                    let Ok(heading) = heading(line);
-
-                    match heading {
-                        Some(name) => {
-                            let Ok(named) = Section::from_name(name);
-
-                            match named {
-                                Some(section) => {
-                                    let Ok(opened) = held.opening(section);
-
-                                    Ok((opened, Some(section)))
-                                }
-                                None => Err(Unapplied::NoSuchSection(
-                                    file.to_string(),
-                                    name.to_string(),
-                                )),
-                            }
-                        }
-                        None => match current {
-                            Some(section) => {
-                                let (name, written) = said_in(configuration, section, line, reading)?;
-                                let Ok(holding) = held.with_entry(section, &name, written);
-
-                                Ok((holding, current))
-                            }
-                            None => Err(Unapplied::BeforeAnySection(
-                                file.to_string(),
-                                line.to_string(),
-                            )),
-                        },
-                    }
-                },
-            )
-            .map(|(held, _)| held)
-    }
-
-    pub fn of(&self, section: Section) -> Result<&[String], Never> {
-        Ok(self.sections.get(&section).map_or(&[], Vec::as_slice))
-    }
-
-    pub fn write_policy(&self, path: &str) -> Result<Written, Never> {
-        Ok(match self.written_once.contains(path) {
-            true => Written::Once,
-            false => Written::Always,
-        })
-    }
-
-    pub fn sections(&self) -> Result<impl Iterator<Item = (Section, &[String])>, Never> {
-        Ok(Section::EVERY
-            .into_iter()
-            .filter(|section| self.sections.contains_key(section))
-            .map(|section| {
-                let Ok(of) = self.of(section);
-
-                (section, of)
-            }))
-    }
-
-    fn opening(mut self, section: Section) -> Result<Self, Never> {
-        self.sections.entry(section).or_default();
-
-        Ok(self)
-    }
-
-    fn with_entry(mut self, section: Section, name: &str, written: Written) -> Result<Self, Never> {
-        self.sections.entry(section).or_default().push(name.to_owned());
-
-        match written {
-            Written::Once => {
-                let _ = self.written_once.insert(name.to_owned());
+              Ok((holding, current))
             }
-            Written::Always => {},
+            None => Err(Unapplied::BeforeAnySection(
+              file.to_string(),
+              line.to_string(),
+            )),
+          },
         }
+      })
+      .map(|(held, _)| held)
+  }
 
-        Ok(self)
+  pub fn of(&self, section: Section) -> Result<&[String], Never> {
+    Ok(self.sections.get(&section).map_or(&[], Vec::as_slice))
+  }
+
+  pub fn builds(&self) -> Result<impl ExactSizeIterator<Item = BuildName<'_>> + Clone, Never> {
+    let Ok(names) = self.of(Section::Build);
+
+    Ok(names.iter().map(|name| BuildName(name)))
+  }
+
+  pub fn write_policy(&self, path: &str) -> Result<Written, Never> {
+    Ok(match ::core::primitive::bool::then_some(self.written_once.contains(path), ()) {
+      ::core::option::Option::Some(()) => Written::Once,
+      ::core::option::Option::None => Written::Always,
+    })
+  }
+
+  pub fn sections(&self) -> Result<impl Iterator<Item = (Section, &[String])>, Never> {
+    Ok(
+      Section::EVERY
+        .into_iter()
+        .filter(|section| self.sections.contains_key(section))
+        .map(|section| {
+          let Ok(of) = self.of(section);
+
+          (section, of)
+        }),
+    )
+  }
+
+  fn opening(mut self, section: Section) -> Result<Self, Never> {
+    self.sections.entry(section).or_default();
+
+    Ok(self)
+  }
+
+  fn with_entry(mut self, section: Section, name: &str, written: Written) -> Result<Self, Never> {
+    self
+      .sections
+      .entry(section)
+      .or_default()
+      .push(name.to_owned());
+
+    match written {
+      Written::Once => {
+        let _ = self.written_once.insert(name.to_owned());
+      }
+      Written::Always => {}
     }
+
+    Ok(self)
+  }
 }
 
 fn said_in(
-    configuration: Configuration<'_>,
-    section: Section,
-    entry: &str,
-    reading: Reading,
+  configuration: Configuration<'_>,
+  section: Section,
+  entry: &str,
+  reading: Reading,
 ) -> Result<(String, Written), Unapplied> {
-    let Configuration(file) = configuration;
+  let Configuration(file) = configuration;
 
-    let mut words = entry.split_whitespace();
+  let mut words = entry.split_whitespace();
 
-    let name = match words.next() {
-        Some(name) => name.to_string(),
-        None => String::new(),
-    };
+  let name = match words.next() {
+    Some(name) => name.to_string(),
+    None => String::new(),
+  };
 
-    let rest: Vec<&str> = words.collect();
-    let Ok(under) = section.name();
+  match section {
+    Section::Files | Section::Elsewhere => {
+      let _validated = LiveFile::parse(&name)?;
+    }
+    Section::Build => {
+      let _validated = BuildName::parse(&name)?;
+    }
+    Section::Packages | Section::Services | Section::Masked => {}
+  }
 
-    Ok(match (rest.as_slice(), reading) {
-        ([], _) => (name, Written::Always),
-        ([ONCE], _) | ([ONCE_AS_IT_WAS], Reading::Recorded) => match section {
-            Section::Files => (name, Written::Once),
-            Section::Packages
-            | Section::Build
-            | Section::Services
-            | Section::Masked
-            | Section::Elsewhere => {
-                return Err(Unapplied::OnceIsForFiles(
-                    file.to_string(),
-                    entry.to_string(),
-                    under.to_string(),
-                ));
-            }
-        },
-        ([ONCE_AS_IT_WAS], Reading::Today) | (_, Reading::Today | Reading::Recorded) => {
-            return Err(Unapplied::OnlyOnce(
-                file.to_string(),
-                entry.to_string(),
-                under.to_string(),
-            ));
-        }
-    })
+  let rest: Vec<&str> = words.collect();
+  let Ok(under) = section.name();
+
+  Ok(match (rest.as_slice(), reading) {
+    ([], _) => (name, Written::Always),
+    ([ONCE], _) | ([ONCE_AS_IT_WAS], Reading::Recorded) => match section {
+      Section::Files => (name, Written::Once),
+      Section::Packages
+      | Section::Build
+      | Section::Services
+      | Section::Masked
+      | Section::Elsewhere => {
+        return Err(Unapplied::OnceIsForFiles(
+          file.to_string(),
+          entry.to_string(),
+          under.to_string(),
+        ));
+      }
+    },
+    ([ONCE_AS_IT_WAS], Reading::Today) | (_, Reading::Today | Reading::Recorded) => {
+      return Err(Unapplied::OnlyOnce(
+        file.to_string(),
+        entry.to_string(),
+        under.to_string(),
+      ));
+    }
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    fn sections(read: &Manifest) -> Result<Vec<(Section, &[String])>, Never> {
-        let Ok(sections) = read.sections();
+  fn sections(read: &Manifest) -> Result<Vec<(Section, &[String])>, Never> {
+    let Ok(sections) = read.sections();
 
-        Ok(sections.collect())
+    Ok(sections.collect())
+  }
+
+  #[test]
+  fn entries_are_kept_under_the_section_they_were_written_in() -> Result<(), Failure> {
+    let read = Manifest::read("[packages]\nhyprland\nwofi\n\n[services]\nconsole.target\n")?;
+    let Ok(packages) = read.of(Section::Packages);
+    let Ok(services) = read.of(Section::Services);
+
+    assert_eq!(packages, ["hyprland", "wofi"]);
+    assert_eq!(services, ["console.target"]);
+
+    Ok(())
+  }
+
+  #[test]
+  fn manifests_refuse_paths_without_a_named_file_beneath_root() {
+    for path in [
+      "/",
+      "etc/console",
+      "/etc/../console",
+      "//etc/console",
+      "/etc/console/",
+    ] {
+      let read = Manifest::read(&format!("[files]\n{path}\n"));
+
+      assert!(matches!(read, Err(Unapplied::InvalidFilePath(at)) if at == path));
+    }
+  }
+
+  #[test]
+  fn build_entries_must_each_name_one_executable() -> Result<(), Failure> {
+    for name in [
+      "/bin/console",
+      "../console",
+      "bin/console",
+      "..",
+      "--release",
+    ] {
+      let read = Manifest::read(&format!("[build]\n{name}\n"));
+
+      assert!(matches!(read, Err(Unapplied::InvalidBuildName(at)) if at == name));
     }
 
-    #[test]
-    fn entries_are_kept_under_the_section_they_were_written_in() -> Result<(), Failure> {
-        let read = Manifest::read("[packages]\nhyprland\nwofi\n\n[services]\nconsole.target\n")?;
-        let Ok(packages) = read.of(Section::Packages);
-        let Ok(services) = read.of(Section::Services);
+    let read = Manifest::read("[build]\nconsole-panel\nconsole_probe\n")?;
+    let Ok(built) = read.builds();
+    let names: Vec<&str> = built
+      .map(|name| {
+        let Ok(text) = name.as_str();
 
-        assert_eq!(packages, ["hyprland", "wofi"]);
-        assert_eq!(services, ["console.target"]);
+        text
+      })
+      .collect();
 
-        Ok(())
+    assert_eq!(names, ["console-panel", "console_probe"]);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_comment_is_dropped_wherever_it_sits() -> Result<(), Failure> {
+    let read = Manifest::read("# a heading\n[packages]\nhyprland  # the compositor\n#wofi\n")?;
+    let Ok(packages) = read.of(Section::Packages);
+
+    assert_eq!(packages, ["hyprland"]);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_section_written_twice_keeps_both_halves() -> Result<(), Failure> {
+    let read = Manifest::read("[packages]\none\n[files]\n/etc/a\n[packages]\ntwo\n")?;
+    let Ok(packages) = read.of(Section::Packages);
+
+    assert_eq!(packages, ["one", "two"]);
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_public_copy_names_what_it_does_not_carry_and_the_engine_opens_it() -> Result<(), Failure>
+  {
+    let read =
+      Manifest::read("[files]\n/usr/local/bin/launcher\n\n[elsewhere]\n/usr/local/bin/kew\n")?;
+    let Ok(every) = sections(&read);
+    let Ok(elsewhere) = read.of(Section::Elsewhere);
+
+    assert_eq!(elsewhere, ["/usr/local/bin/kew"]);
+    assert!(
+      !every
+        .iter()
+        .any(|(section, _)| *section == Section::Elsewhere)
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_file_something_else_writes_is_a_path_with_a_word_after_it() -> Result<(), Failure> {
+    let read = Manifest::read("[files]\n/etc/a\n/home/@user@/.config/console/bar.css once\n")?;
+    let Ok(files) = read.of(Section::Files);
+
+    assert_eq!(files, ["/etc/a", "/home/@user@/.config/console/bar.css"]);
+
+    let Ok(replaced) = read.write_policy("/etc/a");
+    let Ok(kept) = read.write_policy("/home/@user@/.config/console/bar.css");
+
+    assert_eq!(replaced, Written::Always);
+    assert_eq!(kept, Written::Once);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_recorded_manifest_says_once_in_the_word_it_used_to_have() -> Result<(), Failure> {
+    let said = "[files]\n/etc/plasmalogin.conf.d/zz-steamos-autologin.conf theirs\n";
+    let recorded = Manifest::read_as(said, Reading::Recorded)?;
+    let Ok(written) = recorded.write_policy("/etc/plasmalogin.conf.d/zz-steamos-autologin.conf");
+
+    assert_eq!(written, Written::Once);
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_word_it_used_to_have_is_refused_in_a_manifest_being_applied() {
+    let said = "[files]\n/etc/plasmalogin.conf.d/zz-steamos-autologin.conf theirs\n";
+
+    assert!(matches!(Manifest::read(said), Err(Unapplied::OnlyOnce(..))));
+  }
+
+  #[test]
+  fn a_path_no_one_marked_is_ours_and_so_is_a_path_the_manifest_never_named()
+  -> Result<(), Failure> {
+    let read = Manifest::read("[files]\n/etc/a\n")?;
+    let Ok(named) = read.write_policy("/etc/a");
+    let Ok(never) = read.write_policy("/etc/somewhere-else");
+
+    assert_eq!(named, Written::Always);
+    assert_eq!(never, Written::Always);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_word_after_a_path_that_no_one_reads_is_refused_rather_than_taken_as_part_of_it()
+  -> Result<(), Failure> {
+    let fault = match Manifest::read("[files]\n/etc/a mine\n") {
+      Ok(_) => return Err(Failure::from("no such word, and it was taken")),
+      Err(fault) => fault,
+    };
+
+    assert!(fault.to_string().contains("once"), "{fault}");
+    assert!(fault.to_string().contains("/etc/a mine"), "{fault}");
+
+    Ok(())
+  }
+
+  #[test]
+  fn only_a_file_has_an_inside_for_anyone_to_own() -> Result<(), Failure> {
+    let fault = match Manifest::read("[packages]\nhyprland once\n") {
+      Ok(_) => return Err(Failure::from("not a file, and it was taken")),
+      Err(fault) => fault,
+    };
+
+    assert!(fault.to_string().contains("packages"), "{fault}");
+
+    let service_fault = match Manifest::read("[services]\nconsole.target once\n") {
+      Ok(_) => return Err(Failure::from("not a file, and it was taken")),
+      Err(fault_2) => fault_2,
+    };
+
+    assert!(
+      service_fault.to_string().contains("services"),
+      "{service_fault}"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_manifest_this_desktop_wears_marks_the_files_something_else_on_it_writes()
+  -> Result<(), Failure> {
+    let held = include_str!("../../../desktop.conf");
+    let read = Manifest::read(held)?;
+    let Ok(hyprland) = read.write_policy("/home/@user@/.config/console/hypr/hyprland.lua");
+
+    assert_eq!(hyprland, Written::Always);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_machines_own_block_marks_them_too_and_is_read_by_the_same_code() -> Result<(), Failure> {
+    let held = include_str!("../../../machines.conf");
+    let Ok(mine) = crate::machines::of(held, crate::machines::Named("legion-go"));
+    let read = Manifest::read(&mine)?;
+    let Ok(session) = read.write_policy("/etc/plasmalogin.conf.d/zz-steamos-autologin.conf");
+
+    assert_eq!(
+      session,
+      Written::Once,
+      "steamos-session-select rewrites this on the way out"
+    );
+
+    let Ok(profiles) = read.write_policy("/home/@user@/.librewolf/profiles.ini");
+
+    assert_eq!(
+      profiles,
+      Written::Once,
+      "the browser keeps its own list of profiles"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_line_in_both_files_is_one_of_them_being_wrong() -> Result<(), Failure> {
+    let read = Manifest::read("[files]\n/etc/a\n")?;
+    let fault = match read.and(Configuration("machines.conf"), "[files]\n/etc/a\n") {
+      Ok(_) => return Err(Failure::from("twice, and it was taken")),
+      Err(fault) => fault,
+    };
+
+    assert!(fault.to_string().contains("/etc/a"), "{fault}");
+    assert!(fault.to_string().contains("machines.conf"), "{fault}");
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_machine_with_no_block_gets_the_manifest_and_nothing_else() -> Result<(), Failure> {
+    let read = Manifest::read("[files]\n/etc/a\n")?;
+    let whole = read.and(Configuration("machines.conf"), "")?;
+    let Ok(files) = whole.of(Section::Files);
+
+    assert_eq!(files, ["/etc/a"]);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_section_no_one_named_is_refused_rather_than_skipped() -> Result<(), Failure> {
+    let fault = match Manifest::read("[packagez]\nhyprland\n") {
+      Ok(_) => return Err(Failure::from("no such section, and it was taken")),
+      Err(fault) => fault,
+    };
+
+    assert!(fault.to_string().contains("packagez"), "{fault}");
+
+    Ok(())
+  }
+
+  #[test]
+  fn an_entry_before_any_section_is_refused() -> Result<(), Failure> {
+    let fault = match Manifest::read("hyprland\n[packages]\n") {
+      Ok(_) => return Err(Failure::from("nowhere to put it, and it was taken")),
+      Err(fault) => fault,
+    };
+
+    assert!(fault.to_string().contains("hyprland"), "{fault}");
+
+    Ok(())
+  }
+
+  #[test]
+  fn an_empty_section_is_read_as_empty_and_not_as_absent() -> Result<(), Failure> {
+    let read = Manifest::read("[masked]\n")?;
+    let Ok(every) = sections(&read);
+    let Ok(masked) = read.of(Section::Masked);
+
+    assert!(masked.is_empty(), "{masked:?}");
+    assert_eq!(every.len(), 1);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_section_never_written_is_empty_rather_than_a_fault() -> Result<(), Failure> {
+    let read = Manifest::read("[packages]\none\n")?;
+    let Ok(build) = read.of(Section::Build);
+
+    assert!(build.is_empty(), "{build:?}");
+
+    Ok(())
+  }
+
+  #[test]
+  fn sections_come_back_in_the_order_they_are_acted_on() -> Result<(), Failure> {
+    let read = Manifest::read("[services]\na\n[build]\nb\n[packages]\nc\n[files]\n/d\n")?;
+    let Ok(every) = sections(&read);
+    let order: Vec<&str> = every
+      .into_iter()
+      .map(|(section, _)| {
+        let Ok(name) = section.name();
+
+        name
+      })
+      .collect();
+
+    assert_eq!(order, ["packages", "build", "files", "services"]);
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_manifest_this_desktop_is_actually_made_of_reads() -> Result<(), Failure> {
+    let held = include_str!("../../../desktop.conf");
+    let read = Manifest::read(held)?;
+    let Ok(packages) = read.of(Section::Packages);
+    let Ok(files) = read.of(Section::Files);
+
+    assert!(!packages.is_empty());
+    assert!(!files.is_empty());
+
+    for path in files {
+      assert!(path.starts_with('/'), "{path:?} is not an absolute path");
     }
 
-    #[test]
-    fn a_comment_is_dropped_wherever_it_sits() -> Result<(), Failure> {
-        let read = Manifest::read("# a heading\n[packages]\nhyprland  # the compositor\n#wofi\n")?;
-        let Ok(packages) = read.of(Section::Packages);
-
-        assert_eq!(packages, ["hyprland"]);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_section_written_twice_keeps_both_halves() -> Result<(), Failure> {
-        let read = Manifest::read("[packages]\none\n[files]\n/etc/a\n[packages]\ntwo\n")?;
-        let Ok(packages) = read.of(Section::Packages);
-
-        assert_eq!(packages, ["one", "two"]);
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_public_copy_names_what_it_does_not_carry_and_the_engine_opens_it() -> Result<(), Failure> {
-        let read = Manifest::read(
-            "[files]\n/usr/local/bin/launcher\n\n[elsewhere]\n/usr/local/bin/kew\n",
-        )?;
-        let Ok(every) = sections(&read);
-        let Ok(elsewhere) = read.of(Section::Elsewhere);
-
-        assert_eq!(elsewhere, ["/usr/local/bin/kew"]);
-        assert!(!every.iter().any(|(section, _)| *section == Section::Elsewhere));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_file_something_else_writes_is_a_path_with_a_word_after_it() -> Result<(), Failure> {
-        let read = Manifest::read("[files]\n/etc/a\n/home/@user@/.config/console/bar.css once\n")?;
-        let Ok(files) = read.of(Section::Files);
-
-        assert_eq!(files, ["/etc/a", "/home/@user@/.config/console/bar.css"]);
-
-        let Ok(replaced) = read.write_policy("/etc/a");
-        let Ok(kept) = read.write_policy("/home/@user@/.config/console/bar.css");
-
-        assert_eq!(replaced, Written::Always);
-        assert_eq!(kept, Written::Once);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_recorded_manifest_says_once_in_the_word_it_used_to_have() -> Result<(), Failure> {
-        let said = "[files]\n/etc/plasmalogin.conf.d/zz-steamos-autologin.conf theirs\n";
-        let recorded = Manifest::read_as(said, Reading::Recorded)?;
-        let Ok(written) = recorded.write_policy("/etc/plasmalogin.conf.d/zz-steamos-autologin.conf");
-
-        assert_eq!(written, Written::Once);
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_word_it_used_to_have_is_refused_in_a_manifest_being_applied() {
-        let said = "[files]\n/etc/plasmalogin.conf.d/zz-steamos-autologin.conf theirs\n";
-
-        assert!(matches!(Manifest::read(said), Err(Unapplied::OnlyOnce(..))));
-    }
-
-    #[test]
-    fn a_path_no_one_marked_is_ours_and_so_is_a_path_the_manifest_never_named() -> Result<(), Failure> {
-        let read = Manifest::read("[files]\n/etc/a\n")?;
-        let Ok(named) = read.write_policy("/etc/a");
-        let Ok(never) = read.write_policy("/etc/somewhere-else");
-
-        assert_eq!(named, Written::Always);
-        assert_eq!(never, Written::Always);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_word_after_a_path_that_no_one_reads_is_refused_rather_than_taken_as_part_of_it() -> Result<(), Failure> {
-        let fault = match Manifest::read("[files]\n/etc/a mine\n") {
-            Ok(_) => return Err(Failure::from("no such word, and it was taken")),
-            Err(fault) => fault,
-        };
-
-        assert!(fault.to_string().contains("once"), "{fault}");
-        assert!(fault.to_string().contains("/etc/a mine"), "{fault}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn only_a_file_has_an_inside_for_anyone_to_own() -> Result<(), Failure> {
-        let fault = match Manifest::read("[packages]\nhyprland once\n") {
-            Ok(_) => return Err(Failure::from("not a file, and it was taken")),
-            Err(fault) => fault,
-        };
-
-        assert!(fault.to_string().contains("packages"), "{fault}");
-
-        let fault = match Manifest::read("[services]\nconsole.target once\n") {
-            Ok(_) => return Err(Failure::from("not a file, and it was taken")),
-            Err(fault) => fault,
-        };
-
-        assert!(fault.to_string().contains("services"), "{fault}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_manifest_this_desktop_wears_marks_the_files_something_else_on_it_writes() -> Result<(), Failure> {
-        let held = include_str!("../../../desktop.conf");
-        let read = Manifest::read(held)?;
-        let Ok(hyprland) = read.write_policy("/home/@user@/.config/console/hypr/hyprland.lua");
-
-        assert_eq!(hyprland, Written::Always);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_machines_own_block_marks_them_too_and_is_read_by_the_same_code() -> Result<(), Failure> {
-        let held = include_str!("../../../machines.conf");
-        let Ok(mine) = crate::machines::of(held, crate::machines::Named("legion-go"));
-        let read = Manifest::read(&mine)?;
-        let Ok(session) = read.write_policy("/etc/plasmalogin.conf.d/zz-steamos-autologin.conf");
-
-        assert_eq!(session, Written::Once, "steamos-session-select rewrites this on the way out");
-
-        let Ok(profiles) = read.write_policy("/home/@user@/.librewolf/profiles.ini");
-
-        assert_eq!(profiles, Written::Once, "the browser keeps its own list of profiles");
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_line_in_both_files_is_one_of_them_being_wrong() -> Result<(), Failure> {
-        let read = Manifest::read("[files]\n/etc/a\n")?;
-        let fault = match read.and(Configuration("machines.conf"), "[files]\n/etc/a\n") {
-            Ok(_) => return Err(Failure::from("twice, and it was taken")),
-            Err(fault) => fault,
-        };
-
-
-        assert!(fault.to_string().contains("/etc/a"), "{fault}");
-        assert!(fault.to_string().contains("machines.conf"), "{fault}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_machine_with_no_block_gets_the_manifest_and_nothing_else() -> Result<(), Failure> {
-        let read = Manifest::read("[files]\n/etc/a\n")?;
-        let whole = read.and(Configuration("machines.conf"), "")?;
-        let Ok(files) = whole.of(Section::Files);
-
-        assert_eq!(files, ["/etc/a"]);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_section_no_one_named_is_refused_rather_than_skipped() -> Result<(), Failure> {
-        let fault = match Manifest::read("[packagez]\nhyprland\n") {
-            Ok(_) => return Err(Failure::from("no such section, and it was taken")),
-            Err(fault) => fault,
-        };
-
-        assert!(fault.to_string().contains("packagez"), "{fault}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn an_entry_before_any_section_is_refused() -> Result<(), Failure> {
-        let fault = match Manifest::read("hyprland\n[packages]\n") {
-            Ok(_) => return Err(Failure::from("nowhere to put it, and it was taken")),
-            Err(fault) => fault,
-        };
-
-        assert!(fault.to_string().contains("hyprland"), "{fault}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn an_empty_section_is_read_as_empty_and_not_as_absent() -> Result<(), Failure> {
-        let read = Manifest::read("[masked]\n")?;
-        let Ok(every) = sections(&read);
-        let Ok(masked) = read.of(Section::Masked);
-
-        assert!(masked.is_empty(), "{masked:?}");
-        assert_eq!(every.len(), 1);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_section_never_written_is_empty_rather_than_a_fault() -> Result<(), Failure> {
-        let read = Manifest::read("[packages]\none\n")?;
-        let Ok(build) = read.of(Section::Build);
-
-        assert!(build.is_empty(), "{build:?}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn sections_come_back_in_the_order_they_are_acted_on() -> Result<(), Failure> {
-        let read = Manifest::read("[services]\na\n[build]\nb\n[packages]\nc\n[files]\n/d\n")?;
-        let Ok(every) = sections(&read);
-        let order: Vec<&str> = every
-            .into_iter()
-            .map(|(section, _)| {
-                let Ok(name) = section.name();
-
-                name
-            })
-            .collect();
-
-        assert_eq!(order, ["packages", "build", "files", "services"]);
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_manifest_this_desktop_is_actually_made_of_reads() -> Result<(), Failure> {
-        let held = include_str!("../../../desktop.conf");
-        let read = Manifest::read(held)?;
-        let Ok(packages) = read.of(Section::Packages);
-        let Ok(files) = read.of(Section::Files);
-
-        assert!(!packages.is_empty());
-        assert!(!files.is_empty());
-
-        for path in files {
-            assert!(path.starts_with('/'), "{path:?} is not an absolute path");
-        }
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

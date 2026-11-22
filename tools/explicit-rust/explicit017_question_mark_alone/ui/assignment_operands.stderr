@@ -1,0 +1,111 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_operands.rs:8:20
+   |
+LL |         self.end = self.prev_end.checked_add(width)?;
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+help: evaluate the fallible value in its own statement
+   |
+LL ~         let checked_value = self.prev_end.checked_add(width)?;
+LL ~         self.end = checked_value;
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_operands.rs:21:26
+   |
+LL |     bytes[slot(trace)] = read(trace, succeed)?;
+   |                          ^^^^^^^^^^^^^^^^^^^^^
+   |
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = read(trace, succeed)?;
+LL ~     bytes[slot(trace)] = checked_value;
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_operands.rs:25:42
+   |
+LL |     let ctb = u32::wrapping_add(minimum, read()?);
+   |                                          ^^^^^^^
+   |
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = read()?;
+LL ~     let ctb = u32::wrapping_add(minimum, checked_value);
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_operands.rs:26:35
+   |
+LL |     let tb = minimum.wrapping_add(read()?);
+   |                                   ^^^^^^^
+   |
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value_2 = read()?;
+LL ~     let tb = minimum.wrapping_add(checked_value_2);
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_operands.rs:27:26
+   |
+LL |     let band = minimum + read()?;
+   |                          ^^^^^^^
+   |
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value_3 = read()?;
+LL ~     let band = minimum + checked_value_3;
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_operands.rs:31:11
+   |
+LL |     match read()? { true => Some(1), false => Some(2) }
+   |           ^^^^^^^
+   |
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = read()?;
+LL ~     match checked_value { true => Some(1), false => Some(2) }
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_operands.rs:34:22
+   |
+LL |     Some(minimum.1 + read()?)
+   |                      ^^^^^^^
+   |
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = read()?;
+LL ~     Some(minimum.1 + checked_value)
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_operands.rs:37:30
+   |
+LL |     let channel = u32::from(*(<[_]>::get(&*dst, col).ok_or(())?));
+   |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = <[_]>::get(&*dst, col).ok_or(())?;
+LL ~     let channel = u32::from(*checked_value);
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_operands.rs:42:8
+   |
+LL |     if read()? { Some(3) } else { Some(4) }
+   |        ^^^^^^^
+   |
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = read()?;
+LL ~     if checked_value { Some(3) } else { Some(4) }
+   |
+
+error: aborting due to 9 previous errors
+

@@ -1,0 +1,51 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_review.rs:13:32
+   |
+LL |     let width = conditional!(&*(src.get(1..)?), take);
+   |                                ^^^^^^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_review.rs:17:32
+   |
+LL |     let out = false && load!(&*(src.get(8..)?), [u8; 16]) == 3;
+   |                                ^^^^^^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_review.rs:21:25
+   |
+LL |     let width = load!(&*(src.get(*ix.borrow()..)?), [u8; 16]);
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_review.rs:28:24
+   |
+LL |     sometimes!(load!(&*(src.get(10..)?), [u8; 16]));
+   |                        ^^^^^^^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_review.rs:32:56
+   |
+LL |     let width = load!(if take { <&[u8; 4]>::try_from(&*(src.get(..4)?)).unwrap() }
+   |                                                        ^^^^^^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/slice_review.rs:38:60
+   |
+LL |     let width = pair(first(), load!(<&[u8; 4]>::try_from(&*(src.get(..4)?)).unwrap(), [u8; 4]));
+   |                                                            ^^^^^^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: aborting due to 6 previous errors
+

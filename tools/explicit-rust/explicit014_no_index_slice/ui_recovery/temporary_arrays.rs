@@ -1,0 +1,20 @@
+// run-rustfix
+// edition:2024
+#![allow(dead_code)]
+
+#[derive(Debug)]
+enum ReadError { OutOfBounds }
+
+fn variation_regions() -> Result<(), ReadError> {
+    let expected = &[vec![[-1.0f32, -1.0, 0.0]], vec![[0.0, 1.0, 1.0]]][..];
+    let region_coords = vec![vec![[-1.0f32, -1.0, 0.0]], vec![[0.0, 1.0, 1.0]]];
+    assert_eq!(expected, &region_coords);
+    let values = &mut [vec![1], vec![2]][..];
+    values.reverse();
+    assert_eq!(values, &[vec![2], vec![1]]);
+    let typed: &[String] = &[String::from("font")][..];
+    assert_eq!(typed, &["font"]);
+    Ok(())
+}
+
+fn main() { variation_regions().unwrap(); }

@@ -19,46 +19,61 @@ use std::process::ExitStatus;
 
 use console_core_external_programs::Program;
 
+use crate::{InvalidRelativePath, RelativePath};
+
 #[derive(Debug)]
 pub enum Untracked {
-    NoGit(std::io::Error),
-    Failed(ExitStatus, String),
+  NoGit(std::io::Error),
+  Failed(ExitStatus, String),
+  InvalidPath(InvalidRelativePath),
 }
 
 impl fmt::Display for Untracked {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Untracked::NoGit(fault) => write!(to, "git could not be run: {fault}"),
-            Untracked::Failed(status, said) => write!(to, "git would not list what is tracked ({status}): {said}"),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Untracked::NoGit(fault) => write!(to, "git could not be run: {fault}"),
+      Untracked::Failed(status, said) => {
+        write!(to, "git would not list what is tracked ({status}): {said}")
+      }
+      Untracked::InvalidPath(fault) => write!(to, "git listed an invalid path: {fault}"),
     }
+  }
 }
 
 impl std::error::Error for Untracked {}
 
 pub fn tracked(root: &Path) -> Result<Vec<PathBuf>, Untracked> {
-    let Ok(mut asking) = Program::Git.command();
+  let Ok(mut asking) = Program::Git.command();
 
-    let done = asking
-        .arg("-C")
-        .arg(root)
-        .args(["ls-files", "-z"])
-        .output()
-        .map_err(Untracked::NoGit)?;
+  let done = asking
+    .arg("-C")
+    .arg(root)
+    .args(["ls-files", "-z"])
+    .output()
+    .map_err(Untracked::NoGit)?;
 
-    match done.status.success() {
-        true => {},
-        false => {
-            let said = String::from_utf8_lossy(&done.stderr).trim().to_string();
+  match ::core::primitive::bool::then_some(done.status.success(), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      let said = match String::from_utf8(done.stderr) {
+        Ok(text) => text.trim().to_owned(),
+        Err(fault) => format!("{:?}", fault.as_bytes()),
+      };
 
-            return Err(Untracked::Failed(done.status, said));
-        },
+      return Err(Untracked::Failed(done.status, said));
     }
+  }
 
-    Ok(done
-        .stdout
-        .split(|byte| *byte == 0)
-        .filter(|name| !name.is_empty())
-        .map(|name| PathBuf::from(OsStr::from_bytes(name)))
-        .collect())
+  done
+    .stdout
+    .split(|byte| *byte == 0)
+    .filter(|name| !name.is_empty())
+    .map(|name| {
+      let path = PathBuf::from(OsStr::from_bytes(name));
+
+      RelativePath::new(&path).map_err(Untracked::InvalidPath)?;
+
+      Ok(path)
+    })
+    .collect()
 }

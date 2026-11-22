@@ -1,0 +1,33 @@
+# AV1 expression macros audited in pixel_access.rs and the inverse-transform sources.
+# Recheck the macro definitions when changing these implementations or Archmage.
+explicit073_body_macros = ["archmage_macros::arcane", "archmage_macros::rite"]
+
+explicit073_expression_macros = [
+    "core::macros::matches",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::loadu_64",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::loadu_128",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::loadu_256",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::loadu_512",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::storeu_128",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::storeu_256",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::storeu_512",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::loadi32",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::loadi64",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::storei32",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::storei64",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::neon_ld1q_u8",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::neon_ld1q_u16",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::neon_ld1q_s16",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::neon_st1q_u8",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::neon_st1q_u16",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::neon_st1q_s16",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::wasm_load_128",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::wasm_store_128",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::wasm_loadi32",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::wasm_storei32",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::wasm_loadi64",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::wasm_storei64",
+    "console_core_video_decoding_av1::src::safe_simd::itx::itx_mul2x_pack",
+    "console_core_video_decoding_av1::src::safe_simd::itx::transpose_8x8_i32",
+    "console_core_video_decoding_av1::src::safe_simd::itx::transpose_16x16_i32",
+]

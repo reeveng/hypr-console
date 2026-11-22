@@ -1,0 +1,14 @@
+[Unit]
+Description=Console clipboard history
+PartOf=console.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/console-clipboard --watch
+Restart=on-failure
+RestartSec=2
+UMask=0077
+LimitCORE=0
+
+[Install]
+WantedBy=console.target

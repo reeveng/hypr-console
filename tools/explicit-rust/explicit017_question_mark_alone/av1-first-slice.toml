@@ -1,0 +1,15 @@
+# Every arm, including each unchecked-feature branch, uses its first expression
+# exactly once, before any other argument or effect. Recheck pixel_access.rs
+# when changing these macros. The storei32/storei64 macros evaluate the value first.
+explicit017_body_macros = ["archmage_macros::arcane", "archmage_macros::rite"]
+explicit017_first_slice_macros = [
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::loadu_64",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::loadu_128",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::loadu_256",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::loadu_512",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::storeu_128",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::storeu_256",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::storeu_512",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::loadi32",
+    "console_core_video_decoding_av1::src::safe_simd::pixel_access::loadi64",
+]

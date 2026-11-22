@@ -26,12 +26,12 @@
 //! square picked up and then dropped by the card going away.
 
 use std::process::ExitCode;
-use std::sync::{Arc, OnceLock};
+use std::sync::mpsc::{self, SyncSender, TrySendError};
 
 use console_core_arguments::{Command, Operands, Reason, ValidationError, read};
 use console_core_never::Never;
 use console_onscreen::PadInput;
-use console_panel::page::{Aside, Handler, Page, Row, Rows};
+use console_panel::page::{ActionOutcome, Aside, Handler, Page, Row, Rows};
 use console_panel::{picker, surface};
 
 const MOVE: &str = "Move";
@@ -39,97 +39,115 @@ const OFF: &str = "Remove from Home Screen";
 
 const THEN: &str = "press A to drop";
 
-fn rows(chosen: &Arc<OnceLock<PadInput>>) -> Result<Vec<Row>, Never> {
-    let moving = Arc::clone(chosen);
-    let taking = Arc::clone(chosen);
+fn rows(chosen: SyncSender<PadInput>) -> Result<Vec<Row>, Never> {
+  let moving = chosen.clone();
 
-    let Ok(carries) = Handler::call(move |_| {
-        let _ = moving.set(PadInput::Payload);
+  let Ok(carries) = Handler::call(move |_| {
+    let Ok(outcome) = choose(&moving, PadInput::Payload);
 
-        true
-    });
-    let Ok(takes) = Handler::call(move |_| {
-        let _ = taking.set(PadInput::Off);
+    outcome
+  });
+  let Ok(takes) = Handler::call(move |_| {
+    let Ok(outcome) = choose(&chosen, PadInput::Off);
 
-        true
-    });
-    let Ok(moves) = Row::new(MOVE, Aside(THEN), carries);
-    let Ok(off) = Row::new(OFF, Aside(""), takes);
+    outcome
+  });
+  let Ok(moves) = Row::new(MOVE, Aside(THEN), carries);
+  let Ok(off) = Row::new(OFF, Aside(""), takes);
 
-    Ok(vec![moves, off])
+  Ok(vec![moves, off])
+}
+
+fn choose(chosen: &SyncSender<PadInput>, input: PadInput) -> Result<ActionOutcome, Never> {
+  Ok(match chosen.try_send(input) {
+    Ok(()) | Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => ActionOutcome::Close,
+  })
 }
 
 const NAME: [&str; 1] = ["NAME"];
 
 const COMMAND: Command = Command {
-    name: "home-square",
-    about: "what else can be done with the square of the home screen called NAME",
-    flags: &[],
-    operands: Operands::Named(&NAME),
+  name: "home-square",
+  about: "what else can be done with the square of the home screen called NAME",
+  flags: &[],
+  operands: Operands::Named(&NAME),
 };
 
 fn name(words: &[String]) -> Result<String, ValidationError> {
-    let read = read(&COMMAND, words);
-    let line = read?;
-    let operands = line.exactly(NAME);
-    let [name] = operands?;
+  let read = read(&COMMAND, words);
+  let line = read?;
+  let operands = line.exactly(NAME);
+  let [name] = operands?;
 
-    match name.is_empty() {
-        true => {
-            let Ok(refusal) = line.refusal(Reason::MissingOperands(NAME.to_vec()));
+  match ::core::primitive::bool::then_some(name.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {
+      let Ok(refusal) = line.refusal(Reason::MissingOperands(NAME.to_vec()));
 
-            Err(refusal)
-        }
-        false => Ok(name.clone()),
+      Err(refusal)
     }
+    ::core::option::Option::None => Ok(name.clone()),
+  }
 }
 
 fn main() -> ExitCode {
-    let words: Vec<String> = std::env::args().skip(1).collect();
+  let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let name = match name(&words) {
-        Ok(name) => name,
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
+  let name = match name(&words) {
+    Ok(name) => name,
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
 
-            return ExitCode::from(code);
-        }
-    };
-
-    let Ok(alone) = picker::alone(COMMAND.name, picker::Again::Closes);
-
-    match alone {
-        picker::Alone::No => return ExitCode::SUCCESS,
-        picker::Alone::Yes => {},
+      return ExitCode::from(code);
     }
+  };
 
-    let chosen: Arc<OnceLock<PadInput>> = Arc::new(OnceLock::new());
-    let building = Arc::clone(&chosen);
+  let Ok(alone) = picker::alone(COMMAND.name, picker::Again::Closes);
 
-    let Ok(()) = surface::show(
-        Arc::new(move || {
-            let Ok(rows) = rows(&building);
-            let Ok(page) = Page::new(&name, Rows::Fixed(rows));
+  match alone {
+    picker::Alone::No => return ExitCode::SUCCESS,
+    picker::Alone::Yes => {}
+  }
 
-            vec![page]
-        }),
-        0,
-        None,
-    );
+  let (selection, chosen) = mpsc::sync_channel(1);
 
-    let said = match chosen.get() {
-        Some(said) => said,
-        None => return ExitCode::SUCCESS,
-    };
+  let Ok(()) = surface::show(
+    move || {
+      let Ok(rows) = rows(selection);
+      let Ok(page) = Page::new(&name, Rows::Fixed(rows));
 
-    match console_onscreen::send_to_home(*said) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(fault) => {
-            let Ok(word) = said.word();
+      vec![page]
+    },
+    0,
+    None,
+  );
 
-            eprintln!("home-square: the home screen was not told {word}: {fault}");
+  let said = match chosen.try_recv() {
+    Ok(said) => said,
+    Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => return ExitCode::SUCCESS,
+  };
 
-            ExitCode::FAILURE
-        }
+  match console_onscreen::send_to_home(said) {
+    Ok(()) => ExitCode::SUCCESS,
+    Err(fault) => {
+      let Ok(word) = said.word();
+
+      eprintln!("home-square: the home screen was not told {word}: {fault}");
+
+      ExitCode::FAILURE
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn the_first_action_is_the_one_sent_after_the_card_closes() {
+    let (selection, chosen) = mpsc::sync_channel(1);
+
+    assert_eq!(choose(&selection, PadInput::Payload), Ok(ActionOutcome::Close));
+    assert_eq!(choose(&selection, PadInput::Off), Ok(ActionOutcome::Close));
+    assert_eq!(chosen.try_recv(), Ok(PadInput::Payload));
+  }
 }

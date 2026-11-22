@@ -1,0 +1,59 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks_review.rs:7:19
+   |
+LL |         result += chunk[1];
+   |                   ^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks_review.rs:10:19
+   |
+LL |         result += chunk[2];
+   |                   ^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks_review.rs:13:19
+   |
+LL |         result += chunk[0];
+   |                   ^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks_review.rs:17:23
+   |
+LL |         result += (|| window[0])();
+   |                       ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks_review.rs:27:19
+   |
+LL |         result += chunk[0];
+   |                   ^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks_review.rs:37:19
+   |
+LL |         result += chunk[0];
+   |                   ^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks_review.rs:50:22
+   |
+LL |         let sample = chunk[1];
+   |                      ^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: aborting due to 7 previous errors
+

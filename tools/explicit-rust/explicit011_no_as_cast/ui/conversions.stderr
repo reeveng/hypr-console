@@ -1,0 +1,22 @@
+error: `as` cast is forbidden
+  --> $DIR/conversions.rs:6:5
+   |
+LL |     read() as u64
+   |     ^^^^^^^^^^^^^ help: name the lossless conversion: `<u64 as ::core::convert::From<::core::primitive::u16>>::from(read())`
+   |
+   = note: `#[deny(explicit011_no_as_cast)]` on by default
+
+error: `as` cast is forbidden
+  --> $DIR/conversions.rs:10:5
+   |
+LL |     value as char
+   |     ^^^^^^^^^^^^^ help: name the lossless conversion: `<char as ::core::convert::From<::core::primitive::u8>>::from(value)`
+
+error: `as` cast is forbidden
+  --> $DIR/conversions.rs:16:5
+   |
+LL |     value as Sample
+   |     ^^^^^^^^^^^^^^^ help: name the lossless conversion: `<Sample as ::core::convert::From<::core::primitive::u8>>::from(value)`
+
+error: aborting due to 3 previous errors
+

@@ -19,8 +19,8 @@
 //! on that thread as well, which waits in one `poll` over the door, every
 //! connection, and a pipe that a source's word wakes it through.
 //!
-//! What sources say still arrives on a channel, because a source is a thread of
-//! its own that this does not own and `Holding` hands it a `Sender`. One thread
+//! What sources say still arrives on a sync_channel, because a source is a thread of
+//! its own that this does not own and `Holding` hands it a `SyncSender`. One thread
 //! carries every event group's words across and writes a byte down the pipe,
 //! which is the one place a channel meets `poll`.
 //!
@@ -86,12 +86,12 @@ use std::io::{ErrorKind, Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::time::Duration;
 
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
-use console_core_number_conversion::{fitted, index};
+use console_core_number_conversion::fitted;
 use console_program_contract::{Change, EventGroup};
 use console_program_lifetime::threads;
 use console_waiting::latch::{self, Latch};
@@ -108,485 +108,565 @@ pub const OUTBOX: u64 = 4 << 20;
 
 pub const BATCH: u64 = 64 << 10;
 
-const READING: u32 = 64 << 10;
-
 struct Client {
-    connection: UnixStream,
-    heard: Vec<u8>,
-    outbox: Vec<u8>,
+  connection: UnixStream,
+  heard: Vec<u8>,
+  outbox: Vec<u8>,
 }
 
-pub type Holding = fn(&EventGroup, Sender<Change>) -> Result<Subscribed, Never>;
+pub type Holding = fn(&EventGroup, SyncSender<Change>) -> Result<Subscribed, Never>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Door {
-    Open,
-    Resting,
-    Retrying,
+  Open,
+  Resting,
+  Retrying,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Rejected {
-    NotYet,
-    Interrupted,
-    Gone,
+  NotYet,
+  Interrupted,
+  Gone,
 }
 
 fn refused(fault: &std::io::Error) -> Result<Rejected, Never> {
-    let kind = fault.kind();
+  let kind = fault.kind();
 
-    Ok(match (kind == ErrorKind::WouldBlock, kind == ErrorKind::Interrupted) {
-        (true, true) | (true, false) => Rejected::NotYet,
-        (false, true) => Rejected::Interrupted,
-        (false, false) => Rejected::Gone,
-    })
+  Ok(
+    match (
+      kind == ErrorKind::WouldBlock,
+      kind == ErrorKind::Interrupted,
+    ) {
+      (true, true) | (true, false) => Rejected::NotYet,
+      (false, true) => Rejected::Interrupted,
+      (false, false) => Rejected::Gone,
+    },
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Watched {
-    Latch,
-    Door,
-    Client(Who),
+  Latch,
+  Door,
+  Client(Who),
 }
 
-struct Serving {
-    pool: Pool,
-    clients: BTreeMap<Who, Client>,
-    held: Vec<EventGroup>,
-    sources: Sender<Change>,
-    holding: Holding,
-    carried: u64,
+struct Serving<'source> {
+  pool: Pool,
+  clients: BTreeMap<Who, Client>,
+  held: Vec<EventGroup>,
+  sources: SyncSender<Change>,
+  holding: &'source dyn Fn(&EventGroup, SyncSender<Change>) -> Result<Subscribed, Never>,
+  carried: u64,
 }
 
-pub fn serve(socket: &Path, holding: Holding) -> Result<(), Unserved> {
-    let listening = bound(socket)?;
-    let waking = latch::pipe().map_err(Unserved::Waking)?;
-    let Latch { waiting, saying } = waking;
-    let (sources, arriving) = channel::<Change>();
-    let (carrying, published) = channel::<Change>();
+pub fn serve(
+  socket: &Path,
+  holding: impl Fn(&EventGroup, SyncSender<Change>) -> Result<Subscribed, Never>,
+) -> Result<(), Unserved> {
+  let listening = bound(socket)?;
+  let waking = latch::pipe().map_err(Unserved::Waking)?;
+  let Latch { waiting, saying } = waking;
+  let (sources, arriving) = sync_channel::<Change>(256);
+  let (carrying, published) = sync_channel::<Change>(256);
 
-    let Ok(()) = threads::let_go(std::thread::spawn(move || {
-        let mut saying = saying;
+  let Ok(()) = threads::let_go(std::thread::spawn(move || {
+    let Ok(()) = relay_sources(arriving, carrying, saying);
+  }));
 
-        for change in arriving {
-            match carrying.send(change) {
-                Ok(()) => {},
-                Err(_no_one_is_listening) => return,
+  let serving = Serving {
+    pool: Pool::default(),
+    clients: BTreeMap::new(),
+    held: Vec::new(),
+    sources,
+    holding: &holding,
+    carried: 0,
+  };
+
+  let served = iterate((serving, Door::Open), |(mut serving_2, door)| {
+    let ready = match ready(&serving_2, &listening, &waiting, door) {
+      Ok(ready) => ready,
+      Err(fault) => return Ok(Step::Halt(Err(fault))),
+    };
+
+    let mut door_2 = match door {
+      Door::Resting => Door::Retrying,
+      Door::Open | Door::Retrying => door,
+    };
+
+    for (watched, flags) in ready {
+      match watched {
+        Watched::Latch => {
+          let Ok(()) = latch::drain(&waiting);
+          let Ok(()) = publish_pending(&mut serving_2, &published);
+
+          match ::core::primitive::bool::then_some(flags.intersects(PollFlags::HUP | PollFlags::ERR | PollFlags::NVAL), ()) {
+            ::core::option::Option::Some(()) => {
+              let fault = std::io::Error::from(ErrorKind::BrokenPipe);
+
+              return Ok(Step::Halt(Err(Unserved::Waking(fault))));
             }
-
-            let _ = saying.write(&[1]);
+            ::core::option::Option::None => {}
+          }
         }
-    }));
+        Watched::Door => {
+          let Ok(let_in) = let_in(&mut serving_2, &listening, door_2);
 
-    let serving =
-        Serving { pool: Pool::default(), clients: BTreeMap::new(), held: Vec::new(), sources, holding, carried: 0 };
-
-    let served = iterate((serving, Door::Open), |(mut serving, door)| {
-        let ready = match ready(&serving, &listening, &waiting, door) {
-            Ok(ready) => ready,
-            Err(fault) => return Ok(Step::Halt(Err(fault))),
-        };
-
-        let mut door = match door {
-            Door::Resting => Door::Retrying,
-            Door::Open | Door::Retrying => door,
-        };
-
-        for (watched, flags) in ready {
-            match watched {
-                Watched::Latch => {
-                    let Ok(()) = latch::drain(&waiting);
-                    let Ok(()) = publish_pending(&mut serving, &published);
-                }
-                Watched::Door => {
-                    let Ok(let_in) = let_in(&mut serving, &listening, door);
-
-                    door = let_in;
-                }
-                Watched::Client(who) => {
-                    let Ok(()) = read_client(&mut serving, who, flags);
-                }
-            }
+          door_2 = let_in;
         }
-
-        let Ok(()) = flush(&mut serving);
-
-        Ok(Step::Again((serving, door)))
-    });
-
-    match served {
-        Ok(served) => served,
-        Err(Endless) => Ok(()),
+        Watched::Client(who) => {
+          let Ok(()) = read_client(&mut serving_2, who, flags);
+        }
+      }
     }
+
+    let Ok(()) = flush(&mut serving_2);
+
+    Ok(Step::Again((serving_2, door_2)))
+  });
+
+  match served {
+    Ok(served_2) => served_2,
+    Err(Endless) => Ok(()),
+  }
+}
+
+#[cfg_attr(
+  dylint_lib = "explicit055_no_unbounded_loop",
+  expect(
+    explicit055_no_unbounded_loop,
+    reason = "the daemon stores the source sender and its receiver ends when the daemon drops it; a failed forward or wake ends the relay too"
+  )
+)]
+fn relay_sources(
+  arriving: Receiver<Change>,
+  carrying: SyncSender<Change>,
+  mut saying: std::fs::File,
+) -> Result<(), Never> {
+  for change in arriving {
+    match carrying.send(change) {
+      Ok(()) => {}
+      Err(_no_one_is_listening) => return Ok(()),
+    }
+
+    match saying.write_all(&[1]) {
+      Ok(()) => {}
+      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == ErrorKind::WouldBlock, ()) {
+        ::core::option::Option::Some(()) => continue,
+        ::core::option::Option::None => {
+          console_core_logging::warn!("console-events: could not wake the pool: {fault}");
+
+          return Ok(());
+        }
+      },
+    }
+  }
+
+  Ok(())
 }
 
 fn bound(socket: &Path) -> Result<UnixListener, Unserved> {
-    let at = match socket.parent() {
-        Some(at) => at,
-        None => return Err(Unserved::Rootless),
-    };
-    let made = std::fs::create_dir_all(at);
+  let at = match socket.parent() {
+    Some(at) => at,
+    None => return Err(Unserved::Rootless),
+  };
+  let made = std::fs::create_dir_all(at);
 
-    made.map_err(|fault| Unserved::Holding(at.to_path_buf(), fault))?;
+  made.map_err(|fault| Unserved::Holding(at.to_path_buf(), fault))?;
 
-    let deleted = std::fs::remove_file(socket);
+  let deleted = std::fs::remove_file(socket);
 
-    match deleted {
-        Ok(()) => {},
-        Err(_nothing_to_remove) => {},
-    }
+  match deleted {
+    Ok(()) => {}
+    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == ErrorKind::NotFound, ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => return Err(Unserved::Unbound(socket.to_path_buf(), fault)),
+    },
+  }
 
-    let listening = UnixListener::bind(socket)
-        .map_err(|fault| Unserved::Unbound(socket.to_path_buf(), fault))?;
-    let nonblocking = listening.set_nonblocking(true);
+  let listening =
+    UnixListener::bind(socket).map_err(|fault| Unserved::Unbound(socket.to_path_buf(), fault))?;
+  let nonblocking = listening.set_nonblocking(true);
 
-    nonblocking.map_err(|fault| Unserved::Unbound(socket.to_path_buf(), fault))?;
+  nonblocking.map_err(|fault| Unserved::Unbound(socket.to_path_buf(), fault))?;
 
-    Ok(listening)
+  Ok(listening)
 }
 
 fn ready(
-    serving: &Serving,
-    listening: &UnixListener,
-    waiting: &std::os::fd::OwnedFd,
-    door: Door,
+  serving: &Serving<'_>,
+  listening: &UnixListener,
+  waiting: &std::os::fd::OwnedFd,
+  door: Door,
 ) -> Result<Vec<(Watched, PollFlags)>, Unserved> {
-    let mut watch = vec![PollFd::new(waiting, PollFlags::IN)];
-    let mut which = vec![Watched::Latch];
+  let mut watch = vec![PollFd::new(waiting, PollFlags::IN)];
+  let mut which = vec![Watched::Latch];
 
-    match door {
-        Door::Open | Door::Retrying => {
-            watch.push(PollFd::new(listening, PollFlags::IN));
-            which.push(Watched::Door);
-        }
-        Door::Resting => {},
+  match door {
+    Door::Open | Door::Retrying => {
+      watch.push(PollFd::new(listening, PollFlags::IN));
+      which.push(Watched::Door);
     }
+    Door::Resting => {}
+  }
 
-    for (who, client) in &serving.clients {
-        let flags = match client.outbox.is_empty() {
-            true => PollFlags::IN,
-            false => PollFlags::IN | PollFlags::OUT,
-        };
+  for (who, client) in &serving.clients {
+    let flags = match ::core::primitive::bool::then_some(client.outbox.is_empty(), ()) {
+      ::core::option::Option::Some(()) => PollFlags::IN,
+      ::core::option::Option::None => PollFlags::IN | PollFlags::OUT,
+    };
 
-        watch.push(PollFd::from_borrowed_fd(client.connection.as_fd(), flags));
-        which.push(Watched::Client(*who));
-    }
+    watch.push(PollFd::from_borrowed_fd(client.connection.as_fd(), flags));
+    which.push(Watched::Client(*who));
+  }
 
-    let Ok(breath) = breath(door);
+  let Ok(breath) = breath(door);
 
-    match poll(&mut watch, breath.as_ref()) {
-        Ok(_) => {},
-        Err(rustix::io::Errno::INTR) => return Ok(Vec::new()),
-        Err(fault) => return Err(Unserved::Waiting(fault)),
-    }
+  match poll(&mut watch, breath.as_ref()) {
+    Ok(_) => {}
+    Err(rustix::io::Errno::INTR) => return Ok(Vec::new()),
+    Err(fault) => return Err(Unserved::Waiting(fault)),
+  }
 
-    Ok(which
-        .into_iter()
-        .zip(watch.iter().map(|fd| fd.revents()))
-        .filter(|(_, flags)| !flags.is_empty())
-        .collect())
+  Ok(
+    which
+      .into_iter()
+      .zip(watch.iter().map(|fd| fd.revents()))
+      .filter(|(_, flags)| !flags.is_empty())
+      .collect(),
+  )
 }
 
 fn breath(door: Door) -> Result<Option<Timespec>, Never> {
-    Ok(match door {
-        Door::Resting => {
-            let Ok(seconds) = fitted::<u64, Secs>(BREATH.as_secs());
-            let Ok(nanoseconds) = fitted::<u32, Nsecs>(BREATH.subsec_nanos());
+  Ok(match door {
+    Door::Resting => {
+      let Ok(seconds) = fitted::<u64, Secs>(BREATH.as_secs());
+      let Ok(nanoseconds) = fitted::<u32, Nsecs>(BREATH.subsec_nanos());
 
-            Some(Timespec { tv_sec: seconds, tv_nsec: nanoseconds })
-        }
-        Door::Open | Door::Retrying => None,
-    })
+      Some(Timespec {
+        tv_sec: seconds,
+        tv_nsec: nanoseconds,
+      })
+    }
+    Door::Open | Door::Retrying => None,
+  })
 }
 
-fn let_in(serving: &mut Serving, listening: &UnixListener, door: Door) -> Result<Door, Never> {
-    for accepted in listening.incoming() {
-        let fault = match accepted {
-            Ok(stream) => {
-                let Ok(()) = arrived(serving, stream);
+fn let_in(
+  serving: &mut Serving<'_>,
+  listening: &UnixListener,
+  door: Door,
+) -> Result<Door, Never> {
+  for accepted in listening.incoming() {
+    let fault = match accepted {
+      Ok(stream) => {
+        let Ok(()) = arrived(serving, stream);
 
-                continue;
-            }
-            Err(fault) => fault,
-        };
+        continue;
+      }
+      Err(fault) => fault,
+    };
 
-        let Ok(refused) = refused(&fault);
+    let Ok(refused) = refused(&fault);
 
-        return Ok(match (refused, door) {
-            (Rejected::NotYet, Door::Open | Door::Resting) => door,
-            (Rejected::NotYet, Door::Retrying) => Door::Open,
-            (Rejected::Interrupted, Door::Open | Door::Resting | Door::Retrying) => continue,
-            (Rejected::Gone, Door::Open) => {
-                eprintln!("console-events: no one can be let in: {fault}");
+    return Ok(match (refused, door) {
+      (Rejected::NotYet, Door::Open | Door::Resting) => door,
+      (Rejected::NotYet, Door::Retrying) => Door::Open,
+      (Rejected::Interrupted, Door::Open | Door::Resting | Door::Retrying) => continue,
+      (Rejected::Gone, Door::Open) => {
+        eprintln!("console-events: no one can be let in: {fault}");
 
-                Door::Resting
-            }
-            (Rejected::Gone, Door::Resting | Door::Retrying) => Door::Resting,
-        });
-    }
+        Door::Resting
+      }
+      (Rejected::Gone, Door::Resting | Door::Retrying) => Door::Resting,
+    });
+  }
 
-    Ok(door)
+  Ok(door)
 }
 
-fn arrived(serving: &mut Serving, stream: UnixStream) -> Result<(), Never> {
-    match stream.set_nonblocking(true) {
-        Ok(()) => {},
-        Err(fault) => {
-            eprintln!("console-events: a program connected and could not be read: {fault}");
+fn arrived(serving: &mut Serving<'_>, stream: UnixStream) -> Result<(), Never> {
+  match stream.set_nonblocking(true) {
+    Ok(()) => {}
+    Err(fault) => {
+      eprintln!("console-events: a program connected and could not be read: {fault}");
 
-            return Ok(());
-        }
+      return Ok(());
     }
+  }
 
-    let Ok(who) = serving.pool.joined();
+  let Ok(who) = serving.pool.joined();
 
-    let _ = serving.clients.insert(who, Client { connection: stream, heard: Vec::new(), outbox: Vec::new() });
+  let _ = serving.clients.insert(
+    who,
+    Client {
+      connection: stream,
+      heard: Vec::new(),
+      outbox: Vec::new(),
+    },
+  );
 
-    Ok(())
+  Ok(())
 }
 
-fn read_client(serving: &mut Serving, who: Who, flags: PollFlags) -> Result<(), Never> {
-    match flags.intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR) {
-        true => {},
-        false => return Ok(()),
+fn read_client(serving: &mut Serving<'_>, who: Who, flags: PollFlags) -> Result<(), Never> {
+  match ::core::primitive::bool::then_some(flags.intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => return Ok(()),
+  }
+
+  let Ok((lines, still)) = read(serving, who);
+
+  for bytes in lines
+    .split(|byte| *byte == b'\n')
+    .filter(|line| !line.is_empty())
+  {
+    let line = match std::str::from_utf8(bytes) {
+      Ok(line) => line,
+      Err(fault) => {
+        console_core_logging::warn!("console-events: {who} sent invalid UTF-8: {fault}");
+
+        continue;
+      }
+    };
+    let Ok(message) = wire::decoded(line);
+
+    match message {
+      Some(message_2) => {
+        let Ok(()) = received(serving, who, message_2);
+      }
+      None => {
+        console_core_logging::warn!("console-events: {who} said {line:?}, which is nothing")
+      }
     }
+  }
 
-    let Ok((lines, still)) = read(serving, who);
-
-    for line in lines.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()) {
-        let message = match std::str::from_utf8(line) {
-            Ok(line) => wire::decoded(line),
-            Err(_not_words) => Ok(None),
-        };
-        let Ok(message) = message;
-
-        match message {
-            Some(message) => {
-                let Ok(()) = received(serving, who, message);
-            }
-            None => eprintln!("console-events: {who} said {:?}, which is nothing", String::from_utf8_lossy(line)),
-        }
-    }
-
-    match still {
-        Still::Connected => Ok(()),
-        Still::Gone => let_go(serving, who),
-    }
+  match still {
+    Still::Connected => Ok(()),
+    Still::Gone => let_go(serving, who),
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Still {
-    Connected,
-    Gone,
+  Connected,
+  Gone,
 }
 
-fn read(serving: &mut Serving, who: Who) -> Result<(Vec<u8>, Still), Never> {
-    let client = match serving.clients.get_mut(&who) {
-        Some(client) => client,
-        None => return Ok((Vec::new(), Still::Gone)),
+#[cfg_attr(
+  dylint_lib = "explicit057_no_unbounded_wait",
+  expect(
+    explicit057_no_unbounded_wait,
+    reason = "arrived sets every client socket nonblocking before storing it, and this read stops when it would block"
+  )
+)]
+fn read(serving: &mut Serving<'_>, who: Who) -> Result<(Vec<u8>, Still), Never> {
+  let client = match serving.clients.get_mut(&who) {
+    Some(client) => client,
+    None => return Ok((Vec::new(), Still::Gone)),
+  };
+  let buffer = Box::new([0_u8; 64 << 10]);
+
+  let heard = iterate((client, buffer), |(client_2, mut buffer_2)| {
+    let fault = match client_2.connection.read(buffer_2.as_mut_slice()) {
+      Ok(0) => return Ok(Step::Halt((client_2, Still::Gone))),
+      Ok(many) => {
+        client_2.heard.extend(buffer_2.iter().take(many));
+
+        return Ok(Step::Again((client_2, buffer_2)));
+      }
+      Err(fault) => fault,
     };
-    let Ok(long) = index(READING);
-    let buffer = vec![0_u8; long];
+    let Ok(refused) = refused(&fault);
 
-    let heard = iterate((client, buffer), |(client, mut buffer)| {
-        let fault = match client.connection.read(&mut buffer) {
-            Ok(0) => return Ok(Step::Halt((client, Still::Gone))),
-            Ok(many) => {
-                client.heard.extend(buffer.iter().take(many));
+    Ok(match refused {
+      Rejected::NotYet => Step::Halt((client_2, Still::Connected)),
+      Rejected::Interrupted => Step::Again((client_2, buffer_2)),
+      Rejected::Gone => Step::Halt((client_2, Still::Gone)),
+    })
+  });
 
-                return Ok(Step::Again((client, buffer)));
-            }
-            Err(fault) => fault,
-        };
-        let Ok(refused) = refused(&fault);
+  let (client_3, still) = match heard {
+    Ok(heard_2) => heard_2,
+    Err(Endless) => return Ok((Vec::new(), Still::Gone)),
+  };
 
-        Ok(match refused {
-            Rejected::NotYet => Step::Halt((client, Still::Connected)),
-            Rejected::Interrupted => Step::Again((client, buffer)),
-            Rejected::Gone => Step::Halt((client, Still::Gone)),
-        })
-    });
+  let rest = match client_3.heard.iter().rposition(|byte| *byte == b'\n') {
+    Some(end) => client_3.heard.split_off(end.saturating_add(1)),
+    None => return Ok((Vec::new(), still)),
+  };
 
-    let (client, still) = match heard {
-        Ok(heard) => heard,
-        Err(Endless) => return Ok((Vec::new(), Still::Gone)),
-    };
-
-    let rest = match client.heard.iter().rposition(|byte| *byte == b'\n') {
-        Some(end) => client.heard.split_off(end.saturating_add(1)),
-        None => return Ok((Vec::new(), still)),
-    };
-
-    Ok((std::mem::replace(&mut client.heard, rest), still))
+  Ok((std::mem::replace(&mut client_3.heard, rest), still))
 }
 
-fn let_go(serving: &mut Serving, who: Who) -> Result<(), Never> {
-    let Ok(()) = serving.pool.remove(who);
-    let _ = serving.clients.remove(&who);
+fn let_go(serving: &mut Serving<'_>, who: Who) -> Result<(), Never> {
+  let Ok(()) = serving.pool.remove(who);
+  let _ = serving.clients.remove(&who);
 
-    Ok(())
+  Ok(())
 }
 
-fn received(serving: &mut Serving, who: Who, message: Message) -> Result<(), Never> {
-    match message {
-        Message::Subscribe(event_group) => {
-            let Ok(replay) = serving.pool.subscribe(who, event_group.clone());
-            let Ok(()) = hold(serving, &event_group);
+fn received(serving: &mut Serving<'_>, who: Who, message: Message) -> Result<(), Never> {
+  match message {
+    Message::Subscribe(event_group) => {
+      let Ok(replay) = serving.pool.subscribe(who, event_group.clone());
+      let Ok(()) = hold(serving, &event_group);
 
-            match replay {
-                Some(change) => {
-                    let Ok(spelled) = wire::encoded(&Message::Publish(change));
-                    let Ok(()) = send(serving, who, format!("{spelled}\n").as_bytes());
-                }
-                None => {},
-            }
+      match replay {
+        Some(change) => {
+          let Ok(spelled) = wire::encoded(&Message::Publish(change));
+          let Ok(()) = send(serving, who, format!("{spelled}\n").as_bytes());
         }
-        Message::Unsubscribe(event_group) => {
-            let Ok(()) = serving.pool.unsubscribe(who, &event_group);
-        }
-        Message::Publish(_) => eprintln!("console-events: {who} tried to tell the pool something"),
+        None => {}
+      }
     }
+    Message::Unsubscribe(event_group) => {
+      let Ok(()) = serving.pool.unsubscribe(who, &event_group);
+    }
+    Message::Publish(_) => eprintln!("console-events: {who} tried to tell the pool something"),
+  }
 
-    Ok(())
+  Ok(())
 }
 
-fn hold(serving: &mut Serving, event_group: &EventGroup) -> Result<(), Never> {
-    match serving.held.contains(event_group) {
-        true => return Ok(()),
-        false => {},
-    }
+fn hold(serving: &mut Serving<'_>, event_group: &EventGroup) -> Result<(), Never> {
+  match ::core::primitive::bool::then_some(serving.held.contains(event_group), ()) {
+    ::core::option::Option::Some(()) => return Ok(()),
+    ::core::option::Option::None => {}
+  }
 
-    let Ok(held_now) = (serving.holding)(event_group, serving.sources.clone());
+  let Ok(held_now) = (serving.holding)(event_group, serving.sources.clone());
 
-    match held_now {
-        Subscribed::Yes => serving.held.push(event_group.clone()),
-        Subscribed::No => {
-            let Ok(token) = wire::token(event_group);
+  match held_now {
+    Subscribed::Yes => serving.held.push(event_group.clone()),
+    Subscribed::No => {
+      let Ok(token) = wire::token(event_group);
 
-            eprintln!(
-                "console-events: nothing here watches {token}, so anyone listening to it will \
+      eprintln!(
+        "console-events: nothing here watches {token}, so anyone listening to it will \
                  hear nothing"
-            );
-        }
+      );
     }
+  }
 
-    Ok(())
+  Ok(())
 }
 
-fn publish_pending(serving: &mut Serving, published: &Receiver<Change>) -> Result<(), Never> {
-    for change in published.try_iter() {
-        let Ok(()) = publish(serving, &change);
+fn publish_pending(serving: &mut Serving<'_>, published: &Receiver<Change>) -> Result<(), Never> {
+  for change in published.try_iter() {
+    let Ok(()) = publish(serving, &change);
 
-        match serving.carried > BATCH {
-            true => {
-                let Ok(()) = flush(serving);
-            }
-            false => {},
-        }
+    match ::core::primitive::bool::then_some(serving.carried > BATCH, ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(()) = flush(serving);
+      }
+      ::core::option::Option::None => {}
     }
+  }
 
-    Ok(())
+  Ok(())
 }
 
-fn publish(serving: &mut Serving, change: &Change) -> Result<(), Never> {
-    let Ok(everyone) = serving.pool.publish(change);
+fn publish(serving: &mut Serving<'_>, change: &Change) -> Result<(), Never> {
+  let Ok(everyone) = serving.pool.publish(change);
 
-    match everyone.first() {
-        Some(_someone_asked_for_this) => {},
-        None => return Ok(()),
-    }
+  match everyone.first() {
+    Some(_someone_asked_for_this) => {}
+    None => return Ok(()),
+  }
 
-    let Ok(spelled) = wire::encoded(&Message::Publish(change.clone()));
-    let line = format!("{spelled}\n");
+  let Ok(spelled) = wire::encoded(&Message::Publish(change.clone()));
+  let line = format!("{spelled}\n");
 
-    for who in everyone {
-        let Ok(()) = send(serving, who, line.as_bytes());
-    }
+  for who in everyone {
+    let Ok(()) = send(serving, who, line.as_bytes());
+  }
 
-    Ok(())
+  Ok(())
 }
 
-fn send(serving: &mut Serving, who: Who, line: &[u8]) -> Result<(), Never> {
-    let client = match serving.clients.get_mut(&who) {
-        Some(client) => client,
-        None => return Ok(()),
-    };
-    let Ok(held) = fitted::<_, u64>(client.outbox.len());
+fn send(serving: &mut Serving<'_>, who: Who, line: &[u8]) -> Result<(), Never> {
+  let client = match serving.clients.get_mut(&who) {
+    Some(client) => client,
+    None => return Ok(()),
+  };
+  let Ok(held) = fitted::<_, u64>(client.outbox.len());
 
-    match held > OUTBOX {
-        true => {
-            eprintln!(
-                "console-events: {who} is holding {OUTBOX} bytes it has not read and is let go; \
+  match ::core::primitive::bool::then_some(held > OUTBOX, ()) {
+    ::core::option::Option::Some(()) => {
+      eprintln!(
+        "console-events: {who} is holding {OUTBOX} bytes it has not read and is let go; \
                  it will connect again and be told what is true then"
-            );
+      );
 
-            return let_go(serving, who);
-        }
-        false => {},
+      return let_go(serving, who);
     }
+    ::core::option::Option::None => {}
+  }
 
-    client.outbox.extend_from_slice(line);
+  client.outbox.extend_from_slice(line);
 
-    let Ok(long) = fitted::<_, u64>(line.len());
+  let Ok(long) = fitted::<_, u64>(line.len());
 
-    serving.carried = serving.carried.saturating_add(long);
+  serving.carried = serving.carried.saturating_add(long);
 
-    Ok(())
+  Ok(())
 }
 
-fn flush(serving: &mut Serving) -> Result<(), Never> {
-    serving.carried = 0;
+fn flush(serving: &mut Serving<'_>) -> Result<(), Never> {
+  serving.carried = 0;
 
-    let mut gone: Vec<Who> = Vec::new();
+  let mut gone: Vec<Who> = Vec::new();
 
-    for (who, client) in &mut serving.clients {
-        let Ok(wrote) = wrote(client);
+  for (who, client) in &mut serving.clients {
+    let Ok(wrote) = wrote(client);
 
-        match wrote {
-            Wrote::Retained => {},
-            Wrote::Gone => gone.push(*who),
-        }
+    match wrote {
+      Wrote::Retained => {}
+      Wrote::Gone => gone.push(*who),
     }
+  }
 
-    for who in gone {
-        let Ok(()) = let_go(serving, who);
-    }
+  for who in gone {
+    let Ok(()) = let_go(serving, who);
+  }
 
-    Ok(())
+  Ok(())
 }
 
 enum Wrote {
-    Retained,
-    Gone,
+  Retained,
+  Gone,
 }
 
 fn wrote(client: &mut Client) -> Result<Wrote, Never> {
-    let written = iterate(client, |client| {
-        match client.outbox.is_empty() {
-            true => return Ok(Step::Halt(Wrote::Retained)),
-            false => {},
-        }
+  let written = iterate(client, |client_2| {
+    match ::core::primitive::bool::then_some(client_2.outbox.is_empty(), ()) {
+      ::core::option::Option::Some(()) => return Ok(Step::Halt(Wrote::Retained)),
+      ::core::option::Option::None => {}
+    }
 
-        let fault = match client.connection.write(&client.outbox) {
-            Ok(0) => return Ok(Step::Halt(Wrote::Gone)),
-            Ok(many) => {
-                let _ = client.outbox.drain(..many);
+    let fault = match client_2.connection.write(&client_2.outbox) {
+      Ok(0) => return Ok(Step::Halt(Wrote::Gone)),
+      Ok(many) => {
+        let _ = client_2.outbox.drain(..many);
 
-                return Ok(Step::Again(client));
-            }
-            Err(fault) => fault,
-        };
-        let Ok(refused) = refused(&fault);
+        return Ok(Step::Again(client_2));
+      }
+      Err(fault) => fault,
+    };
+    let Ok(refused) = refused(&fault);
 
-        Ok(match refused {
-            Rejected::NotYet => Step::Halt(Wrote::Retained),
-            Rejected::Interrupted => Step::Again(client),
-            Rejected::Gone => Step::Halt(Wrote::Gone),
-        })
-    });
-
-    Ok(match written {
-        Ok(written) => written,
-        Err(Endless) => Wrote::Gone,
+    Ok(match refused {
+      Rejected::NotYet => Step::Halt(Wrote::Retained),
+      Rejected::Interrupted => Step::Again(client_2),
+      Rejected::Gone => Step::Halt(Wrote::Gone),
     })
+  });
+
+  Ok(match written {
+    Ok(written_2) => written_2,
+    Err(Endless) => Wrote::Gone,
+  })
 }

@@ -36,399 +36,503 @@
 //! something puts one pixel of the file on one pixel of the screen. That step
 //! is the one this panel is for.
 
-use console_core_never::Never;
 use console_core_geometry::{Point, Size};
+use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_i32, toward_zero_u32};
 use console_core_words::Words;
 
+use crate::units::{Fraction, Scale};
+
 pub fn area(of: Size<u32>) -> Result<Area, Never> {
-    Ok(match of.width > 0 && of.height > 0 {
-        true => Area::Some,
-        false => Area::None,
-    })
+  Ok(
+    match ::core::primitive::bool::then_some(of.width > 0 && of.height > 0, ()) {
+      ::core::option::Option::Some(()) => Area::Some,
+      ::core::option::Option::None => Area::None,
+    },
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Area {
-    Some,
-    None,
+  Some,
+  None,
 }
 
-pub fn contain(of: Size<u32>, room: Size<u32>) -> Result<f64, Never> {
-    let Ok(theirs) = area(of);
-    let Ok(ours) = area(room);
+pub fn contain(of: Size<u32>, room: Size<u32>) -> Result<Scale, Never> {
+  let Ok(theirs) = area(of);
+  let Ok(ours) = area(room);
 
-    match theirs == Area::None || ours == Area::None {
-        true => return Ok(1.0),
-        false => {},
-    }
+  match ::core::primitive::bool::then_some(theirs == Area::None || ours == Area::None, ()) {
+    ::core::option::Option::Some(()) => return Ok(Scale(1.0)),
+    ::core::option::Option::None => {}
+  }
 
-    let across = f64::from(room.width) / f64::from(of.width);
-    let down = f64::from(room.height) / f64::from(of.height);
+  let across = f64::from(room.width) / f64::from(of.width);
+  let down = f64::from(room.height) / f64::from(of.height);
 
-    Ok(across.min(down).min(1.0))
+  Ok(Scale(across.min(down).min(1.0)))
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Words)]
 pub enum Zoom {
-    #[default]
-    #[words(says = "the whole of it")]
-    Whole,
-    #[words(says = "its own size")]
-    Actual,
-    #[words(says = "twice")]
-    Twice,
-    #[words(says = "four times")]
-    Four,
+  #[default]
+  #[words(says = "the whole of it")]
+  Whole,
+  #[words(says = "its own size")]
+  Actual,
+  #[words(says = "twice")]
+  Twice,
+  #[words(says = "four times")]
+  Four,
 }
 
 pub const STEPS: [Zoom; 4] = [Zoom::Whole, Zoom::Actual, Zoom::Twice, Zoom::Four];
 
 impl Zoom {
-    pub fn closer(self) -> Result<Zoom, Never> {
-        Ok(match self {
-            Zoom::Whole => Zoom::Actual,
-            Zoom::Actual => Zoom::Twice,
-            Zoom::Twice | Zoom::Four => Zoom::Four,
-        })
-    }
+  pub fn closer(self) -> Result<Zoom, Never> {
+    Ok(match self {
+      Zoom::Whole => Zoom::Actual,
+      Zoom::Actual => Zoom::Twice,
+      Zoom::Twice | Zoom::Four => Zoom::Four,
+    })
+  }
 
-    pub fn further(self) -> Result<Zoom, Never> {
-        Ok(match self {
-            Zoom::Four => Zoom::Twice,
-            Zoom::Twice => Zoom::Actual,
-            Zoom::Actual | Zoom::Whole => Zoom::Whole,
-        })
-    }
+  pub fn further(self) -> Result<Zoom, Never> {
+    Ok(match self {
+      Zoom::Four => Zoom::Twice,
+      Zoom::Twice => Zoom::Actual,
+      Zoom::Actual | Zoom::Whole => Zoom::Whole,
+    })
+  }
 
-    pub fn scale(self, of: Size<u32>, room: Size<u32>) -> Result<f64, Never> {
-        match self {
-            Zoom::Whole => contain(of, room),
-            Zoom::Actual => Ok(1.0),
-            Zoom::Twice => Ok(2.0),
-            Zoom::Four => Ok(4.0),
-        }
+  pub fn scale(self, of: Size<u32>, room: Size<u32>) -> Result<Scale, Never> {
+    match self {
+      Zoom::Whole => contain(of, room),
+      Zoom::Actual => Ok(Scale(1.0)),
+      Zoom::Twice => Ok(Scale(2.0)),
+      Zoom::Four => Ok(Scale(4.0)),
     }
+  }
 
-    pub fn hangs_over(self, of: Size<u32>, room: Size<u32>) -> Result<Hangs, Never> {
-        let Ok(scale) = self.scale(of, room);
-        let Ok(drawn) = drawn_at(of, scale);
+  pub fn hangs_over(self, of: Size<u32>, room: Size<u32>) -> Result<Hangs, Never> {
+    let Ok(scale) = self.scale(of, room);
+    let Ok(drawn) = drawn_at(of, scale);
 
-        Ok(match drawn.width > room.width || drawn.height > room.height {
-            true => Hangs::Over,
-            false => Hangs::Inside,
-        })
-    }
+    Ok(
+      match ::core::primitive::bool::then_some(
+        drawn.width > room.width || drawn.height > room.height,
+        (),
+      ) {
+        ::core::option::Option::Some(()) => Hangs::Over,
+        ::core::option::Option::None => Hangs::Inside,
+      },
+    )
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hangs {
-    Over,
-    Inside,
+  Over,
+  Inside,
 }
 
-pub fn drawn_at(of: Size<u32>, scale: f64) -> Result<Size<u32>, Never> {
-    let Ok(wide) = toward_zero_u32(f64::from(of.width) * scale);
-    let Ok(tall) = toward_zero_u32(f64::from(of.height) * scale);
+pub fn drawn_at(of: Size<u32>, scale: Scale) -> Result<Size<u32>, Never> {
+  let Ok(wide) = toward_zero_u32(f64::from(of.width) * scale.0);
+  let Ok(tall) = toward_zero_u32(f64::from(of.height) * scale.0);
 
-    Ok(Size { width: wide.max(1), height: tall.max(1) })
+  Ok(Size {
+    width: wide.max(1),
+    height: tall.max(1),
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Looking {
-    pub x: f64,
-    pub y: f64,
+  pub x: Fraction,
+  pub y: Fraction,
 }
 
 impl Default for Looking {
-    fn default() -> Self {
-        Looking { x: 0.5, y: 0.5 }
+  fn default() -> Self {
+    Looking {
+      x: Fraction(0.5),
+      y: Fraction(0.5),
     }
+  }
 }
 
 impl Looking {
-    pub fn moved(self, by: Point<f64>) -> Result<Looking, Never> {
-        Ok(Looking {
-            x: (self.x + by.x).clamp(0.0, 1.0),
-            y: (self.y + by.y).clamp(0.0, 1.0),
-        })
-    }
+  pub fn moved(self, by: Point<f64>) -> Result<Looking, Never> {
+    Ok(Looking {
+      x: Fraction((self.x.0 + by.x).clamp(0.0, 1.0)),
+      y: Fraction((self.y.0 + by.y).clamp(0.0, 1.0)),
+    })
+  }
 }
 
 pub const STEP: f64 = 0.2;
 
 pub fn corner(
-    of: Size<u32>,
-    room: Size<u32>,
-    zoom: Zoom,
-    looking: Looking,
+  of: Size<u32>,
+  room: Size<u32>,
+  zoom: Zoom,
+  looking: Looking,
 ) -> Result<(i32, i32), Never> {
-    let Ok(scale) = zoom.scale(of, room);
-    let Ok(drawn) = drawn_at(of, scale);
-    let Ok(across) = along(Across { drawn: drawn.width, room: room.width }, looking.x);
-    let Ok(down) = along(Across { drawn: drawn.height, room: room.height }, looking.y);
+  let Ok(scale) = zoom.scale(of, room);
+  let Ok(drawn) = drawn_at(of, scale);
+  let Ok(across) = along(
+    Across {
+      drawn: drawn.width,
+      room: room.width,
+    },
+    looking.x,
+  );
+  let Ok(down) = along(
+    Across {
+      drawn: drawn.height,
+      room: room.height,
+    },
+    looking.y,
+  );
 
-    Ok((across, down))
+  Ok((across, down))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Across {
-    drawn: u32,
-    room: u32,
+  drawn: u32,
+  room: u32,
 }
 
-fn along(across: Across, looking: f64) -> Result<i32, Never> {
-    let drawn_wide = f64::from(across.drawn);
-    let room_wide = f64::from(across.room);
+fn along(across: Across, looking: Fraction) -> Result<i32, Never> {
+  let drawn_wide = f64::from(across.drawn);
+  let room_wide = f64::from(across.room);
 
-    match across.drawn <= across.room {
-        true => return toward_zero_i32((room_wide - drawn_wide) / 2.0),
-        false => {},
-    }
+  match ::core::primitive::bool::then_some(across.drawn <= across.room, ()) {
+    ::core::option::Option::Some(()) => return toward_zero_i32((room_wide - drawn_wide) / 2.0),
+    ::core::option::Option::None => {}
+  }
 
-    let wanted = looking * drawn_wide - room_wide / 2.0;
-    let furthest = drawn_wide - room_wide;
-    let Ok(from_the_left) = toward_zero_i32(wanted.clamp(0.0, furthest));
+  let wanted = looking.0 * drawn_wide - room_wide / 2.0;
+  let furthest = drawn_wide - room_wide;
+  let Ok(from_the_left) = toward_zero_i32(wanted.clamp(0.0, furthest));
 
-    Ok(from_the_left.saturating_neg())
+  Ok(from_the_left.saturating_neg())
 }
 
 pub fn visible_fraction(of: Size<u32>, room: Size<u32>, zoom: Zoom) -> Result<f64, Never> {
-    let Ok(scale) = zoom.scale(of, room);
-    let Ok(drawn) = drawn_at(of, scale);
-    let across = (f64::from(room.width) / f64::from(drawn.width)).min(1.0);
-    let down = (f64::from(room.height) / f64::from(drawn.height)).min(1.0);
+  let Ok(scale) = zoom.scale(of, room);
+  let Ok(drawn) = drawn_at(of, scale);
+  let across = (f64::from(room.width) / f64::from(drawn.width)).min(1.0);
+  let down = (f64::from(room.height) / f64::from(drawn.height)).min(1.0);
 
-    Ok(across * down)
+  Ok(across * down)
 }
 
-pub fn percent(scale: f64) -> Result<u32, Never> {
-    let Ok(percent) = toward_zero_u32((scale * 100.0).round());
+pub fn percent(scale: Scale) -> Result<u32, Never> {
+  let Ok(percent) = toward_zero_u32((scale.0 * 100.0).round());
 
-    Ok(percent.max(1))
+  Ok(percent.max(1))
 }
 
 pub fn room(card: Size<u32>, taken: u32) -> Result<Size<u32>, Never> {
-    Ok(Size { width: card.width, height: card.height.saturating_sub(taken).max(1) })
+  Ok(Size {
+    width: card.width,
+    height: card.height.saturating_sub(taken).max(1),
+  })
 }
 
 pub fn format_size(of: Size<u32>) -> Result<String, Never> {
-    Ok(format!("{} x {}", of.width, of.height))
+  Ok(format!("{} x {}", of.width, of.height))
 }
 
 pub fn pixels(of: Size<u32>) -> Result<u64, Never> {
-    Ok(u64::from(of.width).saturating_mul(u64::from(of.height)))
+  Ok(u64::from(of.width).saturating_mul(u64::from(of.height)))
 }
 
 pub fn megapixels(of: Size<u32>) -> Result<f64, Never> {
-    let Ok(pixels) = pixels(of);
-    let Ok(many) = pixels.float();
+  let Ok(pixels) = pixels(of);
+  let Ok(many) = pixels.float();
 
-    Ok(many / 1_000_000.0)
+  Ok(many / 1_000_000.0)
 }
 
 #[cfg(test)]
 mod tests {
-    use console_core_number_conversion::fitted;
+  use console_core_number_conversion::fitted;
 
-    use super::*;
+  use super::*;
 
-    const CARD: Size<u32> = Size { width: 1180, height: 700 };
+  const CARD: Size<u32> = Size {
+    width: 1180,
+    height: 700,
+  };
 
-    const PHOTOGRAPH: Size<u32> = Size { width: 4000, height: 3000 };
+  const PHOTOGRAPH: Size<u32> = Size {
+    width: 4000,
+    height: 3000,
+  };
 
-    const ICON: Size<u32> = Size { width: 32, height: 32 };
+  const ICON: Size<u32> = Size {
+    width: 32,
+    height: 32,
+  };
 
-    #[test]
-    fn a_photograph_larger_than_the_card_is_shrunk_to_fit() {
-        let Ok(scale) = contain(PHOTOGRAPH, CARD);
+  #[test]
+  fn a_photograph_larger_than_the_card_is_shrunk_to_fit() {
+    let Ok(scale) = contain(PHOTOGRAPH, CARD);
 
-        assert!(scale < 1.0);
+    assert!(scale.0 < 1.0);
 
-        let Ok(drawn) = drawn_at(PHOTOGRAPH, scale);
+    let Ok(drawn) = drawn_at(PHOTOGRAPH, scale);
 
-        assert!(drawn.width <= CARD.width, "{drawn:?}");
-        assert!(drawn.height <= CARD.height, "{drawn:?}");
-    }
+    assert!(drawn.width <= CARD.width, "{drawn:?}");
+    assert!(drawn.height <= CARD.height, "{drawn:?}");
+  }
 
-    #[test]
-    fn something_smaller_than_the_card_is_left_at_its_own_size() {
-        let Ok(scale) = contain(ICON, CARD);
+  #[test]
+  fn something_smaller_than_the_card_is_left_at_its_own_size() {
+    let Ok(scale) = contain(ICON, CARD);
 
-        assert_eq!(scale, 1.0);
-        assert_eq!(drawn_at(ICON, scale), Ok(ICON));
-    }
+    assert_eq!(scale, Scale(1.0));
+    assert_eq!(drawn_at(ICON, scale), Ok(ICON));
+  }
 
-    #[test]
-    fn fitting_keeps_the_shape_it_had() {
-        let of = Size { width: 4000, height: 1000 };
-        let Ok(scale) = contain(of, CARD);
-        let Ok(drawn) = drawn_at(of, scale);
-        let was = f64::from(of.width) / f64::from(of.height);
-        let now = f64::from(drawn.width) / f64::from(drawn.height);
+  #[test]
+  fn fitting_keeps_the_shape_it_had() {
+    let of = Size {
+      width: 4000,
+      height: 1000,
+    };
+    let Ok(scale) = contain(of, CARD);
+    let Ok(drawn) = drawn_at(of, scale);
+    let was = f64::from(of.width) / f64::from(of.height);
+    let now = f64::from(drawn.width) / f64::from(drawn.height);
 
-        assert!((was - now).abs() < 0.01, "{was} became {now}");
-    }
+    assert!((was - now).abs() < 0.01, "{was} became {now}");
+  }
 
-    #[test]
-    fn a_picture_that_would_not_decode_does_not_divide_by_nothing() {
-        assert_eq!(contain(Size { width: 0, height: 0 }, CARD), Ok(1.0));
-        assert_eq!(contain(PHOTOGRAPH, Size { width: 0, height: 0 }), Ok(1.0));
-        assert_eq!(drawn_at(Size { width: 0, height: 0 }, 0.5), Ok(Size { width: 1, height: 1 }));
-    }
-
-    #[test]
-    fn a_zoom_walks_in_and_out_through_the_steps() {
-        let mut zoom = Zoom::default();
-
-        assert_eq!(zoom, Zoom::Whole);
-
-        for step in [Zoom::Actual, Zoom::Twice, Zoom::Four] {
-            let Ok(closer) = zoom.closer();
-
-            zoom = closer;
-
-            assert_eq!(zoom, step);
+  #[test]
+  fn a_picture_that_would_not_decode_does_not_divide_by_nothing() {
+    assert_eq!(
+      contain(
+        Size {
+          width: 0,
+          height: 0
+        },
+        CARD
+      ),
+      Ok(Scale(1.0))
+    );
+    assert_eq!(
+      contain(
+        PHOTOGRAPH,
+        Size {
+          width: 0,
+          height: 0
         }
+      ),
+      Ok(Scale(1.0))
+    );
+    assert_eq!(
+      drawn_at(
+        Size {
+          width: 0,
+          height: 0
+        },
+        Scale(0.5)
+      ),
+      Ok(Size {
+        width: 1,
+        height: 1
+      })
+    );
+  }
 
-        for step in [Zoom::Twice, Zoom::Actual, Zoom::Whole] {
-            let Ok(further) = zoom.further();
+  #[test]
+  fn a_zoom_walks_in_and_out_through_the_steps() {
+    let mut zoom = Zoom::default();
 
-            zoom = further;
+    assert_eq!(zoom, Zoom::Whole);
 
-            assert_eq!(zoom, step);
+    for step in [Zoom::Actual, Zoom::Twice, Zoom::Four] {
+      let Ok(closer) = zoom.closer();
+
+      zoom = closer;
+
+      assert_eq!(zoom, step);
+    }
+
+    for step in [Zoom::Twice, Zoom::Actual, Zoom::Whole] {
+      let Ok(further) = zoom.further();
+
+      zoom = further;
+
+      assert_eq!(zoom, step);
+    }
+  }
+
+  #[test]
+  fn a_zoom_stops_at_the_ends_rather_than_coming_round() {
+    assert_eq!(Zoom::Four.closer(), Ok(Zoom::Four));
+    assert_eq!(Zoom::Whole.further(), Ok(Zoom::Whole));
+  }
+
+  #[test]
+  fn its_own_size_is_its_own_size_in_any_room() {
+    let Ok(scale) = Zoom::Actual.scale(PHOTOGRAPH, CARD);
+
+    assert_eq!(scale, Scale(1.0));
+    assert_eq!(
+      Zoom::Actual.scale(
+        PHOTOGRAPH,
+        Size {
+          width: 300,
+          height: 200
         }
+      ),
+      Ok(Scale(1.0))
+    );
+    assert_eq!(drawn_at(PHOTOGRAPH, scale), Ok(PHOTOGRAPH));
+  }
+
+  #[test]
+  fn every_step_says_what_it_is() {
+    for zoom in STEPS {
+      let Ok(says) = zoom.says();
+
+      assert!(!says.is_empty());
     }
 
-    #[test]
-    fn a_zoom_stops_at_the_ends_rather_than_coming_round() {
-        assert_eq!(Zoom::Four.closer(), Ok(Zoom::Four));
-        assert_eq!(Zoom::Whole.further(), Ok(Zoom::Whole));
+    assert_eq!(Zoom::Whole.says(), Ok("the whole of it"));
+    assert_eq!(Zoom::Actual.says(), Ok("its own size"));
+  }
+
+  #[test]
+  fn the_whole_of_it_never_hangs_over_the_edge() {
+    assert_eq!(Zoom::Whole.hangs_over(PHOTOGRAPH, CARD), Ok(Hangs::Inside));
+    assert_eq!(Zoom::Actual.hangs_over(PHOTOGRAPH, CARD), Ok(Hangs::Over));
+  }
+
+  #[test]
+  fn a_small_picture_zoomed_in_may_still_have_nothing_to_pan() {
+    assert_eq!(Zoom::Four.hangs_over(ICON, CARD), Ok(Hangs::Inside));
+  }
+
+  #[test]
+  fn what_fits_is_drawn_in_the_middle_of_the_room() {
+    let Ok((left, top)) = corner(ICON, CARD, Zoom::Whole, Looking::default());
+
+    let Ok(across) = fitted::<u32, i32>(CARD.width.saturating_sub(ICON.width).div_euclid(2));
+    let Ok(down) = fitted::<u32, i32>(CARD.height.saturating_sub(ICON.height).div_euclid(2));
+
+    assert_eq!(left, across);
+    assert_eq!(top, down);
+  }
+
+  #[test]
+  fn nothing_past_an_edge_is_ever_shown() {
+    let of = PHOTOGRAPH;
+
+    for zoom in [Zoom::Actual, Zoom::Twice, Zoom::Four] {
+      let Ok(scale) = zoom.scale(of, CARD);
+      let Ok(drawn) = drawn_at(of, scale);
+
+      for across in [-2.0, -0.5, 0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 9.0] {
+        let looking = Looking {
+          x: Fraction(across),
+          y: Fraction(across),
+        };
+        let Ok((left, top)) = corner(of, CARD, zoom, looking);
+
+        assert!(left <= 0, "a gap on the left at {across}: {left}");
+        assert!(top <= 0, "a gap at the top at {across}: {top}");
+
+        let Ok(wide) = fitted::<u32, i32>(drawn.width);
+        let Ok(tall) = fitted::<u32, i32>(drawn.height);
+        let Ok(card_wide) = fitted::<u32, i32>(CARD.width);
+        let Ok(card_tall) = fitted::<u32, i32>(CARD.height);
+
+        assert!(left.saturating_add(wide) >= card_wide, "a gap on the right");
+        assert!(top.saturating_add(tall) >= card_tall, "a gap at the bottom");
+      }
+    }
+  }
+
+  #[test]
+  fn looking_is_kept_inside_the_picture() {
+    let Ok(looking) = Looking::default().moved(Point { x: 9.0, y: -9.0 });
+
+    assert_eq!(looking.x, Fraction(1.0));
+    assert_eq!(looking.y, Fraction(0.0));
+
+    let Ok(stepped) = Looking::default().moved(Point { x: STEP, y: 0.0 });
+
+    assert_eq!(stepped.x, Fraction(0.5 + STEP));
+  }
+
+  #[test]
+  fn a_picture_is_crossed_in_five_presses() {
+    let mut looking = Looking {
+      x: Fraction(0.0),
+      y: Fraction(0.5),
+    };
+
+    for _ in 0..5 {
+      let Ok(moved) = looking.moved(Point { x: STEP, y: 0.0 });
+
+      looking = moved;
     }
 
-    #[test]
-    fn its_own_size_is_its_own_size_in_any_room() {
-        let Ok(scale) = Zoom::Actual.scale(PHOTOGRAPH, CARD);
+    assert!((looking.x.0 - 1.0).abs() < 0.000_1, "{}", looking.x.0);
+  }
 
-        assert_eq!(scale, 1.0);
-        assert_eq!(Zoom::Actual.scale(PHOTOGRAPH, Size { width: 300, height: 200 }), Ok(1.0));
-        assert_eq!(drawn_at(PHOTOGRAPH, scale), Ok(PHOTOGRAPH));
-    }
+  #[test]
+  fn the_whole_of_a_fitted_picture_is_on_the_screen() {
+    let Ok(whole) = visible_fraction(PHOTOGRAPH, CARD, Zoom::Whole);
+    let Ok(close) = visible_fraction(PHOTOGRAPH, CARD, Zoom::Four);
 
-    #[test]
-    fn every_step_says_what_it_is() {
-        for zoom in STEPS {
-            let Ok(says) = zoom.says();
+    assert!((whole - 1.0).abs() < 0.01);
+    assert!(close < 0.1);
+  }
 
-            assert!(!says.is_empty());
-        }
+  #[test]
+  fn a_scale_is_said_as_a_percentage_and_never_as_nothing() {
+    assert_eq!(percent(Scale(1.0)), Ok(100));
+    assert_eq!(percent(Scale(0.295)), Ok(30));
+    assert_eq!(percent(Scale(4.0)), Ok(400));
+    assert_eq!(
+      percent(Scale(0.000_1)),
+      Ok(1),
+      "rounded away, and still said"
+    );
+  }
 
-        assert_eq!(Zoom::Whole.says(), Ok("the whole of it"));
-        assert_eq!(Zoom::Actual.says(), Ok("its own size"));
-    }
+  #[test]
+  fn the_room_is_the_card_less_what_the_card_keeps() {
+    assert_eq!(
+      room(CARD, 120),
+      Ok(Size {
+        width: 1180,
+        height: 580
+      })
+    );
+    assert_eq!(
+      room(CARD, 9000),
+      Ok(Size {
+        width: 1180,
+        height: 1
+      }),
+      "never nothing"
+    );
+  }
 
-    #[test]
-    fn the_whole_of_it_never_hangs_over_the_edge() {
-        assert_eq!(Zoom::Whole.hangs_over(PHOTOGRAPH, CARD), Ok(Hangs::Inside));
-        assert_eq!(Zoom::Actual.hangs_over(PHOTOGRAPH, CARD), Ok(Hangs::Over));
-    }
+  #[test]
+  fn a_size_is_said_the_way_a_camera_says_it() {
+    let Ok(many) = megapixels(PHOTOGRAPH);
 
-    #[test]
-    fn a_small_picture_zoomed_in_may_still_have_nothing_to_pan() {
-        assert_eq!(Zoom::Four.hangs_over(ICON, CARD), Ok(Hangs::Inside));
-    }
-
-    #[test]
-    fn what_fits_is_drawn_in_the_middle_of_the_room() {
-        let Ok((left, top)) = corner(ICON, CARD, Zoom::Whole, Looking::default());
-
-        let Ok(across) = fitted::<u32, i32>(CARD.width.saturating_sub(ICON.width).div_euclid(2));
-        let Ok(down) = fitted::<u32, i32>(CARD.height.saturating_sub(ICON.height).div_euclid(2));
-
-        assert_eq!(left, across);
-        assert_eq!(top, down);
-    }
-
-    #[test]
-    fn nothing_past_an_edge_is_ever_shown() {
-        let of = PHOTOGRAPH;
-
-        for zoom in [Zoom::Actual, Zoom::Twice, Zoom::Four] {
-            let Ok(scale) = zoom.scale(of, CARD);
-            let Ok(drawn) = drawn_at(of, scale);
-
-            for across in [-2.0, -0.5, 0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 9.0] {
-                let looking = Looking { x: across, y: across };
-                let Ok((left, top)) = corner(of, CARD, zoom, looking);
-
-                assert!(left <= 0, "a gap on the left at {across}: {left}");
-                assert!(top <= 0, "a gap at the top at {across}: {top}");
-
-                let Ok(wide) = fitted::<u32, i32>(drawn.width);
-                let Ok(tall) = fitted::<u32, i32>(drawn.height);
-                let Ok(card_wide) = fitted::<u32, i32>(CARD.width);
-                let Ok(card_tall) = fitted::<u32, i32>(CARD.height);
-
-                assert!(left.saturating_add(wide) >= card_wide, "a gap on the right");
-                assert!(top.saturating_add(tall) >= card_tall, "a gap at the bottom");
-            }
-        }
-    }
-
-    #[test]
-    fn looking_is_kept_inside_the_picture() {
-        let Ok(looking) = Looking::default().moved(Point { x: 9.0, y: -9.0 });
-
-        assert_eq!(looking.x, 1.0);
-        assert_eq!(looking.y, 0.0);
-
-        let Ok(stepped) = Looking::default().moved(Point { x: STEP, y: 0.0 });
-
-        assert_eq!(stepped.x, 0.5 + STEP);
-    }
-
-    #[test]
-    fn a_picture_is_crossed_in_five_presses() {
-        let mut looking = Looking { x: 0.0, y: 0.5 };
-
-        for _ in 0..5 {
-            let Ok(moved) = looking.moved(Point { x: STEP, y: 0.0 });
-
-            looking = moved;
-        }
-
-        assert!((looking.x - 1.0).abs() < 0.000_1, "{}", looking.x);
-    }
-
-    #[test]
-    fn the_whole_of_a_fitted_picture_is_on_the_screen() {
-        let Ok(whole) = visible_fraction(PHOTOGRAPH, CARD, Zoom::Whole);
-        let Ok(close) = visible_fraction(PHOTOGRAPH, CARD, Zoom::Four);
-
-        assert!((whole - 1.0).abs() < 0.01);
-        assert!(close < 0.1);
-    }
-
-    #[test]
-    fn a_scale_is_said_as_a_percentage_and_never_as_nothing() {
-        assert_eq!(percent(1.0), Ok(100));
-        assert_eq!(percent(0.295), Ok(30));
-        assert_eq!(percent(4.0), Ok(400));
-        assert_eq!(percent(0.000_1), Ok(1), "rounded away, and still said");
-    }
-
-    #[test]
-    fn the_room_is_the_card_less_what_the_card_keeps() {
-        assert_eq!(room(CARD, 120), Ok(Size { width: 1180, height: 580 }));
-        assert_eq!(room(CARD, 9000), Ok(Size { width: 1180, height: 1 }), "never nothing");
-    }
-
-    #[test]
-    fn a_size_is_said_the_way_a_camera_says_it() {
-        let Ok(many) = megapixels(PHOTOGRAPH);
-
-        assert_eq!(format_size(PHOTOGRAPH), Ok(String::from("4000 x 3000")));
-        assert_eq!(pixels(PHOTOGRAPH), Ok(12_000_000));
-        assert!((many - 12.0).abs() < 0.01);
-    }
+    assert_eq!(format_size(PHOTOGRAPH), Ok(String::from("4000 x 3000")));
+    assert_eq!(pixels(PHOTOGRAPH), Ok(12_000_000));
+    assert!((many - 12.0).abs() < 0.01);
+  }
 }

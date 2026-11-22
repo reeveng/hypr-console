@@ -38,446 +38,601 @@ const ANOTHER: std::ops::Range<u32> = 2..1000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Note {
-    pub path: PathBuf,
-    pub title: String,
-    pub opening: String,
+  pub path: PathBuf,
+  pub title: String,
+  pub opening: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OnDisk<'a> {
-    pub at: Option<&'a Path>,
-    pub known: &'a str,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Exists {
-    Yes,
-    No,
+  pub at: Option<&'a Path>,
+  pub known: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Record {
-    pub at: PathBuf,
-    pub known: String,
-    pub destination: Destination,
+  pub at: PathBuf,
+  pub known: String,
+  pub destination: Destination,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Destination {
-    Original,
-    Copy,
+  Original,
+  Copy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Leave {
-    Retain,
-    Rename(PathBuf),
-    Remove,
+  Retain,
+  Rename(PathBuf),
+  Remove,
 }
 
 #[derive(Debug)]
 pub enum Unkept {
-    Unlisted(PathBuf, std::io::Error),
-    Unread(Unread),
-    Unwritten(Unwritten),
-    Unnamed(PathBuf, std::io::Error),
+  Unlisted(PathBuf, std::io::Error),
+  Unread(Unread),
+  Unwritten(Unwritten),
+  Unnamed(PathBuf, std::io::Error),
+  NamesTaken(String),
 }
 
 impl fmt::Display for Unkept {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Unkept::Unlisted(at, fault) => write!(to, "{}: listing the notes: {fault}", at.display()),
-            Unkept::Unread(fault) => write!(to, "{fault}"),
-            Unkept::Unwritten(fault) => write!(to, "{fault}"),
-            Unkept::Unnamed(at, fault) => write!(to, "{}: naming the note after its title: {fault}", at.display()),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Unkept::Unlisted(at, fault) => write!(to, "{}: listing the notes: {fault}", at.display()),
+      Unkept::Unread(fault) => write!(to, "{fault}"),
+      Unkept::Unwritten(fault) => write!(to, "{fault}"),
+      Unkept::Unnamed(at, fault) => write!(
+        to,
+        "{}: naming the note after its title: {fault}",
+        at.display()
+      ),
+      Unkept::NamesTaken(title) => {
+        write!(to, "every filename for the note {title:?} is already taken")
+      }
     }
+  }
 }
 
 impl std::error::Error for Unkept {}
 
 impl From<Unread> for Unkept {
-    fn from(fault: Unread) -> Self {
-        Unkept::Unread(fault)
-    }
+  fn from(fault: Unread) -> Self {
+    Unkept::Unread(fault)
+  }
 }
 
 impl From<Unwritten> for Unkept {
-    fn from(fault: Unwritten) -> Self {
-        Unkept::Unwritten(fault)
-    }
+  fn from(fault: Unwritten) -> Self {
+    Unkept::Unwritten(fault)
+  }
 }
 
 pub fn listed(folder: &Path) -> Result<Vec<Note>, Unkept> {
-    let entries = match std::fs::read_dir(folder) {
-        Ok(entries) => entries,
-        Err(fault) => {
-            return match fault.kind() == std::io::ErrorKind::NotFound {
-                true => Ok(Vec::new()),
-                false => Err(Unkept::Unlisted(folder.to_path_buf(), fault)),
-            };
-        }
-    };
+  let entries = match std::fs::read_dir(folder) {
+    Ok(entries) => entries,
+    Err(fault) => {
+      return match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => Ok(Vec::new()),
+        ::core::option::Option::None => Err(Unkept::Unlisted(folder.to_path_buf(), fault)),
+      };
+    }
+  };
 
-    let mut found: Vec<(SystemTime, Note)> = entries
-        .filter_map(|entry| match entry {
-            Ok(entry) => Some(entry.path()),
-            Err(_gone_while_it_was_listed) => None,
-        })
-        .filter_map(|path| {
-            let Ok(note) = note(path);
+  let mut found: Vec<(SystemTime, Note)> = entries
+    .filter_map(|entry| match entry {
+      Ok(entry_2) => Some(entry_2.path()),
+      Err(_gone_while_it_was_listed) => None,
+    })
+    .filter_map(|path| {
+      let Ok(note) = note(path);
 
-            note
-        })
-        .collect();
+      note
+    })
+    .collect();
 
-    found.sort_by(|(one, _), (other, _)| other.cmp(one));
+  found.sort_by(|(one, _), (other, _)| other.cmp(one));
 
-    Ok(found.into_iter().map(|(_, note)| note).collect())
+  Ok(found.into_iter().map(|(_, note)| note).collect())
 }
 
 fn note(path: PathBuf) -> Result<Option<(SystemTime, Note)>, Never> {
-    let title = match (path.extension().and_then(|ending| ending.to_str()), path.file_stem()) {
-        (Some(ENDING), Some(stem)) => stem.to_string_lossy().to_string(),
-        (Some(_) | None, Some(_) | None) => return Ok(None),
-    };
+  let title = match (
+    path.extension().and_then(|ending| ending.to_str()),
+    path.file_stem().and_then(|stem| stem.to_str()),
+  ) {
+    (Some(ENDING), Some(stem)) => stem.to_string(),
+    (Some(_) | None, Some(_) | None) => return Ok(None),
+  };
 
-    let changed = match std::fs::metadata(&path).and_then(|held| held.modified()) {
-        Ok(changed) => changed,
-        Err(_said_when_it_is_opened) => SystemTime::UNIX_EPOCH,
-    };
+  let changed = match std::fs::metadata(&path).and_then(|held| held.modified()) {
+    Ok(changed) => changed,
+    Err(_said_when_it_is_opened) => SystemTime::UNIX_EPOCH,
+  };
 
-    let opening = match console_core_atomic_writes::text_or_empty(&path) {
-        Ok(file) => {
-            let Ok(written) = text(&file, &path);
-            let Ok(opening) = opening(&written);
+  let opening = match console_core_atomic_writes::text_or_empty(&path) {
+    Ok(file) => {
+      let Ok(written) = text(&file, &path);
+      let Ok(opening) = opening(&written);
 
-            opening
-        }
-        Err(_said_when_it_is_opened) => String::new(),
-    };
+      opening
+    }
+    Err(_said_when_it_is_opened) => String::new(),
+  };
 
-    Ok(Some((changed, Note { path, title, opening })))
+  Ok(Some((
+    changed,
+    Note {
+      path,
+      title,
+      opening,
+    },
+  )))
+}
+
+struct NoteFile(String);
+
+impl AsRef<Path> for NoteFile {
+  fn as_ref(&self) -> &Path {
+    Path::new(&self.0)
+  }
 }
 
 pub fn path(folder: &Path, title: &str) -> Result<PathBuf, Never> {
-    Ok(folder.join(format!("{title}.{ENDING}")))
-}
+  let Ok(valid) = console_core_file_names::a_name(title);
+  let name = match &valid {
+    Some(name) => name.as_str(),
+    None => UNTITLED,
+  };
 
-pub fn exists(path: &Path) -> Result<Exists, Never> {
-    Ok(match path.try_exists() {
-        Ok(false) => Exists::No,
-        Ok(true) => Exists::Yes,
-        Err(_cannot_tell_so_it_is_not_written_over) => Exists::Yes,
-    })
+  Ok(folder.join(NoteFile(format!("{name}.{ENDING}"))))
 }
 
 pub fn text(file: &str, at: &Path) -> Result<String, Never> {
-    let name = match at.file_stem() {
-        Some(stem) => stem.to_string_lossy().to_string(),
-        None => String::new(),
-    };
+  let name = match at.file_stem().and_then(|stem| stem.to_str()) {
+    Some(stem) => stem,
+    None => "",
+  };
 
-    let (first, rest) = match file.split_once('\n') {
-        Some((first, rest)) => (first, rest),
-        None => (file, ""),
-    };
+  let (first, rest) = match file.split_once('\n') {
+    Some((first, rest)) => (first, rest),
+    None => (file, ""),
+  };
 
-    let (title, under) = match first.strip_prefix(HEADING) {
-        Some(title) => (title, match rest.strip_prefix('\n') {
-            Some(under) => under,
-            None => rest,
-        }),
-        None => (name.as_str(), file),
-    };
+  let (title, under) = match first.strip_prefix(HEADING) {
+    Some(title) => (
+      title,
+      match rest.strip_prefix('\n') {
+        Some(under) => under,
+        None => rest,
+      },
+    ),
+    None => (name, file),
+  };
 
-    let under = under.trim_end();
+  let body = under.trim_end();
 
-    Ok(match under.is_empty() {
-        true => title.trim().to_string(),
-        false => format!("{}\n{under}", title.trim()),
-    })
+  Ok(match ::core::primitive::bool::then_some(body.is_empty(), ()) {
+    ::core::option::Option::Some(()) => title.trim().to_string(),
+    ::core::option::Option::None => format!("{}\n{body}", title.trim()),
+  })
 }
 
 pub fn file(text: &str) -> Result<String, Never> {
-    let (title, under) = match text.split_once('\n') {
-        Some((title, under)) => (title, under),
-        None => (text, ""),
-    };
+  let (title, under) = match text.split_once('\n') {
+    Some((title, under)) => (title, under),
+    None => (text, ""),
+  };
 
-    let under = under.trim_end();
+  let body = under.trim_end();
 
-    Ok(match (title.trim(), under.is_empty()) {
-        ("", true) => String::new(),
-        (title, true) => format!("{HEADING}{title}\n"),
-        (title, false) => format!("{HEADING}{title}\n\n{under}\n"),
-    })
+  Ok(match (title.trim(), body.is_empty()) {
+    ("", true) => String::new(),
+    (heading, true) => format!("{HEADING}{heading}\n"),
+    (heading, false) => format!("{HEADING}{heading}\n\n{body}\n"),
+  })
 }
 
 pub fn title(text: &str) -> Result<String, Never> {
-    let first = match text.split_once('\n') {
-        Some((first, _under)) => first,
-        None => text,
-    };
+  let first = match text.split_once('\n') {
+    Some((first, _under)) => first,
+    None => text,
+  };
 
-    let Ok(named) = console_core_file_names::a_name(first);
+  let Ok(named) = console_core_file_names::a_name(first);
 
-    Ok(match named {
-        Some(named) => named,
-        None => UNTITLED.to_string(),
-    })
+  Ok(match named {
+    Some(named_2) => named_2,
+    None => UNTITLED.to_string(),
+  })
 }
 
 fn opening(text: &str) -> Result<String, Never> {
-    Ok(match text.lines().skip(1).map(str::trim).find(|line| !line.is_empty()) {
-        Some(line) => line.to_string(),
-        None => String::new(),
-    })
+  Ok(
+    match text
+      .lines()
+      .skip(1)
+      .map(str::trim)
+      .find(|line| !line.is_empty())
+    {
+      Some(line) => line.to_string(),
+      None => String::new(),
+    },
+  )
 }
 
-pub fn free(folder: &Path, title: &str) -> Result<PathBuf, Never> {
-    let Ok(first) = path(folder, title);
+fn keep_new(folder: &Path, title: &str, bytes: &[u8]) -> Result<PathBuf, Unkept> {
+  let Ok(first) = path(folder, title);
 
-    let another = ANOTHER.map(|count| {
-        let Ok(another) = path(folder, &format!("{title} {count}"));
+  let another = ANOTHER.map(|count| {
+    let Ok(another) = path(folder, &format!("{title} {count}"));
 
-        another
-    });
+    another
+  });
 
-    Ok(match std::iter::once(first.clone()).chain(another).find(|at| exists(at) == Ok(Exists::No)) {
-        Some(free) => free,
-        None => first,
-    })
+  for at in std::iter::once(first).chain(another) {
+    match console_core_atomic_writes::whole_in_new_file_with_folders(&at, bytes) {
+      Ok(()) => return Ok(at),
+      Err(Unwritten::Moving(target, fault)) => {
+        match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::AlreadyExists, ()) {
+          ::core::option::Option::Some(()) => continue,
+          ::core::option::Option::None => return Err(Unkept::Unwritten(Unwritten::Moving(target, fault))),
+        }
+      }
+      Err(fault) => return Err(Unkept::Unwritten(fault)),
+    }
+  }
+
+  Err(Unkept::NamesTaken(title.to_string()))
 }
 
 pub fn save(folder: &Path, written: OnDisk<'_>, text: &str) -> Result<Record, Unkept> {
-    let OnDisk { at, known } = written;
-    let Ok(whole) = file(text);
-    let Ok(title) = title(text);
+  let OnDisk { at, known } = written;
+  let Ok(whole) = file(text);
+  let Ok(title) = title(text);
 
-    let (at, destination) = match at {
-        Some(at) => {
-            let now = console_core_atomic_writes::text_or_empty(at)?;
+  let destination = match at {
+    Some(at_2) => {
+      let now = console_core_atomic_writes::text_or_empty(at_2)?;
 
-            match now == known {
-                true => (at.to_path_buf(), Destination::Original),
-                false => {
-                    let Ok(aside) = free(folder, &title);
+      match ::core::primitive::bool::then_some(now == known, ()) {
+        ::core::option::Option::Some(()) => {
+          console_core_atomic_writes::whole_with_folders(at_2, whole.as_bytes())?;
 
-                    (aside, Destination::Copy)
-                }
-            }
+          return Ok(Record {
+            at: at_2.to_path_buf(),
+            known: whole,
+            destination: Destination::Original,
+          });
         }
-        None => {
-            let Ok(fresh) = free(folder, &title);
+        ::core::option::Option::None => Destination::Copy,
+      }
+    }
+    None => Destination::Original,
+  };
 
-            (fresh, Destination::Original)
-        }
-    };
+  let saved = keep_new(folder, &title, whole.as_bytes())?;
 
-    console_core_atomic_writes::whole_with_folders(&at, whole.as_bytes())?;
-
-    Ok(Record { at, known: whole, destination })
+  Ok(Record {
+    at: saved,
+    known: whole,
+    destination,
+  })
 }
 
 pub fn leave(folder: &Path, written: OnDisk<'_>, text: &str) -> Result<Leave, Unkept> {
-    let (at, known) = match written {
-        OnDisk { at: Some(at), known } => (at, known),
-        OnDisk { at: None, .. } => return Ok(Leave::Retain),
-    };
+  let (at, known) = match written {
+    OnDisk {
+      at: Some(at),
+      known,
+    } => (at, known),
+    OnDisk { at: None, .. } => return Ok(Leave::Retain),
+  };
 
-    let now = console_core_atomic_writes::text_or_empty(at)?;
+  let now = console_core_atomic_writes::text_or_empty(at)?;
 
-    match now == known {
-        true => {},
-        false => return Ok(Leave::Retain),
-    }
+  match ::core::primitive::bool::then_some(now == known, ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => return Ok(Leave::Retain),
+  }
 
-    match text.trim().is_empty() {
-        true => {
-            return match std::fs::remove_file(at) {
-                Ok(()) => Ok(Leave::Remove),
-                Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
-                    true => Ok(Leave::Remove),
-                    false => Err(Unkept::Unnamed(at.to_path_buf(), fault)),
-                },
-            };
-        }
-        false => {},
-    }
-
-    let Ok(title) = title(text);
-    let Ok(named) = path(folder, &title);
-    let Ok(taken) = exists(&named);
-
-    match (named == at, taken) {
-        (true, _) | (false, Exists::Yes) => Ok(Leave::Retain),
-        (false, Exists::No) => match std::fs::rename(at, &named) {
-            Ok(()) => Ok(Leave::Rename(named)),
-            Err(fault) => Err(Unkept::Unnamed(at.to_path_buf(), fault)),
+  match ::core::primitive::bool::then_some(text.trim().is_empty(), ()) {
+    ::core::option::Option::Some(()) => {
+      return match std::fs::remove_file(at) {
+        Ok(()) => Ok(Leave::Remove),
+        Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+          ::core::option::Option::Some(()) => Ok(Leave::Remove),
+          ::core::option::Option::None => Err(Unkept::Unnamed(at.to_path_buf(), fault)),
         },
+      };
     }
+    ::core::option::Option::None => {}
+  }
+
+  let Ok(title) = title(text);
+  let Ok(named) = path(folder, &title);
+
+  match ::core::primitive::bool::then_some(named == at, ()) {
+    ::core::option::Option::Some(()) => Ok(Leave::Retain),
+    ::core::option::Option::None => match console_core_atomic_writes::rename_without_overwriting(at, &named) {
+      Ok(()) => Ok(Leave::Rename(named)),
+      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::AlreadyExists, ()) {
+        ::core::option::Option::Some(()) => Ok(Leave::Retain),
+        ::core::option::Option::None => Err(Unkept::Unnamed(at.to_path_buf(), fault)),
+      },
+    },
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    const NOTHING_YET: OnDisk<'static> = OnDisk { at: None, known: "" };
+  const NOTHING_YET: OnDisk<'static> = OnDisk {
+    at: None,
+    known: "",
+  };
 
-    #[test]
-    fn a_note_is_its_title_over_a_blank_line_over_the_rest() {
-        assert_eq!(file("Groceries\nmilk\n\neggs"), Ok("# Groceries\n\nmilk\n\neggs\n".to_string()));
-        assert_eq!(file("Later"), Ok("# Later\n".to_string()));
-        assert_eq!(file("  \n"), Ok(String::new()), "nothing written is nothing to keep");
-    }
+  #[test]
+  fn a_note_is_its_title_over_a_blank_line_over_the_rest() {
+    assert_eq!(
+      file("Groceries\nmilk\n\neggs"),
+      Ok("# Groceries\n\nmilk\n\neggs\n".to_string())
+    );
+    assert_eq!(file("Later"), Ok("# Later\n".to_string()));
+    assert_eq!(
+      file("  \n"),
+      Ok(String::new()),
+      "nothing written is nothing to keep"
+    );
+  }
 
-    #[test]
-    fn a_file_read_back_is_the_text_it_was_written_from() {
-        let written = "Groceries\nmilk\n\n- eggs\n- bread";
-        let Ok(kept) = file(written);
+  #[test]
+  fn a_file_read_back_is_the_text_it_was_written_from() {
+    let written = "Groceries\nmilk\n\n- eggs\n- bread";
+    let Ok(kept) = file(written);
 
-        assert_eq!(text(&kept, Path::new("Groceries.md")), Ok(written.to_string()));
-    }
+    assert_eq!(
+      text(&kept, Path::new("Groceries.md")),
+      Ok(written.to_string())
+    );
+  }
 
-    #[test]
-    fn a_file_written_somewhere_else_without_a_heading_is_its_name_over_all_of_it() {
-        assert_eq!(text("first\n\nsecond\n", Path::new("Ideas.md")), Ok("Ideas\nfirst\n\nsecond".to_string()));
-        assert_eq!(text("#hashtag\nmore", Path::new("Tags.md")), Ok("Tags\n#hashtag\nmore".to_string()), "a tag is not a heading");
-        assert_eq!(text("# Only a title", Path::new("Elsewhere.md")), Ok("Only a title".to_string()));
-    }
+  #[test]
+  fn a_file_written_somewhere_else_without_a_heading_is_its_name_over_all_of_it() {
+    assert_eq!(
+      text("first\n\nsecond\n", Path::new("Ideas.md")),
+      Ok("Ideas\nfirst\n\nsecond".to_string())
+    );
+    assert_eq!(
+      text("#hashtag\nmore", Path::new("Tags.md")),
+      Ok("Tags\n#hashtag\nmore".to_string()),
+      "a tag is not a heading"
+    );
+    assert_eq!(
+      text("# Only a title", Path::new("Elsewhere.md")),
+      Ok("Only a title".to_string())
+    );
+  }
 
-    #[test]
-    fn the_title_is_the_first_line_or_a_new_note() {
-        assert_eq!(title("Groceries\nmilk"), Ok("Groceries".to_string()));
-        assert_eq!(title("\nmilk"), Ok(UNTITLED.to_string()));
-        assert_eq!(title("a/b"), Ok(UNTITLED.to_string()), "a slash cannot be in a file's name");
-    }
+  #[test]
+  fn the_title_is_the_first_line_or_a_new_note() {
+    assert_eq!(title("Groceries\nmilk"), Ok("Groceries".to_string()));
+    assert_eq!(title("\nmilk"), Ok(UNTITLED.to_string()));
+    assert_eq!(
+      title("a/b"),
+      Ok(UNTITLED.to_string()),
+      "a slash cannot be in a file's name"
+    );
+  }
 
-    #[test]
-    fn the_notes_are_the_markdown_files_newest_first_with_how_each_opens() -> Result<(), Failure> {
-        let folder = console_core_temporary_directories::fresh("notes-listed")?;
+  #[test]
+  fn the_notes_are_the_markdown_files_newest_first_with_how_each_opens() -> Result<(), Failure> {
+    let folder = console_core_temporary_directories::fresh("notes-listed")?;
 
-        let old = save(&folder, NOTHING_YET, "Old\nfirst words")?;
-        let _new = save(&folder, NOTHING_YET, "New")?;
-        console_core_atomic_writes::whole(&folder.join("picture.png"), b"")?;
+    let old = save(&folder, NOTHING_YET, "Old\nfirst words")?;
+    let _new = save(&folder, NOTHING_YET, "New")?;
+    console_core_atomic_writes::whole(&folder.join("picture.png"), b"")?;
 
-        let older = std::fs::File::open(&old.at)?;
+    let older = std::fs::File::open(&old.at)?;
 
-        older.set_modified(SystemTime::UNIX_EPOCH)?;
+    older.set_modified(SystemTime::UNIX_EPOCH)?;
 
-        let notes = listed(&folder)?;
-        let seen: Vec<(String, String)> = notes.into_iter().map(|note| (note.title, note.opening)).collect();
+    let notes = listed(&folder)?;
+    let seen: Vec<(String, String)> = notes
+      .into_iter()
+      .map(|note| (note.title, note.opening))
+      .collect();
 
-        assert_eq!(
-            seen,
-            vec![("New".to_string(), String::new()), ("Old".to_string(), "first words".to_string())]
-        );
+    assert_eq!(
+      seen,
+      vec![
+        ("New".to_string(), String::new()),
+        ("Old".to_string(), "first words".to_string())
+      ]
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_folder_not_made_yet_holds_no_notes() -> Result<(), Failure> {
-        let folder = console_core_temporary_directories::fresh("notes-none")?;
+  #[test]
+  fn a_folder_not_made_yet_holds_no_notes() -> Result<(), Failure> {
+    let folder = console_core_temporary_directories::fresh("notes-none")?;
 
-        let notes = listed(&folder.join(FOLDER))?;
+    let notes = listed(&folder.join(FOLDER))?;
 
-        assert_eq!(notes, Vec::new());
+    assert_eq!(notes, Vec::new());
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_new_note_takes_a_name_nobody_has() -> Result<(), Failure> {
-        let folder = console_core_temporary_directories::fresh("notes-free")?;
+  #[test]
+  fn a_new_note_takes_a_name_nobody_has() -> Result<(), Failure> {
+    let folder = console_core_temporary_directories::fresh("notes-free")?;
 
-        let first = save(&folder, NOTHING_YET, "Groceries")?;
-        let second = save(&folder, NOTHING_YET, "Groceries\nfor Sunday")?;
+    let first = save(&folder, NOTHING_YET, "Groceries")?;
+    let second = save(&folder, NOTHING_YET, "Groceries\nfor Sunday")?;
 
-        assert_eq!(first.at, folder.join("Groceries.md"));
-        assert_eq!(second.at, folder.join("Groceries 2.md"), "the first is somebody's note");
+    assert_eq!(first.at, folder.join("Groceries.md"));
+    assert_eq!(
+      second.at,
+      folder.join("Groceries 2.md"),
+      "the first is somebody's note"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_note_kept_twice_is_written_over_itself() -> Result<(), Failure> {
-        let folder = console_core_temporary_directories::fresh("notes-again")?;
+  #[test]
+  fn a_note_kept_twice_is_written_over_itself() -> Result<(), Failure> {
+    let folder = console_core_temporary_directories::fresh("notes-again")?;
 
-        let first = save(&folder, NOTHING_YET, "Groceries\nmilk")?;
-        let again = save(&folder, OnDisk { at: Some(&first.at), known: &first.known }, "Groceries\nmilk and eggs")?;
+    let first = save(&folder, NOTHING_YET, "Groceries\nmilk")?;
+    let again = save(
+      &folder,
+      OnDisk {
+        at: Some(&first.at),
+        known: &first.known,
+      },
+      "Groceries\nmilk and eggs",
+    )?;
 
-        assert_eq!(again, Record { at: first.at.clone(), known: "# Groceries\n\nmilk and eggs\n".to_string(), destination: Destination::Original });
-        let on_the_disk = std::fs::read_to_string(&first.at)?;
+    assert_eq!(
+      again,
+      Record {
+        at: first.at.clone(),
+        known: "# Groceries\n\nmilk and eggs\n".to_string(),
+        destination: Destination::Original
+      }
+    );
+    let on_the_disk = std::fs::read_to_string(&first.at)?;
 
-        assert_eq!(on_the_disk, again.known);
+    assert_eq!(on_the_disk, again.known);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_note_changed_somewhere_else_is_not_written_over() -> Result<(), Failure> {
-        let folder = console_core_temporary_directories::fresh("notes-copy")?;
+  #[test]
+  fn a_note_changed_somewhere_else_is_not_written_over() -> Result<(), Failure> {
+    let folder = console_core_temporary_directories::fresh("notes-copy")?;
 
-        let first = save(&folder, NOTHING_YET, "Groceries\nmilk")?;
-        console_core_atomic_writes::whole(&first.at, b"# Groceries\n\nbread\n")?;
+    let first = save(&folder, NOTHING_YET, "Groceries\nmilk")?;
+    console_core_atomic_writes::whole(&first.at, b"# Groceries\n\nbread\n")?;
 
-        let kept = save(&folder, OnDisk { at: Some(&first.at), known: &first.known }, "Groceries\nmilk and eggs")?;
+    let kept = save(
+      &folder,
+      OnDisk {
+        at: Some(&first.at),
+        known: &first.known,
+      },
+      "Groceries\nmilk and eggs",
+    )?;
 
-        assert_eq!(kept.destination, Destination::Copy);
-        assert_eq!(kept.at, folder.join("Groceries 2.md"));
-        let theirs = std::fs::read_to_string(&first.at)?;
-        let mine = std::fs::read_to_string(&kept.at)?;
+    assert_eq!(kept.destination, Destination::Copy);
+    assert_eq!(kept.at, folder.join("Groceries 2.md"));
+    let theirs = std::fs::read_to_string(&first.at)?;
+    let mine = std::fs::read_to_string(&kept.at)?;
 
-        assert_eq!(theirs, "# Groceries\n\nbread\n", "the other change is still there");
-        assert_eq!(mine, "# Groceries\n\nmilk and eggs\n", "and so is this one");
+    assert_eq!(
+      theirs, "# Groceries\n\nbread\n",
+      "the other change is still there"
+    );
+    assert_eq!(mine, "# Groceries\n\nmilk and eggs\n", "and so is this one");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_note_left_takes_its_title_as_its_name() -> Result<(), Failure> {
-        let folder = console_core_temporary_directories::fresh("notes-renamed")?;
+  #[test]
+  fn a_note_left_takes_its_title_as_its_name() -> Result<(), Failure> {
+    let folder = console_core_temporary_directories::fresh("notes-renamed")?;
 
-        let first = save(&folder, NOTHING_YET, "G")?;
-        let typed = save(&folder, OnDisk { at: Some(&first.at), known: &first.known }, "Groceries\nmilk")?;
-        let left = leave(&folder, OnDisk { at: Some(&typed.at), known: &typed.known }, "Groceries\nmilk")?;
+    let first = save(&folder, NOTHING_YET, "G")?;
+    let typed = save(
+      &folder,
+      OnDisk {
+        at: Some(&first.at),
+        known: &first.known,
+      },
+      "Groceries\nmilk",
+    )?;
+    let left = leave(
+      &folder,
+      OnDisk {
+        at: Some(&typed.at),
+        known: &typed.known,
+      },
+      "Groceries\nmilk",
+    )?;
 
-        assert_eq!(left, Leave::Rename(folder.join("Groceries.md")));
-        assert_eq!(exists(&first.at), Ok(Exists::No));
+    assert_eq!(left, Leave::Rename(folder.join("Groceries.md")));
+    assert!(
+      matches!(std::fs::read(&first.at), Err(fault) if fault.kind() == std::io::ErrorKind::NotFound)
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_note_left_under_a_title_somebody_has_keeps_its_own_name() -> Result<(), Failure> {
-        let folder = console_core_temporary_directories::fresh("notes-taken")?;
+  #[test]
+  fn a_note_left_under_a_title_somebody_has_keeps_its_own_name() -> Result<(), Failure> {
+    let folder = console_core_temporary_directories::fresh("notes-taken")?;
 
-        let _theirs = save(&folder, NOTHING_YET, "Groceries")?;
-        let mine = save(&folder, NOTHING_YET, "Shopping")?;
-        let typed = save(&folder, OnDisk { at: Some(&mine.at), known: &mine.known }, "Groceries\nmilk")?;
-        let left = leave(&folder, OnDisk { at: Some(&typed.at), known: &typed.known }, "Groceries\nmilk")?;
+    let _theirs = save(&folder, NOTHING_YET, "Groceries")?;
+    let mine = save(&folder, NOTHING_YET, "Shopping")?;
+    let typed = save(
+      &folder,
+      OnDisk {
+        at: Some(&mine.at),
+        known: &mine.known,
+      },
+      "Groceries\nmilk",
+    )?;
+    let left = leave(
+      &folder,
+      OnDisk {
+        at: Some(&typed.at),
+        known: &typed.known,
+      },
+      "Groceries\nmilk",
+    )?;
+    let kept = std::fs::read_to_string(&mine.at)?;
 
-        assert_eq!(left, Leave::Retain);
-        assert_eq!(exists(&mine.at), Ok(Exists::Yes));
+    assert_eq!(left, Leave::Retain);
+    assert_eq!(kept, typed.known);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_note_left_empty_was_never_made() -> Result<(), Failure> {
-        let folder = console_core_temporary_directories::fresh("notes-empty")?;
+  #[test]
+  fn a_note_left_empty_was_never_made() -> Result<(), Failure> {
+    let folder = console_core_temporary_directories::fresh("notes-empty")?;
 
-        let first = save(&folder, NOTHING_YET, "G")?;
-        let emptied = save(&folder, OnDisk { at: Some(&first.at), known: &first.known }, "")?;
-        let left = leave(&folder, OnDisk { at: Some(&emptied.at), known: &emptied.known }, "")?;
+    let first = save(&folder, NOTHING_YET, "G")?;
+    let emptied = save(
+      &folder,
+      OnDisk {
+        at: Some(&first.at),
+        known: &first.known,
+      },
+      "",
+    )?;
+    let left = leave(
+      &folder,
+      OnDisk {
+        at: Some(&emptied.at),
+        known: &emptied.known,
+      },
+      "",
+    )?;
 
-        assert_eq!(left, Leave::Remove);
-        assert_eq!(exists(&first.at), Ok(Exists::No));
+    assert_eq!(left, Leave::Remove);
+    assert!(
+      matches!(std::fs::read(&first.at), Err(fault) if fault.kind() == std::io::ErrorKind::NotFound)
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

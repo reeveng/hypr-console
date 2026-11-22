@@ -1,0 +1,36 @@
+error: `from_ne_bytes` lays a number out in whatever order this machine happens to use
+  --> $DIR/known_order.rs:7:9
+   |
+LL |         i32::from_ne_bytes(bytes)
+   |         ^^^^^-------------^^^^^^^
+   |              |
+   |              help: name the byte order guaranteed here: `from_le_bytes`
+   |
+   = note: `#[deny(explicit037_no_native_byte_order)]` on by default
+
+error: `to_ne_bytes` lays a number out in whatever order this machine happens to use
+  --> $DIR/known_order.rs:13:5
+   |
+LL |     u16::to_ne_bytes(word)
+   |     ^^^^^-----------^^^^^^
+   |          |
+   |          help: name the byte order guaranteed here: `to_le_bytes`
+
+error: `from_ne_bytes` lays a number out in whatever order this machine happens to use
+  --> $DIR/known_order.rs:22:5
+   |
+LL |     i8::from_ne_bytes(value.to_ne_bytes())
+   |     ^^^^-------------^^^^^^^^^^^^^^^^^^^^^
+   |         |
+   |         help: name the byte order guaranteed here: `from_le_bytes`
+
+error: `to_ne_bytes` lays a number out in whatever order this machine happens to use
+  --> $DIR/known_order.rs:22:23
+   |
+LL |     i8::from_ne_bytes(value.to_ne_bytes())
+   |                       ^^^^^^-----------^^
+   |                             |
+   |                             help: name the byte order guaranteed here: `to_le_bytes`
+
+error: aborting due to 4 previous errors
+

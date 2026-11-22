@@ -1,0 +1,48 @@
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/field_length_loops.rs:19:22
+   |
+LL |             total += self.readings[i].value;
+   |                      ^^^^^^^^^^^^^^^^
+   |
+note: the lint level is defined here
+  --> $DIR/field_length_loops.rs:4:9
+   |
+LL | #![warn(explicit014_no_index_slice)]
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: iterate over the elements selected by this loop
+   |
+LL ~         for readings_element in <[_]>::iter(&self.readings) {
+LL ~             total += readings_element.value;
+LL ~             total += readings_element.label.len() as u32;
+   |
+
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/field_length_loops.rs:20:22
+   |
+LL |             total += self.readings[i].label.len() as u32;
+   |                      ^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/field_length_loops.rs:27:13
+   |
+LL |             self.readings[i].value = if i == 0 { 100 } else { 0 };
+   |             ^^^^^^^^^^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~         for (i, readings_element) in <[_]>::iter_mut(&mut self.readings).enumerate() {
+LL ~             readings_element.value = if i == 0 { 100 } else { 0 };
+   |
+
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/field_length_loops.rs:33:13
+   |
+LL |             self.readings[i].value = 0;
+   |             ^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+warning: 4 warnings emitted
+

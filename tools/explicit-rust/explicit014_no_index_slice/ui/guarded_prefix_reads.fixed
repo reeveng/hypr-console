@@ -1,0 +1,31 @@
+// run-rustfix
+// edition:2024
+
+fn marker(bytes: &[u8], enabled: bool) -> bool {
+    enabled && match <[_]>::first_chunk::<2>(&*bytes) { ::core::option::Option::Some(&[checked_element_0, checked_element_1]) => checked_element_0 == b'!' && checked_element_1.is_ascii_alphabetic(), ::core::option::Option::None => false }
+}
+
+fn skip_two(bytes: &[u8]) -> bool {
+    match <[_]>::first_chunk::<3>(&*bytes) { ::core::option::Option::Some(&[_, checked_element_1, _]) => checked_element_1 == b'!', ::core::option::Option::None => true }
+}
+
+fn digits(bytes: &[u8]) -> usize {
+    let mut position = 0;
+    while match <[_]>::get(&*bytes, position) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_digit(), ::core::option::Option::None => false } {
+        position += 1;
+    }
+    position
+}
+
+fn main() {
+    assert!(!marker(b"!", true));
+    assert!(!marker(b"!2", true));
+    assert!(!marker(b"!a", false));
+    assert!(marker(b"!a", true));
+    assert!(marker(b"!ab", true));
+    assert!(skip_two(b"ab"));
+    assert!(!skip_two(b"abc"));
+    assert!(skip_two(b"a!c"));
+    assert_eq!(digits(b"123!"), 3);
+    assert_eq!(digits(b""), 0);
+}

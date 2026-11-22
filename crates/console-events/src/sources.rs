@@ -43,19 +43,18 @@
 //! are exported so that the one filter that reads them does not spell them a
 //! second time.
 //!
-//! **Bluetooth is heard through `gdbus monitor`, because `busctl` may not
-//! watch the system bus.** `busctl --system monitor` asks the bus to make it a
-//! monitor, and the system bus answers that for root alone -- `Access denied`,
-//! tried rather than read. `gdbus monitor --dest` asks for nothing so large:
-//! it adds an ordinary match for the signals one name sends, which any
-//! connection may, and prints each on a line of its own. Signals are all it
-//! hears, so the bar asking bluetoothd what it is -- a method call and its
-//! reply -- is not something it can mistake for bluetoothd saying something
-//! changed; `bluetoothctl show` was run beside it to see, and it printed
-//! nothing. It goes through `stdbuf` for the reason `busctl` does: what it
-//! writes into a pipe waits for a full buffer otherwise.
+//! **Bluetooth is a connection of the pool's own, like the compositor.** It
+//! was `gdbus monitor --dest org.bluez`, because `busctl --system monitor`
+//! asks the bus to make it a monitor and the system bus answers that for root
+//! alone, and gdbus asked for nothing so large: an ordinary match for the
+//! signals one name sends, which any connection may add. That is still what
+//! is asked -- `console-bus` adds the same match itself now -- and `bluetooth`
+//! reads each signal as the message it is rather than as gdbus's printing of
+//! it, which is also where the last of the narrowing happens: a match rule
+//! cannot say which keys a changed dictionary holds.
 //!
-//! **The Wi-Fi is NetworkManager on the system bus, for the same reason.**
+//! **The Wi-Fi is NetworkManager on the system bus, heard through
+//! `gdbus monitor` for the reason Bluetooth was.**
 //! `nmcli monitor` is `Network`, and it says a device connected and never how
 //! strong anything is. What the bus says that it does not is every access
 //! point's strength and the moment a scan finished, which is when a list of
@@ -95,21 +94,23 @@
 //! pool killed with `-9` leaves nothing behind, which was the thing to check
 //! rather than assume.
 
+use std::fmt;
 use std::io::{BufRead, BufReader};
 use std::os::unix::net::UnixStream;
 use std::process::Stdio;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::SyncSender;
 
-use console_program_lifetime::alongside;
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_program_contract::{Change, EventGroup};
 use console_core_reconnect::{Round, keep};
+use console_core_text_encodings::decode;
+use console_operating_system_linux::program_lifetime::alongside;
+use console_program_contract::{Change, EventGroup};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Subscribed {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 pub const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
@@ -122,193 +123,267 @@ pub const NETWORK_MANAGER: &str = "org.freedesktop.NetworkManager";
 
 pub const SCANNED: &str = "'LastScan'";
 
-pub const BLUEZ: &str = "org.bluez";
-
-pub const ADAPTER: &str = "org.bluez.Adapter1";
-
-pub const DEVICE: &str = "org.bluez.Device1";
-
 pub fn handed_to(
-    waiting: Option<&Sender<Sender<Change>>>,
-    wanted: &EventGroup,
-    event_group: &EventGroup,
-    say: Sender<Change>,
+  waiting: Option<&SyncSender<SyncSender<Change>>>,
+  wanted: &EventGroup,
+  event_group: &EventGroup,
+  say: SyncSender<Change>,
 ) -> Result<Subscribed, Never> {
-    Ok(match (event_group == wanted, waiting) {
-        (true, Some(waiting)) => match waiting.send(say) {
-            Ok(()) => Subscribed::Yes,
-            Err(_nobody_waiting_any_more) => Subscribed::No,
-        },
-        (true, None) | (false, _) => Subscribed::No,
-    })
+  Ok(match (event_group == wanted, waiting) {
+    (true, Some(waiting_2)) => match waiting_2.send(say) {
+      Ok(()) => Subscribed::Yes,
+      Err(_nobody_waiting_any_more) => Subscribed::No,
+    },
+    (true, None) | (false, _) => Subscribed::No,
+  })
 }
 
-pub fn hold(event_group: &EventGroup, say: Sender<Change>) -> Result<Subscribed, Never> {
-    Ok(match event_group {
-        EventGroup::Compositor => {
-            let Ok(()) = compositor(say);
+pub fn hold(event_group: &EventGroup, say: SyncSender<Change>) -> Result<Subscribed, Never> {
+  Ok(match event_group {
+    EventGroup::Compositor => {
+      let Ok(()) = compositor(say);
 
-            Subscribed::Yes
-        }
-        EventGroup::Sound => {
-            let Ok(arguments) = to_strings(&["subscribe"]);
-            let Ok(()) = once(EventGroup::Sound, Program::Pactl, arguments, say);
+      Subscribed::Yes
+    }
+    EventGroup::Sound => {
+      let Ok(arguments) = to_strings(&["subscribe"]);
+      let Ok(()) = once(EventGroup::Sound, Program::Pactl, arguments, say);
 
-            Subscribed::Yes
-        }
-        EventGroup::Network => {
-            let Ok(arguments) = to_strings(&["monitor"]);
-            let Ok(()) = once(EventGroup::Network, Program::Nmcli, arguments, say);
+      Subscribed::Yes
+    }
+    EventGroup::Network => {
+      let Ok(arguments) = to_strings(&["monitor"]);
+      let Ok(()) = once(EventGroup::Network, Program::Nmcli, arguments, say);
 
-            Subscribed::Yes
-        }
-        EventGroup::Wifi => {
-            let Ok(gdbus) = Program::Gdbus.name();
-            let Ok(arguments) = to_strings(&["-oL", gdbus, "monitor", "--system", "--dest", NETWORK_MANAGER]);
-            let Ok(()) = once(EventGroup::Wifi, Program::Stdbuf, arguments, say);
+      Subscribed::Yes
+    }
+    EventGroup::Wifi => {
+      let Ok(gdbus) = Program::Gdbus.name();
+      let Ok(arguments) = to_strings(&[
+        "-oL",
+        gdbus,
+        "monitor",
+        "--system",
+        "--dest",
+        NETWORK_MANAGER,
+      ]);
+      let Ok(()) = once(EventGroup::Wifi, Program::Stdbuf, arguments, say);
 
-            Subscribed::Yes
-        }
-        EventGroup::Bluetooth => {
-            let Ok(gdbus) = Program::Gdbus.name();
-            let Ok(arguments) = to_strings(&["-oL", gdbus, "monitor", "--system", "--dest", BLUEZ]);
-            let Ok(()) = once(EventGroup::Bluetooth, Program::Stdbuf, arguments, say);
+      Subscribed::Yes
+    }
+    EventGroup::Bluetooth => {
+      let Ok(()) = crate::bluetooth::hold(say);
 
-            Subscribed::Yes
-        }
-        EventGroup::Battery => {
-            let Ok(arguments) = to_strings(&["monitor", "--udev", "--subsystem-match=power_supply"]);
-            let Ok(()) = once(EventGroup::Battery, Program::Udevadm, arguments, say);
+      Subscribed::Yes
+    }
+    EventGroup::Battery => {
+      let Ok(arguments) = to_strings(&["monitor", "--udev", "--subsystem-match=power_supply"]);
+      let Ok(()) = once(EventGroup::Battery, Program::Udevadm, arguments, say);
 
-            Subscribed::Yes
-        }
-        EventGroup::Notifications => {
-            let Ok(arguments) = monitoring(&[
-                format!("--match=interface={NOTIFICATIONS}"),
-                format!("--match=interface={APPLICATION}"),
-            ]);
-            let Ok(()) = once(EventGroup::Notifications, Program::Stdbuf, arguments, say);
+      Subscribed::Yes
+    }
+    EventGroup::Notifications => {
+      let Ok(arguments) = monitoring(&[
+        format!("--match=interface={NOTIFICATIONS}"),
+        format!("--match=interface={APPLICATION}"),
+      ]);
+      let Ok(()) = once(EventGroup::Notifications, Program::Stdbuf, arguments, say);
 
-            Subscribed::Yes
-        }
-        EventGroup::Player => {
-            let Ok(arguments) = monitoring(&[format!("--match=path={PLAYERS}")]);
-            let Ok(()) = once(EventGroup::Player, Program::Stdbuf, arguments, say);
+      Subscribed::Yes
+    }
+    EventGroup::Player => {
+      let Ok(arguments) = monitoring(&[format!("--match=path={PLAYERS}")]);
+      let Ok(()) = once(EventGroup::Player, Program::Stdbuf, arguments, say);
 
-            Subscribed::Yes
-        }
-        EventGroup::Units => Subscribed::No,
-        EventGroup::Path(folder) => match folder.is_absolute() {
-            true => {
-                let Ok(()) = crate::watching::watch(folder.clone(), say);
+      Subscribed::Yes
+    }
+    EventGroup::Units => Subscribed::No,
+    EventGroup::Path(folder) => match ::core::primitive::bool::then_some(folder.is_absolute(), ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(()) = crate::watching::watch(folder.clone(), say);
 
-                Subscribed::Yes
-            }
-            false => Subscribed::No,
-        },
-    })
+        Subscribed::Yes
+      }
+      ::core::option::Option::None => Subscribed::No,
+    },
+  })
 }
 
 fn to_strings(arguments: &[&str]) -> Result<Vec<String>, Never> {
-    Ok(arguments.iter().map(|word| (*word).to_string()).collect())
+  Ok(arguments.iter().map(|word| (*word).to_string()).collect())
 }
 
 fn monitoring(matches: &[String]) -> Result<Vec<String>, Never> {
-    let Ok(busctl) = Program::Busctl.name();
-    let Ok(mut arguments) = to_strings(&["-oL", busctl, "--user", "monitor"]);
+  let Ok(busctl) = Program::Busctl.name();
+  let Ok(mut arguments) = to_strings(&["-oL", busctl, "--user", "monitor"]);
 
-    arguments.extend(matches.iter().cloned());
+  arguments.extend(matches.iter().cloned());
 
-    Ok(arguments)
+  Ok(arguments)
 }
 
-fn compositor(say: Sender<Change>) -> Result<(), Never> {
-    let mut said = false;
+enum Outage {
+  Unreported,
+  Reported,
+}
 
-    let Ok(()) = keep(move || {
-        let socket = match console_onscreen::events() {
-            Ok(socket) => socket,
-            Err(fault) => {
-                match said {
-                    true => {},
-                    false => {
-                        eprintln!("console-events: {fault}");
-                        said = true;
-                    }
-                }
+impl Outage {
+  fn retry(&mut self, source: &EventGroup, cause: fmt::Arguments<'_>) -> Result<Round, Never> {
+    match self {
+      Self::Unreported => {
+        console_core_logging::warn!("{source:?} subscription interrupted: {cause}; retrying");
+        *self = Self::Reported;
+      }
+      Self::Reported => {}
+    }
 
-                return Round::Another;
-            }
-        };
+    Ok(Round::Another)
+  }
+}
 
-        let stream = match UnixStream::connect(&socket) {
-            Ok(stream) => stream,
-            Err(fault) => {
-                match said {
-                    true => {},
-                    false => {
-                        eprintln!(
-                            "console-events: {} would not open: {fault}; nothing is being told \
-                             what the compositor is doing until it does",
-                            socket.display()
-                        );
-                        said = true;
-                    }
-                }
+fn compositor(say: SyncSender<Change>) -> Result<(), Never> {
+  let mut outage = Outage::Unreported;
 
-                return Round::Another;
-            }
-        };
+  let Ok(()) = keep(move || {
+    let socket = match console_onscreen::events() {
+      Ok(socket) => socket,
+      Err(fault) => {
+        let Ok(round) = outage.retry(&EventGroup::Compositor, format_args!("{fault}"));
 
-        said = false;
+        return round;
+      }
+    };
 
-        for line in BufReader::new(stream).lines().map_while(Result::ok) {
-            let sent = say.send(Change { event_group: EventGroup::Compositor, text: line });
+    let stream = match UnixStream::connect(&socket) {
+      Ok(stream) => stream,
+      Err(fault) => {
+        let Ok(round) = outage.retry(
+          &EventGroup::Compositor,
+          format_args!("opening {}: {fault}", socket.display()),
+        );
 
-            match sent {
-                Ok(()) => {},
-                Err(_no_one_is_listening) => return Round::Finished,
-            }
-        }
+        return round;
+      }
+    };
 
-        Round::Another
-    });
+    let Ok(round) = passed_on(
+      BufReader::new(stream),
+      &EventGroup::Compositor,
+      &say,
+      &mut outage,
+    );
 
-    Ok(())
+    round
+  });
+
+  Ok(())
 }
 
 fn once(
-    about: EventGroup,
-    program: Program,
-    arguments: Vec<String>,
-    say: Sender<Change>,
+  about: EventGroup,
+  program: Program,
+  arguments: Vec<String>,
+  say: SyncSender<Change>,
 ) -> Result<(), Never> {
-    let Ok(()) = keep(move || {
-        let Ok(mut asking) = program.command();
+  let mut outage = Outage::Unreported;
 
-        asking.args(&arguments).stdout(Stdio::piped()).stderr(Stdio::null());
+  let Ok(()) = keep(move || {
+    let Ok(mut asking) = program.command();
+    let Ok(name) = program.name();
 
-        let mut running = match alongside(&mut asking) {
-            Ok(running) => running,
-            Err(_would_not_start) => return Round::Another,
-        };
+    asking
+      .args(&arguments)
+      .stdout(Stdio::piped())
+      .stderr(Stdio::null());
 
-        let reading = match running.take_stdout() {
-            Ok(Some(reading)) => reading,
-            Ok(None) | Err(_) => return Round::Another,
-        };
+    let mut running = match alongside(&mut asking) {
+      Ok(running) => running,
+      Err(fault) => {
+        let Ok(round) = outage.retry(&about, format_args!("starting {name}: {fault}"));
 
-        for line in BufReader::new(reading).lines().map_while(Result::ok) {
-            let sent = say.send(Change { event_group: about.clone(), text: line });
+        return round;
+      }
+    };
 
-            match sent {
-                Ok(()) => {},
-                Err(_no_one_is_listening) => return Round::Finished,
-            }
-        }
+    let Ok(stdout) = running.take_stdout();
+    let reading = match stdout {
+      Some(stream) => stream,
+      None => {
+        let Ok(round) = outage.retry(&about, format_args!("{name} has no event stream"));
 
-        Round::Another
+        return round;
+      }
+    };
+
+    let Ok(round) = passed_on(BufReader::new(reading), &about, &say, &mut outage);
+
+    round
+  });
+
+  Ok(())
+}
+
+fn passed_on(
+  reading: impl BufRead,
+  event_group: &EventGroup,
+  say: &SyncSender<Change>,
+  outage: &mut Outage,
+) -> Result<Round, Never> {
+  for read in reading.split(b'\n') {
+    let line = match read {
+      Ok(line) => line,
+      Err(fault) => return outage.retry(event_group, format_args!("reading events: {fault}")),
+    };
+    let ended = match line.strip_suffix(b"\r") {
+      Some(before) => before,
+      None => &line,
+    };
+    let Ok(text) = decode(ended);
+    let sent = say.send(Change {
+      event_group: event_group.clone(),
+      text: text.text.into_owned(),
     });
 
-    Ok(())
+    match sent {
+      Ok(()) => *outage = Outage::Unreported,
+      Err(_no_one_is_listening) => return Ok(Round::Finished),
+    }
+  }
+
+  outage.retry(event_group, format_args!("the event stream closed"))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::sync::mpsc::sync_channel;
+
+  #[test]
+  fn a_line_that_is_not_utf8_is_passed_on_and_so_is_every_line_after_it() {
+    let said: &[u8] =
+      b"windowtitlev2>>5634f2a0,tradu\xe7\xe3ocoletiva.docx\nactivewindowv2>>5634f2a0\n";
+    let (say, heard) = sync_channel(2);
+    let ended = passed_on(said, &EventGroup::Compositor, &say, &mut Outage::Unreported);
+    let lines: Vec<String> = heard.try_iter().map(|change| change.text).collect();
+
+    assert_eq!(ended, Ok(Round::Another));
+    assert_eq!(
+      lines,
+      [
+        "windowtitlev2>>5634f2a0,traduçãocoletiva.docx",
+        "activewindowv2>>5634f2a0"
+      ]
+    );
+  }
+
+  #[test]
+  fn a_line_is_passed_on_without_its_ending() {
+    let said: &[u8] = b"workspacev2>>2,2\r\nfocusedmonv2>>eDP-1,2";
+    let (say, heard) = sync_channel(2);
+    let ended = passed_on(said, &EventGroup::Compositor, &say, &mut Outage::Unreported);
+    let lines: Vec<String> = heard.try_iter().map(|change| change.text).collect();
+
+    assert_eq!(ended, Ok(Round::Another));
+    assert_eq!(lines, ["workspacev2>>2,2", "focusedmonv2>>eDP-1,2"]);
+  }
 }

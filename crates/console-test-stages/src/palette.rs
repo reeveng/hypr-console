@@ -12,29 +12,29 @@ pub use console_core_color::palette::read;
 pub const SPENT: &str = "files/usr/local/lib/console/palette.sh";
 
 pub fn palette() -> Result<BTreeMap<String, String>, console_core_never::Never> {
-    let Ok(root) = crate::root();
-    let at = root.join(SPENT);
+  let Ok(root) = crate::root();
+  let at = root.join(SPENT);
 
-    let said = match std::fs::read_to_string(&at) {
-        Ok(said) => said,
-        Err(fault) => {
-            eprintln!("console-test-stages: {}: {fault}", at.display());
+  let said = match std::fs::read_to_string(&at) {
+    Ok(said) => said,
+    Err(fault) => {
+      eprintln!("console-test-stages: {}: {fault}", at.display());
 
-            String::new()
-        }
-    };
+      String::new()
+    }
+  };
 
-    read(&said)
+  read(&said)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn the_palette_this_machine_spends_is_read_off_the_file_that_spends_it() {
-        let Ok(found) = palette();
+  #[test]
+  fn the_palette_this_machine_spends_is_read_off_the_file_that_spends_it() {
+    let Ok(found) = palette();
 
-        assert!(!found.is_empty(), "no colors in {SPENT}");
-    }
+    assert!(!found.is_empty(), "no colors in {SPENT}");
+  }
 }

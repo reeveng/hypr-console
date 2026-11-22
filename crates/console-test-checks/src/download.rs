@@ -6,14 +6,14 @@ use console_test_stages::desktop::Desktop;
 use crate::panel::drew;
 
 pub const DRAWS: Check = Check {
-    name: "230-the-download-draws",
-    about: "The download panel opens, and draws the tab it opened on.",
-    feature: "download",
-    since: "2026-08-30",
-    bodies: &[Body::Desktop(draws)],
+  name: "230-the-download-draws",
+  about: "The download panel opens, and draws the tab it opened on.",
+  feature: "download",
+  since: "2026-08-30",
+  bodies: &[Body::Desktop(draws)],
 };
 
 fn draws(stage: &mut Desktop) -> CheckResult {
-    stage.open("downloads")?;
-    drew(stage)
+  stage.open("downloads")?;
+  drew(stage)
 }

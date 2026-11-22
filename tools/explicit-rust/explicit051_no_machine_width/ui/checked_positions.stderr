@@ -1,0 +1,51 @@
+error: `start` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/checked_positions.rs:11:9
+   |
+LL |     let start = usize::try_from(low).map_err(|_| Bounds)?;
+   |         ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/checked_positions.rs:11:17
+   |
+LL |     let start = usize::try_from(low).map_err(|_| Bounds)?;
+   |                 ^^^^^----------
+   |                 |
+   |                 help: use the conversion that names this machine-width boundary: `::console_core_number_conversion::checked_index`
+
+error: `end` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/checked_positions.rs:12:9
+   |
+LL |     let end = usize::try_from(high).map_err(|_| Bounds)?;
+   |         ^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/checked_positions.rs:12:15
+   |
+LL |     let end = usize::try_from(high).map_err(|_| Bounds)?;
+   |               ^^^^^----------
+   |               |
+   |               help: use the conversion that names this machine-width boundary: `::console_core_number_conversion::checked_index`
+
+error: `offset` holds a `isize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/checked_positions.rs:17:9
+   |
+LL |     let offset = isize::try_from(value)?;
+   |         ^^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `isize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/checked_positions.rs:17:18
+   |
+LL |     let offset = isize::try_from(value)?;
+   |                  ^^^^^----------
+   |                  |
+   |                  help: use the conversion that names this machine-width boundary: `::console_core_number_conversion::checked_offset`
+
+error: aborting due to 6 previous errors
+

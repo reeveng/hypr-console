@@ -1,0 +1,7 @@
+package = "skrifa"
+version = "0.44.0"
+repository = "https://github.com/googlefonts/fontations"
+license = "MIT OR Apache-2.0"
+archive = "https://static.crates.io/crates/skrifa/skrifa-0.44.0.crate"
+sha256 = "819ab7d62b1d3e72d9d9dea5650bac30424f9111364bb94928dbf5ecad1baa68"
+revision = "b373cdbc6043a791fb23b3e0f413649458f5e63a"

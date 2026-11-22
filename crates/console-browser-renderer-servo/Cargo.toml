@@ -1,0 +1,24 @@
+[workspace]
+
+[package]
+name = "console-browser-renderer-servo"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+console-browser-renderer = { path = "../console-browser-renderer" }
+console-core-geometry = { path = "../console-core-geometry" }
+console-core-never = { path = "../console-core-never" }
+console-core-number-conversion = { path = "../console-core-number-conversion", default-features = false }
+console-core-logging = { path = "../console-core-logging", features = ["std"] }
+console-core-web-engine = { path = "../console-core-web-engine" }
+rustix = { version = "1.1", features = ["event", "pipe", "fs"] }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
+servo = { version = "=0.8.0", default-features = false, features = ["baked-in-resources", "js_jit", "subtlecrypto"] }
+url = "2.5"
+
+[profile.dev]
+debug = 0
+incremental = false

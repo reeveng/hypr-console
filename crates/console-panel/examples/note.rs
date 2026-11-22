@@ -7,23 +7,21 @@
 //! takes itself down after six seconds, so this is a surface to catch rather
 //! than one to sit and read.
 
-use std::sync::Arc;
-
 use console_panel::page::{Aside, Page, Row, Rows};
 use console_panel::surface;
 
 fn main() {
-    let build = Arc::new(|| {
-        let Ok(asked) = Rows::computed(|| {
-            let Ok(weather) = Row::text("Follow the weather", Aside(""));
-            let Ok(picture) = Row::text("Star Ride", Aside("Abi Toads"));
+  let build = || {
+    let Ok(asked) = Rows::computed(|| {
+      let Ok(weather) = Row::text("Follow the weather", Aside(""));
+      let Ok(picture) = Row::text("Star Ride", Aside("Abi Toads"));
 
-            vec![weather, picture]
-        });
-        let Ok(page) = Page::new("Wallpaper", asked);
-        let Ok(page) = page.on_arriving(|showing| showing.note("Star Ride is going up"));
-
-        vec![page]
+      vec![weather, picture]
     });
-    let Ok(()) = surface::show(build, 0, None);
+    let Ok(page) = Page::new("Wallpaper", asked);
+    let Ok(page_2) = page.on_arriving(|showing| showing.note("Star Ride is going up"));
+
+    vec![page_2]
+  };
+  let Ok(()) = surface::show(build, 0, None);
 }

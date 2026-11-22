@@ -1,0 +1,27 @@
+warning: `std::process::Command::status` starts a program as root on whatever environment this process was handed
+  --> $DIR/console_manifest_engine_case.rs:7:5
+   |
+LL |     Command::new(program).arg("--version").status()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: say `env_clear()` and then name each variable the child is meant to have, `PATH` among them. Where the command was cleared in the function that built it, allow this rule here and let the reason say which
+   = note: `#[warn(explicit093_no_inherited_environment)]` on by default
+
+warning: `std::process::Command::spawn` starts a program as root on whatever environment this process was handed
+  --> $DIR/console_manifest_engine_case.rs:14:5
+   |
+LL |     starting.spawn()
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: say `env_clear()` and then name each variable the child is meant to have, `PATH` among them. Where the command was cleared in the function that built it, allow this rule here and let the reason say which
+
+warning: `std::process::Command::output` starts a program as root on whatever environment this process was handed
+  --> $DIR/console_manifest_engine_case.rs:19:5
+   |
+LL |     Command::new(program).env("LANG", "C").output()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: say `env_clear()` and then name each variable the child is meant to have, `PATH` among them. Where the command was cleared in the function that built it, allow this rule here and let the reason say which
+
+warning: 3 warnings emitted
+

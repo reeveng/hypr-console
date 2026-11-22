@@ -52,109 +52,110 @@ pub const NAMED: &str = "input";
 pub const FIRST: Input = Input::Pad;
 
 pub fn path_in(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::State.application_under(home);
+  let Ok(ours) = console_core_places::Base::State.application_under(home);
 
-    Ok(ours.join(NAMED))
+  Ok(ours.join(NAMED))
 }
 
 pub fn of(text: &str) -> Result<Input, Never> {
-    let word = text.trim();
+  let word = text.trim();
 
-    let found = crate::bound::EVERY.into_iter().find(|input| {
-        let Ok(spelled) = input.word();
+  let found = crate::bound::EVERY.into_iter().find(|input| {
+    let Ok(spelled) = input.word();
 
-        spelled == word
-    });
+    spelled == word
+  });
 
-    Ok(match found {
-        Some(input) => input,
-        None => FIRST,
-    })
+  Ok(match found {
+    Some(input) => input,
+    None => FIRST,
+  })
 }
 
 pub fn read(home: &Path) -> Result<Input, Never> {
-    let Ok(at) = path_in(home);
-    let Ok(held) = console_core_atomic_writes::read(&at);
-    let Ok(text) = held.text();
+  let Ok(at) = path_in(home);
+  let Ok(held) = console_core_atomic_writes::read(&at);
+  let Ok(text) = held.text();
 
-    match text {
-        Some(text) => of(&text),
-        None => Ok(FIRST),
-    }
+  match text {
+    Some(text_2) => of(&text_2),
+    None => Ok(FIRST),
+  }
 }
 
 pub fn remember(home: &Path, on: Input) -> Result<(), Unbound> {
-    let Ok(at) = path_in(home);
+  let Ok(at) = path_in(home);
 
-    let under = match at.parent() {
-        Some(under) => under,
-        None => return Err(Unbound::Rootless),
-    };
+  let under = match at.parent() {
+    Some(under) => under,
+    None => return Err(Unbound::Rootless),
+  };
 
-    std::fs::create_dir_all(under)
-        .map_err(|fault| Unbound::Holding(under.to_path_buf(), fault))?;
+  std::fs::create_dir_all(under).map_err(|fault| Unbound::Holding(under.to_path_buf(), fault))?;
 
-    let Ok(word) = on.word();
+  let Ok(word) = on.word();
 
-    console_core_atomic_writes::whole(&at, word.as_bytes()).map_err(Unbound::Writing)
+  console_core_atomic_writes::whole(&at, word.as_bytes()).map_err(Unbound::Writing)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    fn scratch(test: &str) -> Result<std::path::PathBuf, console_core_temporary_directories::Unmade> {
-        console_core_temporary_directories::fresh(&format!("bindings-{test}"))
-    }
+  fn scratch(
+    test: &str,
+  ) -> Result<std::path::PathBuf, console_core_temporary_directories::Unmade> {
+    console_core_temporary_directories::fresh(&format!("bindings-{test}"))
+  }
 
-    #[test]
-    fn a_word_that_names_an_input_is_that_input() {
-        assert_eq!(of("pad"), Ok(Input::Pad));
-        assert_eq!(of("keyboard\n"), Ok(Input::Keyboard));
-    }
+  #[test]
+  fn a_word_that_names_an_input_is_that_input() {
+    assert_eq!(of("pad"), Ok(Input::Pad));
+    assert_eq!(of("keyboard\n"), Ok(Input::Keyboard));
+  }
 
-    #[test]
-    fn a_word_that_names_nothing_is_the_machine_itself() {
-        assert_eq!(of("mouse"), Ok(Input::Pad));
-        assert_eq!(of(""), Ok(Input::Pad));
-    }
+  #[test]
+  fn a_word_that_names_nothing_is_the_machine_itself() {
+    assert_eq!(of("mouse"), Ok(Input::Pad));
+    assert_eq!(of(""), Ok(Input::Pad));
+  }
 
-    #[test]
-    fn a_machine_no_one_has_typed_at_starts_on_the_pad() -> Result<(), Box<dyn Error>> {
-        let home = scratch("a_machine_no_one_has_typed_at_starts_on_the_pad")?;
+  #[test]
+  fn a_machine_no_one_has_typed_at_starts_on_the_pad() -> Result<(), Box<dyn Error>> {
+    let home = scratch("a_machine_no_one_has_typed_at_starts_on_the_pad")?;
 
-        assert_eq!(read(&home), Ok(Input::Pad));
+    assert_eq!(read(&home), Ok(Input::Pad));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn what_was_last_pressed_is_what_it_comes_back_to() -> Result<(), Box<dyn Error>> {
-        let home = scratch("what_was_last_pressed_is_what_it_comes_back_to")?;
+  #[test]
+  fn what_was_last_pressed_is_what_it_comes_back_to() -> Result<(), Box<dyn Error>> {
+    let home = scratch("what_was_last_pressed_is_what_it_comes_back_to")?;
 
-        remember(&home, Input::Keyboard)?;
+    remember(&home, Input::Keyboard)?;
 
-        assert_eq!(read(&home), Ok(Input::Keyboard));
+    assert_eq!(read(&home), Ok(Input::Keyboard));
 
-        remember(&home, Input::Pad)?;
+    remember(&home, Input::Pad)?;
 
-        assert_eq!(read(&home), Ok(Input::Pad));
+    assert_eq!(read(&home), Ok(Input::Pad));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn the_word_on_the_file_is_the_word_everything_else_spells() -> Result<(), Box<dyn Error>> {
-        let home = scratch("the_word_on_the_file_is_the_word_everything_else_spells")?;
+  #[test]
+  fn the_word_on_the_file_is_the_word_everything_else_spells() -> Result<(), Box<dyn Error>> {
+    let home = scratch("the_word_on_the_file_is_the_word_everything_else_spells")?;
 
-        remember(&home, Input::Keyboard)?;
+    remember(&home, Input::Keyboard)?;
 
-        let Ok(at) = path_in(&home);
-        let text = std::fs::read_to_string(&at)?;
+    let Ok(at) = path_in(&home);
+    let text = std::fs::read_to_string(&at)?;
 
-        assert_eq!(text, "keyboard");
+    assert_eq!(text, "keyboard");
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

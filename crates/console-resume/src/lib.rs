@@ -39,56 +39,80 @@ pub mod terminal;
 
 pub const APPLICATION: &str = "resume";
 
+struct LocalName<'a>(&'a str);
+
+impl<'a> LocalName<'a> {
+  fn read(name: &'a str) -> Result<Self, Unresumed> {
+    let spelling = std::ffi::OsStr::new(name);
+    let path = std::path::Path::new(spelling);
+
+    match ::core::primitive::bool::then_some(path.file_name() == Some(spelling) && !name.contains('\0'), ()) {
+      ::core::option::Option::Some(()) => Ok(Self(name)),
+      ::core::option::Option::None => Err(Unresumed::InvalidName(name.to_owned())),
+    }
+  }
+}
+
+impl AsRef<std::path::Path> for LocalName<'_> {
+  fn as_ref(&self) -> &std::path::Path {
+    std::path::Path::new(self.0)
+  }
+}
+
 pub const SAVE_EVERY: Flag = Flag {
-    spelling: "--save-interval",
-    takes: Takes::Value("SECONDS"),
-    about: "how long between two saves, and never nought",
+  spelling: "--save-interval",
+  takes: Takes::Value("SECONDS"),
+  about: "how long between two saves, and never nought",
 };
 
 #[derive(Debug)]
 pub enum Unresumed {
-    Making(std::path::PathBuf, std::io::Error),
-    Unwritten(console_core_atomic_writes::Unwritten),
-    Read(std::path::PathBuf, String),
-    Unparsed(std::path::PathBuf, serde_json::Error),
-    Removing(std::path::PathBuf, std::io::Error),
-    Query(console_compositor::HyprctlError),
-    Unsaid(String, std::io::Error),
-    SaidNothing(String),
-    Untitled(String),
-    StillOpen,
+  InvalidName(String),
+  Making(std::path::PathBuf, std::io::Error),
+  Unwritten(console_core_atomic_writes::Unwritten),
+  Read(std::path::PathBuf, String),
+  Unparsed(std::path::PathBuf, serde_json::Error),
+  Removing(std::path::PathBuf, std::io::Error),
+  Query(console_compositor::HyprctlError),
+  Unsaid(String, std::io::Error),
+  SaidNothing(String),
+  Untitled(String),
+  StillOpen,
 }
 
 impl std::fmt::Display for Unresumed {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unresumed::Making(at, fault) => write!(to, "{}: making it: {fault}", at.display()),
-            Unresumed::Unwritten(fault) => write!(to, "{fault}"),
-            Unresumed::Read(at, fault) => {
-                write!(to, "{}: reading it: {fault}", at.display())
-            }
-            Unresumed::Unparsed(at, fault) => {
-                write!(to, "{}: reading it: {fault}", at.display())
-            }
-            Unresumed::Removing(at, fault) => {
-                write!(to, "{}: removing it: {fault}", at.display())
-            }
-            Unresumed::Query(fault) => write!(to, "{fault}"),
-            Unresumed::Unsaid(at, fault) => write!(to, "{at}: {fault}"),
-            Unresumed::SaidNothing(at) => write!(to, "{at}: it is empty"),
-            Unresumed::Untitled(at) => write!(to, "{at}: it points at nothing with a name"),
-            Unresumed::StillOpen => write!(
-                to,
-                "something would not close, so what was saved is not put back"
-            ),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unresumed::InvalidName(name) => {
+        write!(to, "session name {name:?} must be one path component")
+      }
+      Unresumed::Making(at, fault) => write!(to, "{}: making it: {fault}", at.display()),
+      Unresumed::Unwritten(fault) => write!(to, "{fault}"),
+      Unresumed::Read(at, fault) => {
+        write!(to, "{}: reading it: {fault}", at.display())
+      }
+      Unresumed::Unparsed(at, fault) => {
+        write!(to, "{}: reading it: {fault}", at.display())
+      }
+      Unresumed::Removing(at, fault) => {
+        write!(to, "{}: removing it: {fault}", at.display())
+      }
+      Unresumed::Query(fault) => write!(to, "{fault}"),
+      Unresumed::Unsaid(at, fault) => write!(to, "{at}: {fault}"),
+      Unresumed::SaidNothing(at) => write!(to, "{at}: it is empty"),
+      Unresumed::Untitled(at) => write!(to, "{at}: it points at nothing with a name"),
+      Unresumed::StillOpen => write!(
+        to,
+        "something would not close, so what was saved is not put back"
+      ),
     }
+  }
 }
 
 impl std::error::Error for Unresumed {}
 
 impl From<console_compositor::HyprctlError> for Unresumed {
-    fn from(fault: console_compositor::HyprctlError) -> Self {
-        Unresumed::Query(fault)
-    }
+  fn from(fault: console_compositor::HyprctlError) -> Self {
+    Unresumed::Query(fault)
+  }
 }

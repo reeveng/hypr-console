@@ -1,3 +1,29 @@
+<!-- Local layout; upstream project documentation follows. -->
+
+The Mermaid packages are flat under `forks/`, with directory names matching
+`console-core-mermaid-*` package names. `Cargo.toml` here owns their workspace.
+The application workspace refers to `console-core-mermaid/`; Rust import aliases
+keep their upstream spelling. See [UPSTREAM.md](UPSTREAM.md) and
+[UPSTREAM.toml](UPSTREAM.toml) for the pinned revision and original source paths.
+
+The main groups are:
+
+- Syntax, model, analysis and editing: source parsing and document structure.
+- Renderer, text and export: SVG, terminal text and native output.
+- Dagre, graph, Cytoscape, ELK and sketches: layout and drawing algorithms.
+- Bindings and platform packages: FFI, JNI, Node, WASM, WASI, UniFFI and Typst.
+- Theme, fixture and tools packages: shared contracts and verification support.
+
+Compare reusable operations with `../crates/` before adding helpers. URL
+normalization now uses `console-core-percent-decoding::escaped_byte`; Mermaid
+keeps its strict rejection of malformed escapes and invalid UTF-8. The graphics,
+SVG values, data URL and text boundary dependencies already use shared crates.
+
+Further consolidation needs behavior comparisons: Mermaid's XML escaping has
+entity-preserving and checkpoint-aware variants, and its theme colors follow
+Mermaid compatibility rules. Those differences matter when comparing them with
+`console-core-extensible-markup-writer` and `console-core-color`.
+
 # Merman
 
 **A headless Rust implementation of [Mermaid] for parsing, layout, and rendering.**
@@ -101,9 +127,9 @@ own source and carries a fresh `RenderRequest` and, normally, a fresh `Operation
 
 If several SVGs will share one DOM, give every request a `diagram_id` that remains unique after
 `merman::svg::sanitize_svg_id()` normalization. See the maintained examples for
-[one-shot rendering](crates/merman/examples/render_svg.rs),
-[renderer reuse](crates/merman/examples/render_many.rs), and
-[embedding several SVGs](crates/merman/examples/embed_multiple_svgs.rs).
+[one-shot rendering](console-core-mermaid/examples/render_svg.rs),
+[renderer reuse](console-core-mermaid/examples/render_many.rs), and
+[embedding several SVGs](console-core-mermaid/examples/embed_multiple_svgs.rs).
 
 For redraws of unchanged source, use `Renderer::prepare_source()` and
 `render_prepared()`. Each output receives fresh controls, budgets, runtime state, and layout.
@@ -201,7 +227,7 @@ check its guide for available versions and capabilities.
 
 ## Compatibility
 
-For the 0.8.0 to 0.9.0 API and output changes, use the [upgrade guide](docs/release/V080_TO_V090_UPGRADE_GUIDE.md). CLI SVG text measurement remains deterministic by default. Mermaid-to-PNG/JPEG/PDF exports share native fonts between layout and painting when built with `system-fonts`; use `--font-measurement deterministic` without font sources to retain previous layout estimates and CSS support. See the [CLI font guide](crates/merman-cli/README.md#explicit-fonts).
+For the 0.8.0 to 0.9.0 API and output changes, use the [upgrade guide](docs/release/V080_TO_V090_UPGRADE_GUIDE.md). CLI SVG text measurement remains deterministic by default. Mermaid-to-PNG/JPEG/PDF exports share native fonts between layout and painting when built with `system-fonts`; use `--font-measurement deterministic` without font sources to retain previous layout estimates and CSS support. See the [CLI font guide](console-core-mermaid-cli/README.md#explicit-fonts).
 
 Merman `0.10.0-alpha.1` targets Mermaid `12.2.0`, compiled diagram themes and Options JSON schema `3`. The `0.9.x` maintenance line retains Mermaid `12.1.0` and its existing Presentation and Options schema `2` contracts. Use the [release index](docs/release/README.md) and documentation at the matching release tag
 for installed packages. See the [alignment dashboard] for current source-backed checks of semantic

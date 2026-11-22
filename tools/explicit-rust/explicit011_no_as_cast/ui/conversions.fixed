@@ -1,0 +1,19 @@
+// run-rustfix
+// edition:2024
+#![allow(dead_code)]
+
+fn widen(read: fn() -> u16) -> u64 {
+    <u64 as ::core::convert::From<::core::primitive::u16>>::from(read())
+}
+
+fn byte_code(value: u8) -> char {
+    <char as ::core::convert::From<::core::primitive::u8>>::from(value)
+}
+
+type Sample = u32;
+
+fn sample(value: u8) -> Sample {
+    <Sample as ::core::convert::From<::core::primitive::u8>>::from(value)
+}
+
+fn main() {}

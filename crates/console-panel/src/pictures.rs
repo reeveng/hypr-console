@@ -63,19 +63,21 @@
 //! it is opened the old way, so a store that is missing, stale in part, or
 //! written by an older version of this is slower and never wrong.
 
-
 use console_core_arguments::{Flag, Takes};
+use console_core_geometry::Size;
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 use console_core_places::Base;
+use console_operating_system_linux::program_runtime::commands::{Linux, Timing};
+use console_program_contract::{Command, Executable};
+use console_program_runtime::commands::{self as execution_commands, Launch, Streams};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Mutex, MutexGuard};
 use std::time::SystemTime;
 
 use console_core_shapes::Pixels;
-
 
 pub const MAGIC: &[u8] = b"panel-pictures 2\n";
 
@@ -83,487 +85,577 @@ pub const MAGIC: &[u8] = b"panel-pictures 2\n";
 pub struct Side(pub u32);
 
 pub fn key(of: &str, side: Side) -> Result<String, Never> {
-    Ok(format!("{} {of}", side.0))
+  Ok(format!("{} {of}", side.0))
 }
 
 pub fn parse_key(key: &str) -> Result<Option<(&str, Side)>, Never> {
-    let (side, of) = match key.split_once(' ') {
-        Some((side, of)) => (side, of),
-        None => return Ok(None),
-    };
+  let (side, of) = match key.split_once(' ') {
+    Some((side, of)) => (side, of),
+    None => return Ok(None),
+  };
 
-    Ok(match side.parse() {
-        Ok(side) => Some((of, Side(side))),
-        Err(_not_a_size) => None,
-    })
+  Ok(match side.parse() {
+    Ok(side_2) => Some((of, Side(side_2))),
+    Err(_not_a_size) => None,
+  })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Picture {
-    pub of: String,
-    pub width: u32,
-    pub height: u32,
-    pub stride: u32,
-    pub pixels: Vec<u8>,
+  pub of: String,
+  pub pixels: Pixels,
 }
 
-pub const SIDE: Flag = Flag { spelling: "--side", takes: Takes::Value("PIXELS"), about: "the side the caller draws at, the rows' if none is said" };
+pub const SIDE: Flag = Flag {
+  spelling: "--side",
+  takes: Takes::Value("PIXELS"),
+  about: "the side the caller draws at, the rows' if none is said",
+};
 
 pub fn store() -> Result<Option<PathBuf>, Never> {
-    let ours = Base::Cache.ours()?;
+  let ours = Base::Cache.ours()?;
 
-    Ok(ours.map(|ours| ours.join("pictures")))
+  Ok(ours.map(|ours_2| ours_2.join("pictures")))
 }
 
 pub fn serialize(pictures: &[Picture]) -> Result<Vec<u8>, Never> {
-    let mut head: Vec<u8> = Vec::new();
-    let mut body: Vec<u8> = Vec::new();
-    let Ok(many) = fitted::<_, u32>(pictures.len());
-    head.extend_from_slice(MAGIC);
-    head.extend_from_slice(&many.to_le_bytes());
+  let mut head: Vec<u8> = Vec::new();
+  let mut body: Vec<u8> = Vec::new();
+  let Ok(many) = fitted::<_, u32>(pictures.len());
+  head.extend_from_slice(MAGIC);
+  head.extend_from_slice(&many.to_le_bytes());
 
-    for picture in pictures {
-        let name = picture.of.as_bytes();
-        let Ok(called) = fitted::<_, u32>(name.len());
-        head.extend_from_slice(&called.to_le_bytes());
-        head.extend_from_slice(name);
+  for picture in pictures {
+    let name = picture.of.as_bytes();
+    let Ok(called) = fitted::<_, u32>(name.len());
+    head.extend_from_slice(&called.to_le_bytes());
+    head.extend_from_slice(name);
 
-        let Ok(at) = fitted(body.len());
-        let Ok(long) = fitted(picture.pixels.len());
+    let Ok(at) = fitted(body.len());
+    let Ok(long) = fitted(picture.pixels.bytes.len());
 
-        for number in [picture.width, picture.height, picture.stride, at, long] {
-            head.extend_from_slice(&number.to_le_bytes());
-        }
-
-        body.extend_from_slice(&picture.pixels);
+    for number in [
+      picture.pixels.width,
+      picture.pixels.height,
+      picture.pixels.stride,
+      at,
+      long,
+    ] {
+      head.extend_from_slice(&number.to_le_bytes());
     }
 
-    head.extend_from_slice(&body);
+    body.extend_from_slice(&picture.pixels.bytes);
+  }
 
-    Ok(head)
+  head.extend_from_slice(&body);
+
+  Ok(head)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Where {
-    pub width: u32,
-    pub height: u32,
-    pub stride: u32,
-    pub at: u64,
-    pub long: u64,
+  pub width: u32,
+  pub height: u32,
+  pub stride: u32,
+  pub at: u64,
+  pub long: u64,
 }
 
 impl Where {
-    pub fn in_store<'a>(&self, bytes: &'a [u8]) -> Result<Option<&'a [u8]>, Never> {
-        let Ok(from) = index(self.at);
-        let Ok(end) = index(self.at.saturating_add(self.long));
+  pub fn in_store<'a>(&self, bytes: &'a [u8]) -> Result<Option<&'a [u8]>, Never> {
+    let Ok(from) = index(self.at);
+    let Ok(end) = index(self.at.saturating_add(self.long));
 
-        Ok(bytes.get(from..end))
-    }
+    Ok(bytes.get(from..end))
+  }
+
+  pub fn pixels(&self, bytes: &[u8]) -> Result<Option<Pixels>, Never> {
+    let Ok(held) = self.in_store(bytes);
+
+    Ok(held.map(|held_2| Pixels {
+      width: self.width,
+      height: self.height,
+      stride: self.stride,
+      bytes: held_2.to_vec(),
+    }))
+  }
 }
 
 pub fn read(bytes: &[u8]) -> Result<Option<BTreeMap<String, Where>>, Never> {
-    let after = match bytes.strip_prefix(MAGIC) {
-        Some(after) => after,
-        None => return Ok(None),
+  let after = match bytes.strip_prefix(MAGIC) {
+    Some(after) => after,
+    None => return Ok(None),
+  };
+
+  let (count, mut rest) = match number(after) {
+    Ok(Some((count, rest))) => (count, rest),
+    Ok(None) | Err(_) => return Ok(None),
+  };
+
+  let mut held: BTreeMap<String, Where> = BTreeMap::new();
+  let mut entries = Vec::new();
+
+  for _ in 0..count {
+    let (long, after_3) = match number(rest) {
+      Ok(Some((long, after_2))) => (long, after_2),
+      Ok(None) | Err(_) => return Ok(None),
     };
 
-    let (count, mut rest) = match number(after) {
-        Ok(Some((count, rest))) => (count, rest),
-        Ok(None) | Err(_) => return Ok(None),
+    let Ok(long_2) = index(long);
+
+    let (name, after_4) = match after_3.split_at_checked(long_2) {
+      Some(split) => split,
+      None => return Ok(None),
     };
 
-    let mut held: BTreeMap<String, Where> = BTreeMap::new();
-    let mut entries = Vec::new();
+    let of = match String::from_utf8(name.to_vec()) {
+      Ok(of) => of,
+      Err(_not_text) => return Ok(None),
+    };
 
-    for _ in 0..count {
-        let (long, after) = match number(rest) {
-            Ok(Some((long, after))) => (long, after),
-            Ok(None) | Err(_) => return Ok(None),
-        };
+    let (wide, after_6) = match number(after_4) {
+      Ok(Some((wide, after_5))) => (wide, after_5),
+      Ok(None) | Err(_) => return Ok(None),
+    };
 
-        let Ok(long) = index(long);
+    let (tall, after_8) = match number(after_6) {
+      Ok(Some((tall, after_7))) => (tall, after_7),
+      Ok(None) | Err(_) => return Ok(None),
+    };
 
-        let (name, after) = match after.split_at_checked(long) {
-            Some(split) => split,
-            None => return Ok(None),
-        };
+    let (stride, after_10) = match number(after_8) {
+      Ok(Some((stride, after_9))) => (stride, after_9),
+      Ok(None) | Err(_) => return Ok(None),
+    };
 
-        let of = match String::from_utf8(name.to_vec()) {
-            Ok(of) => of,
-            Err(_not_text) => return Ok(None),
-        };
+    let (at, after_12) = match number(after_10) {
+      Ok(Some((at, after_11))) => (at, after_11),
+      Ok(None) | Err(_) => return Ok(None),
+    };
 
-        let (wide, after) = match number(after) {
-            Ok(Some((wide, after))) => (wide, after),
-            Ok(None) | Err(_) => return Ok(None),
-        };
+    let (length, after_14) = match number(after_12) {
+      Ok(Some((length, after_13))) => (length, after_13),
+      Ok(None) | Err(_) => return Ok(None),
+    };
 
-        let (tall, after) = match number(after) {
-            Ok(Some((tall, after))) => (tall, after),
-            Ok(None) | Err(_) => return Ok(None),
-        };
+    entries.push((of, wide, tall, stride, at, length));
+    rest = after_14;
+  }
 
-        let (stride, after) = match number(after) {
-            Ok(Some((stride, after))) => (stride, after),
-            Ok(None) | Err(_) => return Ok(None),
-        };
+  let Ok(stored) = fitted::<_, u64>(bytes.len());
+  let Ok(after_the_list) = fitted::<_, u64>(rest.len());
+  let began = stored.saturating_sub(after_the_list);
 
-        let (at, after) = match number(after) {
-            Ok(Some((at, after))) => (at, after),
-            Ok(None) | Err(_) => return Ok(None),
-        };
+  for (of, wide, tall, stride, at, long) in entries {
+    let long_3 = u64::from(long);
 
-        let (length, after) = match number(after) {
-            Ok(Some((length, after))) => (length, after),
-            Ok(None) | Err(_) => return Ok(None),
-        };
+    let at_3 = match began.checked_add(u64::from(at)) {
+      Some(at_2) => at_2,
+      None => return Ok(None),
+    };
 
-        entries.push((of, wide, tall, stride, at, length));
-        rest = after;
+    let end = match at_3.checked_add(long_3) {
+      Some(end) => end,
+      None => return Ok(None),
+    };
+
+    match ::core::primitive::bool::then_some(end > stored || long_3 == 0, ()) {
+      ::core::option::Option::Some(()) => return Ok(None),
+      ::core::option::Option::None => {}
     }
 
-    let Ok(stored) = fitted::<_, u64>(bytes.len());
-    let Ok(after_the_list) = fitted::<_, u64>(rest.len());
-    let began = stored.saturating_sub(after_the_list);
+    let Ok(required) = Pixels::required_bytes(
+      Size {
+        width: wide,
+        height: tall,
+      },
+      stride,
+    );
 
-    for (of, wide, tall, stride, at, long) in entries {
-        let long = u64::from(long);
-
-        let at = match began.checked_add(u64::from(at)) {
-            Some(at) => at,
-            None => return Ok(None),
-        };
-
-        let end = match at.checked_add(long) {
-            Some(end) => end,
-            None => return Ok(None),
-        };
-
-        match end > stored || long == 0 {
-            true => return Ok(None),
-            false => {},
-        }
-
-        let rows = match u64::from(stride).checked_mul(u64::from(tall.saturating_sub(1))) {
-            Some(rows) => rows,
-            None => return Ok(None),
-        };
-
-        let last = match u64::from(wide).checked_mul(4) {
-            Some(last) => last,
-            None => return Ok(None),
-        };
-
-        let whole = match rows.checked_add(last) {
-            Some(whole) => whole,
-            None => return Ok(None),
-        };
-
-        match whole > long {
-            true => return Ok(None),
-            false => {},
-        }
-
-        held.insert(of, Where { width: wide, height: tall, stride, at, long });
+    match required {
+      Some(required_2) => match required_2.cmp(&long_3) {
+        core::cmp::Ordering::Less | core::cmp::Ordering::Equal => {}
+        core::cmp::Ordering::Greater => return Ok(None),
+      },
+      None => return Ok(None),
     }
 
-    Ok(Some(held))
+    held.insert(
+      of,
+      Where {
+        width: wide,
+        height: tall,
+        stride,
+        at: at_3,
+        long: long_3,
+      },
+    );
+  }
+
+  Ok(Some(held))
 }
 
 type Cache = (Vec<u8>, BTreeMap<String, Where>);
 
-fn cache() -> Result<Option<Arc<Cache>>, Never> {
-    #[cfg_attr(
-        dylint_lib = "explicit044_no_ambient_value",
-        allow(
-            explicit044_no_ambient_value,
-            reason = "one file, read for as long as the process draws, and the process that draws is now the one holding every panel: what it read at the first opening has to be given up when the maker writes a newer store, so the holder is a lock beside the stamp it was read at and nothing above it knows the file was read twice"
-        )
-    )]
-    static HELD: Mutex<Option<(SystemTime, Arc<Cache>)>> = Mutex::new(None);
+struct Stored {
+  written: SystemTime,
+  contents: Cache,
+}
 
-    let Ok(store) = store();
+fn held_store() -> Result<Option<MutexGuard<'static, Option<Stored>>>, Never> {
+  #[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+      explicit044_no_ambient_value,
+      reason = "one file, read for as long as the process draws, and the process that draws is now the one holding every panel: what it read at the first opening has to be given up when the maker writes a newer store, so the holder is a lock beside the stamp it was read at and nothing above it knows the file was read twice"
+    )
+  )]
+  #[cfg_attr(
+    dylint_lib = "explicit068_no_global_mutable_state",
+    expect(
+      explicit068_no_global_mutable_state,
+      reason = "this lock owns the process picture store and lends entries to callers; the byte snapshot is replaced only after validation"
+    )
+  )]
+  static HELD: Mutex<Option<Stored>> = Mutex::new(None);
 
-    let store = match store {
-        Some(store) => store,
-        None => return Ok(None),
-    };
+  #[cfg_attr(
+    dylint_lib = "explicit057_no_unbounded_wait",
+    expect(
+      explicit057_no_unbounded_wait,
+      reason = "the store guard covers a map lookup or a memory copy; opening and reading the on-disk store occur outside the guard"
+    )
+  )]
+  let held = HELD.lock();
 
-    let written = match std::fs::metadata(&store).and_then(|of| of.modified()) {
-        Ok(written) => written,
-        Err(_nothing_has_been_made_yet) => return Ok(None),
-    };
+  Ok(match held {
+    Ok(checked) => Some(checked),
+    Err(_faulted_cache) => None,
+  })
+}
 
-    let mut holding = match HELD.lock() {
-        Ok(holding) => holding,
-        Err(_a_reader_gave_up_holding_it) => return Ok(None),
-    };
+fn with_cache<T>(
+  read_cache: impl FnOnce(&Cache) -> Result<T, Never>,
+) -> Result<Option<T>, Never> {
+  let Ok(configured) = store();
+  let path = match configured {
+    Some(directory) => directory,
+    None => return Ok(None),
+  };
+  let stamp = match std::fs::metadata(&path).and_then(|metadata| metadata.modified()) {
+    Ok(written) => written,
+    Err(_the_store_has_not_been_created) => return Ok(None),
+  };
+  let Ok(held) = held_store();
+  let prior = match held {
+    Some(guard) => match guard.as_ref() {
+      Some(record) => match (record.written == stamp).then_some(()) {
+        Some(()) => return read_cache(&record.contents).map(Some),
+        None => Some(record.written),
+      },
+      None => None,
+    },
+    None => return Ok(None),
+  };
+  let bytes = match std::fs::read(&path) {
+    Ok(read) => read,
+    Err(_the_store_was_replaced) => return Ok(None),
+  };
+  let checked = std::fs::metadata(&path).and_then(|metadata| metadata.modified());
 
-    match holding.as_ref() {
-        Some((read_at, cache)) => match *read_at == written {
-            true => return Ok(Some(Arc::clone(cache))),
-            false => {},
-        },
-        None => {},
+  match checked {
+    Ok(written) => match (written == stamp).then_some(()) {
+      Some(()) => {}
+      None => return Ok(None),
+    },
+    Err(_the_store_was_removed) => return Ok(None),
+  }
+
+  let Ok(index) = read(&bytes);
+  let contents = match index {
+    Some(entries) => (bytes, entries),
+    None => return Ok(None),
+  };
+  let Ok(holder) = held_store();
+  let mut guard = match holder {
+    Some(ready) => ready,
+    None => return Ok(None),
+  };
+  let current = guard.as_ref().map(|record| record.written);
+
+  match (current == prior).then_some(()) {
+    Some(()) => {
+      *guard = Some(Stored {
+        written: stamp,
+        contents,
+      })
     }
+    None => {}
+  }
 
-    let bytes = match std::fs::read(&store) {
-        Ok(bytes) => bytes,
-        Err(_gone_between_the_stamp_and_the_read) => return Ok(None),
-    };
-
-    let index = match read(&bytes) {
-        Ok(Some(index)) => index,
-        Ok(None) | Err(_) => return Ok(None),
-    };
-
-    let cache = Arc::new((bytes, index));
-
-    *holding = Some((written, Arc::clone(&cache)));
-
-    Ok(Some(cache))
+  match guard.as_ref() {
+    Some(record) => read_cache(&record.contents).map(Some),
+    None => Ok(None),
+  }
 }
 
 pub fn a_row() -> Result<Side, Never> {
-    let Ok(side) = fitted::<i32, u32>(crate::strip::PICTURE);
+  let Ok(side) = fitted::<i32, u32>(crate::strip::PICTURE);
 
-    Ok(Side(side))
+  Ok(Side(side))
 }
 
 pub fn pixels(of: &Path) -> Result<Option<Pixels>, Never> {
-    let Ok(side) = a_row();
+  let Ok(side) = a_row();
 
-    pixels_at(of, side)
+  pixels_at(of, side)
 }
 
 pub fn missing_pictures(wanted: &[String]) -> Result<Vec<String>, Never> {
-    let Ok(side) = a_row();
+  let Ok(side) = a_row();
 
-    missing_at(wanted, side)
+  missing_at(wanted, side)
 }
 
 pub fn make(wanted: &[String]) -> Result<(), Never> {
-    let Ok(side) = a_row();
+  let Ok(side) = a_row();
 
-    make_at(wanted, side)
+  make_at(wanted, side)
 }
 
 pub fn pixels_at(of: &Path, side: Side) -> Result<Option<Pixels>, Never> {
-    let held = match cache() {
-        Ok(Some(held)) => held,
-        Ok(None) | Err(_) => return Ok(None),
-    };
-    let (bytes, index) = (&held.0, &held.1);
+  let named = match of.to_str() {
+    Some(text) => text,
+    None => return Ok(None),
+  };
+  let Ok(named_key) = key(named, side);
+  let Ok(found) = with_cache(|(bytes, entries)| match entries.get(&named_key) {
+    Some(entry) => entry.pixels(bytes),
+    None => Ok(None),
+  });
 
-    let named = match of.to_str() {
-        Some(named) => named,
-        None => return Ok(None),
-    };
-
-    let Ok(named) = key(named, side);
-
-    let found = match index.get(&named) {
-        Some(found) => found,
-        None => return Ok(None),
-    };
-
-    let Ok(held) = found.in_store(bytes);
-
-    let held = match held {
-        Some(held) => held,
-        None => return Ok(None),
-    };
-
-    Ok(Some(Pixels {
-        width: found.width,
-        height: found.height,
-        stride: found.stride,
-        bytes: Arc::new(held.to_vec()),
-    }))
+  Ok(found.flatten())
 }
 
 pub fn missing_at(wanted: &[String], side: Side) -> Result<Vec<String>, Never> {
-    let Ok(held) = cache();
+  let Ok(short) = with_cache(|(_, entries)| {
+    Ok(
+      wanted
+        .iter()
+        .filter(|path| {
+          let Ok(named) = key(path, side);
+          !entries.contains_key(&named)
+        })
+        .cloned()
+        .collect(),
+    )
+  });
 
-    let index = held.as_ref().map(|held| &held.1);
-    let mut short: Vec<String> = Vec::new();
-
-    for of in wanted {
-        let Ok(named) = key(of, side);
-
-        match index.is_some_and(|index| index.contains_key(&named)) {
-            true => {},
-            false => short.push(of.clone()),
-        }
-    }
-
-    Ok(short)
+  Ok(match short {
+    Some(unmade) => unmade,
+    None => wanted.to_vec(),
+  })
 }
 
 pub fn make_at(wanted: &[String], side: Side) -> Result<(), Never> {
-    #[cfg_attr(
-        dylint_lib = "explicit044_no_ambient_value",
-        allow(
-            explicit044_no_ambient_value,
-            reason = "what this process has already asked the maker for, so a second row wanting the same picture does not start a second maker; the rows are built in several places with nothing between them, which is the argument `opening`'s head makes about the same panel"
-        )
-    )]
-    static ASKED: std::sync::Mutex<Option<std::collections::BTreeSet<String>>> =
-        std::sync::Mutex::new(None);
+  #[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+      explicit044_no_ambient_value,
+      reason = "what this process has already asked the maker for, so a second row wanting the same picture does not start a second maker; the rows are built in several places with nothing between them, which is the argument `opening`'s head makes about the same panel"
+    )
+  )]
+  #[cfg_attr(
+    dylint_lib = "explicit068_no_global_mutable_state",
+    expect(
+      explicit068_no_global_mutable_state,
+      reason = "the set deduplicates picture loads already in flight across all surfaces in the process"
+    )
+  )]
+  static ASKED: std::sync::Mutex<Option<std::collections::BTreeSet<String>>> =
+    std::sync::Mutex::new(None);
 
-    let mut asked = match ASKED.lock() {
-        Ok(asked) => asked,
-        Err(_the_lock_is_poisoned) => return Ok(()),
-    };
+  #[cfg_attr(
+    dylint_lib = "explicit057_no_unbounded_wait",
+    expect(
+      explicit057_no_unbounded_wait,
+      reason = "this request set is held only while remembering which icons were submitted; the maker is launched after unlocking"
+    )
+  )]
+  let locking = ASKED.lock();
+  let mut requested = match locking {
+    Ok(entries) => entries,
+    Err(_the_lock_is_poisoned) => return Ok(()),
+  };
 
-    let asked = asked.get_or_insert_with(std::collections::BTreeSet::new);
-    let mut fresh: Vec<String> = Vec::new();
+  let asked = requested.get_or_insert_with(std::collections::BTreeSet::new);
+  let mut fresh: Vec<String> = Vec::new();
 
-    for of in wanted {
-        let Ok(named) = key(of, side);
+  for of in wanted {
+    let Ok(named) = key(of, side);
 
-        match asked.insert(named) {
-            true => fresh.push(of.clone()),
-            false => {},
-        }
+    match ::core::primitive::bool::then_some(asked.insert(named), ()) {
+      ::core::option::Option::Some(()) => fresh.push(of.clone()),
+      ::core::option::Option::None => {}
     }
+  }
 
-    let wanted = fresh.as_slice();
+  drop(requested);
 
-    match wanted.is_empty() {
-        true => return Ok(()),
-        false => {},
-    }
+  let missing = fresh.as_slice();
 
-    let Ok(mut drawing) = InternalProgram::PanelPictures.command();
-    drawing
-        .args([SIDE.spelling, &side.0.to_string()])
-        .args(wanted)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    let Ok(()) = console_response_times::not_a_press(&mut drawing);
+  match ::core::primitive::bool::then_some(missing.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return Ok(()),
+    ::core::option::Option::None => {}
+  }
 
-    let started = console_program_lifetime::let_go(&mut drawing);
+  let command = Command {
+    program: Executable::Internal(InternalProgram::PanelPictures),
+    arguments: [SIDE.spelling.to_string(), side.0.to_string()]
+      .into_iter()
+      .chain(missing.iter().cloned())
+      .collect(),
+  };
+  let mut platform = Linux {
+    timing: Timing::Background,
+  };
 
-    match started {
-        Ok(drawing) => {
-            let Ok(()) = crate::running::reap_in_background(drawing);
-        },
-        Err(fault) => {
-            eprintln!("no pictures made: {fault}");
-        }
-    }
+  match execution_commands::spawn(&mut platform, &command, Streams::QUIET, Launch::Background) {
+    Ok(()) => {}
+    Err(fault) => console_core_logging::warn!("no pictures made: {fault}"),
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn number(bytes: &[u8]) -> Result<Option<(u32, &[u8])>, Never> {
-    let (four, rest) = match bytes.split_at_checked(4) {
-        Some((four, rest)) => (four, rest),
-        None => return Ok(None),
-    };
+  let (four, rest) = match bytes.split_at_checked(4) {
+    Some((four, rest)) => (four, rest),
+    None => return Ok(None),
+  };
 
-    let four: [u8; 4] = match four.try_into() {
-        Ok(four) => four,
-        Err(_not_four_bytes) => return Ok(None),
-    };
+  let four_3: [u8; 4] = match four.try_into() {
+    Ok(four_2) => four_2,
+    Err(_not_four_bytes) => return Ok(None),
+  };
 
-    Ok(Some((u32::from_le_bytes(four), rest)))
+  Ok(Some((u32::from_le_bytes(four_3), rest)))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    const LARGE: u32 = 32 * 32 * 4;
+  const LARGE: u32 = 32 * 32 * 4;
 
-    const SMALL: u32 = 16 * 16 * 4;
+  fn a_picture(of: &str, edge: u32) -> Result<Picture, Never> {
+    let side = edge.min(32);
+    let Ok(bytes) = index(side.saturating_mul(side).saturating_mul(4).min(LARGE));
 
-    fn a_picture(of: &str, side: u32) -> Result<Picture, Never> {
-        let Ok(bytes) = index(side.saturating_mul(side).saturating_mul(4));
+    let mut picture_bytes = vec![7; 4096];
+    picture_bytes.truncate(bytes);
+    let Ok(pixels) = Pixels::packed(
+      Size {
+        width: side,
+        height: side,
+      },
+      picture_bytes,
+    );
 
-        Ok(Picture {
-            of: of.to_string(),
-            width: side,
-            height: side,
-            stride: side.saturating_mul(4),
-            pixels: vec![7; bytes],
-        })
+    Ok(Picture {
+      of: of.to_string(),
+      pixels,
+    })
+  }
+
+  #[test]
+  fn a_store_says_where_each_picture_is_and_how_big() -> Result<(), Failure> {
+    let Ok(one) = a_picture("/usr/share/icons/one.svg", 32);
+    let Ok(two) = a_picture("/two.png", 16);
+    let Ok(bytes) = serialize(&[one, two]);
+    let Ok(held) = read(&bytes);
+    let held_2 = held.ok_or("a written store does not read back")?;
+
+    assert_eq!(held_2.len(), 2);
+
+    let one_2 = held_2
+      .get("/usr/share/icons/one.svg")
+      .ok_or("the first picture")?;
+    assert_eq!((one_2.width, one_2.height, one_2.stride), (32, 32, 128));
+    assert_eq!(one_2.in_store(&bytes), Ok(Some([7u8; 4096].as_slice())));
+
+    let two_2 = held_2.get("/two.png").ok_or("the second picture")?;
+
+    assert_eq!(two_2.in_store(&bytes), Ok(Some([7u8; 1024].as_slice())));
+
+    Ok(())
+  }
+
+  #[test]
+  fn half_a_store_is_no_store_rather_than_half_the_pictures() {
+    let Ok(one) = a_picture("/one.svg", 32);
+    let Ok(bytes) = serialize(&[one]);
+
+    for cut in [
+      0,
+      4,
+      MAGIC.len(),
+      MAGIC.len().saturating_add(4),
+      bytes.len().saturating_sub(1),
+    ] {
+      assert_eq!(
+        bytes.get(..cut).map(read),
+        Some(Ok(None)),
+        "a store cut at {cut} was read as a store"
+      );
+    }
+  }
+
+  #[test]
+  fn a_file_that_is_not_this_file_is_not_read_at_all() {
+    assert_eq!(read(b"not this at all"), Ok(None));
+    assert_eq!(read(b"panel-pictures 2\n"), Ok(None));
+  }
+
+  #[test]
+  fn a_picture_that_points_outside_the_store_is_refused() {
+    let Ok(one) = a_picture("/one.svg", 32);
+    let Ok(mut bytes) = serialize(&[one]);
+    let far = (1_000_000u32).to_le_bytes();
+    let Ok(behind) = index(LARGE.saturating_add(4));
+
+    for (slot, byte) in bytes
+      .iter_mut()
+      .rev()
+      .skip(behind)
+      .take(4)
+      .zip(far.iter().rev())
+    {
+      *slot = *byte;
     }
 
-    #[test]
-    fn a_store_says_where_each_picture_is_and_how_big() -> Result<(), Failure> {
-        let Ok(one) = a_picture("/usr/share/icons/one.svg", 32);
-        let Ok(two) = a_picture("/two.png", 16);
-        let Ok(bytes) = serialize(&[one, two]);
-        let Ok(held) = read(&bytes);
-        let held = held.ok_or("a written store does not read back")?;
+    assert_eq!(read(&bytes), Ok(None));
+  }
 
-        assert_eq!(held.len(), 2);
+  #[test]
+  fn a_picture_whose_rows_do_not_fit_its_own_pixels_is_refused() {
+    let Ok(mut picture) = a_picture("/one.svg", 32);
+    picture.pixels.stride = 4096;
+    let Ok(bytes) = serialize(&[picture]);
 
-        let one = held.get("/usr/share/icons/one.svg").ok_or("the first picture")?;
-        let Ok(large) = index(LARGE);
-        let Ok(small) = index(SMALL);
+    assert_eq!(read(&bytes), Ok(None));
+  }
 
-        assert_eq!((one.width, one.height, one.stride), (32, 32, 128));
-        assert_eq!(one.in_store(&bytes), Ok(Some(vec![7u8; large].as_slice())));
+  #[test]
+  fn an_empty_store_is_a_store_with_nothing_in_it() -> Result<(), Failure> {
+    let Ok(bytes) = serialize(&[]);
+    let Ok(held) = read(&bytes);
+    let pictures = held.ok_or("an empty store is not a store")?;
 
-        let two = held.get("/two.png").ok_or("the second picture")?;
+    assert!(pictures.is_empty());
 
-        assert_eq!(two.in_store(&bytes), Ok(Some(vec![7u8; small].as_slice())));
-
-        Ok(())
-    }
-
-    #[test]
-    fn half_a_store_is_no_store_rather_than_half_the_pictures() {
-        let Ok(one) = a_picture("/one.svg", 32);
-        let Ok(bytes) = serialize(&[one]);
-
-        for cut in [0, 4, MAGIC.len(), MAGIC.len().saturating_add(4), bytes.len().saturating_sub(1)] {
-            assert_eq!(bytes.get(..cut).map(read), Some(Ok(None)), "a store cut at {cut} was read as a store");
-        }
-    }
-
-    #[test]
-    fn a_file_that_is_not_this_file_is_not_read_at_all() {
-        assert_eq!(read(b"not this at all"), Ok(None));
-        assert_eq!(read(b"panel-pictures 2\n"), Ok(None));
-    }
-
-    #[test]
-    fn a_picture_that_points_outside_the_store_is_refused() {
-        let Ok(one) = a_picture("/one.svg", 32);
-        let Ok(mut bytes) = serialize(&[one]);
-        let far = (1_000_000u32).to_le_bytes();
-        let Ok(behind) = index(LARGE.saturating_add(4));
-
-        for (slot, byte) in bytes.iter_mut().rev().skip(behind).take(4).zip(far.iter().rev()) {
-            *slot = *byte;
-        }
-
-        assert_eq!(read(&bytes), Ok(None));
-    }
-
-    #[test]
-    fn a_picture_whose_rows_do_not_fit_its_own_pixels_is_refused() {
-        let Ok(mut picture) = a_picture("/one.svg", 32);
-        picture.stride = 4096;
-        let Ok(bytes) = serialize(&[picture]);
-
-        assert_eq!(read(&bytes), Ok(None));
-    }
-
-    #[test]
-    fn an_empty_store_is_a_store_with_nothing_in_it() -> Result<(), Failure> {
-        let Ok(bytes) = serialize(&[]);
-        let Ok(held) = read(&bytes);
-        let held = held.ok_or("an empty store is not a store")?;
-
-        assert!(held.is_empty());
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

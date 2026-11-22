@@ -1,0 +1,55 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/scoped.rs:6:8
+   |
+LL |     Ok(values[index])
+   |        ^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: return the configured failure if the element or range is absent
+   |
+LL -     Ok(values[index])
+LL +     Ok(*match <[_]>::get(&*values, index) { ::core::option::Option::Some(indexed_value) => indexed_value, ::core::option::Option::None => return ::core::result::Result::Err(crate::Fault::Bounds) })
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/scoped.rs:10:8
+   |
+LL |     Ok(values[index])
+   |        ^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/scoped.rs:14:11
+   |
+LL |     Some(&text[..end])
+   |           ^^^^^^^^^^^
+   |
+help: return the configured failure if the element or range is absent
+   |
+LL -     Some(&text[..end])
+LL +     Some(&*match ::core::primitive::str::get(&*text, ..end) { ::core::option::Option::Some(indexed_value) => indexed_value, ::core::option::Option::None => return ::core::option::Option::None })
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/scoped.rs:18:5
+   |
+LL |     values[index] = value;
+   |     ^^^^^^^^^^^^^
+   |
+help: return the configured failure if the element or range is absent
+   |
+LL -     values[index] = value;
+LL +     *match <[_]>::get_mut(&mut *values, index) { ::core::option::Option::Some(indexed_value) => indexed_value, ::core::option::Option::None => return ::core::option::Option::None } = value;
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/scoped.rs:23:10
+   |
+LL |     Some(values[index])
+   |          ^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: aborting due to 5 previous errors
+

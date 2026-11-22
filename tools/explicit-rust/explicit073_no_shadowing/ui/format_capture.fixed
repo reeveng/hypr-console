@@ -1,0 +1,72 @@
+// run-rustfix
+// edition:2024
+use std::fmt::Write;
+
+fn serialize(name: u8, took: f64) -> String {
+    let name_2 = name + 1;
+    let took_2 = took * 2.0;
+    format!("name={name}, {{name}}, {name:x}, {took:.1}", name = name_2, took = took_2)
+}
+
+fn width(width: usize) -> String {
+    let width_2 = width + 1;
+    format!(r#"width {number:width$.width$}"#, number = 3.5, width = width_2)
+}
+
+fn write_value(value: u8) -> String {
+    let mut out = String::new();
+    let value_2 = value + 1;
+    write!(out, "{} {value}", "value", value = value_2).unwrap();
+    writeln!(out, " {value}", value = value_2).unwrap();
+    out
+}
+
+fn select(value: u8) -> String {
+    let text = format!("outer {value}");
+    let value_2 = value + 1;
+    format!("{} {value}", format!("inner {value}", value = value_2), value = value_2) + &text
+}
+
+fn keyword(r#type: u8) -> String {
+    let type_2 = r#type + 1;
+    format!("{type}", r#type = type_2)
+}
+
+fn print_value(value: u8) {
+    let value_2 = value + 1;
+    print!("out {value}", value = value_2);
+    println!(" {value}", value = value_2);
+    eprint!("err {value}", value = value_2);
+    eprintln!(" {value}", value = value_2);
+    std::fmt::write(&mut String::new(), format_args!("{value}", value = value_2)).unwrap();
+}
+
+fn explicit(value: u8) -> String {
+    let value_2 = value + 1;
+    format!("value={{value}} / {}", value_2)
+}
+
+fn separate_bindings(value: u8) -> (String, [String; 1]) {
+    let value_2 = value + 1;
+    (format!("{value}", value = value_2), [7].map(|value_3| format!("{value}", value = value_3)))
+}
+
+struct ErrorMessage;
+impl std::fmt::Display for ErrorMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", std::fmt::from_fn(|f_2| f_2.write_str("first")),
+            std::fmt::from_fn(|f_3| f_3.write_str("second")))
+    }
+}
+
+fn main() {
+    assert_eq!(serialize(15, 1.25), "name=16, {name}, 10, 2.5");
+    assert_eq!(width(2), "width 3.500");
+    assert_eq!(write_value(4), "value 5 5\n");
+    assert_eq!(select(2), "inner 3 3outer 2");
+    assert_eq!(keyword(1), "2");
+    print_value(5);
+    assert_eq!(explicit(2), "value={value} / 3");
+    assert_eq!(separate_bindings(1), ("2".to_owned(), ["7".to_owned()]));
+    assert_eq!(ErrorMessage.to_string(), "first second");
+}

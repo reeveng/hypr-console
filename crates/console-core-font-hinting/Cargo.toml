@@ -1,0 +1,38 @@
+[package]
+name = "console-core-font-hinting"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Embedded TrueType hinting programs for caller-provided glyph outlines."
+
+[features]
+default = ["std"]
+std = ["read-fonts/std"]
+libm = ["read-fonts/libm"]
+scaler_test = []
+
+[dependencies.console-core-number-conversion]
+path = "../console-core-number-conversion"
+default-features = false
+
+[dependencies.console-core-never]
+workspace = true
+
+[dependencies.read-fonts]
+package = "console-core-font-reading"
+path = "../console-core-font-reading"
+default-features = false
+
+[dev-dependencies.font-test-data]
+package = "console-core-font-fixtures"
+path = "../console-core-font-fixtures"
+
+[dev-dependencies.read-fonts]
+package = "console-core-font-reading"
+path = "../console-core-font-reading"
+default-features = false
+features = ["scaler_test"]
+
+[lints]
+workspace = true

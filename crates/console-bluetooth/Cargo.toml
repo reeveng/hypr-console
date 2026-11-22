@@ -1,0 +1,22 @@
+[package]
+name = "console-bluetooth"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_bluetooth"
+path = "src/lib.rs"
+
+[features]
+written = []
+
+[dependencies]
+console-bus.workspace = true
+console-core-media-access-control-addresses.workspace = true
+console-core-never.workspace = true
+console-core-words.workspace = true
+
+[lints]
+workspace = true

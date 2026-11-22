@@ -18,7 +18,7 @@
 //! network that is loud and slow from being joined at every scan.
 
 use std::process::{ExitCode, ExitStatus, Output};
-use std::sync::mpsc::channel;
+use std::sync::mpsc::sync_channel;
 
 use console_core_external_programs::Program;
 use console_events::again::{about, scanned};
@@ -27,105 +27,132 @@ use console_program_contract::EventGroup;
 use console_settings::wifi::{self, DEVICES, IN_RANGE, KNOWN, Left, Receiving, Why};
 
 fn main() -> ExitCode {
-    let (say, heard) = channel();
-    let Ok(()) = about(&EventGroup::Wifi, scanned, say);
-    let mut left = Left::new();
+  let (say, heard) = sync_channel(1);
+  let Ok(()) = about(&EventGroup::Wifi, scanned, say);
+  let mut left = Left::new();
 
-    for () in heard.iter() {
-        match look(&mut left) {
-            Ok(()) => {},
-            Err(fault) => eprintln!("{fault}"),
-        }
+  #[cfg_attr(
+    dylint_lib = "explicit055_no_unbounded_loop",
+    expect(
+      explicit055_no_unbounded_loop,
+      reason = "the Wi-Fi service receives until its event subscription disconnects; timers cannot trigger scans or cause the service to expire"
+    )
+  )]
+  for () in heard.iter() {
+    match look(&mut left) {
+      Ok(()) => {}
+      Err(fault) => eprintln!("{fault}"),
     }
+  }
 
-    eprintln!("the event pool stopped saying anything, so there is nothing left to wake for");
+  eprintln!("the event pool stopped saying anything, so there is nothing left to wake for");
 
-    ExitCode::FAILURE
+  ExitCode::FAILURE
 }
 
 #[derive(Debug)]
 enum Unasked {
-    Failed { asked: String, status: ExitStatus, said: String },
-    NotFound(&'static str, std::io::Error),
+  Failed {
+    asked: String,
+    status: ExitStatus,
+    said: String,
+  },
+  NotFound(&'static str, std::io::Error),
+  InvalidText(String, std::string::FromUtf8Error),
 }
 
 impl std::fmt::Display for Unasked {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unasked::Failed { asked, status, said } => write!(to, "{asked} said {status}: {said}"),
-            Unasked::NotFound(program, fault) => write!(to, "no {program} to ask: {fault}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unasked::Failed {
+        asked,
+        status,
+        said,
+      } => write!(to, "{asked} said {status}: {said}"),
+      Unasked::NotFound(program, fault) => write!(to, "no {program} to ask: {fault}"),
+      Unasked::InvalidText(asked, fault) => write!(to, "{asked} returned invalid UTF-8: {fault}"),
     }
+  }
 }
 
 impl std::error::Error for Unasked {}
 
 fn look(left: &mut Left) -> Result<(), Unasked> {
-    let in_range = run_output(Program::Nmcli, &IN_RANGE)?;
-    let known = run_output(Program::Nmcli, &KNOWN)?;
-    let devices = run_output(Program::Nmcli, &DEVICES)?;
+  let in_range = run_output(Program::Nmcli, &IN_RANGE)?;
+  let known = run_output(Program::Nmcli, &KNOWN)?;
+  let devices = run_output(Program::Nmcli, &DEVICES)?;
 
-    let Ok(networks) = wifi::networks(&in_range);
-    let Ok(saved) = wifi::saved(&known);
-    let Ok(device) = wifi::wireless(&devices);
+  let Ok(networks) = wifi::networks(&in_range);
+  let Ok(saved) = wifi::saved(&known);
+  let Ok(device) = wifi::wireless(&devices);
 
-    let link = match device {
-        Some(device) => {
-            let said = run_output(Program::Iw, &["dev", &device, "link"])?;
-            let Ok(link) = wifi::receiving(&said);
+  let link = match device {
+    Some(device_2) => {
+      let said = run_output(Program::Iw, &["dev", &device_2, "link"])?;
+      let Ok(link) = wifi::receiving(&said);
 
-            link
-        }
-        None => Receiving::Unknown,
-    };
-
-    let Ok(better) = wifi::better(&networks, &saved, link, left);
-
-    let chosen = match better {
-        Some(chosen) => chosen,
-        None => return Ok(()),
-    };
-
-    let why = match chosen.why {
-        Why::Weak => "it is weak",
-        Why::Slow => "it is receiving at the slowest rate",
-        Why::Near => "the faster band is strong here",
-    };
-
-    let Ok(()) = journal(&format!(
-        "leaving {} at {}% for {} at {}%: {why}",
-        chosen.from.name, chosen.from.signal, chosen.to.name, chosen.to.signal,
-    ));
-
-    match chosen.why {
-        Why::Slow => {
-            let _ = left.insert(chosen.from.name.clone(), chosen.from.signal);
-        },
-        Why::Weak | Why::Near => {},
+      link
     }
+    None => Receiving::Unknown,
+  };
 
-    let _ = run_output(Program::Nmcli, &["connection", "up", "id", &chosen.to.name])?;
+  let Ok(better) = wifi::better(&networks, &saved, link, left);
 
-    Ok(())
+  let chosen = match better {
+    Some(chosen) => chosen,
+    None => return Ok(()),
+  };
+
+  let why = match chosen.why {
+    Why::Weak => "it is weak",
+    Why::Slow => "it is receiving at the slowest rate",
+    Why::Near => "the faster band is strong here",
+  };
+
+  let Ok(()) = journal(&format!(
+    "leaving {} at {}% for {} at {}%: {why}",
+    chosen.from.name, chosen.from.signal, chosen.to.name, chosen.to.signal,
+  ));
+
+  match chosen.why {
+    Why::Slow => {
+      let _ = left.insert(chosen.from.name.clone(), chosen.from.signal);
+    }
+    Why::Weak | Why::Near => {}
+  }
+
+  let _ = run_output(Program::Nmcli, &["connection", "up", "id", &chosen.to.name])?;
+
+  Ok(())
 }
 
 fn run_output(program: Program, words: &[&str]) -> Result<String, Unasked> {
-    let Ok(mut asking) = program.command();
-    let Ok(spelled) = program.arguments(words);
+  let Ok(mut asking) = program.command();
+  let Ok(spelled) = program.arguments(words);
 
-    match asking.args(words).output() {
-        Ok(Output { status, stdout, stderr }) => match status.success() {
-            true => Ok(String::from_utf8_lossy(&stdout).into_owned()),
-            false => Err(Unasked::Failed {
-                asked: spelled.join(" "),
-                status,
-                said: String::from_utf8_lossy(&stderr).trim().to_string(),
-            }),
-        },
-        Err(fault) => {
-            let Ok(name) = program.name();
+  match asking.args(words).output() {
+    Ok(Output {
+      status,
+      stdout,
+      stderr,
+    }) => match ::core::primitive::bool::then_some(status.success(), ()) {
+      Some(()) => String::from_utf8(stdout).map_err(|fault| Unasked::InvalidText(spelled.join(" "), fault)),
+      None => {
+        let said = match std::str::from_utf8(&stderr) {
+          Ok(message) => message.trim().to_string(),
+          Err(fault) => format!("stderr was not UTF-8: {fault}"),
+        };
+        Err(Unasked::Failed {
+          asked: spelled.join(" "),
+          status,
+          said,
+        })
+      }
+    },
+    Err(fault) => {
+      let Ok(name) = program.name();
 
-            Err(Unasked::NotFound(name, fault))
-        }
+      Err(Unasked::NotFound(name, fault))
     }
+  }
 }

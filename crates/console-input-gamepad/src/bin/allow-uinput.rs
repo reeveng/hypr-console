@@ -6,47 +6,50 @@
 
 use std::process::ExitCode;
 
-use console_input_gamepad::allowing::{Allow, Allowing, Whoever};
 use console_core_never::Never;
-use console_program_runtime::Pure;
+use console_input_gamepad::allowing::{Allow, Allowing, Whoever};
+use console_operating_system_linux::program_runtime::Pure;
 
 fn main() -> ExitCode {
-    let Ok(uid) = whoami();
-    let Ok(whom) = sudoer();
-    let Ok(whoever) = Whoever::of(Some(&uid));
-    let opening = Allowing::Opening { whoever, whom };
-    let Ok(how) = console_program_runtime::run::<Allow, Pure>("allow-uinput", &opening, &mut Pure);
+  let Ok(uid) = whoami();
+  let Ok(whom) = sudoer();
+  let Ok(whoever) = Whoever::of(Some(&uid));
+  let opening = Allowing::Opening { whoever, whom };
+  let Ok(how) = console_operating_system_linux::program_runtime::run::<Allow, Pure>(
+    "allow-uinput",
+    &opening,
+    &mut Pure,
+  );
 
-    how
+  how
 }
 
 fn whoami() -> Result<String, Never> {
-    let uid = rustix::process::getuid().as_raw();
+  let uid = rustix::process::getuid().as_raw();
 
-    Ok(uid.to_string())
+  Ok(uid.to_string())
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit026_env_read_once",
-    allow(
-        explicit026_env_read_once,
-        reason = "SUDO_USER and USER are how a program run under sudo finds out whose desktop it is fixing, and this binary is the only one here that runs that way"
-    )
+  dylint_lib = "explicit026_env_read_once",
+  allow(
+    explicit026_env_read_once,
+    reason = "SUDO_USER and USER are how a program run under sudo finds out whose desktop it is fixing, and this binary is the only one here that runs that way"
+  )
 )]
 fn sudoer() -> Result<Option<String>, Never> {
-    match std::env::var("SUDO_USER") {
-        Ok(whom) => match whom.is_empty() {
-            true => {},
-            false => return Ok(Some(whom)),
-        },
-        Err(_unset) => {},
-    }
+  let from_sudo = match std::env::var("SUDO_USER") {
+    Ok(whom) => bool::then_some(!whom.is_empty(), whom),
+    Err(std::env::VarError::NotPresent | std::env::VarError::NotUnicode(_)) => None,
+  };
 
-    Ok(match std::env::var("USER") {
-        Ok(whom) => match !whom.is_empty() && whom != "root" {
-            true => Some(whom),
-            false => None,
-        },
-        Err(_unset) => None,
-    })
+  match from_sudo {
+    Some(whom) => return Ok(Some(whom)),
+    None => {}
+  }
+
+  Ok(match std::env::var("USER") {
+    Ok(whom) => bool::then_some(!whom.is_empty() && whom != "root", whom),
+    Err(std::env::VarError::NotPresent | std::env::VarError::NotUnicode(_)) => None,
+  })
 }

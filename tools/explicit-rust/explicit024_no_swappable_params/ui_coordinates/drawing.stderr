@@ -1,0 +1,16 @@
+error: this drawing call passes positional coordinates through the compatibility API
+  --> $DIR/drawing.rs:8:18
+   |
+LL |     let Ok(()) = path.quad_to(point.x, point.y, 8.0, -1.0);
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: pass points to the typed drawing method: `::console_core_paths::PathBuilder::quad_to_pt(&mut *path, point, ::console_core_paths::Point { x: 8.0, y: -1.0 })`
+   |
+   = note: `#[deny(explicit024_no_swappable_params)]` on by default
+
+error: this drawing call passes positional coordinates through the compatibility API
+  --> $DIR/drawing.rs:12:18
+   |
+LL |     let Ok(()) = path.move_to(1.0, 2.0);
+   |                  ^^^^^^^^^^^^^^^^^^^^^^ help: pass points to the typed drawing method: `::console_core_paths::PathBuilder::move_to_pt(&mut path, ::console_core_paths::Point { x: 1.0, y: 2.0 })`
+
+error: aborting due to 2 previous errors
+

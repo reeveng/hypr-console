@@ -1,0 +1,22 @@
+error: this arm matches every variant of the enum without naming one
+  --> $DIR/closed_enums.rs:15:9
+   |
+LL |         _ => 1,
+   |         ^ help: name the remaining variants: `::core::num::FpCategory::Nan | ::core::num::FpCategory::Infinite | ::core::num::FpCategory::Subnormal | ::core::num::FpCategory::Normal`
+   |
+   = note: `#[deny(explicit016_no_wildcard_arm)]` on by default
+
+error: this arm matches every variant of the enum without naming one
+  --> $DIR/closed_enums.rs:23:9
+   |
+LL |         _ => 3,
+   |         ^ help: name the remaining variants: `::core::option::Option::None | ::core::option::Option::Some(::core::cmp::Ordering::Equal)`
+
+error: this arm matches every variant of the enum without naming one
+  --> $DIR/closed_enums.rs:32:9
+   |
+LL |         other => other,
+   |         ^^^^^ help: name the remaining variants: `other @ (::core::result::Result::Ok(::core::cmp::Ordering::Greater) | ::core::result::Result::Err(_))`
+
+error: aborting due to 3 previous errors
+

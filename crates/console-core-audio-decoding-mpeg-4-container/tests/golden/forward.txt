@@ -1,0 +1,457 @@
+== aac.m4a
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== alac.m4a
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== av.mp4
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== dash-stream0.mp4
+track 0 CodecParameters { codec: CodecType(4100), sample_rate: Some(44100), time_base: Some(TimeBase { numer: 1, denom: 44100 }), n_frames: Some(0), start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: None, channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: Some([18, 8, 86, 229, 0]) } None
+cues 0
+revisions current=true
+tag Some(Encoder)  = Lavf63.1.102
+packet track=0 ts=0 dur=1024 len=151 sum=13263856040416159836
+packet track=0 ts=1024 dur=1024 len=162 sum=563969545304188876
+packet track=0 ts=2048 dur=1024 len=60 sum=3152544336266783890
+19 packets, fold 15962812647288323140, ended: end of stream
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=1024 len=162 sum=563969545304188876
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=2048 len=60 sum=3152544336266783890
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=3072 len=62 sum=11647959860816347203
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 11025, actual_ts: 10240 }
+  then track=0 ts=10240 len=92 sum=9286932641793666355
+seek time=1 failed: end of stream
+  then track=0 ts=11264 len=113 sum=15929691301150243814
+seek time=100 failed: end of stream
+  then track=0 ts=12288 len=71 sum=12294855875054635704
+-- seeking before reading
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=1024 len=162 sum=563969545304188876
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=2048 len=60 sum=3152544336266783890
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=3072 len=62 sum=11647959860816347203
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 11025, actual_ts: 10240 }
+  then track=0 ts=10240 len=92 sum=9286932641793666355
+seek time=1 failed: end of stream
+  then track=0 ts=11264 len=113 sum=15929691301150243814
+seek time=100 failed: end of stream
+  then track=0 ts=12288 len=71 sum=12294855875054635704
+== flac.mp4
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== frag.mp4
+track 0 CodecParameters { codec: CodecType(4100), sample_rate: Some(44100), time_base: Some(TimeBase { numer: 1, denom: 44100 }), n_frames: Some(0), start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: None, channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: Some([18, 8, 86, 229, 0]) } None
+cues 0
+revisions current=true
+tag Some(Encoder)  = Lavf63.1.102
+packet track=0 ts=0 dur=1024 len=151 sum=13263856040416159836
+packet track=0 ts=1024 dur=1024 len=162 sum=563969545304188876
+packet track=0 ts=2048 dur=1024 len=60 sum=3152544336266783890
+19 packets, fold 15962812647288323140, ended: end of stream
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=1024 len=162 sum=563969545304188876
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=2048 len=60 sum=3152544336266783890
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=3072 len=62 sum=11647959860816347203
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 11025, actual_ts: 10240 }
+  then track=0 ts=10240 len=92 sum=9286932641793666355
+seek time=1 failed: end of stream
+  then track=0 ts=11264 len=113 sum=15929691301150243814
+seek time=100 failed: end of stream
+  then track=0 ts=12288 len=71 sum=12294855875054635704
+-- seeking before reading
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=1024 len=162 sum=563969545304188876
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=2048 len=60 sum=3152544336266783890
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=3072 len=62 sum=11647959860816347203
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 11025, actual_ts: 10240 }
+  then track=0 ts=10240 len=92 sum=9286932641793666355
+seek time=1 failed: end of stream
+  then track=0 ts=11264 len=113 sum=15929691301150243814
+seek time=100 failed: end of stream
+  then track=0 ts=12288 len=71 sum=12294855875054635704
+== frag2.mp4
+track 0 CodecParameters { codec: CodecType(4100), sample_rate: Some(44100), time_base: Some(TimeBase { numer: 1, denom: 44100 }), n_frames: Some(0), start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: None, channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: Some([18, 8, 86, 229, 0]) } None
+cues 0
+revisions current=true
+tag Some(Encoder)  = Lavf63.1.102
+packet track=0 ts=0 dur=1024 len=151 sum=13263856040416159836
+packet track=0 ts=1024 dur=1024 len=162 sum=563969545304188876
+packet track=0 ts=2048 dur=1024 len=60 sum=3152544336266783890
+19 packets, fold 15962812647288323140, ended: end of stream
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=1024 len=162 sum=563969545304188876
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=2048 len=60 sum=3152544336266783890
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=3072 len=62 sum=11647959860816347203
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 11025, actual_ts: 10240 }
+  then track=0 ts=10240 len=92 sum=9286932641793666355
+seek time=1 failed: end of stream
+  then track=0 ts=11264 len=113 sum=15929691301150243814
+seek time=100 failed: end of stream
+  then track=0 ts=12288 len=71 sum=12294855875054635704
+-- seeking before reading
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=1024 len=162 sum=563969545304188876
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=2048 len=60 sum=3152544336266783890
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=3072 len=62 sum=11647959860816347203
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 11025, actual_ts: 10240 }
+  then track=0 ts=10240 len=92 sum=9286932641793666355
+seek time=1 failed: end of stream
+  then track=0 ts=11264 len=113 sum=15929691301150243814
+seek time=100 failed: end of stream
+  then track=0 ts=12288 len=71 sum=12294855875054635704
+== mp3.mp4
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== opus.mp4
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== mono.mov
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== pcm_f32le.mov
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== pcm_f64le.mov
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== pcm_s16be.mov
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== pcm_s16le.mov
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== pcm_s24le.mov
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== pcm_s32le.mov
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== pcm_u8.mov
+refused: unsupported feature: isomp4: missing moov atom
+refused again: unsupported feature: isomp4: missing moov atom
+== aac_fast.m4a
+track 0 CodecParameters { codec: CodecType(4100), sample_rate: Some(44100), time_base: Some(TimeBase { numer: 1, denom: 44100 }), n_frames: Some(18664), start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: None, channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: Some([18, 8, 86, 229, 0]) } None
+cues 0
+revisions current=true
+tag Some(TrackTitle)  = Song
+tag Some(Artist)  = Band
+tag Some(AlbumArtist)  = Various
+tag Some(Composer)  = Me
+tag Some(Album)  = Record
+tag Some(Date)  = 2020
+tag Some(Encoder)  = Lavf63.1.102
+tag Some(Comment)  = Hello
+tag Some(Genre)  = Rock
+tag Some(Copyright)  = Mine
+tag Some(Lyrics)  = La
+tag Some(Description)  = Desc
+tag Some(TrackNumber)  = 3
+tag Some(TrackTotal)  = 12
+tag Some(DiscNumber)  = 1
+tag Some(DiscTotal)  = 2
+visual image/png None None None Some(FrontCover) 101 3511965524120562822
+packet track=0 ts=0 dur=1024 len=151 sum=13263856040416159836
+packet track=0 ts=1024 dur=1024 len=162 sum=563969545304188876
+packet track=0 ts=2048 dur=1024 len=60 sum=3152544336266783890
+19 packets, fold 15962812647288323140, ended: end of stream
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=1024 len=162 sum=563969545304188876
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=2048 len=60 sum=3152544336266783890
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=3072 len=62 sum=11647959860816347203
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 11025, actual_ts: 10240 }
+  then track=0 ts=10240 len=92 sum=9286932641793666355
+seek time=1 failed: end of stream
+  then track=0 ts=11264 len=113 sum=15929691301150243814
+seek time=100 failed: end of stream
+  then track=0 ts=12288 len=71 sum=12294855875054635704
+-- seeking before reading
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=151 sum=13263856040416159836
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=1024 len=162 sum=563969545304188876
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=2048 len=60 sum=3152544336266783890
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=3072 len=62 sum=11647959860816347203
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 11025, actual_ts: 10240 }
+  then track=0 ts=10240 len=92 sum=9286932641793666355
+seek time=1 failed: end of stream
+  then track=0 ts=11264 len=113 sum=15929691301150243814
+seek time=100 failed: end of stream
+  then track=0 ts=12288 len=71 sum=12294855875054635704
+== alac_fast.m4a
+track 0 CodecParameters { codec: CodecType(8195), sample_rate: Some(44100), time_base: Some(TimeBase { numer: 1, denom: 44100 }), n_frames: Some(17640), start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: None, channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: Some([0, 0, 16, 0, 0, 16, 40, 10, 14, 1, 0, 0, 0, 0, 32, 4, 0, 10, 196, 64, 0, 0, 172, 68]) } None
+cues 0
+revisions current=true
+tag Some(Encoder)  = Lavf63.1.102
+packet track=0 ts=0 dur=4096 len=1626 sum=4459957872567437336
+packet track=0 ts=4096 dur=4096 len=1641 sum=14084432275830132489
+packet track=0 ts=8192 dur=4096 len=1629 sum=4817744233750709586
+5 packets, fold 15034789431953502084, ended: end of stream
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=1626 sum=4459957872567437336
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=1626 sum=4459957872567437336
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=4096 len=1641 sum=14084432275830132489
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=8192 len=1629 sum=4817744233750709586
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=12288 len=1630 sum=18295574390771016563
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 11025, actual_ts: 8192 }
+  then track=0 ts=8192 len=1629 sum=4817744233750709586
+seek time=1 failed: end of stream
+  then track=0 ts=12288 len=1630 sum=18295574390771016563
+seek time=100 failed: end of stream
+  then track=0 ts=16384 len=658 sum=17439088248615699424
+-- seeking before reading
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=1626 sum=4459957872567437336
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=1626 sum=4459957872567437336
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=4096 len=1641 sum=14084432275830132489
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=8192 len=1629 sum=4817744233750709586
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=12288 len=1630 sum=18295574390771016563
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 11025, actual_ts: 8192 }
+  then track=0 ts=8192 len=1629 sum=4817744233750709586
+seek time=1 failed: end of stream
+  then track=0 ts=12288 len=1630 sum=18295574390771016563
+seek time=100 failed: end of stream
+  then track=0 ts=16384 len=658 sum=17439088248615699424
+== av_fast.mp4
+track 0 CodecParameters { codec: CodecType(0), sample_rate: None, time_base: Some(TimeBase { numer: 1, denom: 10240 }), n_frames: Some(4096), start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: None, channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: None } None
+track 1 CodecParameters { codec: CodecType(4100), sample_rate: Some(44100), time_base: Some(TimeBase { numer: 1, denom: 44100 }), n_frames: Some(18664), start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: None, channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: Some([18, 8, 86, 229, 0]) } None
+cues 0
+revisions current=true
+tag Some(Encoder)  = Lavf63.1.102
+packet track=0 ts=0 dur=1024 len=1175 sum=17023035053775281170
+packet track=1 ts=0 dur=1024 len=151 sum=13263856040416159836
+packet track=1 ts=1024 dur=1024 len=162 sum=563969545304188876
+23 packets, fold 2825246006255749809, ended: end of stream
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=1175 sum=17023035053775281170
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=1175 sum=17023035053775281170
+seek ts=20000 track=0 failed: end of stream
+  then track=1 ts=4096 len=65 sum=14166103470207363554
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=1024 len=80 sum=7182005146519371705
+seek ts=4000000 track=0 failed: end of stream
+  then track=1 ts=5120 len=66 sum=6063274802620328929
+seek ts=0 track=1 -> SeekedTo { track_id: 1, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=1175 sum=17023035053775281170
+seek ts=1000 track=1 -> SeekedTo { track_id: 1, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=1175 sum=17023035053775281170
+seek ts=20000 track=1 failed: end of stream
+  then track=1 ts=0 len=151 sum=13263856040416159836
+seek ts=44100 track=1 failed: end of stream
+  then track=1 ts=1024 len=162 sum=563969545304188876
+seek ts=4000000 track=1 failed: end of stream
+  then track=1 ts=2048 len=60 sum=3152544336266783890
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 2560, actual_ts: 2048 }
+  then track=0 ts=2048 len=106 sum=17477526766481259834
+seek time=1 failed: end of stream
+  then track=1 ts=10240 len=92 sum=9286932641793666355
+seek time=100 failed: end of stream
+  then track=1 ts=11264 len=113 sum=15929691301150243814
+-- seeking before reading
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=1175 sum=17023035053775281170
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=1175 sum=17023035053775281170
+seek ts=20000 track=0 failed: end of stream
+  then track=1 ts=4096 len=65 sum=14166103470207363554
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=1024 len=80 sum=7182005146519371705
+seek ts=4000000 track=0 failed: end of stream
+  then track=1 ts=5120 len=66 sum=6063274802620328929
+seek ts=0 track=1 -> SeekedTo { track_id: 1, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=1175 sum=17023035053775281170
+seek ts=1000 track=1 -> SeekedTo { track_id: 1, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=1175 sum=17023035053775281170
+seek ts=20000 track=1 failed: end of stream
+  then track=1 ts=0 len=151 sum=13263856040416159836
+seek ts=44100 track=1 failed: end of stream
+  then track=1 ts=1024 len=162 sum=563969545304188876
+seek ts=4000000 track=1 failed: end of stream
+  then track=1 ts=2048 len=60 sum=3152544336266783890
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 2560, actual_ts: 2048 }
+  then track=0 ts=2048 len=106 sum=17477526766481259834
+seek time=1 failed: end of stream
+  then track=1 ts=10240 len=92 sum=9286932641793666355
+seek time=100 failed: end of stream
+  then track=1 ts=11264 len=113 sum=15929691301150243814
+== flac_fast.mp4
+track 0 CodecParameters { codec: CodecType(8192), sample_rate: Some(44100), time_base: Some(TimeBase { numer: 1, denom: 44100 }), n_frames: Some(17640), start_ts: 0, sample_format: None, bits_per_sample: Some(16), bits_per_coded_sample: None, channels: Some(FRONT_LEFT), channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Guaranteed, verification_check: Some(Md5([14, 128, 85, 86, 38, 44, 24, 164, 95, 206, 87, 129, 218, 181, 252, 183])), frames_per_block: None, extra_data: Some([4, 0, 4, 0, 0, 0, 147, 0, 1, 132, 10, 196, 64, 240, 0, 0, 68, 232, 14, 128, 85, 86, 38, 44, 24, 164, 95, 206, 87, 129, 218, 181, 252, 183]) } None
+cues 0
+revisions current=true
+tag Some(Encoder)  = Lavf63.1.102
+packet track=0 ts=0 dur=1024 len=353 sum=1769450067631205706
+packet track=0 ts=1024 dur=1024 len=373 sum=16996339202467781624
+packet track=0 ts=2048 dur=1024 len=330 sum=11650846329561752243
+18 packets, fold 16440445907245775809, ended: end of stream
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=353 sum=1769450067631205706
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=353 sum=1769450067631205706
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=1024 len=373 sum=16996339202467781624
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=2048 len=330 sum=11650846329561752243
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=3072 len=374 sum=6710862424056350427
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 11025, actual_ts: 10240 }
+  then track=0 ts=10240 len=378 sum=4594700170250273144
+seek time=1 failed: end of stream
+  then track=0 ts=11264 len=334 sum=11232954640542008271
+seek time=100 failed: end of stream
+  then track=0 ts=12288 len=374 sum=9210459199918352992
+-- seeking before reading
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=353 sum=1769450067631205706
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 0 }
+  then track=0 ts=0 len=353 sum=1769450067631205706
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=1024 len=373 sum=16996339202467781624
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=2048 len=330 sum=11650846329561752243
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=3072 len=374 sum=6710862424056350427
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 11025, actual_ts: 10240 }
+  then track=0 ts=10240 len=378 sum=4594700170250273144
+seek time=1 failed: end of stream
+  then track=0 ts=11264 len=334 sum=11232954640542008271
+seek time=100 failed: end of stream
+  then track=0 ts=12288 len=374 sum=9210459199918352992
+== opus_fast.mp4
+track 0 CodecParameters { codec: CodecType(4101), sample_rate: Some(48000), time_base: Some(TimeBase { numer: 1, denom: 48000 }), n_frames: Some(19512), start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: None, channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: Some([79, 112, 117, 115, 72, 101, 97, 100, 0, 1, 56, 1, 128, 187, 0, 0, 0, 0, 0]) } None
+cues 0
+revisions current=true
+tag Some(Encoder)  = Lavf63.1.102
+packet track=0 ts=0 dur=960 len=95 sum=13824680069586242634
+packet track=0 ts=960 dur=960 len=60 sum=242737713712480685
+packet track=0 ts=1920 dur=960 len=66 sum=16667714127219403620
+21 packets, fold 6817454884962553672, ended: end of stream
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=95 sum=13824680069586242634
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 960 }
+  then track=0 ts=960 len=60 sum=242737713712480685
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=1920 len=66 sum=16667714127219403620
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=2880 len=59 sum=17891491224669596904
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=3840 len=61 sum=1915486114723767469
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 12000, actual_ts: 11520 }
+  then track=0 ts=11520 len=45 sum=7271448823767735239
+seek time=1 failed: end of stream
+  then track=0 ts=12480 len=45 sum=482139093239931974
+seek time=100 failed: end of stream
+  then track=0 ts=13440 len=42 sum=10043331489005151301
+-- seeking before reading
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=95 sum=13824680069586242634
+seek ts=1000 track=0 -> SeekedTo { track_id: 0, required_ts: 1000, actual_ts: 960 }
+  then track=0 ts=960 len=60 sum=242737713712480685
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=1920 len=66 sum=16667714127219403620
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=2880 len=59 sum=17891491224669596904
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=3840 len=61 sum=1915486114723767469
+seek time=0 -> SeekedTo { track_id: 0, required_ts: 12000, actual_ts: 11520 }
+  then track=0 ts=11520 len=45 sum=7271448823767735239
+seek time=1 failed: end of stream
+  then track=0 ts=12480 len=45 sum=482139093239931974
+seek time=100 failed: end of stream
+  then track=0 ts=13440 len=42 sum=10043331489005151301
+== pcm_s16le_fast.mov
+track 0 CodecParameters { codec: CodecType(264), sample_rate: Some(44100), time_base: Some(TimeBase { numer: 1, denom: 44100 }), n_frames: Some(441), start_ts: 0, sample_format: None, bits_per_sample: Some(16), bits_per_coded_sample: Some(16), channels: Some(FRONT_LEFT | FRONT_RIGHT), channel_layout: None, delay: None, padding: None, max_frames_per_packet: Some(1), packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: None } None
+cues 0
+revisions current=false
+no metadata
+packet track=0 ts=0 dur=1 len=4 sum=6464647
+packet track=0 ts=1 dur=1 len=4 sum=11862429
+packet track=0 ts=2 dur=1 len=4 sum=9596919
+441 packets, fold 9217790622097866780, ended: end of stream
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=4 sum=6464647
+seek ts=1000 track=0 failed: end of stream
+  then track=0 ts=1 len=4 sum=11862429
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=2 len=4 sum=9596919
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=3 len=4 sum=7331409
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=4 len=4 sum=12609903
+seek time=0 failed: end of stream
+  then track=0 ts=5 len=4 sum=10165461
+seek time=1 failed: end of stream
+  then track=0 ts=6 len=4 sum=7631553
+seek time=100 failed: end of stream
+  then track=0 ts=7 len=4 sum=12611827
+-- seeking before reading
+seek ts=0 track=0 -> SeekedTo { track_id: 0, required_ts: 0, actual_ts: 0 }
+  then track=0 ts=0 len=4 sum=6464647
+seek ts=1000 track=0 failed: end of stream
+  then track=0 ts=1 len=4 sum=11862429
+seek ts=20000 track=0 failed: end of stream
+  then track=0 ts=2 len=4 sum=9596919
+seek ts=44100 track=0 failed: end of stream
+  then track=0 ts=3 len=4 sum=7331409
+seek ts=4000000 track=0 failed: end of stream
+  then track=0 ts=4 len=4 sum=12609903
+seek time=0 failed: end of stream
+  then track=0 ts=5 len=4 sum=10165461
+seek time=1 failed: end of stream
+  then track=0 ts=6 len=4 sum=7631553
+seek time=100 failed: end of stream
+  then track=0 ts=7 len=4 sum=12611827

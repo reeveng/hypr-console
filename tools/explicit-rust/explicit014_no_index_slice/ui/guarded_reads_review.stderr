@@ -1,0 +1,51 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads_review.rs:5:27
+   |
+LL |     at < guarded.len() && used[at] == b'x'
+   |                           ^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads_review.rs:9:25
+   |
+LL |     at < bytes.len() && bytes[at + 1] == b'x'
+   |                         ^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads_review.rs:13:24
+   |
+LL |     bytes.len() > 1 && bytes[2] == b'x'
+   |                        ^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads_review.rs:17:27
+   |
+LL |     at() < bytes.len() && bytes[at()] == b'x'
+   |                           ^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads_review.rs:21:32
+   |
+LL |     at < bytes.len() && check(&bytes[at])
+   |                                ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_reads_review.rs:25:55
+   |
+LL |     if let Some(at) = position && at < bytes.len() && bytes[at] == b'x' && at == 0 {
+   |                                                       ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: aborting due to 6 previous errors
+

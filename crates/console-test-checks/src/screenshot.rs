@@ -7,110 +7,115 @@
 //! is removed, and only by the name the folder gave it, so nothing that was
 //! there before is touched.
 
+use console_core_never::Never;
+use console_test_stages::device::TriggerTravel;
 use console_test_stages::checking::{Body, Check, CheckResult, more_than, same};
 use console_test_stages::device::{A_PICTURE, Device, Ready, shell_quote};
 use console_test_stages::here::Here;
-use console_core_never::Never;
 
 pub const SHOT: Check = Check {
-    name: "070-a-screenshot",
-    about: "Held with L2, the bottom right paddle takes a screenshot.",
-    feature: "screenshot",
-    since: "2026-08-26",
-    bodies: &[Body::Here(here), Body::Device(there)],
+  name: "070-a-screenshot",
+  about: "Held with L2, the bottom right paddle takes a screenshot.",
+  feature: "screenshot",
+  since: "2026-08-26",
+  bodies: &[Body::Here(here), Body::Device(there)],
 };
 
 pub const ALONE: Check = Check {
-    name: "071-the-paddle-alone-takes-nothing",
-    about: "Without L2, the same paddle takes no picture at all.",
-    feature: "screenshot",
-    since: "2026-09-01",
-    bodies: &[Body::Here(alone_here), Body::Device(alone_there)],
+  name: "071-the-paddle-alone-takes-nothing",
+  about: "Without L2, the same paddle takes no picture at all.",
+  feature: "screenshot",
+  since: "2026-09-01",
+  bodies: &[Body::Here(alone_here), Body::Device(alone_there)],
 };
 
 fn here(stage: &mut Here) -> CheckResult {
-    stage.trigger("l2", 1.0)?;
-    stage.press("right-paddle-bottom")?;
+  stage.trigger("l2", TriggerTravel(1.0))?;
+  stage.press("right-paddle-bottom")?;
 
-    stage.ran(&[&["/usr/local/bin/console-screenshot"]])
+  stage.ran(&[&["/usr/local/bin/console-screenshot"]])
 }
 
 fn alone_here(stage: &mut Here) -> CheckResult {
-    stage.press("right-paddle-bottom")?;
+  stage.press("right-paddle-bottom")?;
 
-    stage.ran(&[])
+  stage.ran(&[])
 }
 
 fn there(stage: &mut Device) -> CheckResult {
-    let Ok(home) = stage.home();
-    let shots = format!("{home}/Pictures");
-    let Ok(was) = stage.files(&shots);
+  let Ok(home) = stage.home();
+  let shots = format!("{home}/Pictures");
+  let Ok(was) = stage.files(&shots);
 
-    stage.trigger("l2", 1.0)?;
+  stage.trigger("l2", TriggerTravel(1.0))?;
 
-    let Ok(()) = stage.press("right-paddle-bottom");
+  let Ok(()) = stage.press("right-paddle-bottom");
 
-    stage.trigger("l2", 0.0)?;
+  stage.trigger("l2", TriggerTravel(0.0))?;
 
-    let Ok(_) = stage.until::<Never>(
-        |seen| {
-            let Ok(now) = seen.files(&shots);
+  let Ok(_) = stage.until::<Never>(
+    |seen| {
+      let Ok(now) = seen.files(&shots);
 
-            Ok(match now.len() > was.len() {
-                true => Ready::Yes,
-                false => Ready::NotYet,
-            })
-        },
-        A_PICTURE,
-    );
+      Ok(match ::core::primitive::bool::then_some(now.len() > was.len(), ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      })
+    },
+    A_PICTURE,
+  );
 
-    let Ok(now) = stage.files(&shots);
-    let Ok(()) = taken_away(stage, &shots, &was, &now);
+  let Ok(now) = stage.files(&shots);
+  let Ok(()) = taken_away(stage, &shots, &was, &now);
 
-    more_than(now.len(), was.len(), || format!("no picture appeared in {shots}"))
+  more_than(now.len(), was.len(), || {
+    format!("no picture appeared in {shots}")
+  })
 }
 
 fn taken_away(
-    stage: &mut Device,
-    shots: &str,
-    was: &[String],
-    now: &[String],
+  stage: &mut Device,
+  shots: &str,
+  was: &[String],
+  now: &[String],
 ) -> Result<(), Never> {
-    #[cfg_attr(
-        dylint_lib = "explicit028_no_search_in_a_loop",
-        allow(
-            explicit028_no_search_in_a_loop,
-            reason = "the shots a run made against the shots it found, which is tens of files and is walked once at the end of the run"
-        )
-    )]
-    for name in now.iter().filter(|name| !was.contains(name)) {
-        let Ok(quoted) = shell_quote(&format!("{shots}/{name}"));
-        let Ok(_) = stage.user(&format!("rm -f {quoted}"));
-    }
+  #[cfg_attr(
+    dylint_lib = "explicit028_no_search_in_a_loop",
+    allow(
+      explicit028_no_search_in_a_loop,
+      reason = "the shots a run made against the shots it found, which is tens of files and is walked once at the end of the run"
+    )
+  )]
+  for name in now.iter().filter(|name| !was.contains(name)) {
+    let Ok(quoted) = shell_quote(&format!("{shots}/{name}"));
+    let Ok(_) = stage.user(&format!("rm -f {quoted}"));
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn alone_there(stage: &mut Device) -> CheckResult {
-    let Ok(home) = stage.home();
-    let shots = format!("{home}/Pictures");
+  let Ok(home) = stage.home();
+  let shots = format!("{home}/Pictures");
 
-    stage.trigger("l2", 0.0)?;
+  stage.trigger("l2", TriggerTravel(0.0))?;
 
-    let Ok(was) = stage.files(&shots);
+  let Ok(was) = stage.files(&shots);
 
-    let Ok(()) = stage.press("right-paddle-bottom");
+  let Ok(()) = stage.press("right-paddle-bottom");
 
-    #[cfg_attr(
-        dylint_lib = "explicit022_no_settling",
-        allow(
-            explicit022_no_settling,
-            reason = "what is being checked is that no picture arrives, and a picture not arriving has no question to ask: the number is the same patience the check above gives one that should"
-        )
-    )]
-    let Ok(()) = stage.settle(A_PICTURE);
+  #[cfg_attr(
+    dylint_lib = "explicit022_no_settling",
+    allow(
+      explicit022_no_settling,
+      reason = "what is being checked is that no picture arrives, and a picture not arriving has no question to ask: the number is the same patience the check above gives one that should"
+    )
+  )]
+  let Ok(()) = stage.settle(A_PICTURE);
 
-    let Ok(now) = stage.files(&shots);
+  let Ok(now) = stage.files(&shots);
 
-    same(&now.len(), &was.len(), || format!("a picture arrived in {shots} unasked"))
+  same(&now.len(), &was.len(), || {
+    format!("a picture arrived in {shots} unasked")
+  })
 }

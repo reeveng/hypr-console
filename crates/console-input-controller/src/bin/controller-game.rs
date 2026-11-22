@@ -13,170 +13,176 @@
 use std::process::ExitCode;
 use std::time::Duration;
 
-use console_input_event_devices::{Device, InputEvent};
+use console_core_never::Never;
 use console_input_controller::finding::{self, DeviceInfo};
 use console_input_controller::reading::From;
-use console_input_controller::returning::{ReturningEvent, Return};
+use console_input_controller::returning::{Return, ReturningEvent};
 use console_input_controller::turning::HUNT_SECONDS;
-use console_core_never::Never;
-use console_program_contract::{Timer, Elapsed, Event};
-use console_program_runtime::Interpreter;
+use console_input_event_devices::{Device, InputEvent};
+use console_operating_system_linux::program_runtime::{Clock, Interpreter};
+use console_program_contract::{Elapsed, Event, Timer};
 
 fn main() -> ExitCode {
-    let Ok(code) = console_program_runtime::run::<Return, Pad>(
-        "controller-game",
-        &(),
-        &mut Pad::default(),
-    );
+  let Ok(code) = console_operating_system_linux::program_runtime::run::<Return, Pad>(
+    "controller-game",
+    &(),
+    &mut Pad::default(),
+  );
 
-    code
+  code
 }
 
 #[derive(Default)]
 struct Pad {
-    held: Option<(String, Device)>,
-    hunted: Option<Elapsed>,
+  held: Option<(String, Device)>,
+  hunted: Option<Elapsed>,
 }
 
 impl Interpreter for Pad {
-    type Event = ReturningEvent;
-    type Effect = Never;
+  type Event = ReturningEvent;
+  type Effect = Never;
 
-    fn interpret(&mut self, acts: &Never) -> Vec<Event<ReturningEvent>> {
-        match *acts {}
-    }
+  fn interpret(&mut self, acts: &Never, _clock: &Clock) -> Vec<Event<ReturningEvent>> {
+    match *acts {}
+  }
 
-    fn tick(&mut self, _timer: &Timer, since: Elapsed) -> Result<Vec<Event<ReturningEvent>>, Never> {
-        let Ok(()) = self.find(since);
+  fn tick(
+    &mut self,
+    _timer: &Timer,
+    since: Elapsed,
+  ) -> Result<Vec<Event<ReturningEvent>>, Never> {
+    let Ok(()) = self.find(since);
 
-        self.drain_events(since)
-    }
+    self.drain_events(since)
+  }
 }
 
 fn again() -> Result<Duration, Never> {
-    Ok(Duration::from_secs_f64(HUNT_SECONDS))
+  Ok(Duration::from_secs_f64(HUNT_SECONDS))
 }
 
 impl Pad {
-    fn find(&mut self, since: Elapsed) -> Result<(), Never> {
-        let Ok(again) = again();
+  fn find(&mut self, since: Elapsed) -> Result<(), Never> {
+    let Ok(again) = again();
 
-        let looking = match &self.held {
-            Some(_) => return Ok(()),
-            None => self.hunted.is_none_or(|was| since.saturating_sub(was) >= again),
-        };
+    let looking = match &self.held {
+      Some(_) => return Ok(()),
+      None => self
+        .hunted
+        .is_none_or(|was| since.saturating_sub(was) >= again),
+    };
 
-        match looking {
-            true => {},
-            false => return Ok(()),
-        }
-
-        self.hunted = Some(since);
-
-        let Ok(found) = find_pad();
-
-        self.held = found;
-
-        match &self.held {
-            Some((path, _)) => eprintln!("controller-game: reading the pad at {path}"),
-            None => {},
-        }
-
-        Ok(())
+    match ::core::primitive::bool::then_some(looking, ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => return Ok(()),
     }
 
-    fn drain_events(&mut self, since: Elapsed) -> Result<Vec<Event<ReturningEvent>>, Never> {
-        let (path, device) = match self.held.as_mut() {
-            Some((path, device)) => (path, device),
-            None => return Ok(Vec::new()),
-        };
+    self.hunted = Some(since);
 
-        Ok(match drain(device) {
-            Ok(arrived) => arrived
-                .into_iter()
-                .map(|event| {
-                    Event::Custom(ReturningEvent::Saw {
-                        kind: event.kind,
-                        code: event.code,
-                        value: event.value,
-                        at: since,
-                    })
-                })
-                .collect(),
-            Err(Closed) => {
-                eprintln!("controller-game: the pad at {path} has gone");
-                self.held = None;
+    let Ok(found) = find_pad();
 
-                vec![Event::Custom(ReturningEvent::Closed)]
-            }
+    self.held = found;
+
+    match &self.held {
+      Some((path, _)) => eprintln!("controller-game: reading the pad at {path}"),
+      None => {}
+    }
+
+    Ok(())
+  }
+
+  fn drain_events(&mut self, since: Elapsed) -> Result<Vec<Event<ReturningEvent>>, Never> {
+    let (path, device) = match self.held.as_mut() {
+      Some((path, device)) => (path, device),
+      None => return Ok(Vec::new()),
+    };
+
+    Ok(match drain(device) {
+      Ok(arrived) => arrived
+        .into_iter()
+        .map(|event| {
+          Event::Custom(ReturningEvent::Saw {
+            kind: event.kind,
+            code: event.code,
+            value: event.value,
+            at: since,
+          })
         })
-    }
+        .collect(),
+      Err(Closed) => {
+        eprintln!("controller-game: the pad at {path} has gone");
+        self.held = None;
+
+        vec![Event::Custom(ReturningEvent::Closed)]
+      }
+    })
+  }
 }
 
 struct Closed;
 
 fn find_pad() -> Result<Option<(String, Device)>, Never> {
-    let Ok(told) = From::Pad.path_from_environment();
+  let Ok(told) = From::Pad.path_from_environment();
 
-    let path = match told {
-        Some(told) => told,
-        None => {
-            let Ok(devices) = Device::every();
-            let every: Vec<DeviceInfo> = devices
-                .iter()
-                .map(|device| {
-                    let Ok(information) = describe(&device.path.display().to_string(), device);
+  let path = match told {
+    Some(told_2) => told_2,
+    None => {
+      let Ok(devices) = Device::every();
+      let every: Vec<DeviceInfo> = devices
+        .iter()
+        .map(|device| {
+          let Ok(information) = describe(&device.path.display().to_string(), device);
 
-                    information
-                })
-                .collect();
-            let Ok(gamepad) = finding::gamepad(&every);
+          information
+        })
+        .collect();
+      let Ok(gamepad) = finding::gamepad(&every);
 
-            let found = match gamepad {
-                Some(found) => found,
-                None => return Ok(None),
-            };
+      let found = match gamepad {
+        Some(found) => found,
+        None => return Ok(None),
+      };
 
-            found.path.clone()
-        }
-    };
-    let opened = Device::open(std::path::Path::new(&path)).and_then(|device| {
-        device.nonblocking()?;
-        Ok(device)
-    });
+      found.path.clone()
+    }
+  };
+  let opened = Device::open(std::path::Path::new(&path)).and_then(|device| {
+    device.nonblocking()?;
+    Ok(device)
+  });
 
-    Ok(match opened {
-        Ok(device) => Some((path, device)),
-        Err(fault) => {
-            eprintln!("controller-game: {path}: {fault}");
-            None
-        }
-    })
+  Ok(match opened {
+    Ok(device) => Some((path, device)),
+    Err(fault) => {
+      eprintln!("controller-game: {path}: {fault}");
+      None
+    }
+  })
 }
 
 fn describe(path: &str, device: &Device) -> Result<DeviceInfo, Never> {
-    console_input_gamepad::finding::describe(path, device)
+  console_input_gamepad::finding::describe(path, device)
 }
 
 fn drain(device: &mut Device) -> Result<Vec<InputEvent>, Closed> {
-    match device.read_events() {
-        Ok(arrived) => Ok(arrived),
-        Err(fault) => match fault.kind() == std::io::ErrorKind::WouldBlock {
-            true => Ok(Vec::new()),
-            false => Err(Closed),
-        },
-    }
+  match device.read_events() {
+    Ok(arrived) => Ok(arrived),
+    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::WouldBlock, ()) {
+      ::core::option::Option::Some(()) => Ok(Vec::new()),
+      ::core::option::Option::None => Err(Closed),
+    },
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn the_hunt_is_the_daemons_own_timer() {
-        let Ok(again) = again();
+  #[test]
+  fn the_hunt_is_the_daemons_own_timer() {
+    let Ok(again) = again();
 
-        assert_eq!(again, Duration::from_secs(1));
-        assert_eq!(again.as_secs_f64(), HUNT_SECONDS);
-    }
+    assert_eq!(again, Duration::from_secs(1));
+    assert_eq!(again.as_secs_f64(), HUNT_SECONDS);
+  }
 }

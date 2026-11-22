@@ -2,10 +2,16 @@
 #![warn(unused_extern_crates)]
 
 extern crate rustc_hir;
+extern crate rustc_lexer;
+extern crate rustc_errors;
 extern crate rustc_middle;
 extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+#[path = "../../shared/macro_input.rs"]
+mod macro_input;
+mod recovered_results;
+
+use clippy_utils::diagnostics::{span_lint_and_help, span_lint_and_then};
 use clippy_utils::is_lang_item_or_ctor;
 use rustc_hir::def::Res;
 use rustc_hir::{Arm, Expr, ExprKind, LangItem, Pat, PatKind};
@@ -163,13 +169,18 @@ impl<'tcx> LateLintPass<'tcx> for Explicit001FallibleResult {
             return;
         }
 
-        span_lint_and_help(
+        span_lint_and_then(
             cx,
             EXPLICIT001_FALLIBLE_RESULT,
             expr.span,
             format!("`{}` turns a failure into a value with nothing said", path.ident.name),
-            None,
-            "propagate it with `?`, or `match` both ways and name the failing one",
+            |diagnostic| {
+                if let Some(replacement) = recovered_results::replacement(cx, expr, receiver, path.ident.as_str()) {
+                    diagnostic.span_suggestion(expr.span, "spell out the outcome of this conversion", replacement, rustc_errors::Applicability::MachineApplicable);
+                } else {
+                    diagnostic.help("propagate it with `?`, or `match` both ways and name the failing one");
+                }
+            },
         );
     }
 }

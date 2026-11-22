@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use console_books::library::{self, CatalogEntry, Format};
+use console_books::library::{self, CatalogEntry, FileName, Format, InvalidFileName};
 use console_books::open;
 use console_books::portable_document::{self, Scale};
 use console_core_never::Never;
@@ -28,182 +28,245 @@ use console_core_never::Never;
 const COVER_TALL: u32 = 900;
 
 fn main() -> ExitCode {
-    let Ok(home) = console_core_places::home();
+  let Ok(home) = console_core_places::home();
 
-    let home = match home {
-        Some(home) => home,
-        None => {
-            eprintln!("books-catalog: HOME is not set, so there is no Books folder to read");
+  let home_3 = match home {
+    Some(home_2) => home_2,
+    None => {
+      eprintln!("books-catalog: HOME is not set, so there is no Books folder to read");
 
-            return ExitCode::FAILURE;
-        },
-    };
-
-    match update_catalog(&home) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(fault) => {
-            eprintln!("books-catalog: {fault}");
-
-            ExitCode::FAILURE
-        },
+      return ExitCode::FAILURE;
     }
+  };
+
+  match update_catalog(&home_3) {
+    Ok(()) => ExitCode::SUCCESS,
+    Err(fault) => {
+      eprintln!("books-catalog: {fault}");
+
+      ExitCode::FAILURE
+    }
+  }
 }
 
 #[derive(Debug)]
 enum CatalogError {
-    Folder(PathBuf, std::io::Error),
-    Written(console_core_atomic_writes::Unwritten),
+  Folder(PathBuf, std::io::Error),
+  Written(console_core_atomic_writes::Unwritten),
 }
 
 impl std::fmt::Display for CatalogError {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CatalogError::Folder(at, fault) => write!(to, "{}: {fault}", at.display()),
-            CatalogError::Written(fault) => write!(to, "{fault}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      CatalogError::Folder(at, fault) => write!(to, "{}: {fault}", at.display()),
+      CatalogError::Written(fault) => write!(to, "{fault}"),
     }
+  }
 }
 
 impl std::error::Error for CatalogError {}
 
 fn update_catalog(home: &Path) -> Result<(), CatalogError> {
-    let Ok(folder) = library::books_folder(home);
-    let Ok(cache) = library::cache_folder(home);
-    let covers = cache.join("covers");
-    let at = cache.join(library::CATALOG);
+  let Ok(folder) = library::books_folder(home);
+  let Ok(cache) = library::cache_folder(home);
+  let covers = cache.join("covers");
+  let at = cache.join(library::CATALOG);
 
-    std::fs::create_dir_all(&covers).map_err(|fault| CatalogError::Folder(covers.clone(), fault))?;
+  std::fs::create_dir_all(&covers)
+    .map_err(|fault| CatalogError::Folder(covers.clone(), fault))?;
 
-    let Ok(contents) = console_core_atomic_writes::read(&at);
-    let contents = match contents.text() {
-        Ok(Some(contents)) => contents,
-        Ok(None) | Err(_) => String::new(),
-    };
+  let Ok(contents) = console_core_atomic_writes::read(&at);
+  let contents_3 = match contents.text() {
+    Ok(Some(contents_2)) => contents_2,
+    Ok(None) | Err(_) => String::new(),
+  };
 
-    let Ok(mut catalog) = library::read_catalog(&contents);
-    let Ok(names) = library::names(&folder);
-    let Ok(books) = library::books(&folder, &names, &BTreeMap::new());
+  let Ok(mut catalog) = library::read_catalog(&contents_3);
+  let Ok(names) = library::names(&folder);
+  let Ok(books) = library::books(&folder, &names, &BTreeMap::new());
 
-    let present: std::collections::BTreeSet<&String> = names.iter().collect();
+  let present: std::collections::BTreeSet<&String> = names.iter().collect();
 
-    catalog.retain(|name, _| present.contains(name));
+  catalog.retain(|name, _| present.contains(name));
 
-    let Ok(()) = add_missing(&books, &covers, &mut catalog);
-    let Ok(text) = library::written_catalog(&catalog);
+  let Ok(()) = add_missing(&books, &covers, &mut catalog);
+  let Ok(text) = library::written_catalog(&catalog);
 
-    console_core_atomic_writes::whole(&at, text.as_bytes()).map_err(CatalogError::Written)
+  console_core_atomic_writes::whole(&at, text.as_bytes()).map_err(CatalogError::Written)
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit029_no_asking_per_item",
-    allow(
-        explicit029_no_asking_per_item,
-        reason = "a catalog is a walk over the books the library has not seen, opening each one; that is the whole of the work this program exists to do off the library.s loop, and it is done once per book rather than once per opening"
-    )
+  dylint_lib = "explicit029_no_asking_per_item",
+  allow(
+    explicit029_no_asking_per_item,
+    reason = "a catalog is a walk over the books the library has not seen, opening each one; that is the whole of the work this program exists to do off the library.s loop, and it is done once per book rather than once per opening"
+  )
 )]
-fn add_missing(books: &[library::Book], covers: &Path, catalog: &mut BTreeMap<String, CatalogEntry>) -> Result<(), Never> {
-    for book in books {
-        match catalog.contains_key(&book.name) {
-            true => continue,
-            false => {},
-        }
-
-        let Ok(entry) = entry(book, covers);
-
-        catalog.insert(book.name.clone(), entry);
+fn add_missing(
+  books: &[library::Book],
+  covers: &Path,
+  catalog: &mut BTreeMap<String, CatalogEntry>,
+) -> Result<(), Never> {
+  for book in books {
+    match ::core::primitive::bool::then_some(catalog.contains_key(&book.name), ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
     }
 
-    Ok(())
+    let Ok(entry) = entry(book, covers);
+
+    catalog.insert(book.name.clone(), entry);
+  }
+
+  Ok(())
 }
 
 fn entry(book: &library::Book, covers: &Path) -> Result<CatalogEntry, Never> {
-    let read = match book.format {
-        Format::Publication => from_publication(book, covers),
-        Format::Comic => from_comic(book, covers),
-        Format::PortableDocument => from_portable_document(book, covers),
-    };
+  let read = match book.format {
+    Format::Publication => from_publication(book, covers),
+    Format::Comic => from_comic(book, covers),
+    Format::PortableDocument => from_portable_document(book, covers),
+  };
 
-    Ok(match read {
-        Ok(entry) => entry,
-        Err(fault) => {
-            eprintln!("books-catalog: {}: {fault}", book.path.display());
+  Ok(match read {
+    Ok(entry) => entry,
+    Err(fault) => {
+      eprintln!("books-catalog: {}: {fault}", book.path.display());
 
-            CatalogEntry { title: book.title.clone(), cover: None }
-        },
-    })
+      CatalogEntry {
+        title: book.title.clone(),
+        cover: None,
+      }
+    }
+  })
 }
 
-fn write_cover(covers: &Path, book: &library::Book, cover: CoverImage<'_>) -> Result<Option<PathBuf>, Never> {
-    let Ok(ending) = open::extension(cover.name);
-    let at = covers.join(format!("{}.{ending}", book.name));
+fn write_cover(
+  covers: &Path,
+  book: &library::Book,
+  cover: CoverImage<'_>,
+) -> Result<Option<PathBuf>, Never> {
+  let Ok(ending) = open::extension(cover.name);
+  let at = match cover_path(covers, book, &ending) {
+    Ok(at) => at,
+    Err(InvalidFileName) => return Ok(None),
+  };
 
-    Ok(match console_core_atomic_writes::whole(&at, cover.bytes) {
-        Ok(()) => Some(at),
-        Err(fault) => {
-            eprintln!("books-catalog: {fault}");
+  Ok(match console_core_atomic_writes::whole(&at, cover.bytes) {
+    Ok(()) => Some(at),
+    Err(fault) => {
+      eprintln!("books-catalog: {fault}");
 
-            None
-        },
-    })
+      None
+    }
+  })
+}
+
+fn cover_path(
+  covers: &Path,
+  book: &library::Book,
+  ending: &str,
+) -> Result<PathBuf, InvalidFileName> {
+  let file_name = format!("{}.{ending}", book.name);
+  let checked = FileName::new(&file_name)?;
+
+  Ok(covers.join(checked))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CoverImage<'a> {
-    name: &'a str,
-    bytes: &'a [u8],
+  name: &'a str,
+  bytes: &'a [u8],
 }
 
-fn from_publication(book: &library::Book, covers: &Path) -> Result<CatalogEntry, open::BookError> {
-    let opened = open::publication(&book.path)?;
+fn from_publication(
+  book: &library::Book,
+  covers: &Path,
+) -> Result<CatalogEntry, open::BookError> {
+  let opened = open::publication(&book.path)?;
 
-    let title = match &opened.publication.title {
-        Some(title) => title.clone(),
-        None => book.title.clone(),
-    };
+  let title = match &opened.publication.title {
+    Some(title) => title.clone(),
+    None => book.title.clone(),
+  };
 
-    let cover = match &opened.publication.cover {
-        Some(named) => {
-            let bytes = opened.archive.extract(named)?;
-            let Ok(written) = write_cover(covers, book, CoverImage { name: named, bytes: &bytes });
-
-            written
+  let cover = match &opened.publication.cover {
+    Some(named) => {
+      let bytes = opened.archive.extract(named)?;
+      let Ok(written) = write_cover(
+        covers,
+        book,
+        CoverImage {
+          name: named,
+          bytes: &bytes,
         },
-        None => None,
-    };
+      );
 
-    Ok(CatalogEntry { title, cover })
+      written
+    }
+    None => None,
+  };
+
+  Ok(CatalogEntry { title, cover })
 }
 
 fn from_comic(book: &library::Book, covers: &Path) -> Result<CatalogEntry, open::BookError> {
-    let opened = open::comic(&book.path)?;
+  let opened = open::comic(&book.path)?;
 
-    let cover = match opened.pages.first() {
-        Some(named) => {
-            let bytes = opened.archive.extract(named)?;
-            let Ok(written) = write_cover(covers, book, CoverImage { name: named, bytes: &bytes });
-
-            written
+  let cover = match opened.pages.first() {
+    Some(named) => {
+      let bytes = opened.archive.extract(named)?;
+      let Ok(written) = write_cover(
+        covers,
+        book,
+        CoverImage {
+          name: named,
+          bytes: &bytes,
         },
-        None => None,
-    };
+      );
 
-    Ok(CatalogEntry { title: book.title.clone(), cover })
+      written
+    }
+    None => None,
+  };
+
+  Ok(CatalogEntry {
+    title: book.title.clone(),
+    cover,
+  })
 }
 
-fn from_portable_document(book: &library::Book, covers: &Path) -> Result<CatalogEntry, open::BookError> {
-    let png = PathBuf::from(format!("{}.png", covers.join(&book.name).display()));
-    let document = portable_document::opened(&book.path).map_err(|fault| open::BookError::Document(book.path.clone(), fault))?;
-    let drawn = document.png(0, Scale::Tall(COVER_TALL)).map_err(|fault| open::BookError::Document(book.path.clone(), fault))?;
+fn from_portable_document(
+  book: &library::Book,
+  covers: &Path,
+) -> Result<CatalogEntry, open::BookError> {
+  let png = match cover_path(covers, book, "png") {
+    Ok(png) => png,
+    Err(InvalidFileName) => {
+      return Ok(CatalogEntry {
+        title: book.title.clone(),
+        cover: None,
+      });
+    }
+  };
+  let document = portable_document::opened(&book.path)
+    .map_err(|fault| open::BookError::Document(book.path.clone(), fault))?;
+  let drawn = document
+    .png(0, Scale::Tall(COVER_TALL))
+    .map_err(|fault| open::BookError::Document(book.path.clone(), fault))?;
 
-    let cover = match drawn.map(|bytes| console_core_atomic_writes::whole(&png, &bytes)) {
-        Some(Ok(())) => Some(png),
-        Some(Err(fault)) => {
-            eprintln!("books-catalog: {fault}");
+  let cover = match drawn.map(|bytes| console_core_atomic_writes::whole(&png, &bytes)) {
+    Some(Ok(())) => Some(png),
+    Some(Err(fault)) => {
+      eprintln!("books-catalog: {fault}");
 
-            None
-        },
-        None => None,
-    };
+      None
+    }
+    None => None,
+  };
 
-    Ok(CatalogEntry { title: book.title.clone(), cover })
+  Ok(CatalogEntry {
+    title: book.title.clone(),
+    cover,
+  })
 }

@@ -1,0 +1,24 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_number_conversion.rs
+
+extern crate console_core_number_conversion;
+
+fn convert(input: &std::cell::RefCell<f64>, signed: i32, unsigned: u64, float: f32) {
+    let ::core::result::Result::Ok(mut int) = ::console_core_number_conversion::toward_zero_u8(<::core::primitive::f64 as ::core::convert::From<::core::primitive::f32>>::from(float));
+    int += 1;
+    assert_eq!(int, 1);
+
+    let (narrow, free) = (match ::console_core_number_conversion::nearest_f32_from_f64(input.borrow().clone()) { ::core::result::Result::Ok(_converted_number) => _converted_number }, input.try_borrow_mut().is_ok());
+    assert_eq!(narrow.to_bits(), (-0.0f32).to_bits());
+    assert!(!free);
+
+    let negative = match ::console_core_number_conversion::nearest_f32_from_i64(<::core::primitive::i64 as ::core::convert::From<::core::primitive::i32>>::from(signed)) { ::core::result::Result::Ok(_converted_number) => _converted_number }.is_sign_negative();
+    assert!(negative);
+    let sum = (match ::console_core_number_conversion::nearest_f32_from_u64(unsigned) { ::core::result::Result::Ok(_converted_number) => _converted_number }) + 1.0;
+    assert_eq!(sum, 5.0);
+}
+
+fn main() {
+    convert(&std::cell::RefCell::new(-0.0), -1, 4, f32::NAN);
+}

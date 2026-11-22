@@ -21,11 +21,15 @@
 #![feature(rustc_private)]
 #![warn(unused_extern_crates)]
 
+#[path = "../../shared/infallible_discard.rs"]
+mod infallible_discard;
+
+extern crate rustc_errors;
 extern crate rustc_hir;
 extern crate rustc_middle;
 extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::ty::is_must_use_ty;
 use rustc_hir::{Stmt, StmtKind};
 use rustc_lint::{LateContext, LateLintPass};
@@ -45,7 +49,12 @@ impl<'tcx> LateLintPass<'tcx> for Explicit060NoReasonlessDiscard {
             return;
         };
 
-        let rustc_hir::LetStmt { pat, init: Some(thrown), .. } = local else {
+        let rustc_hir::LetStmt {
+            pat,
+            init: Some(thrown),
+            ..
+        } = local
+        else {
             return;
         };
 
@@ -68,15 +77,29 @@ impl<'tcx> LateLintPass<'tcx> for Explicit060NoReasonlessDiscard {
             return;
         }
 
-        span_lint_and_help(
+        span_lint_and_then(
             cx,
             EXPLICIT060_NO_REASONLESS_DISCARD,
             stmt.span,
             "a fault or a value the type says not to drop, discarded with nothing said",
-            None,
-            "meet it with a `match` naming both arms, hand it upward with `?`, or keep the \
+            |diagnostic| {
+                if !stmt.span.from_expansion()
+                    && !pat.span.from_expansion()
+                    && infallible_discard::is_call(thrown)
+                    && let Some(pattern) = infallible_discard::discard_pattern(cx, ty)
+                {
+                    diagnostic.span_suggestion(
+                        pat.span,
+                        "acknowledge the only possible result",
+                        pattern,
+                        rustc_errors::Applicability::MachineApplicable,
+                    );
+                } else {
+                    diagnostic.help("meet it with a `match` naming both arms, hand it upward with `?`, or keep the \
              `let _ =` and allow this rule here with the reason saying which harm was decided \
-             against and why it cannot happen here",
+             against and why it cannot happen here");
+                }
+            },
         );
     }
 }
@@ -84,4 +107,9 @@ impl<'tcx> LateLintPass<'tcx> for Explicit060NoReasonlessDiscard {
 #[test]
 fn ui() {
     dylint_testing::ui_test_example(env!("CARGO_PKG_NAME"), "main");
+}
+
+#[test]
+fn infallible_discards() {
+    dylint_testing::ui_test(env!("CARGO_PKG_NAME"), "ui");
 }

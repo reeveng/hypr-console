@@ -1,0 +1,12 @@
+repository = "https://github.com/raphlinus/pulldown-cmark"
+revision = "014b61d38d235f382935bb676bab872b7680afa2"
+version = "0.13.6"
+
+# The parser-only configuration used by Notes and the Mermaid renderer.
+# Retain its event and offset tests. Omit the CLI, HTML writer, serialization,
+# optional SIMD scanner and the build script for generating HTML spec tests.
+[[packages]]
+upstream = "pulldown-cmark"
+name = "console-core-markdown"
+path = "."
+upstream-path = "pulldown-cmark"

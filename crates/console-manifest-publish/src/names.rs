@@ -31,288 +31,368 @@ use console_core_never::Never;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Watched {
-    pub name: String,
-    pub what: &'static str,
+  pub name: String,
+  pub what: &'static str,
 }
 
 fn push(names: &mut Vec<Watched>, found: Watched) -> Result<(), Never> {
-    let Watched { name, what } = found;
-    let name = name.trim().to_ascii_lowercase();
+  let Watched { name, what } = found;
+  let name_2 = name.trim().to_ascii_lowercase();
 
-    let worth = name.len() > 2 && !names.iter().any(|held: &Watched| held.name == name);
+  let worth = name_2.len() > 2 && !names.iter().any(|held: &Watched| held.name == name_2);
 
-    match worth {
-        true => names.push(Watched { name, what }),
-        false => {}
-    }
+  match ::core::primitive::bool::then_some(worth, ()) {
+    ::core::option::Option::Some(()) => names.push(Watched { name: name_2, what }),
+    ::core::option::Option::None => {}
+  }
 
-    Ok(())
+  Ok(())
 }
 
-fn asked_here(names: &mut Vec<Watched>, missing: &mut Vec<String>, question: Question) -> Result<(), Never> {
-    let Question { program, rest, what } = question;
-    let Ok(answer) = run_output(program, rest);
+fn asked_here(
+  names: &mut Vec<Watched>,
+  missing: &mut Vec<String>,
+  question: Question,
+) -> Result<(), Never> {
+  let Question {
+    program,
+    rest,
+    what,
+  } = question;
+  let Ok(answer) = run_output(program, rest);
 
-    match answer {
-        Some(answer) => push(names, Watched { name: answer, what }),
-        None => {
-            missing.push(format!("this machine would not say {what}, so it was not checked for."));
+  match answer {
+    Some(answer_2) => push(
+      names,
+      Watched {
+        name: answer_2,
+        what,
+      },
+    ),
+    None => {
+      missing.push(format!(
+        "this machine would not say {what}, so it was not checked for."
+      ));
 
-            Ok(())
-        }
+      Ok(())
     }
+  }
 }
 
 #[derive(Debug, Clone, Copy)]
 struct Question<'a> {
-    program: Program,
-    rest: &'a [&'a str],
-    what: &'static str,
+  program: Program,
+  rest: &'a [&'a str],
+  what: &'static str,
 }
 
 const ON_THE_DEVICE: [&str; 2] = ["the device", "whoever the device belongs to"];
 
 pub fn forbidden_names() -> Result<(Vec<Watched>, Vec<String>), Never> {
-    let mut names = Vec::new();
-    let mut missing = Vec::new();
+  let mut names = Vec::new();
+  let mut missing = Vec::new();
 
-    let Ok(()) = asked_here(&mut names, &mut missing, Question {
-        program: Program::Id,
-        rest: &["-un"],
-        what: "whoever is building this",
-    });
-    let Ok(()) = asked_here(&mut names, &mut missing, Question {
-        program: Program::Hostname,
-        rest: &[],
-        what: "what this machine calls itself",
-    });
+  let Ok(()) = asked_here(
+    &mut names,
+    &mut missing,
+    Question {
+      program: Program::Id,
+      rest: &["-un"],
+      what: "whoever is building this",
+    },
+  );
+  let Ok(()) = asked_here(
+    &mut names,
+    &mut missing,
+    Question {
+      program: Program::Hostname,
+      rest: &[],
+      what: "what this machine calls itself",
+    },
+  );
 
-    let told = console_device_name::device();
+  let told = console_device_name::device();
 
-    let at = match told {
-        Err(fault) => {
-            missing.push(format!(
-                "{fault}, so the device's own name and the name of whoever it \
+  let at = match told {
+    Err(fault) => {
+      missing.push(format!(
+        "{fault}, so the device's own name and the name of whoever it \
                  belongs to were not checked for."
-            ));
+      ));
 
-            return Ok((names, missing));
-        }
-        Ok(at) => at,
-    };
+      return Ok((names, missing));
+    }
+    Ok(at) => at,
+  };
 
-    match at.trim().is_empty() {
-        true => {
-            missing.push(
-                "CONSOLE_HOST is not set, so the device's own name and the name of \
+  match ::core::primitive::bool::then_some(at.trim().is_empty(), ()) {
+    ::core::option::Option::Some(()) => {
+      missing.push(
+        "CONSOLE_HOST is not set, so the device's own name and the name of \
                  whoever it belongs to were not checked for."
-                    .to_string(),
-            );
+          .to_string(),
+      );
 
-            return Ok((names, missing));
-        }
-        false => {}
+      return Ok((names, missing));
     }
+    ::core::option::Option::None => {}
+  }
 
-    let named = match at.rsplit('@').next() {
-        Some(named) => named,
-        None => at.as_str(),
-    };
+  let named = match at.rsplit('@').next() {
+    Some(named) => named,
+    None => at.as_str(),
+  };
 
-    let Ok(()) = push(&mut names, Watched { name: named.to_string(), what: "the device" });
+  let Ok(()) = push(
+    &mut names,
+    Watched {
+      name: named.to_string(),
+      what: "the device",
+    },
+  );
 
-    let Ok(asked) = run_output(Program::Ssh, &[
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ConnectTimeout=5",
-        &at,
-        "hostname; set -- $(ls -1 /home 2>/dev/null); \
+  let Ok(asked) = run_output(
+    Program::Ssh,
+    &[
+      "-o",
+      "BatchMode=yes",
+      "-o",
+      "ConnectTimeout=5",
+      &at,
+      "hostname; set -- $(ls -1 /home 2>/dev/null); \
          if [ $# -eq 1 ]; then echo \"$1\"; else id -nu 1000; fi",
-    ]);
+    ],
+  );
 
-    let answered: Vec<String> = match asked {
-        Some(asked) => asked.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_string).collect(),
-        None => Vec::new(),
-    };
+  let answered: Vec<String> = match asked {
+    Some(asked_2) => asked_2
+      .lines()
+      .map(str::trim)
+      .filter(|line| !line.is_empty())
+      .map(str::to_string)
+      .collect(),
+    None => Vec::new(),
+  };
 
-    for (which, what) in ON_THE_DEVICE.iter().enumerate() {
-        match answered.get(which) {
-            Some(said) => {
-                let Ok(()) = push(&mut names, Watched { name: said.clone(), what });
-            }
-            None => missing.push(format!("{at} did not say {what}, so it was not checked for.")),
-        }
+  for (which, what) in ON_THE_DEVICE.iter().enumerate() {
+    match answered.get(which) {
+      Some(said) => {
+        let Ok(()) = push(
+          &mut names,
+          Watched {
+            name: said.clone(),
+            what,
+          },
+        );
+      }
+      None => missing.push(format!(
+        "{at} did not say {what}, so it was not checked for."
+      )),
     }
+  }
 
-    Ok((names, missing))
+  Ok((names, missing))
 }
 
 pub fn leaks<'a>(text: &[u8], names: &'a [Watched]) -> Result<Option<&'a Watched>, Never> {
-    Ok(names.iter().find(|watched| {
-        let Ok(says) = says(text, Name(watched.name.as_bytes()));
+  Ok(names.iter().find(|watched| {
+    let Ok(says) = says(text, Name(watched.name.as_bytes()));
 
-        says == Spelling::TheName
-    }))
+    says == Spelling::TheName
+  }))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Name<'a>(&'a [u8]);
 
 fn says(text: &[u8], name: Name<'_>) -> Result<Spelling, Never> {
-    let name = name.0;
+  let name_2 = name.0;
 
-    let said = match name.len() {
-        0 => false,
-        long => text.windows(long).enumerate().any(|(at, window)| {
-            let before = at.checked_sub(1).and_then(|before| text.get(before).copied());
-            let after = text.get(at.saturating_add(long)).copied();
-            let alone = ![before, after]
-                .into_iter()
-                .flatten()
-                .any(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+  let said = match name_2.len() {
+    0 => false,
+    long => text.windows(long.max(1)).enumerate().any(|(at, window)| {
+      let before = at
+        .checked_sub(1)
+        .and_then(|before| text.get(before).copied());
+      let after = text.get(at.saturating_add(long)).copied();
+      let alone = ![before, after]
+        .into_iter()
+        .flatten()
+        .any(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
 
-            alone && window.eq_ignore_ascii_case(name)
-        }),
-    };
+      alone && window.eq_ignore_ascii_case(name_2)
+    }),
+  };
 
-    Ok(match said {
-        true => Spelling::TheName,
-        false => Spelling::JustLetters,
-    })
+  Ok(match ::core::primitive::bool::then_some(said, ()) {
+    ::core::option::Option::Some(()) => Spelling::TheName,
+    ::core::option::Option::None => Spelling::JustLetters,
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Spelling {
-    TheName,
-    JustLetters,
+  TheName,
+  JustLetters,
 }
 
 fn run_output(program: Program, rest: &[&str]) -> Result<Option<String>, Never> {
-    let Ok(mut asking) = program.command();
+  let Ok(mut asking) = program.command();
 
-    let done = match asking.args(rest).output() {
-        Ok(done) => done,
-        Err(_would_not_run) => return Ok(None),
-    };
+  let done = match asking.args(rest).output() {
+    Ok(done) => done,
+    Err(_would_not_run) => return Ok(None),
+  };
 
-    let answer = String::from_utf8_lossy(&done.stdout).trim().to_string();
+  let text = match String::from_utf8(done.stdout) {
+    Ok(text) => text,
+    Err(_unreadable_name) => return Ok(None),
+  };
+  let answer = text.trim();
 
-    Ok(match (done.status.success(), answer.is_empty()) {
-        (true, false) => Some(answer),
-        (true, true) | (false, true) | (false, false) => None,
-    })
+  Ok(match (done.status.success(), answer.is_empty()) {
+    (true, false) => Some(answer.to_owned()),
+    (true, true) | (false, true) | (false, false) => None,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn watching(names: &[&str]) -> Result<Vec<Watched>, Never> {
-        let mut watched = Vec::new();
+  fn watching(names: &[&str]) -> Result<Vec<Watched>, Never> {
+    let mut watched = Vec::new();
 
-        for name in names {
-            let Ok(()) = push(&mut watched, Watched { name: name.to_string(), what: "someone" });
-        }
-
-        Ok(watched)
+    for name in names {
+      let Ok(()) = push(
+        &mut watched,
+        Watched {
+          name: name.to_string(),
+          what: "someone",
+        },
+      );
     }
 
-    fn leaked<'a>(text: &str, names: &'a [Watched]) -> Result<Option<&'a Watched>, Never> {
-        leaks(text.as_bytes(), names)
-    }
+    Ok(watched)
+  }
 
-    #[test]
-    fn a_name_that_is_said_is_the_name_that_comes_back() {
-        let Ok(names) = watching(&["ada", "her-laptop"]);
-        let Ok(both) = leaked("ada on her-laptop", &names);
-        let Ok(one) = leaked("on her-laptop", &names);
+  fn leaked<'a>(text: &str, names: &'a [Watched]) -> Result<Option<&'a Watched>, Never> {
+    leaks(text.as_bytes(), names)
+  }
 
-        assert_eq!(both.map(|watched| watched.name.as_str()), Some("ada"));
-        assert_eq!(one.map(|watched| watched.name.as_str()), Some("her-laptop"));
-    }
+  #[test]
+  fn a_name_that_is_said_is_the_name_that_comes_back() {
+    let Ok(names) = watching(&["ada", "her-laptop"]);
+    let Ok(both) = leaked("ada on her-laptop", &names);
+    let Ok(one) = leaked("on her-laptop", &names);
 
-    #[test]
-    fn text_saying_none_of_them_says_nothing() {
-        let Ok(names) = watching(&["ada"]);
+    assert_eq!(both.map(|watched| watched.name.as_str()), Some("ada"));
+    assert_eq!(one.map(|watched| watched.name.as_str()), Some("her-laptop"));
+  }
 
-        assert_eq!(leaked("a handheld belonging to a player", &names), Ok(None));
-    }
+  #[test]
+  fn text_saying_none_of_them_says_nothing() {
+    let Ok(names) = watching(&["ada"]);
 
-    #[test]
-    fn a_name_inside_a_longer_word_was_not_said() {
-        let Ok(names) = watching(&["nimbus"]);
+    assert_eq!(leaked("a handheld belonging to a player", &names), Ok(None));
+  }
 
-        assert_eq!(leaked("nimbusos-gamescope-autologin.service", &names), Ok(None));
-        assert_eq!(leaked("because NimbusOS put it there", &names), Ok(None));
-        assert!(matches!(leaked("root@nimbus", &names), Ok(Some(_))));
-        assert!(matches!(leaked("ssh://root@nimbus-handheld/etc/console", &names), Ok(Some(_))));
-        assert!(matches!(leaked("the nimbus in question", &names), Ok(Some(_))));
-    }
+  #[test]
+  fn a_name_inside_a_longer_word_was_not_said() {
+    let Ok(names) = watching(&["nimbus"]);
 
-    #[test]
-    fn a_name_in_a_path_was_said() {
-        let Ok(names) = watching(&["ada"]);
+    assert_eq!(
+      leaked("nimbusos-gamescope-autologin.service", &names),
+      Ok(None)
+    );
+    assert_eq!(leaked("because NimbusOS put it there", &names), Ok(None));
+    assert!(matches!(leaked("root@nimbus", &names), Ok(Some(_))));
+    assert!(matches!(
+      leaked("ssh://root@nimbus-handheld/etc/console", &names),
+      Ok(Some(_))
+    ));
+    assert!(matches!(
+      leaked("the nimbus in question", &names),
+      Ok(Some(_))
+    ));
+  }
 
-        assert!(matches!(leaked("files/home/ada/.config", &names), Ok(Some(_))));
-        assert_eq!(leaked("files/home/adam/.config", &names), Ok(None));
-        assert_eq!(leaked("the adage about it", &names), Ok(None));
-    }
+  #[test]
+  fn a_name_in_a_path_was_said() {
+    let Ok(names) = watching(&["ada"]);
 
-    #[test]
-    fn a_name_with_a_capital_is_the_same_name() {
-        let Ok(names) = watching(&["ada"]);
+    assert!(matches!(
+      leaked("files/home/ada/.config", &names),
+      Ok(Some(_))
+    ));
+    assert_eq!(leaked("files/home/adam/.config", &names), Ok(None));
+    assert_eq!(leaked("the adage about it", &names), Ok(None));
+  }
 
-        assert!(matches!(leaked("Signed-off-by: ADA", &names), Ok(Some(_))));
-        assert!(matches!(leaked("files/home/Ada/.config", &names), Ok(Some(_))));
-    }
+  #[test]
+  fn a_name_with_a_capital_is_the_same_name() {
+    let Ok(names) = watching(&["ada"]);
 
-    #[test]
-    fn a_name_watched_for_with_a_capital_is_found_without_one() {
-        let Ok(names) = watching(&["Nimbus"]);
+    assert!(matches!(leaked("Signed-off-by: ADA", &names), Ok(Some(_))));
+    assert!(matches!(
+      leaked("files/home/Ada/.config", &names),
+      Ok(Some(_))
+    ));
+  }
 
-        assert!(matches!(leaked("root@nimbus", &names), Ok(Some(_))));
-    }
+  #[test]
+  fn a_name_watched_for_with_a_capital_is_found_without_one() {
+    let Ok(names) = watching(&["Nimbus"]);
 
-    #[test]
-    fn a_file_that_is_not_text_is_still_read() {
-        let Ok(names) = watching(&["ada"]);
-        let mut picture = vec![0x89, b'P', b'N', b'G', 0xff, 0xfe, 0x00];
+    assert!(matches!(leaked("root@nimbus", &names), Ok(Some(_))));
+  }
 
-        picture.extend_from_slice(b"/home/ada/Pictures");
-        picture.extend_from_slice(&[0xc3, 0x28, 0x00]);
+  #[test]
+  fn a_file_that_is_not_text_is_still_read() {
+    let Ok(names) = watching(&["ada"]);
+    let mut picture = vec![0x89, b'P', b'N', b'G', 0xff, 0xfe, 0x00];
 
-        let Ok(found) = leaks(&picture, &names);
+    picture.extend_from_slice(b"/home/ada/Pictures");
+    picture.extend_from_slice(&[0xc3, 0x28, 0x00]);
 
-        assert!(found.is_some());
-    }
+    let Ok(found) = leaks(&picture, &names);
 
-    #[test]
-    fn a_name_too_short_to_mean_anything_is_not_watched_for() {
-        let Ok(names) = watching(&["", "  ", "al", "ada"]);
+    assert!(found.is_some());
+  }
 
-        assert_eq!(names.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(), vec!["ada"]);
-    }
+  #[test]
+  fn a_name_too_short_to_mean_anything_is_not_watched_for() {
+    let Ok(names) = watching(&["", "  ", "al", "ada"]);
 
-    #[test]
-    fn a_question_that_could_not_be_answered_is_said_rather_than_skipped() {
-        let mut names = Vec::new();
-        let mut missing = Vec::new();
+    assert_eq!(
+      names.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(),
+      vec!["ada"]
+    );
+  }
 
-        let Ok(()) = asked_here(&mut names, &mut missing, Question {
-            program: Program::Id,
-            rest: &["-un", "nobody-by-this-name-at-all"],
-            what: "whoever is building this",
-        });
+  #[test]
+  fn a_question_that_could_not_be_answered_is_said_rather_than_skipped() {
+    let mut names = Vec::new();
+    let mut missing = Vec::new();
 
-        assert!(names.is_empty(), "{names:?}");
-        assert_eq!(missing.len(), 1, "{missing:?}");
-    }
+    let Ok(()) = asked_here(
+      &mut names,
+      &mut missing,
+      Question {
+        program: Program::Id,
+        rest: &["-un", "nobody-by-this-name-at-all"],
+        what: "whoever is building this",
+      },
+    );
 
-    #[test]
-    fn this_machine_can_be_asked_who_it_is() {
-        let Ok((names, _)) = forbidden_names();
+    assert!(names.is_empty(), "{names:?}");
+    assert_eq!(missing.len(), 1, "{missing:?}");
+  }
 
-        assert!(!names.is_empty(), "nothing could be asked of this machine");
-    }
+  #[test]
+  fn this_machine_can_be_asked_who_it_is() {
+    let Ok((names, _)) = forbidden_names();
+
+    assert!(!names.is_empty(), "nothing could be asked of this machine");
+  }
 }

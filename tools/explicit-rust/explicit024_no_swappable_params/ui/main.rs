@@ -20,7 +20,7 @@ fn wait(patience: Milliseconds, step: Milliseconds) -> Milliseconds {
     patience.saturating_sub(step)
 }
 
-// BAD EXPLICIT024 — references peel, so these are two of the same words.
+// BAD EXPLICIT024 — both parameters take a shared string reference.
 //~v EXPLICIT024_NO_SWAPPABLE_PARAMS
 fn under(folder: &str, name: &str) -> String {
     format!("{folder}/{name}")
@@ -62,4 +62,12 @@ fn main() {
     let _ = between(Pixels(2), Pixels(3));
     let _ = Screen { across: 2 }.wider(3);
     let _ = measured();
+}
+
+fn add_to(amount: u32, target: &mut u32) {
+    *target = target.saturating_add(amount);
+}
+
+fn refer_back<'a>(direct: &'a u32, indirect: &&u32) -> u32 {
+    direct.wrapping_add(**indirect)
 }

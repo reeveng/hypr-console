@@ -21,10 +21,10 @@
 use crate::sweeping::{Migration, Moment, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1789073080),
-    says: "sweeping mako's configuration, which nothing reads now that the card is ours",
-    steps: &[
-        Step::Attic("/home/@user@/.config/mako/config"),
-        Step::Attic("/home/@user@/.config/mako"),
-    ],
+  moment: Moment(1789073080),
+  says: "sweeping mako's configuration, which nothing reads now that the card is ours",
+  steps: &[
+    Step::Attic("/home/@user@/.config/mako/config"),
+    Step::Attic("/home/@user@/.config/mako"),
+  ],
 };

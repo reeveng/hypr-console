@@ -27,178 +27,264 @@ pub const STEP: f64 = 2.0;
 pub const NUDGE: f64 = 0.2;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the public zoom ratio is a dimensionless multiplier between the fitted and displayed picture size"
+  )
+)]
 pub struct Zoom {
-    pub by: f64,
-    pub looking: Point<f64>,
+  pub by: f64,
+  pub looking: Point<f64>,
 }
 
 impl Default for Zoom {
-    fn default() -> Self {
-        Zoom { by: 1.0, looking: Point { x: 0.5, y: 0.5 } }
+  fn default() -> Self {
+    Zoom {
+      by: 1.0,
+      looking: Point { x: 0.5, y: 0.5 },
     }
+  }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Framed {
-    pub of: std::path::PathBuf,
-    pub zoom: Zoom,
-    pub room: Size<u32>,
+  pub of: std::path::PathBuf,
+  pub zoom: Zoom,
+  pub room: Size<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placed {
-    pub at: Point<f64>,
-    pub size: Size<f64>,
-    pub from: Point<f64>,
-    pub seen: Size<f64>,
+  pub at: Point<f64>,
+  pub size: Size<f64>,
+  pub from: Point<f64>,
+  pub seen: Size<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Zoomed {
-    Whole,
-    ZoomedIn,
+  Whole,
+  ZoomedIn,
 }
 
 fn fits(pixels: Size<u32>, room: Size<u32>) -> Result<f64, Never> {
-    let (wide, tall) = (f64::from(pixels.width), f64::from(pixels.height));
+  let (wide, tall) = (f64::from(pixels.width), f64::from(pixels.height));
 
-    Ok(match wide > 0.0 && tall > 0.0 {
-        true => (f64::from(room.width) / wide).min(f64::from(room.height) / tall),
-        false => 1.0,
-    })
+  Ok(match ::core::primitive::bool::then_some(wide > 0.0 && tall > 0.0, ()) {
+    ::core::option::Option::Some(()) => (f64::from(room.width) / wide).min(f64::from(room.height) / tall),
+    ::core::option::Option::None => 1.0,
+  })
 }
 
 impl Zoom {
-    pub fn zoomed(self) -> Result<Zoomed, Never> {
-        Ok(match self.by > 1.0 {
-            true => Zoomed::ZoomedIn,
-            false => Zoomed::Whole,
-        })
-    }
+  pub fn zoomed(self) -> Result<Zoomed, Never> {
+    Ok(match ::core::primitive::bool::then_some(self.by > 1.0, ()) {
+      ::core::option::Option::Some(()) => Zoomed::ZoomedIn,
+      ::core::option::Option::None => Zoomed::Whole,
+    })
+  }
 
-    pub fn times(self, factor: f64) -> Result<Zoom, Never> {
-        let by = (self.by * factor).clamp(1.0, MOST);
+  #[cfg_attr(
+    dylint_lib = "explicit067_no_unit_less_quantity",
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the gesture supplies a dimensionless multiplicative ratio"
+    )
+  )]
+  pub fn times(self, factor: f64) -> Result<Zoom, Never> {
+    let by = (self.by * factor).clamp(1.0, MOST);
 
-        Ok(match by > 1.0 {
-            true => Zoom { by, ..self },
-            false => Zoom::default(),
-        })
-    }
+    Ok(match ::core::primitive::bool::then_some(by > 1.0, ()) {
+      ::core::option::Option::Some(()) => Zoom { by, ..self },
+      ::core::option::Option::None => Zoom::default(),
+    })
+  }
 
-    pub fn place(self, pixels: Size<u32>, room: Size<u32>) -> Result<Placed, Never> {
-        let Ok(fit) = fits(pixels, room);
-        let scale = fit * self.by;
-        let (wide, tall) = (f64::from(pixels.width), f64::from(pixels.height));
-        let size = Size {
-            width: f64::from(room.width).min(wide * scale),
-            height: f64::from(room.height).min(tall * scale),
-        };
-        let seen = Size { width: size.width / scale, height: size.height / scale };
-        let from = Point {
-            x: (self.looking.x * wide - seen.width / 2.0).clamp(0.0, (wide - seen.width).max(0.0)),
-            y: (self.looking.y * tall - seen.height / 2.0).clamp(0.0, (tall - seen.height).max(0.0)),
-        };
-        let at = Point {
-            x: (f64::from(room.width) - size.width) / 2.0,
-            y: (f64::from(room.height) - size.height) / 2.0,
-        };
+  pub fn place(self, pixels: Size<u32>, room: Size<u32>) -> Result<Placed, Never> {
+    let Ok(fit) = fits(pixels, room);
+    let scale = fit * self.by;
+    let (wide, tall) = (f64::from(pixels.width), f64::from(pixels.height));
+    let size = Size {
+      width: f64::from(room.width).min(wide * scale),
+      height: f64::from(room.height).min(tall * scale),
+    };
+    let seen = Size {
+      width: size.width / scale,
+      height: size.height / scale,
+    };
+    let from = Point {
+      x: (self.looking.x * wide - seen.width / 2.0).clamp(0.0, (wide - seen.width).max(0.0)),
+      y: (self.looking.y * tall - seen.height / 2.0).clamp(0.0, (tall - seen.height).max(0.0)),
+    };
+    let at = Point {
+      x: (f64::from(room.width) - size.width) / 2.0,
+      y: (f64::from(room.height) - size.height) / 2.0,
+    };
 
-        Ok(Placed { at, size, from, seen })
-    }
+    Ok(Placed {
+      at,
+      size,
+      from,
+      seen,
+    })
+  }
 
-    pub fn panned(self, by: Point<f64>, room: Size<u32>) -> Result<Zoom, Never> {
-        let wide = f64::from(room.width.max(1)) * self.by;
-        let tall = f64::from(room.height.max(1)) * self.by;
-        let held = 0.5 / self.by;
+  pub fn panned(self, by: Point<f64>, room: Size<u32>) -> Result<Zoom, Never> {
+    let wide = f64::from(room.width.max(1)) * self.by;
+    let tall = f64::from(room.height.max(1)) * self.by;
+    let held = 0.5 / self.by;
 
-        Ok(Zoom {
-            by: self.by,
-            looking: Point {
-                x: (self.looking.x - by.x / wide).clamp(held, 1.0 - held),
-                y: (self.looking.y - by.y / tall).clamp(held, 1.0 - held),
-            },
-        })
-    }
+    Ok(Zoom {
+      by: self.by,
+      looking: Point {
+        x: (self.looking.x - by.x / wide).clamp(held, 1.0 - held),
+        y: (self.looking.y - by.y / tall).clamp(held, 1.0 - held),
+      },
+    })
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const ROOM: Size<u32> = Size { width: 1000, height: 500 };
+  const ROOM: Size<u32> = Size {
+    width: 1000,
+    height: 500,
+  };
 
-    const PHOTOGRAPH: Size<u32> = Size { width: 4000, height: 2000 };
+  const PHOTOGRAPH: Size<u32> = Size {
+    width: 4000,
+    height: 2000,
+  };
 
-    #[test]
-    fn the_whole_of_a_picture_is_on_the_screen_before_anything_is_pressed() {
-        let Ok(whole) = Zoom::default().place(PHOTOGRAPH, ROOM);
+  #[test]
+  fn the_whole_of_a_picture_is_on_the_screen_before_anything_is_pressed() {
+    let Ok(whole) = Zoom::default().place(PHOTOGRAPH, ROOM);
 
-        assert_eq!(whole.from, Point { x: 0.0, y: 0.0 });
-        assert_eq!(whole.seen, Size { width: 4000.0, height: 2000.0 });
-        assert_eq!(whole.size, Size { width: 1000.0, height: 500.0 });
+    assert_eq!(whole.from, Point { x: 0.0, y: 0.0 });
+    assert_eq!(
+      whole.seen,
+      Size {
+        width: 4000.0,
+        height: 2000.0
+      }
+    );
+    assert_eq!(
+      whole.size,
+      Size {
+        width: 1000.0,
+        height: 500.0
+      }
+    );
+  }
+
+  #[test]
+  fn twice_as_close_is_half_as_much_of_it_from_the_middle() {
+    let Ok(closer) = Zoom::default().times(STEP);
+    let Ok(close) = closer.place(PHOTOGRAPH, ROOM);
+
+    assert_eq!(
+      close.seen,
+      Size {
+        width: 2000.0,
+        height: 1000.0
+      }
+    );
+    assert_eq!(
+      close.from,
+      Point {
+        x: 1000.0,
+        y: 500.0
+      }
+    );
+    assert_eq!(
+      close.size,
+      Size {
+        width: 1000.0,
+        height: 500.0
+      },
+      "the room is still filled"
+    );
+  }
+
+  #[test]
+  fn a_zoom_stops_at_the_whole_picture_and_at_the_most_it_goes_to() {
+    let Ok(out) = Zoom::default().times(0.1);
+    let Ok(far_in) = Zoom::default().times(1000.0);
+
+    assert_eq!(out, Zoom::default());
+    assert_eq!(out.zoomed(), Ok(Zoomed::Whole));
+    assert_eq!(far_in.by, MOST);
+    assert_eq!(far_in.zoomed(), Ok(Zoomed::ZoomedIn));
+  }
+
+  #[test]
+  fn nothing_past_an_edge_is_ever_shown() {
+    let Ok(closer) = Zoom::default().times(4.0);
+
+    for across in [-2.0, 0.0, 0.3, 0.5, 1.0, 3.0] {
+      let zoom = Zoom {
+        looking: Point {
+          x: across,
+          y: across,
+        },
+        ..closer
+      };
+      let Ok(seen) = zoom.place(PHOTOGRAPH, ROOM);
+
+      assert!(seen.from.x >= 0.0 && seen.from.y >= 0.0, "{seen:?}");
+      assert!(seen.from.x + seen.seen.width <= 4000.0, "{seen:?}");
+      assert!(seen.from.y + seen.seen.height <= 2000.0, "{seen:?}");
     }
+  }
 
-    #[test]
-    fn twice_as_close_is_half_as_much_of_it_from_the_middle() {
-        let Ok(closer) = Zoom::default().times(STEP);
-        let Ok(close) = closer.place(PHOTOGRAPH, ROOM);
+  #[test]
+  fn a_picture_narrower_than_the_room_sits_in_the_middle_of_it() {
+    let tall = Size {
+      width: 100,
+      height: 500,
+    };
+    let Ok(whole) = Zoom::default().place(tall, ROOM);
 
-        assert_eq!(close.seen, Size { width: 2000.0, height: 1000.0 });
-        assert_eq!(close.from, Point { x: 1000.0, y: 500.0 });
-        assert_eq!(close.size, Size { width: 1000.0, height: 500.0 }, "the room is still filled");
-    }
+    assert_eq!(
+      whole.size,
+      Size {
+        width: 100.0,
+        height: 500.0
+      }
+    );
+    assert_eq!(whole.at, Point { x: 450.0, y: 0.0 });
+  }
 
-    #[test]
-    fn a_zoom_stops_at_the_whole_picture_and_at_the_most_it_goes_to() {
-        let Ok(out) = Zoom::default().times(0.1);
-        let Ok(far_in) = Zoom::default().times(1000.0);
+  #[test]
+  fn a_drag_moves_the_picture_with_the_finger_and_stops_at_its_edge() {
+    let Ok(closer) = Zoom::default().times(STEP);
+    let Ok(dragged) = closer.panned(Point { x: 100.0, y: 0.0 }, ROOM);
 
-        assert_eq!(out, Zoom::default());
-        assert_eq!(out.zoomed(), Ok(Zoomed::Whole));
-        assert_eq!(far_in.by, MOST);
-        assert_eq!(far_in.zoomed(), Ok(Zoomed::ZoomedIn));
-    }
+    assert!(
+      dragged.looking.x < 0.5,
+      "a drag to the right shows more of the left: {dragged:?}"
+    );
 
-    #[test]
-    fn nothing_past_an_edge_is_ever_shown() {
-        let Ok(closer) = Zoom::default().times(4.0);
+    let Ok(far) = closer.panned(
+      Point {
+        x: 99_999.0,
+        y: -99_999.0,
+      },
+      ROOM,
+    );
 
-        for across in [-2.0, 0.0, 0.3, 0.5, 1.0, 3.0] {
-            let zoom = Zoom { looking: Point { x: across, y: across }, ..closer };
-            let Ok(seen) = zoom.place(PHOTOGRAPH, ROOM);
+    assert!((far.looking.x - 0.25).abs() < 0.001, "{far:?}");
+    assert!((far.looking.y - 0.75).abs() < 0.001, "{far:?}");
+  }
 
-            assert!(seen.from.x >= 0.0 && seen.from.y >= 0.0, "{seen:?}");
-            assert!(seen.from.x + seen.seen.width <= 4000.0, "{seen:?}");
-            assert!(seen.from.y + seen.seen.height <= 2000.0, "{seen:?}");
-        }
-    }
+  #[test]
+  fn the_whole_picture_does_not_pan() {
+    let Ok(dragged) = Zoom::default().panned(Point { x: 300.0, y: 300.0 }, ROOM);
 
-    #[test]
-    fn a_picture_narrower_than_the_room_sits_in_the_middle_of_it() {
-        let tall = Size { width: 100, height: 500 };
-        let Ok(whole) = Zoom::default().place(tall, ROOM);
-
-        assert_eq!(whole.size, Size { width: 100.0, height: 500.0 });
-        assert_eq!(whole.at, Point { x: 450.0, y: 0.0 });
-    }
-
-    #[test]
-    fn a_drag_moves_the_picture_with_the_finger_and_stops_at_its_edge() {
-        let Ok(closer) = Zoom::default().times(STEP);
-        let Ok(dragged) = closer.panned(Point { x: 100.0, y: 0.0 }, ROOM);
-
-        assert!(dragged.looking.x < 0.5, "a drag to the right shows more of the left: {dragged:?}");
-
-        let Ok(far) = closer.panned(Point { x: 99_999.0, y: -99_999.0 }, ROOM);
-
-        assert!((far.looking.x - 0.25).abs() < 0.001, "{far:?}");
-        assert!((far.looking.y - 0.75).abs() < 0.001, "{far:?}");
-    }
-
-    #[test]
-    fn the_whole_picture_does_not_pan() {
-        let Ok(dragged) = Zoom::default().panned(Point { x: 300.0, y: 300.0 }, ROOM);
-
-        assert_eq!(dragged.looking, Point { x: 0.5, y: 0.5 });
-    }
+    assert_eq!(dragged.looking, Point { x: 0.5, y: 0.5 });
+  }
 }

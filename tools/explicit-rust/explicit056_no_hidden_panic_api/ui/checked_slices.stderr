@@ -1,0 +1,82 @@
+warning: `swap` answers an index that is not in the list with a panic
+  --> $DIR/checked_slices.rs:5:5
+   |
+LL |     items.swap(2, 0);
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(explicit056_no_hidden_panic_api)]` on by default
+help: swap the two slots proven to exist
+   |
+LL ~     {
+LL +       let [swap_first, _, swap_second, ..] = &mut *items;
+LL +       ::core::mem::swap(swap_first, swap_second);
+LL ~     };
+   |
+
+warning: `split_at` answers two lengths that do not agree with a panic
+  --> $DIR/checked_slices.rs:9:25
+   |
+LL |     let (front, back) = data.split_at(at.min(data.len()));
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: handle a split past the end as a split at the end
+   |
+LL ~     let (front, back) = match <[_]>::split_at_checked(data, at) {
+LL +       ::core::option::Option::Some(split_halves) => split_halves,
+LL +       ::core::option::Option::None => {
+LL +         let (split_whole, split_empty) = <[_]>::as_chunks::<1>(data);
+LL +         (split_whole.as_flattened(), split_empty)
+LL +       }
+LL ~     };
+   |
+
+warning: `split_at` answers two lengths that do not agree with a panic
+  --> $DIR/checked_slices.rs:18:25
+   |
+LL |     let (front, back) = held.data.split_at(core::cmp::min(held.data.len(), at));
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: handle a split past the end as a split at the end
+   |
+LL ~     let (front, back) = match <[_]>::split_at_checked(&held.data, at) {
+LL +       ::core::option::Option::Some(split_halves) => split_halves,
+LL +       ::core::option::Option::None => {
+LL +         let (split_whole, split_empty) = <[_]>::as_chunks::<1>(&held.data);
+LL +         (split_whole.as_flattened(), split_empty)
+LL +       }
+LL ~     };
+   |
+
+warning: `split_at` answers two lengths that do not agree with a panic
+  --> $DIR/checked_slices.rs:23:25
+   |
+LL |     let (front, back) = data.split_at(at.min(data.len()));
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: handle a split past the end as a split at the end
+   |
+LL ~     let (front, back) = match <[_]>::split_at_checked(data, at) {
+LL +       ::core::option::Option::Some(split_halves) => split_halves,
+LL +       ::core::option::Option::None => {
+LL +         let (split_whole, split_empty) = <[_]>::as_chunks::<1>(data);
+LL +         (split_whole.as_flattened(), split_empty)
+LL +       }
+LL ~     };
+   |
+
+warning: `swap` answers an index that is not in the list with a panic
+  --> $DIR/checked_slices.rs:34:5
+   |
+LL |     fixed.swap(0, 1);
+   |     ^^^^^^^^^^^^^^^^
+   |
+help: swap the two slots proven to exist
+   |
+LL ~     {
+LL +       let [swap_first, swap_second, ..] = &mut fixed;
+LL +       ::core::mem::swap(swap_first, swap_second);
+LL ~     };
+   |
+
+warning: 5 warnings emitted
+

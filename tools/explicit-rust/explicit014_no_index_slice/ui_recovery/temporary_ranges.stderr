@@ -1,0 +1,35 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/temporary_ranges.rs:7:17
+   |
+LL |     let tail = &[vec![1], vec![2]][start..];
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/temporary_ranges.rs:8:18
+   |
+LL |     let first = &[String::from("font")][0];
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/temporary_ranges.rs:9:25
+   |
+LL |     let tail_mut = &mut [vec![1], vec![2]][start..];
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/temporary_ranges.rs:10:26
+   |
+LL |     let first_mut = &mut [String::from("font")][0];
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: aborting due to 4 previous errors
+

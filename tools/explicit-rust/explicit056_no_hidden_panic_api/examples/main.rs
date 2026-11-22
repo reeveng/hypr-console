@@ -86,6 +86,32 @@ fn carried(held: Vec<u8>) -> Vec<u8> {
     kept
 }
 
+#[allow(dead_code)]
+fn checks_unknown_arguments(
+    text: &str,
+    slice: &[u8],
+    size: usize,
+    cell: &RefCell<u8>,
+    divisor: u64,
+) {
+    let _ = cell.borrow();
+    let _ = text.split_at(size);
+    let _ = slice.chunks(size);
+    let _ = slice.iter().step_by(size);
+    let _ = 8_u64.wrapping_div(divisor);
+    let _ = u64::wrapping_rem(8, divisor);
+}
+
+#[allow(dead_code)]
+fn accepts_nonzero_proofs(slice: &[u8], width: std::num::NonZeroUsize) {
+    const WIDTH: usize = 2;
+    let _ = slice.chunks(width.get());
+    let _ = slice.iter().step_by(WIDTH);
+    let _ = 8_usize.wrapping_div(width.get());
+    let _ = u64::wrapping_rem(8, 3);
+    let _ = 8_u64.checked_div(0);
+}
+
 fn main() {
     let _ = (
         taken_out(vec![1, 2, 3], 1),

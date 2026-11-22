@@ -1,0 +1,19 @@
+warning: this decodes into a `Value`, which accepts any JSON and leaves the shape to whoever reads it
+  --> $DIR/main.rs:5:30
+   |
+LL |     let reply: Value = match serde_json::from_str(said) {
+   |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: decode into a struct in the crate that owns the format, every field named and unknown ones refused, so a reply that does not fit is a fault where it arrived. Where the shape really is not known here, allow this rule and let the reason say why
+   = note: `#[warn(explicit098_no_walked_json)]` on by default
+
+warning: this decodes into a `Value`, which accepts any JSON and leaves the shape to whoever reads it
+  --> $DIR/main.rs:15:5
+   |
+LL |     serde_json::from_slice::<Value>(said)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: decode into a struct in the crate that owns the format, every field named and unknown ones refused, so a reply that does not fit is a fault where it arrived. Where the shape really is not known here, allow this rule and let the reason say why
+
+warning: 2 warnings emitted
+

@@ -1,9 +1,11 @@
 //! Every word this tree writes for itself, counted, with where to find it.
 //!
 //! A word arrives in three shapes and they are one vocabulary: an identifier,
-//! the `//!` head above it, and the paragraph in `docs/` arguing for both. So
-//! all three are read into the same count, and the split between a name and a
-//! sentence is not a split this crate keeps.
+//! the `//!` head above it, and the README that tours both. So all three are
+//! read into the same count, and the split between a name and a sentence is
+//! not a split this crate keeps. The documentation that argues for them is in
+//! Orbit and is not read: a gate holds what is in the tree it gates, and a
+//! count that reached for a server would go red whenever the server was away.
 //!
 //! An identifier is taken apart the way a reader takes it apart -- on the
 //! underscores and at the capitals -- because `unpressed_yet` is two words and
@@ -31,55 +33,51 @@ use crate::{PerMillion, Uses};
 
 #[derive(Debug)]
 pub enum Unread {
-    Listing(PathBuf, std::io::Error),
-    Reading(PathBuf, std::io::Error),
+  Listing(PathBuf, std::io::Error),
+  Reading(PathBuf, std::io::Error),
 }
 
 impl fmt::Display for Unread {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Unread::Listing(at, fault) => write!(to, "{}: {fault}", at.display()),
-            Unread::Reading(at, fault) => write!(to, "{}: {fault}", at.display()),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Unread::Listing(at, fault) => write!(to, "{}: {fault}", at.display()),
+      Unread::Reading(at, fault) => write!(to, "{}: {fault}", at.display()),
     }
+  }
 }
 
 impl std::error::Error for Unread {}
 
 #[derive(Debug, Clone, Default)]
 pub struct Written {
-    pub uses: Uses,
+  pub uses: Uses,
 
-    pub written_in: BTreeSet<String>,
+  pub written_in: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Counted {
-    pub words: BTreeMap<String, Written>,
+  pub words: BTreeMap<String, Written>,
 
-    pub total: Uses,
+  pub total: Uses,
 }
 
 impl Counted {
-    pub fn per_million(&self, uses: Uses) -> Result<PerMillion, Never> {
-        let Ok(many) = uses.0.float();
-        let Ok(whole) = self.total.0.max(1).float();
+  pub fn per_million(&self, uses: Uses) -> Result<PerMillion, Never> {
+    let Ok(many) = uses.0.float();
+    let Ok(whole) = self.total.0.max(1).float();
 
-        Ok(PerMillion(many / whole * A_MILLION))
-    }
+    Ok(PerMillion(many / whole * A_MILLION))
+  }
 }
 
 const A_MILLION: f64 = 1_000_000.0;
 
 pub const CRATES: &str = "crates";
 
-pub const DOCS: &str = "docs";
-
 pub const README: &str = "README.md";
 
 const RUST: &str = "rs";
-
-const PROSE: &str = "md";
 
 const TARGET: &str = "target";
 
@@ -96,260 +94,251 @@ const UNDER: char = '_';
 const SHORTEST: u32 = 3;
 
 pub fn count(root: &Path) -> Result<Counted, Unread> {
-    let code = under(&root.join(CRATES), Ending::Rust)?;
-    let prose = under(&root.join(DOCS), Ending::Prose)?;
-    let mut held = Counted::default();
+  let code = under(&root.join(CRATES))?;
+  let readme = root.join(README);
+  let mut held = Counted::default();
 
-    for at in code {
-        let said = read(&at)?;
-        let Ok(words) = words_of_code(&said);
-        let Ok(named) = relative_name(Top(root), &at);
+  for at in code {
+    let said = read(&at)?;
+    let Ok(words) = words_of_code(&said);
+    let Ok(named) = relative_name(Top(root), &at);
 
-        let Ok(()) = add_words(&mut held, &words, &named);
-    }
+    let Ok(()) = add_words(&mut held, &words, &named);
+  }
 
-    for at in prose.into_iter().chain(std::iter::once(root.join(README))) {
-        let said = read(&at)?;
-        let Ok(words) = words_of_prose(&said);
-        let Ok(named) = relative_name(Top(root), &at);
+  let said = read(&readme)?;
+  let Ok(words) = words_of_prose(&said);
+  let Ok(named) = relative_name(Top(root), &readme);
 
-        let Ok(()) = add_words(&mut held, &words, &named);
-    }
+  let Ok(()) = add_words(&mut held, &words, &named);
 
-    Ok(held)
+  Ok(held)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Top<'a>(pub &'a Path);
 
 fn relative_name(top: Top<'_>, at: &Path) -> Result<String, Never> {
-    Ok(match at.strip_prefix(top.0) {
-        Ok(under) => under.display().to_string(),
-        Err(_a_path_from_outside_the_tree) => at.display().to_string(),
-    })
+  Ok(match at.strip_prefix(top.0) {
+    Ok(under) => under.display().to_string(),
+    Err(_a_path_from_outside_the_tree) => at.display().to_string(),
+  })
 }
 
 fn read(at: &Path) -> Result<String, Unread> {
-    std::fs::read_to_string(at).map_err(|fault| Unread::Reading(at.to_path_buf(), fault))
+  std::fs::read_to_string(at).map_err(|fault| Unread::Reading(at.to_path_buf(), fault))
 }
 
 fn add_words(into: &mut Counted, words: &[String], at: &str) -> Result<(), Never> {
-    for word in words {
-        let held = into.words.entry(word.clone()).or_default();
+  for word in words {
+    let held = into.words.entry(word.clone()).or_default();
 
-        held.uses = Uses(held.uses.0.saturating_add(1));
+    held.uses = Uses(held.uses.0.saturating_add(1));
 
-        let _ = held.written_in.insert(at.to_string());
+    let _ = held.written_in.insert(at.to_string());
 
-        into.total = Uses(into.total.0.saturating_add(1));
-    }
+    into.total = Uses(into.total.0.saturating_add(1));
+  }
 
-    Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Ending {
-    Rust,
-    Prose,
-}
-
-impl Ending {
-    pub fn as_str(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Ending::Rust => RUST,
-            Ending::Prose => PROSE,
-        })
-    }
+  Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Walk {
-    Into,
-    Past,
+  Into,
+  Past,
 }
 
 fn walk_decision(at: &Path) -> Result<Walk, Never> {
-    Ok(match at.file_name().and_then(OsStr::to_str) {
-        Some(named) => match named == TARGET || named.starts_with('.') {
-            true => Walk::Past,
-            false => Walk::Into,
-        },
-        None => Walk::Past,
-    })
+  Ok(match at.file_name().and_then(OsStr::to_str) {
+    Some(named) => match ::core::primitive::bool::then_some(named == TARGET || named.starts_with('.'), ()) {
+      ::core::option::Option::Some(()) => Walk::Past,
+      ::core::option::Option::None => Walk::Into,
+    },
+    None => Walk::Past,
+  })
 }
 
-pub fn under(root: &Path, ending: Ending) -> Result<Vec<PathBuf>, Unread> {
-    let Ok(wanted) = ending.as_str();
-    let Ok(listing) = console_core_directory_listing::recursive(root, |at| {
-        let Ok(walk) = walk_decision(at);
+pub fn under(root: &Path) -> Result<Vec<PathBuf>, Unread> {
+  let Ok(listing) = console_core_directory_listing::recursive(root, |at| {
+    let Ok(walk) = walk_decision(at);
 
-        match walk {
-            Walk::Into => Descend::Into,
-            Walk::Past => Descend::Past,
-        }
-    });
-    let mut found = Vec::new();
+    match walk {
+      Walk::Into => Descend::Into,
+      Walk::Past => Descend::Past,
+    }
+  });
+  let mut found = Vec::new();
 
-    for entry in listing {
-        let at = entry.map_err(|unlisted| Unread::Listing(unlisted.directory, unlisted.fault))?;
+  for entry in listing {
+    let at = entry.map_err(|unlisted| Unread::Listing(unlisted.directory, unlisted.fault))?;
 
-        match (at.is_dir(), at.extension().and_then(OsStr::to_str) == Some(wanted)) {
-            (false, true) => found.push(at),
-            (true, _) | (false, false) => {},
-        }
+    match ::core::primitive::bool::then_some(at.extension().and_then(OsStr::to_str) == Some(RUST), ()) {
+      ::core::option::Option::None => continue,
+      ::core::option::Option::Some(()) => {}
     }
 
-    found.sort();
+    let metadata = std::fs::metadata(&at).map_err(|fault| Unread::Listing(at.clone(), fault))?;
 
-    Ok(found)
+    match ::core::primitive::bool::then_some(metadata.is_dir(), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => found.push(at),
+    }
+  }
+
+  found.sort();
+
+  Ok(found)
 }
 
 pub fn words_of_code(said: &str) -> Result<Vec<String>, Never> {
-    let mut found = Vec::new();
+  let mut found = Vec::new();
 
-    for line in said.lines() {
-        match line.trim_start().starts_with(HEAD) {
-            true => {
-                let Ok(words) = words_of_a_sentence(line);
+  for line in said.lines() {
+    match ::core::primitive::bool::then_some(line.trim_start().starts_with(HEAD), ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(words) = words_of_a_sentence(line);
 
-                found.extend(words);
-            },
+        found.extend(words);
+      }
 
-            false => {
-                for part in line.split(QUOTE).step_by(2) {
-                    let Ok(words) = identifiers(part);
+      ::core::option::Option::None => {
+        for part in line.split(QUOTE).step_by(2) {
+          let Ok(words) = identifiers(part);
 
-                    found.extend(words);
-                }
-            },
+          found.extend(words);
         }
+      }
     }
+  }
 
-    Ok(found)
+  Ok(found)
 }
 
 pub fn words_of_prose(said: &str) -> Result<Vec<String>, Never> {
-    let mut found = Vec::new();
-    let mut fenced = Fenced::No;
+  let mut found = Vec::new();
+  let mut fenced = Fenced::No;
 
-    for line in said.lines() {
-        match line.trim_start().starts_with(FENCE) {
-            true => {
-                fenced = match fenced {
-                    Fenced::No => Fenced::Yes,
-                    Fenced::Yes => Fenced::No,
-                };
-            },
+  for line in said.lines() {
+    match ::core::primitive::bool::then_some(line.trim_start().starts_with(FENCE), ()) {
+      ::core::option::Option::Some(()) => {
+        fenced = match fenced {
+          Fenced::No => Fenced::Yes,
+          Fenced::Yes => Fenced::No,
+        };
+      }
 
-            false => match fenced {
-                Fenced::No => {
-                    let Ok(words) = words_of_a_sentence(line);
+      ::core::option::Option::None => match fenced {
+        Fenced::No => {
+          let Ok(words) = words_of_a_sentence(line);
 
-                    found.extend(words);
-                },
-                Fenced::Yes => {},
-            },
+          found.extend(words);
         }
+        Fenced::Yes => {}
+      },
     }
+  }
 
-    Ok(found)
+  Ok(found)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Fenced {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 pub fn words_of_a_sentence(line: &str) -> Result<Vec<String>, Never> {
-    let mut found = Vec::new();
+  let mut found = Vec::new();
 
-    for part in line.split(SPAN).step_by(2) {
-        let said = part.split(|letter: char| !letter.is_alphabetic());
+  for part in line.split(SPAN).step_by(2) {
+    let said = part.split(|letter: char| !letter.is_alphabetic());
 
-        found.extend(said.filter_map(|word| {
-            let Ok(kept) = countable_word(&word.to_lowercase());
+    found.extend(said.filter_map(|word| {
+      let Ok(kept) = countable_word(&word.to_lowercase());
 
-            kept
-        }));
-    }
+      kept
+    }));
+  }
 
-    Ok(found)
+  Ok(found)
 }
 
 pub fn identifiers(said: &str) -> Result<Vec<String>, Never> {
-    let mut found = Vec::new();
-    let runs = said.split(|letter: char| !letter.is_ascii_alphanumeric() && letter != UNDER);
+  let mut found = Vec::new();
+  let runs = said.split(|letter: char| !letter.is_ascii_alphanumeric() && letter != UNDER);
 
-    for run in runs {
-        let Ok(words) = split(run);
+  for run in runs {
+    let Ok(words) = split(run);
 
-        found.extend(words);
-    }
+    found.extend(words);
+  }
 
-    Ok(found)
+  Ok(found)
 }
 
 pub fn split(said: &str) -> Result<Vec<String>, Never> {
-    let mut found = Vec::new();
-    let mut held = String::new();
+  let mut found = Vec::new();
+  let mut held = String::new();
 
-    for letter in said.chars() {
-        let Ok(starting) = word_start(&held, letter);
+  for letter in said.chars() {
+    let Ok(starting) = word_start(&held, letter);
 
-        match starting {
-            Starting::Yes => {
-                found.push(std::mem::take(&mut held));
-            },
-            Starting::No => {},
-        }
-
-        match letter == UNDER {
-            true => {
-                found.push(std::mem::take(&mut held));
-            },
-            false => held.push(letter.to_ascii_lowercase()),
-        }
+    match starting {
+      Starting::Yes => {
+        found.push(std::mem::take(&mut held));
+      }
+      Starting::No => {}
     }
 
-    found.push(held);
+    match ::core::primitive::bool::then_some(letter == UNDER, ()) {
+      ::core::option::Option::Some(()) => {
+        found.push(std::mem::take(&mut held));
+      }
+      ::core::option::Option::None => held.push(letter.to_ascii_lowercase()),
+    }
+  }
 
-    Ok(found
-        .into_iter()
-        .filter_map(|word| {
-            let Ok(kept) = countable_word(&word);
+  found.push(held);
 
-            kept
-        })
-        .collect())
+  Ok(
+    found
+      .into_iter()
+      .filter_map(|word| {
+        let Ok(kept) = countable_word(&word);
+
+        kept
+      })
+      .collect(),
+  )
 }
 
 fn countable_word(word: &str) -> Result<Option<String>, Never> {
-    let Ok(long) = fitted::<_, u32>(word.len());
+  let Ok(long) = fitted::<_, u32>(word.len());
 
-    Ok(
-        match long >= SHORTEST && word.chars().all(|letter| letter.is_ascii_alphabetic()) {
-            true => Some(word.to_string()),
-            false => None,
-        },
-    )
+  Ok(
+    match ::core::primitive::bool::then_some(long >= SHORTEST && word.chars().all(|letter| letter.is_ascii_alphabetic()), ()) {
+      ::core::option::Option::Some(()) => Some(word.to_string()),
+      ::core::option::Option::None => None,
+    },
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Starting {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 fn word_start(held: &str, letter: char) -> Result<Starting, Never> {
-    Ok(match letter.is_ascii_uppercase() {
-        true => match held.chars().last() {
-            Some(last) => match last.is_ascii_uppercase() {
-                true => Starting::No,
-                false => Starting::Yes,
-            },
-            None => Starting::No,
-        },
-        false => Starting::No,
-    })
+  Ok(match ::core::primitive::bool::then_some(letter.is_ascii_uppercase(), ()) {
+    ::core::option::Option::Some(()) => match held.chars().last() {
+      Some(last) => match ::core::primitive::bool::then_some(last.is_ascii_uppercase(), ()) {
+        ::core::option::Option::Some(()) => Starting::No,
+        ::core::option::Option::None => Starting::Yes,
+      },
+      None => Starting::No,
+    },
+    ::core::option::Option::None => Starting::No,
+  })
 }

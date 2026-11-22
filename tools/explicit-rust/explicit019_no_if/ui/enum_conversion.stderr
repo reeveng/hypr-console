@@ -1,0 +1,41 @@
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/enum_conversion.rs:20:9
+   |
+LL | /         match present {
+LL | |             true => Self::Present,
+LL | |             false => Self::Missing,
+LL | |         }
+   | |_________^
+   |
+   = note: `#[deny(explicit019_no_if)]` on by default
+help: match the outcomes directly
+   |
+LL ~         match ::core::primitive::bool::then_some(present, ()) {
+LL ~             ::core::option::Option::Some(()) => Self::Present,
+LL ~             ::core::option::Option::None => Self::Missing,
+   |
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/enum_conversion.rs:35:9
+   |
+LL | /         match leave {
+LL | |             true => {
+LL | |                 eprintln!("leaving");
+LL | |                 Self::Leave
+LL | |             }
+LL | |             false => Self::Stay,
+LL | |         }
+   | |_________^
+   |
+help: match the outcomes directly
+   |
+LL ~         match ::core::primitive::bool::then_some(leave, ()) {
+LL ~             ::core::option::Option::Some(()) => {
+LL |                 eprintln!("leaving");
+LL |                 Self::Leave
+LL |             }
+LL ~             ::core::option::Option::None => Self::Stay,
+   |
+
+error: aborting due to 2 previous errors
+

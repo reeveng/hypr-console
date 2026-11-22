@@ -10,9 +10,9 @@
 
 use std::fmt;
 
-
 pub mod allowing;
 pub mod axis;
+mod bounded;
 pub mod capture;
 pub mod devices;
 pub mod finding;
@@ -31,68 +31,83 @@ pub mod world;
 
 #[derive(Debug)]
 pub enum GamepadError {
-    Capture(serde_json::Error),
-    NoAxis(String, u16),
-    Device(console_input_event_devices::Unmade),
-    ListNodes(std::io::Error),
-    NotAKeyName(String),
-    NoSuchKey(String),
-    NoSuchButton(String),
-    NoMouseButton(String),
-    NoPadButton(String),
-    NotOneCode(profile::Kind, String),
-    NoSuchProfile(String, Vec<String>),
-    NoThumbstick(String),
-    NoTrigger(String),
-    Read(std::path::PathBuf, std::io::Error),
-    #[cfg(feature = "read")]
-    Parse(std::path::PathBuf, serde_yaml_ng::Error),
-    NotANumber(String),
-    NotFound(&'static str),
-    NoSuchStep(String),
-    AtLine(u32, Box<GamepadError>),
+  Capture(serde_json::Error),
+  CaptureTooLarge(u32),
+  NoAxis(String, u16),
+  Device(console_input_event_devices::Unmade),
+  ListNodes(std::io::Error),
+  NotAKeyName(String),
+  NoSuchKey(String),
+  NoSuchButton(String),
+  NoMouseButton(String),
+  NoPadButton(String),
+  NotOneCode(profile::Kind, String),
+  NoSuchProfile(String, Vec<String>),
+  NoThumbstick(String),
+  NoTrigger(String),
+  InvalidProfileName(std::path::PathBuf),
+  Read(std::path::PathBuf, std::io::Error),
+  #[cfg(feature = "read")]
+  Parse(std::path::PathBuf, serde_yaml_ng::Error),
+  NotANumber(String),
+  NotFound(&'static str),
+  NoSuchStep(String),
+  AtLine(u32, Box<GamepadError>),
 }
 
 impl fmt::Display for GamepadError {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            GamepadError::Capture(fault) => write!(to, "the capture does not parse: {fault}"),
-            GamepadError::NoAxis(role, code) => write!(to, "{role} has no axis {code}"),
-            GamepadError::Device(fault) => write!(to, "{fault}"),
-            GamepadError::ListNodes(fault) => write!(to, "the device's nodes would not be listed: {fault}"),
-            GamepadError::NotAKeyName(name) => write!(to, "not a key name: {name:?}"),
-            GamepadError::NoSuchKey(name) => write!(to, "no such key: {name:?}"),
-            GamepadError::NoSuchButton(spoken) => {
-                let mut every: Vec<&str> =
-                    vocabulary::BUTTONS.iter().map(|(said, _)| *said).collect();
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      GamepadError::Capture(fault) => write!(to, "the capture does not parse: {fault}"),
+      GamepadError::CaptureTooLarge(limit) => write!(to, "the capture exceeds {limit} bytes"),
+      GamepadError::NoAxis(role, code) => write!(to, "{role} has no axis {code}"),
+      GamepadError::Device(fault) => write!(to, "{fault}"),
+      GamepadError::ListNodes(fault) => {
+        write!(to, "the device's nodes would not be listed: {fault}")
+      }
+      GamepadError::NotAKeyName(name) => write!(to, "not a key name: {name:?}"),
+      GamepadError::NoSuchKey(name) => write!(to, "no such key: {name:?}"),
+      GamepadError::NoSuchButton(spoken) => {
+        let mut every: Vec<&str> = vocabulary::BUTTONS.iter().map(|(said, _)| *said).collect();
 
-                every.sort_unstable();
+        every.sort_unstable();
 
-                write!(to, "no button called {spoken:?}; try one of {}", every.join(", "))
-            }
-            GamepadError::NoMouseButton(name) => write!(to, "no mouse button called {name:?}"),
-            GamepadError::NoPadButton(name) => write!(to, "no pad button called {name:?}"),
-            GamepadError::NotOneCode(kind, name) => {
-                write!(to, "{kind:?} does not arrive as one code: {name:?}")
-            }
-            GamepadError::NoSuchProfile(name, every) => {
-                write!(to, "no profile called {name:?}; there is {}", every.join(", "))
-            }
-            GamepadError::NoThumbstick(which) => write!(to, "no thumbstick called {which:?}"),
-            GamepadError::NoTrigger(which) => write!(to, "no trigger called {which:?}"),
-            GamepadError::Read(at, fault) => {
-                write!(to, "{} could not be read: {fault}", at.display())
-            }
-            #[cfg(feature = "read")]
-            GamepadError::Parse(at, fault) => {
-                write!(to, "{} does not parse: {fault}", at.display())
-            }
-            GamepadError::NotANumber(word) => write!(to, "{word:?} is not a number"),
-            GamepadError::NotFound(what) => write!(to, "no {what}"),
-            GamepadError::NoSuchStep(other) => write!(to, "no such thing as {other:?}"),
-            GamepadError::AtLine(number, fault) => write!(to, "line {number}: {fault}"),
-        }
+        write!(
+          to,
+          "no button called {spoken:?}; try one of {}",
+          every.join(", ")
+        )
+      }
+      GamepadError::NoMouseButton(name) => write!(to, "no mouse button called {name:?}"),
+      GamepadError::NoPadButton(name) => write!(to, "no pad button called {name:?}"),
+      GamepadError::NotOneCode(kind, name) => {
+        write!(to, "{kind:?} does not arrive as one code: {name:?}")
+      }
+      GamepadError::NoSuchProfile(name, every) => {
+        write!(
+          to,
+          "no profile called {name:?}; there is {}",
+          every.join(", ")
+        )
+      }
+      GamepadError::NoThumbstick(which) => write!(to, "no thumbstick called {which:?}"),
+      GamepadError::NoTrigger(which) => write!(to, "no trigger called {which:?}"),
+      GamepadError::InvalidProfileName(at) => {
+        write!(to, "{} has a non-UTF-8 file name", at.display())
+      }
+      GamepadError::Read(at, fault) => {
+        write!(to, "{} could not be read: {fault}", at.display())
+      }
+      #[cfg(feature = "read")]
+      GamepadError::Parse(at, fault) => {
+        write!(to, "{} does not parse: {fault}", at.display())
+      }
+      GamepadError::NotANumber(word) => write!(to, "{word:?} is not a number"),
+      GamepadError::NotFound(what) => write!(to, "no {what}"),
+      GamepadError::NoSuchStep(other) => write!(to, "no such thing as {other:?}"),
+      GamepadError::AtLine(number, fault) => write!(to, "line {number}: {fault}"),
     }
+  }
 }
 
 impl std::error::Error for GamepadError {}

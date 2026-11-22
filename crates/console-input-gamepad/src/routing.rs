@@ -40,205 +40,234 @@ use console_input_event_devices::{AbsoluteAxisCode, KeyCode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arrives {
-    Pad(KeyCode),
-    Keys(KeyCode),
-    Hat(AbsoluteAxisCode, i32),
+  Pad(KeyCode),
+  Keys(KeyCode),
+  Hat(AbsoluteAxisCode, i32),
 }
 
 pub const ROUTE: [(&str, Arrives); 23] = [
-    ("South", Arrives::Pad(KeyCode::BTN_SOUTH)),
-    ("East", Arrives::Pad(KeyCode::BTN_EAST)),
-    ("West", Arrives::Pad(KeyCode::BTN_WEST)),
-    ("LeftBumper", Arrives::Pad(KeyCode::BTN_TL)),
-    ("RightBumper", Arrives::Pad(KeyCode::BTN_TR)),
-    ("LeftStick", Arrives::Pad(KeyCode::BTN_THUMBL)),
-    ("RightStick", Arrives::Pad(KeyCode::BTN_THUMBR)),
-    ("Start", Arrives::Pad(KeyCode::BTN_START)),
-    ("Select", Arrives::Pad(KeyCode::BTN_SELECT)),
-    ("Guide", Arrives::Pad(KeyCode::BTN_MODE)),
-    ("DPadUp", Arrives::Hat(AbsoluteAxisCode::ABS_HAT0Y, -1)),
-    ("DPadDown", Arrives::Hat(AbsoluteAxisCode::ABS_HAT0Y, 1)),
-    ("DPadLeft", Arrives::Hat(AbsoluteAxisCode::ABS_HAT0X, -1)),
-    ("DPadRight", Arrives::Hat(AbsoluteAxisCode::ABS_HAT0X, 1)),
-    ("LeftPaddle1", Arrives::Keys(KeyCode::KEY_F13)),
-    ("LeftPaddle2", Arrives::Keys(KeyCode::KEY_F14)),
-    ("RightPaddle1", Arrives::Keys(KeyCode::KEY_F15)),
-    ("RightPaddle2", Arrives::Keys(KeyCode::KEY_F16)),
-    ("QuickAccess", Arrives::Keys(KeyCode::KEY_F17)),
-    ("QuickAccess2", Arrives::Keys(KeyCode::KEY_F19)),
-    ("RightPaddle3", Arrives::Keys(KeyCode::KEY_F20)),
-    ("Keyboard", Arrives::Keys(KeyCode::KEY_F21)),
-    ("North", Arrives::Keys(KeyCode::KEY_F22)),
+  ("South", Arrives::Pad(KeyCode::BTN_SOUTH)),
+  ("East", Arrives::Pad(KeyCode::BTN_EAST)),
+  ("West", Arrives::Pad(KeyCode::BTN_WEST)),
+  ("LeftBumper", Arrives::Pad(KeyCode::BTN_TL)),
+  ("RightBumper", Arrives::Pad(KeyCode::BTN_TR)),
+  ("LeftStick", Arrives::Pad(KeyCode::BTN_THUMBL)),
+  ("RightStick", Arrives::Pad(KeyCode::BTN_THUMBR)),
+  ("Start", Arrives::Pad(KeyCode::BTN_START)),
+  ("Select", Arrives::Pad(KeyCode::BTN_SELECT)),
+  ("Guide", Arrives::Pad(KeyCode::BTN_MODE)),
+  ("DPadUp", Arrives::Hat(AbsoluteAxisCode::ABS_HAT0Y, -1)),
+  ("DPadDown", Arrives::Hat(AbsoluteAxisCode::ABS_HAT0Y, 1)),
+  ("DPadLeft", Arrives::Hat(AbsoluteAxisCode::ABS_HAT0X, -1)),
+  ("DPadRight", Arrives::Hat(AbsoluteAxisCode::ABS_HAT0X, 1)),
+  ("LeftPaddle1", Arrives::Keys(KeyCode::KEY_F13)),
+  ("LeftPaddle2", Arrives::Keys(KeyCode::KEY_F14)),
+  ("RightPaddle1", Arrives::Keys(KeyCode::KEY_F15)),
+  ("RightPaddle2", Arrives::Keys(KeyCode::KEY_F16)),
+  ("QuickAccess", Arrives::Keys(KeyCode::KEY_F17)),
+  ("QuickAccess2", Arrives::Keys(KeyCode::KEY_F19)),
+  ("RightPaddle3", Arrives::Keys(KeyCode::KEY_F20)),
+  ("Keyboard", Arrives::Keys(KeyCode::KEY_F21)),
+  ("North", Arrives::Keys(KeyCode::KEY_F22)),
 ];
 
 pub fn arrives(profile_name: &str) -> Result<Option<Arrives>, Never> {
-    Ok(ROUTE.iter().find(|(named, _)| *named == profile_name).map(|(_, how)| *how))
+  Ok(
+    ROUTE
+      .iter()
+      .find(|(named, _)| *named == profile_name)
+      .map(|(_, how)| *how),
+  )
 }
 
 pub fn button_of_key(code: u16) -> Result<Option<&'static str>, Never> {
-    Ok(ROUTE
-        .iter()
-        .find(|(_, how)| matches!(how, Arrives::Keys(key) if key.0 == code))
-        .map(|(named, _)| *named))
+  Ok(
+    ROUTE
+      .iter()
+      .find(|(_, how)| matches!(how, Arrives::Keys(key) if key.0 == code))
+      .map(|(named, _)| *named),
+  )
 }
 
 pub fn button_of_pad(code: u16) -> Result<Option<&'static str>, Never> {
-    Ok(ROUTE
-        .iter()
-        .find(|(_, how)| matches!(how, Arrives::Pad(key) if key.0 == code))
-        .map(|(named, _)| *named))
+  Ok(
+    ROUTE
+      .iter()
+      .find(|(_, how)| matches!(how, Arrives::Pad(key) if key.0 == code))
+      .map(|(named, _)| *named),
+  )
 }
 
 pub fn button_of_hat(code: u16, value: i32) -> Result<Option<&'static str>, Never> {
-    Ok(ROUTE
-        .iter()
-        .find(|(_, how)| matches!(how, Arrives::Hat(axis, end) if axis.0 == code && *end == value))
-        .map(|(named, _)| *named))
+  Ok(
+    ROUTE
+      .iter()
+      .find(|(_, how)| matches!(how, Arrives::Hat(axis, end) if axis.0 == code && *end == value))
+      .map(|(named, _)| *named),
+  )
 }
 
 pub fn is_hat(code: u16) -> Result<Hat, Never> {
-    let found = ROUTE.iter().any(|(_, how)| matches!(how, Arrives::Hat(axis, _) if axis.0 == code));
+  let found = ROUTE
+    .iter()
+    .any(|(_, how)| matches!(how, Arrives::Hat(axis, _) if axis.0 == code));
 
-    Ok(match found {
-        true => Hat::Axis,
-        false => Hat::NotAnAxis,
-    })
+  Ok(match ::core::primitive::bool::then_some(found, ()) {
+    ::core::option::Option::Some(()) => Hat::Axis,
+    ::core::option::Option::None => Hat::NotAnAxis,
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hat {
-    Axis,
-    NotAnAxis,
+  Axis,
+  NotAnAxis,
 }
 
 pub fn mapping_for(profile_name: &str) -> Result<Option<String>, Never> {
-    let how = arrives(profile_name)?;
+  let how = arrives(profile_name)?;
 
-    let how = match how {
-        Some(how) => how,
+  let how_3 = match how {
+    Some(how_2) => how_2,
+    None => return Ok(None),
+  };
+
+  let (said, target) = match how_3 {
+    Arrives::Keys(key) => {
+      let named = key_named(key)?;
+
+      let named_3 = match named {
+        Some(named_2) => named_2,
         None => return Ok(None),
-    };
+      };
 
-    let (said, target) = match how {
-        Arrives::Keys(key) => {
-            let named = key_named(key)?;
+      (
+        format!("as {named}", named = named_3),
+        format!("      - keyboard: {named}\n", named = named_3),
+      )
+    }
+    Arrives::Pad(_) => (
+      "as itself".to_string(),
+      format!("      - gamepad:\n          button: {profile_name}\n"),
+    ),
+    Arrives::Hat(_, _) => (
+      "as one end of the hat".to_string(),
+      format!("      - gamepad:\n          button: {profile_name}\n"),
+    ),
+  };
 
-            let named = match named {
-                Some(named) => named,
-                None => return Ok(None),
-            };
-
-            (format!("as {named}"), format!("      - keyboard: {named}\n"))
-        }
-        Arrives::Pad(_) => (
-            "as itself".to_string(),
-            format!("      - gamepad:\n          button: {profile_name}\n"),
-        ),
-        Arrives::Hat(_, _) => (
-            "as one end of the hat".to_string(),
-            format!("      - gamepad:\n          button: {profile_name}\n"),
-        ),
-    };
-
-    Ok(Some(format!(
-        "  - name: {profile_name} - {said}\n\
+  Ok(Some(format!(
+    "  - name: {profile_name} - {said}\n\
          \x20   source_event:\n      gamepad:\n        button: {profile_name}\n\
          \x20   target_events:\n{target}\n"
-    )))
+  )))
 }
 
 fn key_named(key: KeyCode) -> Result<Option<String>, Never> {
-    let said = format!("{key:?}");
+  let said = format!("{key:?}");
 
-    let tail = match said.strip_prefix("KEY_") {
-        Some(tail) => tail,
-        None => return Ok(None),
-    };
+  let tail = match said.strip_prefix("KEY_") {
+    Some(tail) => tail,
+    None => return Ok(None),
+  };
 
-    let mut letters = tail.chars();
+  let mut letters = tail.chars();
 
-    let first = match letters.next() {
-        Some(first) => first,
-        None => return Ok(None),
-    };
+  let first = match letters.next() {
+    Some(first) => first,
+    None => return Ok(None),
+  };
 
-    Ok(Some(format!("Key{}{}", first, letters.as_str().to_lowercase())))
+  Ok(Some(format!(
+    "Key{}{}",
+    first,
+    letters.as_str().to_lowercase()
+  )))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::GamepadError;
-    use crate::vocabulary::{BUTTONS, key_code};
+  use super::*;
+  use crate::GamepadError;
+  use crate::vocabulary::{BUTTONS, key_code};
 
-    #[test]
-    fn every_button_this_desktop_names_arrives_somewhere() {
-        for (spoken, profile_name) in BUTTONS {
-            let Ok(arrives) = arrives(profile_name);
+  #[test]
+  fn every_button_this_desktop_names_arrives_somewhere() {
+    for (spoken, profile_name) in BUTTONS {
+      let Ok(arrives) = arrives(profile_name);
 
-            assert!(arrives.is_some(), "{spoken} ({profile_name}) arrives nowhere");
-        }
+      assert!(
+        arrives.is_some(),
+        "{spoken} ({profile_name}) arrives nowhere"
+      );
+    }
+  }
+
+  #[test]
+  fn no_two_buttons_arrive_the_same_way() {
+    let mut every: Vec<String> = ROUTE.iter().map(|(_, how)| format!("{how:?}")).collect();
+
+    every.sort();
+
+    let mut once = every.clone();
+
+    once.dedup();
+
+    assert_eq!(once, every);
+  }
+
+  #[test]
+  fn a_press_is_read_back_as_the_button_it_came_from() {
+    assert_eq!(button_of_key(KeyCode::KEY_F13.0), Ok(Some("LeftPaddle1")));
+    assert_eq!(button_of_pad(KeyCode::BTN_SOUTH.0), Ok(Some("South")));
+    assert_eq!(
+      button_of_hat(AbsoluteAxisCode::ABS_HAT0Y.0, -1),
+      Ok(Some("DPadUp"))
+    );
+    assert_eq!(
+      button_of_hat(AbsoluteAxisCode::ABS_HAT0Y.0, 0),
+      Ok(None),
+      "the middle is no button"
+    );
+  }
+
+  #[test]
+  fn every_key_is_named_in_a_way_both_ends_know() -> Result<(), GamepadError> {
+    let keys = ROUTE.iter().filter_map(|(_, how)| match how {
+      Arrives::Keys(key) => Some(*key),
+      Arrives::Pad(_) | Arrives::Hat(_, _) => None,
+    });
+
+    for key in keys {
+      let Ok(named) = key_named(key);
+      let said = named.ok_or(GamepadError::NotFound("a name for a key"))?;
+      let code = key_code(&said)?;
+
+      assert_eq!(code, key, "{said}");
     }
 
-    #[test]
-    fn no_two_buttons_arrive_the_same_way() {
-        let mut every: Vec<String> = ROUTE.iter().map(|(_, how)| format!("{how:?}")).collect();
+    Ok(())
+  }
 
-        every.sort();
+  #[test]
+  fn a_button_is_routed_as_a_key_or_as_itself() -> Result<(), GamepadError> {
+    let Ok(paddle_mapping) = mapping_for("LeftPaddle1");
+    let paddle = paddle_mapping.ok_or(GamepadError::NotFound("a mapping for the paddle"))?;
 
-        let mut once = every.clone();
+    assert!(paddle.contains("button: LeftPaddle1"), "{paddle}");
+    assert!(paddle.contains("- keyboard: KeyF13"), "{paddle}");
+    assert!(paddle.contains("LeftPaddle1 - as KeyF13"), "{paddle}");
 
-        once.dedup();
+    let Ok(face_mapping) = mapping_for("South");
+    let face = face_mapping.ok_or(GamepadError::NotFound("a mapping for the face button"))?;
 
-        assert_eq!(once, every);
-    }
+    assert!(
+      face.contains("- gamepad:\n          button: South"),
+      "{face}"
+    );
+    assert!(face.contains("South - as itself"), "{face}");
+    assert_eq!(mapping_for("NoSuchButton"), Ok(None));
 
-    #[test]
-    fn a_press_is_read_back_as_the_button_it_came_from() {
-        assert_eq!(button_of_key(KeyCode::KEY_F13.0), Ok(Some("LeftPaddle1")));
-        assert_eq!(button_of_pad(KeyCode::BTN_SOUTH.0), Ok(Some("South")));
-        assert_eq!(button_of_hat(AbsoluteAxisCode::ABS_HAT0Y.0, -1), Ok(Some("DPadUp")));
-        assert_eq!(
-            button_of_hat(AbsoluteAxisCode::ABS_HAT0Y.0, 0),
-            Ok(None),
-            "the middle is no button"
-        );
-    }
-
-    #[test]
-    fn every_key_is_named_in_a_way_both_ends_know() -> Result<(), GamepadError> {
-        let keys = ROUTE.iter().filter_map(|(_, how)| match how {
-            Arrives::Keys(key) => Some(*key),
-            Arrives::Pad(_) | Arrives::Hat(_, _) => None,
-        });
-
-        for key in keys {
-            let Ok(named) = key_named(key);
-            let said = named.ok_or(GamepadError::NotFound("a name for a key"))?;
-            let code = key_code(&said)?;
-
-            assert_eq!(code, key, "{said}");
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_button_is_routed_as_a_key_or_as_itself() -> Result<(), GamepadError> {
-        let Ok(paddle) = mapping_for("LeftPaddle1");
-        let paddle = paddle.ok_or(GamepadError::NotFound("a mapping for the paddle"))?;
-
-        assert!(paddle.contains("button: LeftPaddle1"), "{paddle}");
-        assert!(paddle.contains("- keyboard: KeyF13"), "{paddle}");
-        assert!(paddle.contains("LeftPaddle1 - as KeyF13"), "{paddle}");
-
-        let Ok(face) = mapping_for("South");
-        let face = face.ok_or(GamepadError::NotFound("a mapping for the face button"))?;
-
-        assert!(face.contains("- gamepad:\n          button: South"), "{face}");
-        assert!(face.contains("South - as itself"), "{face}");
-        assert_eq!(mapping_for("NoSuchButton"), Ok(None));
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

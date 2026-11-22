@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+console-core-pixel-buffers.workspace = true
+console-core-video-planes.workspace = true
 console-core-byte-sources.workspace = true
 console-concurrency.workspace = true
 console-core-geometry.workspace = true

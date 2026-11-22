@@ -56,60 +56,67 @@ use crate::lasting::{Lengths, reading};
 pub const CARRIED: &str = include_str!("../fixtures/lengths");
 
 pub fn lengths() -> Result<Lengths, Never> {
-    reading(CARRIED)
+  reading(CARRIED)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn the_table_that_travels_reads() {
-        let Ok(lengths) = lengths();
-        let Ok(known) = lengths.known();
+  #[test]
+  fn the_table_that_travels_reads() {
+    let Ok(lengths) = lengths();
+    let Ok(known) = lengths.known();
 
-        assert!(known > 0, "the carried table is empty, so a fresh device learns nothing from it");
-    }
+    assert!(
+      known > 0,
+      "the carried table is empty, so a fresh device learns nothing from it"
+    );
+  }
 
-    #[test]
-    fn nothing_carried_is_a_length_of_nothing() {
-        let Ok(lengths) = lengths();
-        let Ok(names) = lengths.names();
-        let empty: Vec<&String> = names
-            .iter()
-            .filter(|name| {
-                let Ok(took) = lengths.of(name);
+  #[test]
+  fn nothing_carried_is_a_length_of_nothing() {
+    let Ok(lengths) = lengths();
+    let Ok(names) = lengths.names();
+    let empty: Vec<&String> = names
+      .iter()
+      .filter(|name| {
+        let Ok(took) = lengths.of(name);
 
-                took.is_none_or(|took| took.is_zero())
-            })
-            .collect();
+        took.is_none_or(|took_2| took_2.is_zero())
+      })
+      .collect();
 
-        assert!(empty.is_empty(), "{empty:?} is carried as taking no time at all");
-    }
+    assert!(
+      empty.is_empty(),
+      "{empty:?} is carried as taking no time at all"
+    );
+  }
 
-    #[test]
-    fn the_slow_ones_and_the_quick_ones_are_a_long_way_apart() -> Result<(), Box<dyn std::error::Error>> {
-        let Ok(lengths) = lengths();
-        let Ok(names) = lengths.names();
-        let mut every: Vec<u128> = names
-            .iter()
-            .filter_map(|name| {
-                let Ok(took) = lengths.of(name);
+  #[test]
+  fn the_slow_ones_and_the_quick_ones_are_a_long_way_apart()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let Ok(lengths) = lengths();
+    let Ok(names) = lengths.names();
+    let mut every: Vec<u128> = names
+      .iter()
+      .filter_map(|name| {
+        let Ok(took) = lengths.of(name);
 
-                took.map(|took| took.as_millis())
-            })
-            .collect();
+        took.map(|took_2| took_2.as_millis())
+      })
+      .collect();
 
-        every.sort_unstable();
+    every.sort_unstable();
 
-        let quickest = every.first().ok_or("the carried table is empty")?;
-        let slowest = every.last().ok_or("the carried table is empty")?;
+    let quickest = every.first().ok_or("the carried table is empty")?;
+    let slowest = every.last().ok_or("the carried table is empty")?;
 
-        assert!(
-            slowest > &quickest.saturating_mul(10),
-            "the carried table has no shape to it, so counting checks would say as much"
-        );
+    assert!(
+      slowest > &quickest.saturating_mul(10),
+      "the carried table has no shape to it, so counting checks would say as much"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

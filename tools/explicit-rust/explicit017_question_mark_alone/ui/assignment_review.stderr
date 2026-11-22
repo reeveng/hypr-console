@@ -1,0 +1,76 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_review.rs:4:34
+   |
+LL |     let result = combine(before, { before = 7; Some(4) }?);
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = { before = 7; Some(4) }?; checked_value }`
+   |
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_review.rs:9:38
+   |
+LL |     let value = combine(data.before, { data.before = 7; Some(4) }?);
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = { data.before = 7; Some(4) }?; checked_value }`
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_review.rs:14:11
+   |
+LL |     while read()? { count += 1; }
+   |           ^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_review.rs:18:11
+   |
+LL |     match value? {
+   |           ^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_review.rs:23:20
+   |
+LL |     data.before += read()?;
+   |                    ^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = read()?; checked_value }`
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_review.rs:28:31
+   |
+LL |     Some(combine(data.before, take(data)?))
+   |                               ^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = take(data)?; checked_value }`
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_review.rs:31:28
+   |
+LL |     let value = u32::from(*(src.get(*index.borrow())?));
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_review.rs:36:17
+   |
+LL |     let value = values.borrow().first().copied()?.saturating_add(
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_review.rs:43:18
+   |
+LL |     Some(inspect(Some(&std::cell::Cell::new(3))?))
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/assignment_review.rs:46:18
+   |
+LL |     Some(inspect((match std::cell::Cell::new(4) { ref cell => Some(cell) })?))
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: aborting due to 10 previous errors
+

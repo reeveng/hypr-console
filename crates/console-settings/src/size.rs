@@ -83,10 +83,10 @@
 //!
 //! The live change is `hyprctl eval`, and that is not a preference. A
 //! Lua-configured compositor answers `hyprctl keyword` with *"keyword can't
-//! work with non-legacy parsers. Use eval."*, which is the same trap
-//! `docs/screen.md` describes for `dispatch`: the obvious command every example
-//! on the internet gives comes back with a complaint nothing here would have
-//! seen, and the only symptom is a setting that does nothing.
+//! work with non-legacy parsers. Use eval."*, which is the same trap the
+//! `screen.md` note in Orbit describes for `dispatch`: the obvious command
+//! every example on the internet gives comes back with a complaint nothing here
+//! would have seen, and the only symptom is a setting that does nothing.
 
 use console_core_never::Never;
 use console_core_words::Words;
@@ -96,362 +96,449 @@ use crate::screens::{Output, Unnamed};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Size {
-    #[words(written = "tiny")]
-    Tiny,
-    #[words(written = "smaller")]
-    Smaller,
-    #[words(written = "normal")]
-    Normal,
-    #[words(written = "bigger")]
-    Bigger,
-    #[words(written = "huge")]
-    Huge,
+  #[words(written = "tiny")]
+  Tiny,
+  #[words(written = "smaller")]
+  Smaller,
+  #[words(written = "normal")]
+  Normal,
+  #[words(written = "bigger")]
+  Bigger,
+  #[words(written = "huge")]
+  Huge,
 }
 
-pub const EVERY: [Size; 5] =
-    [Size::Tiny, Size::Smaller, Size::Normal, Size::Bigger, Size::Huge];
+pub const EVERY: [Size; 5] = [
+  Size::Tiny,
+  Size::Smaller,
+  Size::Normal,
+  Size::Bigger,
+  Size::Huge,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Across {
-    Pixels,
-    Points(Canvas),
+  Pixels,
+  Points(Canvas),
 }
 
 impl Across {
-    pub fn scale_on(self, screen: &Screen) -> Result<f64, Never> {
-        Ok(match self {
-            Across::Pixels => 1.0,
-            Across::Points(canvas) => {
-                let Ok(scale) = canvas.scale_on(screen);
+  pub fn scale_on(self, screen: &Screen) -> Result<f64, Never> {
+    Ok(match self {
+      Across::Pixels => 1.0,
+      Across::Points(canvas) => {
+        let Ok(scale) = canvas.scale_on(screen);
 
-                scale
-            }
-        })
-    }
+        scale
+      }
+    })
+  }
 
-    pub fn fits(self, screen: &Screen) -> Result<Fits, Never> {
-        match self {
-            Across::Pixels => Ok(Fits::OnThePanel),
-            Across::Points(canvas) => canvas.fits(screen),
-        }
+  pub fn fits(self, screen: &Screen) -> Result<Fits, Never> {
+    match self {
+      Across::Pixels => Ok(Fits::OnThePanel),
+      Across::Points(canvas) => canvas.fits(screen),
     }
+  }
 }
 
 impl Size {
-    pub fn width(self) -> Result<Across, Never> {
-        Ok(match self {
-            Size::Tiny => Across::Pixels,
-            Size::Smaller => Across::Points(Canvas(1280)),
-            Size::Normal => Across::Points(DRAWN_AT),
-            Size::Bigger => Across::Points(Canvas(800)),
-            Size::Huge => Across::Points(Canvas(640)),
-        })
-    }
+  pub fn width(self) -> Result<Across, Never> {
+    Ok(match self {
+      Size::Tiny => Across::Pixels,
+      Size::Smaller => Across::Points(Canvas(1280)),
+      Size::Normal => Across::Points(DRAWN_AT),
+      Size::Bigger => Across::Points(Canvas(800)),
+      Size::Huge => Across::Points(Canvas(640)),
+    })
+  }
 
-    pub fn scale_on(self, screen: &Screen) -> Result<f64, Never> {
-        let Ok(across) = self.width();
+  pub fn scale_on(self, screen: &Screen) -> Result<f64, Never> {
+    let Ok(across) = self.width();
 
-        across.scale_on(screen)
-    }
+    across.scale_on(screen)
+  }
 
-    pub fn of(said: &str) -> Result<Option<Self>, Never> {
-        Ok(EVERY.into_iter().find(|size| {
-            let Ok(written) = size.written();
+  pub fn of(said: &str) -> Result<Option<Self>, Never> {
+    Ok(EVERY.into_iter().find(|size| {
+      let Ok(written) = size.written();
 
-            written == said.trim()
-        }))
-    }
+      written == said.trim()
+    }))
+  }
 }
 
 pub const NAMED: &str = "scale";
 
 pub fn shaped(shape: Shape) -> Result<&'static str, Never> {
-    Ok(match shape {
-        Shape::Wider => "wider",
-        Shape::Taller => "taller",
-    })
+  Ok(match shape {
+    Shape::Wider => "wider",
+    Shape::Taller => "taller",
+  })
 }
 
 pub fn at(
-    home: &std::path::Path,
-    panel: Output<'_>,
-    shape: Shape,
+  home: &std::path::Path,
+  panel: Output<'_>,
+  shape: Shape,
 ) -> Result<std::path::PathBuf, Unnamed> {
-    let Ok(shaped) = shaped(shape);
+  let Ok(shaped) = shaped(shape);
 
-    panel.path_for(home, &format!("{NAMED}-{shaped}"))
+  panel.path_for(home, &format!("{NAMED}-{shaped}"))
 }
 
 pub fn current_size(monitors: &[console_compositor::Monitor]) -> Result<Option<Size>, Never> {
-    let Ok(shown) = console_screen::shown(monitors);
+  let Ok(shown) = console_screen::shown(monitors);
 
-    let screen = match shown {
-        Some(screen) => screen,
-        None => return Ok(None),
-    };
+  let screen = match shown {
+    Some(screen) => screen,
+    None => return Ok(None),
+  };
 
-    Ok(EVERY.into_iter().find(|size| {
-        let Ok(scale) = size.scale_on(&screen);
+  Ok(EVERY.into_iter().find(|size| {
+    let Ok(scale) = size.scale_on(&screen);
 
-        (scale - screen.scale).abs() < f64::EPSILON
-    }))
+    (scale - screen.scale).abs() < f64::EPSILON
+  }))
 }
 
-pub fn lua(panel: Output<'_>, screen: &Screen, scale: f64) -> Result<String, Never> {
-    let (wide, tall) = (screen.mode.width, screen.mode.height);
-    let named = panel.0;
-    let Ok(transform) = screen.transform.number();
+#[derive(Clone, Copy)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "this dimensionless pixel density ratio is the scalar accepted by compositor monitor rules"
+  )
+)]
+pub struct DisplayScale(pub f64);
 
-    Ok(format!(
-        r#"hl.monitor({{ output = "{named}", mode = "{wide}x{tall}@{}", position = "auto", scale = {scale}, transform = {transform} }}) hl.config({{ input = {{ touchdevice = {{ output = "{named}", transform = {transform} }} }} }})"#,
-        screen.refresh
-    ))
+impl From<f64> for DisplayScale {
+  fn from(scale: f64) -> Self {
+    Self(scale)
+  }
 }
 
+pub fn lua(
+  panel: Output<'_>,
+  screen: &Screen,
+  scale: impl Into<DisplayScale>,
+) -> Result<String, Never> {
+  let DisplayScale(ratio) = Into::<DisplayScale>::into(scale);
+  let (wide, tall) = (screen.mode.width, screen.mode.height);
+  let named = panel.0;
+  let Ok(transform) = screen.transform.number();
+
+  Ok(format!(
+    r#"hl.monitor({{ output = "{named}", mode = "{wide}x{tall}@{}", position = "auto", scale = {ratio}, transform = {transform} }}) hl.config({{ input = {{ touchdevice = {{ output = "{named}", transform = {transform} }} }} }})"#,
+    screen.refresh
+  ))
+}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    fn laptop() -> Result<Screen, Never> {
-        Ok(Screen {
-            mode: console_core_geometry::Size { width: 1920, height: 1200 },
-            refresh: 60,
-            scale: 1.0,
-            transform: console_screen::Transform::Normal,
+  fn laptop() -> Result<Screen, Never> {
+    Ok(Screen {
+      mode: console_core_geometry::Size {
+        width: 1920,
+        height: 1200,
+      },
+      refresh: 60,
+      scale: 1.0,
+      transform: console_screen::Transform::Normal,
+    })
+  }
+
+  fn scales(screen: &Screen) -> Result<Vec<f64>, Never> {
+    Ok(
+      EVERY
+        .into_iter()
+        .map(|size| {
+          let Ok(scale) = size.scale_on(screen);
+
+          scale
         })
-    }
+        .collect(),
+    )
+  }
 
-    fn scales(screen: &Screen) -> Result<Vec<f64>, Never> {
-        Ok(EVERY
-            .into_iter()
-            .map(|size| {
-                let Ok(scale) = size.scale_on(screen);
+  fn current_size_of(text: &str) -> Result<Option<Size>, console_compositor::HyprctlError> {
+    let monitors = console_compositor::read(console_compositor::Monitors, text)?;
 
-                scale
-            })
-            .collect())
-    }
+    let Ok(size) = current_size(&monitors);
 
-    fn current_size_of(text: &str) -> Result<Option<Size>, console_compositor::HyprctlError> {
-        let monitors = console_compositor::read(console_compositor::Monitors, text)?;
+    Ok(size)
+  }
 
-        let Ok(size) = current_size(&monitors);
+  fn lua_for(screen: &Screen, at: DisplayScale) -> Result<String, Never> {
+    lua(Output("eDP-1"), screen, at)
+  }
 
-        Ok(size)
-    }
+  fn divides_into_whole_pixels(screen: &Screen) -> Result<(), Never> {
+    let Ok(held) = screen.pixels();
 
-    fn lua_for(screen: &Screen, at: f64) -> Result<String, Never> {
-        lua(Output("eDP-1"), screen, at)
-    }
+    for size in EVERY {
+      let Ok(scale) = size.scale_on(screen);
+      let Ok(written) = size.written();
 
-    fn divides_into_whole_pixels(screen: &Screen) -> Result<(), Never> {
-        let Ok(held) = screen.pixels();
-
-        for size in EVERY {
-            let Ok(scale) = size.scale_on(screen);
-            let Ok(written) = size.written();
-
-            for side in [held.width, held.height] {
-                let logical = f64::from(side) / scale;
-
-                assert_eq!(logical.fract(), 0.0, "{written} leaves {side} at {logical}, which is not a whole number of pixels");
-            }
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_offered_sizes_divide_the_panel_into_whole_pixels() -> Result<(), Failure> {
-        let screen = console_screen::from_hyprland_config()?;
-        let Ok(()) = divides_into_whole_pixels(&screen);
-
-        Ok(())
-    }
-
-    #[test]
-    fn every_rung_divides_a_laptops_panel_into_whole_pixels_too() {
-        let Ok(laptop) = laptop();
-        let Ok(()) = divides_into_whole_pixels(&laptop);
-    }
-
-    #[test]
-    fn the_rungs_are_the_numbers_they_always_were_on_this_device() -> Result<(), Failure> {
-        let screen = console_screen::from_hyprland_config()?;
-
-        assert_eq!(scales(&screen), Ok(vec![1.0, 2.0, 2.5, 3.2, 4.0]), "a canvas said as a density");
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_same_five_words_are_five_other_densities_on_a_laptop() {
-        let Ok(laptop) = laptop();
-
-        assert_eq!(scales(&laptop), Ok(vec![1.0, 1.5, 1.875, 2.4, 3.0]));
-    }
-
-    #[test]
-    fn a_rung_wider_than_the_panel_is_one_the_panel_cannot_wear() {
-        let small = Screen {
-            mode: console_core_geometry::Size { width: 1280, height: 800 },
-            refresh: 60,
-            scale: 1.0,
-            transform: console_screen::Transform::Normal,
-        };
-
-        let Ok(smaller) = Size::Smaller.width();
-        let Ok(normal) = Size::Normal.width();
-
-        assert_eq!(smaller.fits(&small), Ok(Fits::OnThePanel), "1280 across on a 1280 panel");
-        assert_eq!(normal.fits(&small), Ok(Fits::OnThePanel));
-
-        let Ok(tiny) = Size::Tiny.width();
-
-        assert_eq!(tiny.fits(&small), Ok(Fits::OnThePanel), "the panel's own pixels always fit");
-    }
-
-    #[test]
-    fn normal_is_the_size_this_device_is_set_up_as() -> Result<(), Failure> {
-        let screen = console_screen::from_hyprland_config()?;
-
-        assert_eq!(Size::Normal.scale_on(&screen), Ok(screen.scale));
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_ladder_climbs_and_every_step_is_one_anyone_would_see() -> Result<(), Failure> {
-        let screen = console_screen::from_hyprland_config()?;
-        let Ok(scales) = scales(&screen);
-
-        for (below, above) in scales.iter().zip(scales.iter().skip(1)) {
-            assert!(below < above, "{below} is not below {above}");
-            assert!(above / below > 1.2, "{below} and {above} are the same size to an eye");
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_bottom_of_the_ladder_is_the_panel_at_its_own_pixels() -> Result<(), Failure> {
-        let screen = console_screen::from_hyprland_config()?;
-        let Ok(tiny) = Size::Tiny.scale_on(&screen);
-        let Ok(logical) = screen.logical_at(tiny);
-        let Ok(scales) = scales(&screen);
-
-        assert_eq!(EVERY.first(), Some(&Size::Tiny));
-        assert_eq!(Ok(logical), screen.pixels());
-        assert!(scales.iter().all(|scale| *scale >= 1.0), "a rung below the panel");
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_rung_being_stood_on_is_read_out_of_what_the_compositor_says() -> Result<(), Failure> {
-        let said = r#"[{"name": "eDP-1", "width": 1600, "height": 2560, "refreshRate": 144.0,
-            "scale": 2.5, "transform": 1}]"#;
-
-        assert!(matches!(current_size_of(said), Ok(Some(Size::Normal))));
-        assert!(matches!(current_size_of(&said.replace("2.5", "3.2")), Ok(Some(Size::Bigger))));
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_same_density_is_a_different_rung_on_a_different_panel() -> Result<(), Failure> {
-        let said = r#"[{"name": "eDP-1", "width": 1920, "height": 1200, "refreshRate": 60.0,
-            "scale": 1.5, "transform": 0}]"#;
-
-        assert!(matches!(current_size_of(said), Ok(Some(Size::Smaller))), "1280 across on a laptop's panel");
-        assert!(matches!(current_size_of(&said.replace("1.5", "2.5")), Ok(None)), "the device's rung, elsewhere");
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_density_that_is_none_of_the_five_marks_none_of_them() -> Result<(), Failure> {
-        let said = r#"[{"name": "eDP-1", "width": 1600, "height": 2560, "refreshRate": 144.0,
-            "scale": 1.75, "transform": 1}]"#;
-
-        assert!(matches!(current_size_of(said), Ok(None)));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_screen_whose_panel_is_half_said_stands_on_no_rung_at_all() -> Result<(), Failure> {
-        assert!(matches!(current_size_of(r#"[{"name": "eDP-1", "scale": 2.5}]"#), Ok(None)),
-            "a density is not a rung until the panel it is on is known");
-
-        let layers = current_size_of(r#"{"eDP-1": {"levels": {}}}"#);
-        let nameless = current_size_of(r#"[{"width": 1600, "scale": 2.5}]"#);
-
-        assert!(matches!(layers, Err(_not_screens)), "an answer about layers is not an answer about screens");
-        assert!(matches!(nameless, Err(_not_a_screen)), "a screen that will not name itself is not a screen");
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_compositor_is_handed_a_whole_screen_and_not_just_a_number() -> Result<(), Failure> {
-        let screen = console_screen::from_hyprland_config()?;
-        let Ok(bigger) = Size::Bigger.scale_on(&screen);
-        let Ok(said) = lua_for(&screen, bigger);
-
-        assert!(said.contains("transform = 1"), "{said}");
-        assert!(said.contains("1600x2560@144"), "{said}");
-        assert!(said.contains("scale = 3.2"), "{said}");
-        assert!(said.contains("eDP-1"), "{said}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_touchscreen_is_read_through_the_quarter_the_picture_is_drawn_at() -> Result<(), Failure> {
-        let declared = console_screen::from_hyprland_config()?;
-
-        for transform in console_core_screen_orientation::EVERY {
-            let screen = Screen { transform, ..declared };
-            let Ok(said) = lua_for(&screen, 2.5);
-            let Ok(number) = transform.number();
-
-            assert!(said.contains("touchdevice"), "the finger was not told anything: {said}");
-            assert_eq!(
-                said.matches(&format!("transform = {number}")).count(),
-                2,
-                "the screen and the finger on it are at two different quarters: {said}"
-            );
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_two_shapes_a_screen_stands_in_are_two_rungs_and_not_one() {
-        let home = std::path::Path::new("/home/ada");
-        let wider = at(home, Output("eDP-1"), Shape::Wider);
-        let taller = at(home, Output("eDP-1"), Shape::Taller);
+      for side in [held.width, held.height] {
+        let logical = f64::from(side) / scale;
 
         assert_eq!(
-            wider,
-            Ok(std::path::PathBuf::from("/home/ada/.config/console/screens/eDP-1/scale-wider"))
+          logical.fract(),
+          0.0,
+          "{written} leaves {side} at {logical}, which is not a whole number of pixels"
         );
-        assert_ne!(wider, taller, "a turn would have found the other shape's rung");
+      }
     }
 
-    #[test]
-    fn the_answer_is_written_down_as_the_rung_it_names() {
-        for size in EVERY {
-            let Ok(written) = size.written();
+    Ok(())
+  }
 
-            assert_eq!(Size::of(written), Ok(Some(size)));
-        }
+  #[test]
+  fn the_offered_sizes_divide_the_panel_into_whole_pixels() -> Result<(), Failure> {
+    let screen = console_screen::from_hyprland_config()?;
+    let Ok(()) = divides_into_whole_pixels(&screen);
 
-        assert_eq!(Size::of("tiny\n"), Ok(Some(Size::Tiny)));
-        assert_eq!(Size::of("2.0"), Ok(None));
+    Ok(())
+  }
+
+  #[test]
+  fn every_rung_divides_a_laptops_panel_into_whole_pixels_too() {
+    let Ok(laptop) = laptop();
+    let Ok(()) = divides_into_whole_pixels(&laptop);
+  }
+
+  #[test]
+  fn the_rungs_are_the_numbers_they_always_were_on_this_device() -> Result<(), Failure> {
+    let screen = console_screen::from_hyprland_config()?;
+
+    assert_eq!(
+      scales(&screen),
+      Ok(vec![1.0, 2.0, 2.5, 3.2, 4.0]),
+      "a canvas said as a density"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_same_five_words_are_five_other_densities_on_a_laptop() {
+    let Ok(laptop) = laptop();
+
+    assert_eq!(scales(&laptop), Ok(vec![1.0, 1.5, 1.875, 2.4, 3.0]));
+  }
+
+  #[test]
+  fn a_rung_wider_than_the_panel_is_one_the_panel_cannot_wear() {
+    let small = Screen {
+      mode: console_core_geometry::Size {
+        width: 1280,
+        height: 800,
+      },
+      refresh: 60,
+      scale: 1.0,
+      transform: console_screen::Transform::Normal,
+    };
+
+    let Ok(smaller) = Size::Smaller.width();
+    let Ok(normal) = Size::Normal.width();
+
+    assert_eq!(
+      smaller.fits(&small),
+      Ok(Fits::OnThePanel),
+      "1280 across on a 1280 panel"
+    );
+    assert_eq!(normal.fits(&small), Ok(Fits::OnThePanel));
+
+    let Ok(tiny) = Size::Tiny.width();
+
+    assert_eq!(
+      tiny.fits(&small),
+      Ok(Fits::OnThePanel),
+      "the panel's own pixels always fit"
+    );
+  }
+
+  #[test]
+  fn normal_is_the_size_this_device_is_set_up_as() -> Result<(), Failure> {
+    let screen = console_screen::from_hyprland_config()?;
+
+    assert_eq!(Size::Normal.scale_on(&screen), Ok(screen.scale));
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_ladder_climbs_and_every_step_is_one_anyone_would_see() -> Result<(), Failure> {
+    let screen = console_screen::from_hyprland_config()?;
+    let Ok(scales) = scales(&screen);
+
+    for (below, above) in scales.iter().zip(scales.iter().skip(1)) {
+      assert!(below < above, "{below} is not below {above}");
+      assert!(
+        above / below > 1.2,
+        "{below} and {above} are the same size to an eye"
+      );
     }
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_bottom_of_the_ladder_is_the_panel_at_its_own_pixels() -> Result<(), Failure> {
+    let screen = console_screen::from_hyprland_config()?;
+    let Ok(tiny) = Size::Tiny.scale_on(&screen);
+    let Ok(logical) = screen.logical_at(tiny);
+    let Ok(scales) = scales(&screen);
+
+    assert_eq!(EVERY.first(), Some(&Size::Tiny));
+    assert_eq!(Ok(logical), screen.pixels());
+    assert!(
+      scales.iter().all(|scale| *scale >= 1.0),
+      "a rung below the panel"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_rung_being_stood_on_is_read_out_of_what_the_compositor_says() -> Result<(), Failure> {
+    let said = r#"[{"name": "eDP-1", "width": 1600, "height": 2560, "refreshRate": 144.0,
+            "scale": 2.5, "transform": 1}]"#;
+
+    assert!(matches!(current_size_of(said), Ok(Some(Size::Normal))));
+    assert!(matches!(
+      current_size_of(&said.replace("2.5", "3.2")),
+      Ok(Some(Size::Bigger))
+    ));
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_same_density_is_a_different_rung_on_a_different_panel() -> Result<(), Failure> {
+    let said = r#"[{"name": "eDP-1", "width": 1920, "height": 1200, "refreshRate": 60.0,
+            "scale": 1.5, "transform": 0}]"#;
+
+    assert!(
+      matches!(current_size_of(said), Ok(Some(Size::Smaller))),
+      "1280 across on a laptop's panel"
+    );
+    assert!(
+      matches!(current_size_of(&said.replace("1.5", "2.5")), Ok(None)),
+      "the device's rung, elsewhere"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_density_that_is_none_of_the_five_marks_none_of_them() -> Result<(), Failure> {
+    let said = r#"[{"name": "eDP-1", "width": 1600, "height": 2560, "refreshRate": 144.0,
+            "scale": 1.75, "transform": 1}]"#;
+
+    assert!(matches!(current_size_of(said), Ok(None)));
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_screen_whose_panel_is_half_said_stands_on_no_rung_at_all() -> Result<(), Failure> {
+    assert!(
+      matches!(
+        current_size_of(r#"[{"name": "eDP-1", "scale": 2.5}]"#),
+        Ok(None)
+      ),
+      "a density is not a rung until the panel it is on is known"
+    );
+
+    let layers = current_size_of(r#"{"eDP-1": {"levels": {}}}"#);
+    let nameless = current_size_of(r#"[{"width": 1600, "scale": 2.5}]"#);
+
+    assert!(
+      matches!(layers, Err(_not_screens)),
+      "an answer about layers is not an answer about screens"
+    );
+    assert!(
+      matches!(nameless, Err(_not_a_screen)),
+      "a screen that will not name itself is not a screen"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_compositor_is_handed_a_whole_screen_and_not_just_a_number() -> Result<(), Failure> {
+    let screen = console_screen::from_hyprland_config()?;
+    let Ok(bigger) = Size::Bigger.scale_on(&screen);
+    let Ok(said) = lua_for(&screen, DisplayScale(bigger));
+
+    assert!(said.contains("transform = 1"), "{said}");
+    assert!(said.contains("1600x2560@144"), "{said}");
+    assert!(said.contains("scale = 3.2"), "{said}");
+    assert!(said.contains("eDP-1"), "{said}");
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_touchscreen_is_read_through_the_quarter_the_picture_is_drawn_at() -> Result<(), Failure>
+  {
+    let declared = console_screen::from_hyprland_config()?;
+
+    for transform in console_core_screen_orientation::EVERY {
+      let screen = Screen {
+        transform,
+        ..declared
+      };
+      let Ok(said) = lua_for(&screen, DisplayScale(2.5));
+      let Ok(number) = transform.number();
+
+      assert!(
+        said.contains("touchdevice"),
+        "the finger was not told anything: {said}"
+      );
+      assert_eq!(
+        said.matches(&format!("transform = {number}")).count(),
+        2,
+        "the screen and the finger on it are at two different quarters: {said}"
+      );
+    }
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_two_shapes_a_screen_stands_in_are_two_rungs_and_not_one() {
+    let home = std::path::Path::new("/home/ada");
+    let wider = at(home, Output("eDP-1"), Shape::Wider);
+    let taller = at(home, Output("eDP-1"), Shape::Taller);
+
+    assert_eq!(
+      wider,
+      Ok(std::path::PathBuf::from(
+        "/home/ada/.config/console/screens/eDP-1/scale-wider"
+      ))
+    );
+    assert_ne!(
+      wider, taller,
+      "a turn would have found the other shape's rung"
+    );
+  }
+
+  #[test]
+  fn the_answer_is_written_down_as_the_rung_it_names() {
+    for size in EVERY {
+      let Ok(written) = size.written();
+
+      assert_eq!(Size::of(written), Ok(Some(size)));
+    }
+
+    assert_eq!(Size::of("tiny\n"), Ok(Some(Size::Tiny)));
+    assert_eq!(Size::of("2.0"), Ok(None));
+  }
 }

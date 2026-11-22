@@ -1,0 +1,85 @@
+// run-rustfix
+
+struct Pair {
+    value: u8,
+}
+
+enum Either {
+    Left(u8),
+    Right(u8),
+}
+
+mod defaults {
+    #[allow(non_upper_case_globals)]
+    pub const limit_2: u8 = 3;
+}
+use defaults::*;
+
+fn repeated(value: u8) -> u8 {
+    let value_2 = 7;
+    let value_3 = value + value_2;
+    let read = || value_3;
+    let mut value_4 = read();
+    value_4 += 1;
+    value_4
+}
+
+fn shorthand(value: u8) -> Pair {
+    let pair = Pair { value };
+    let Pair { value: ref value_2 } = pair;
+    let value_3 = *value_2;
+    Pair { value: value_3 }
+}
+
+fn alternatives(value: u8, either: Either) -> u8 {
+    (match either {
+        Either::Left(value_2) | Either::Right(value_2) => value_2,
+    }) + value
+}
+
+fn keyword(r#type: u8) -> u8 {
+    let type_2 = r#type + 1;
+    type_2
+}
+
+fn imported(limit: u8) -> u8 {
+    let limit_3 = limit + 1;
+    limit_3
+}
+
+fn standard_macros(value: u8) -> (u8, String) {
+    use crate::defaults::limit_2;
+    let value_2 = value + limit_2;
+    assert_eq!(vec![value_2], vec![7]);
+    debug_assert_ne!(value_2, 0);
+    assert_eq!(matches!(Some(value_2), Some(7)), true);
+    (value_2, format!("{:02}", value_2))
+}
+
+fn scrutinee(value: u8) -> u8 {
+    match { let value_2 = value + 1; value_2 } {
+        result => result,
+    }
+}
+
+fn separate_branch(input: Option<u8>) -> u8 {
+    if let Some(value) = input {
+        value
+    } else {
+        let value = 3;
+        value
+    }
+}
+
+fn main() {
+    assert_eq!(repeated(10), 18);
+    assert_eq!(shorthand(8).value, 8);
+    assert_eq!(alternatives(2, Either::Left(12)), 14);
+    assert_eq!(alternatives(3, Either::Right(12)), 15);
+    assert_eq!(keyword(4), 5);
+    assert_eq!(imported(4), 5);
+    assert_eq!(standard_macros(4), (7, "07".to_owned()));
+    assert_eq!(limit_2, 3);
+    assert_eq!(scrutinee(4), 5);
+    assert_eq!(separate_branch(None), 3);
+}

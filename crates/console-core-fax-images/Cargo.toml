@@ -1,0 +1,17 @@
+[package]
+name = "console-core-fax-images"
+version = "0.4.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_core_fax_images"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,24 @@
+[package]
+name = "console-core-audio-decoding-mpeg-4-container"
+version = "0.5.5"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Pure Rust ISO/MP4 demuxer (a part of project Symphonia)."
+
+[lib]
+name = "console_core_audio_decoding_mpeg_4_container"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-iso-media-boxes.workspace = true
+encoding_rs = "0.8.17"
+console-core-audio-decoding-interfaces = { path = "../console-core-audio-decoding-interfaces" }
+console-core-audio-decoding-tags = { path = "../console-core-audio-decoding-tags" }
+console-core-audio-decoding-flac-and-vorbis-headers = { path = "../console-core-audio-decoding-flac-and-vorbis-headers" }
+console-core-byte-streams.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,41 @@
+//! SHA-384, because PDF encryption at revision 6 derives its keys with it.
+//!
+//! FIPS 180-4 makes it SHA-512's rounds started from other words, and the
+//! digest is the first six of the eight words they end on.
+
+use console_core_never::Never;
+
+use crate::sha512::digest;
+
+const STANDING: [u64; 8] = [
+  0xcbbb_9d5d_c105_9ed8,
+  0x629a_292a_367c_d507,
+  0x9159_015a_3070_dd17,
+  0x152f_ecd8_f70e_5939,
+  0x6733_2667_ffc0_0b31,
+  0x8eb4_4a87_6858_1511,
+  0xdb0c_2e0d_64f9_8fa7,
+  0x47b5_481d_befa_4fa4,
+];
+
+pub fn of(data: &[u8]) -> Result<[u8; 48], Never> {
+  digest(data, STANDING)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn the_example_fips_180_4_works_through() {
+    assert_eq!(
+      of(b"abc"),
+      Ok([
+        0xcb, 0x00, 0x75, 0x3f, 0x45, 0xa3, 0x5e, 0x8b, 0xb5, 0xa0, 0x3d, 0x69, 0x9a, 0xc6, 0x50,
+        0x07, 0x27, 0x2c, 0x32, 0xab, 0x0e, 0xde, 0xd1, 0x63, 0x1a, 0x8b, 0x60, 0x5a, 0x43, 0xff,
+        0x5b, 0xed, 0x80, 0x86, 0x07, 0x2b, 0xa1, 0xe7, 0xcc, 0x23, 0x58, 0xba, 0xec, 0xa1, 0x34,
+        0xc8, 0x25, 0xa7,
+      ])
+    );
+  }
+}

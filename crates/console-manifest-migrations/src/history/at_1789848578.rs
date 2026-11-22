@@ -26,17 +26,17 @@
 use crate::sweeping::{Migration, Moment, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1789848578),
-    says: "sweeping waybar's bar and the five programs it read the bar out of",
-    steps: &[
-        Step::Attic("/usr/local/bin/bar-clock"),
-        Step::Attic("/usr/local/bin/bar-door"),
-        Step::Attic("/usr/local/bin/bar-notice"),
-        Step::Attic("/usr/local/bin/bar-say"),
-        Step::Attic("/usr/local/bin/bar-updating"),
-        Step::Attic("/home/@user@/.config/waybar/config.jsonc"),
-        Step::Attic("/home/@user@/.config/waybar/style.css"),
-        Step::Attic("/home/@user@/.config/console/bar.css"),
-        Step::RemoveIfEmpty("/home/@user@/.config/waybar"),
-    ],
+  moment: Moment(1789848578),
+  says: "sweeping waybar's bar and the five programs it read the bar out of",
+  steps: &[
+    Step::Attic("/usr/local/bin/bar-clock"),
+    Step::Attic("/usr/local/bin/bar-door"),
+    Step::Attic("/usr/local/bin/bar-notice"),
+    Step::Attic("/usr/local/bin/bar-say"),
+    Step::Attic("/usr/local/bin/bar-updating"),
+    Step::Attic("/home/@user@/.config/waybar/config.jsonc"),
+    Step::Attic("/home/@user@/.config/waybar/style.css"),
+    Step::Attic("/home/@user@/.config/console/bar.css"),
+    Step::RemoveIfEmpty("/home/@user@/.config/waybar"),
+  ],
 };

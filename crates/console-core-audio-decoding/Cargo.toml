@@ -1,0 +1,25 @@
+[package]
+name = "console-core-audio-decoding"
+version = "0.5.5"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Every audio format and codec the music player plays, registered in one place."
+
+[dependencies]
+console-core-audio-decoding-advanced-audio-coding = { path = "../console-core-audio-decoding-advanced-audio-coding" }
+console-core-audio-decoding-apple-lossless = { path = "../console-core-audio-decoding-apple-lossless" }
+console-core-audio-decoding-flac = { path = "../console-core-audio-decoding-flac" }
+console-core-audio-decoding-interfaces = { path = "../console-core-audio-decoding-interfaces" }
+console-core-audio-decoding-matroska-container = { path = "../console-core-audio-decoding-matroska-container" }
+console-core-audio-decoding-mp3 = { path = "../console-core-audio-decoding-mp3" }
+console-core-audio-decoding-mpeg-4-container = { path = "../console-core-audio-decoding-mpeg-4-container" }
+console-core-audio-decoding-ogg-container = { path = "../console-core-audio-decoding-ogg-container" }
+console-core-audio-decoding-tags = { path = "../console-core-audio-decoding-tags" }
+console-core-audio-decoding-uncompressed = { path = "../console-core-audio-decoding-uncompressed" }
+console-core-audio-decoding-vorbis = { path = "../console-core-audio-decoding-vorbis" }
+console-core-audio-decoding-wave-container = { path = "../console-core-audio-decoding-wave-container" }
+console-core-never.workspace = true
+
+[lints]
+workspace = true

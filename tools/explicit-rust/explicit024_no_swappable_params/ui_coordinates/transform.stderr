@@ -1,0 +1,22 @@
+error: this transform call passes positional values through the compatibility API
+  --> $DIR/transform.rs:8:25
+   |
+LL |     let Ok(transform) = Transform::from_translate(-0.0, 2.0);
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: name the values for both axes: `::console_core_paths::Transform::from_translation(::console_core_paths::Point { x: -0.0, y: 2.0 })`
+   |
+   = note: `#[deny(explicit024_no_swappable_params)]` on by default
+
+error: this transform call passes positional values through the compatibility API
+  --> $DIR/transform.rs:10:22
+   |
+LL |     let Ok(result) = transform.post_scale(x, y);
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: name the values for both axes: `transform.post_scale_by(::console_core_paths::ScaleFactors { x, y })`
+
+error: this transform call passes positional values through the compatibility API
+  --> $DIR/transform.rs:13:24
+   |
+LL |     let Ok(borrowed) = (&transform).post_scale(x, y);
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: name the values for both axes: `(&transform).post_scale_by(::console_core_paths::ScaleFactors { x, y })`
+
+error: aborting due to 3 previous errors
+

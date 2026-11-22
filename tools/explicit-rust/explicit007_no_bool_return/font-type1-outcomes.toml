@@ -1,0 +1,4 @@
+[explicit007_enum_outcomes]
+"console_core_font_reading::ps::type1::is_whitespace" = ["ByteSpacing", "Whitespace", "NonWhitespace"]
+"console_core_font_reading::ps::type1::is_special" = ["TokenDelimiter", "Delimiter", "Ordinary"]
+"console_core_font_reading::ps::type1::is_special_or_whitespace" = ["TokenBoundary", "Separator", "Content"]

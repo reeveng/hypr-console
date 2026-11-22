@@ -21,15 +21,17 @@
 //! its title and its number the way a song is named by its title and its id,
 //! so the same question answers whether it is already there.
 
+use std::ffi::{OsStr, OsString};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use console_core_external_programs::Program;
 use console_core_file_names::Stored;
 use console_core_never::Never;
 use console_core_places::Folder;
+use console_repository::RelativePath;
 
 use crate::store::Kind;
-
 
 pub const TALL: &str = "1080";
 
@@ -44,383 +46,498 @@ pub const NAMED: &str = "%(title)s [%(id)s].%(ext)s";
 pub const LONGEST_TITLE: u32 = 120;
 
 pub fn into(kind: Kind) -> Result<PathBuf, Never> {
-    let films = Folder::Videos.user()?;
-    let home = console_core_places::home()?;
+  let films = Folder::Videos.user()?;
+  let home = console_core_places::home()?;
 
-    Ok(match kind {
-        Kind::Sound => console_music_player::library::folder()?,
-        Kind::Film => match films {
-            Some(into) => into,
+  Ok(match kind {
+    Kind::Sound => console_music_player::library::folder()?,
+    Kind::Film => match films {
+      Some(into) => into,
 
-            None => {
-                eprintln!("console-downloads: no HOME; a film is fetched into here");
+      None => {
+        console_core_logging::warn!("console-downloads: no HOME; a film is fetched into here");
 
-                PathBuf::new()
-            }
-        },
-        Kind::Book => match home {
-            Some(home) => console_books::library::books_folder(&home)?,
-            None => {
-                eprintln!("console-downloads: no HOME; a book is fetched into here");
+        PathBuf::new()
+      }
+    },
+    Kind::Book => match home {
+      Some(home_2) => console_core_places::books_under(&home_2)?,
+      None => {
+        console_core_logging::warn!("console-downloads: no HOME; a book is fetched into here");
 
-                PathBuf::new()
-            },
-        },
-    })
+        PathBuf::new()
+      }
+    },
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Fetch<'a> {
-    pub kind: Kind,
-    pub url: &'a str,
-    pub into: &'a Path,
-    pub title: &'a str,
+  pub kind: Kind,
+  pub url: &'a str,
+  pub into: &'a Path,
+  pub title: &'a str,
 }
 
-pub fn arguments(fetch: Fetch<'_>) -> Result<Vec<String>, Never> {
-    let Fetch { kind, url, into, title } = fetch;
+pub fn arguments(fetch: Fetch<'_>) -> io::Result<Vec<OsString>> {
+  let Fetch {
+    kind,
+    url,
+    into,
+    title,
+  } = fetch;
 
-    match kind {
-        Kind::Sound | Kind::Film => {},
-        Kind::Book => return book(Fetch { kind, url, into, title }),
+  match kind {
+    Kind::Sound | Kind::Film => {}
+    Kind::Book => {
+      return book(Fetch {
+        kind,
+        url,
+        into,
+        title,
+      });
     }
+  }
 
-    let said = |word: &str| word.to_string();
-    let Ok(yt_dlp) = Program::YtDlp.name();
+  let said = |word: &str| OsString::from(word);
+  let Ok(yt_dlp) = Program::YtDlp.name();
 
-    let mut arguments = vec![
-        said(yt_dlp),
-        said("--no-playlist"),
-        said("--embed-thumbnail"),
-        said("--embed-metadata"),
-        said("--convert-thumbnails"),
-        said("jpg"),
-        said("--paths"),
-        into.to_string_lossy().to_string(),
-        said("--output"),
-        said(NAMED),
-        said("--no-simulate"),
-        said("--print"),
-        said("after_move:filepath"),
-    ];
-    arguments.extend(match kind {
-        Kind::Sound => vec![
-            said("--format"),
-            said("bestaudio/best"),
-            said("--extract-audio"),
-            said("--audio-format"),
-            said(SOUND),
-        ],
-        Kind::Film => vec![
-            said("--format"),
-            said("bestvideo*+bestaudio/best"),
-            said("--format-sort"),
-            format!("res:{TALL},+size"),
-            said("--merge-output-format"),
-            said(FILM),
-        ],
-        Kind::Book => Vec::new(),
-    });
-    arguments.push(said("--"));
-    arguments.push(said(url));
-    Ok(arguments)
+  let mut arguments = vec![
+    said(yt_dlp),
+    said("--no-playlist"),
+    said("--embed-thumbnail"),
+    said("--embed-metadata"),
+    said("--convert-thumbnails"),
+    said("jpg"),
+    said("--paths"),
+    into.as_os_str().to_owned(),
+    said("--output"),
+    said(NAMED),
+    said("--no-simulate"),
+    said("--print"),
+    said("after_move:filepath"),
+  ];
+  arguments.extend(match kind {
+    Kind::Sound => vec![
+      said("--format"),
+      said("bestaudio/best"),
+      said("--extract-audio"),
+      said("--audio-format"),
+      said(SOUND),
+    ],
+    Kind::Film => vec![
+      said("--format"),
+      said("bestvideo*+bestaudio/best"),
+      said("--format-sort"),
+      OsString::from(format!("res:{TALL},+size")),
+      said("--merge-output-format"),
+      said(FILM),
+    ],
+    Kind::Book => Vec::new(),
+  });
+  arguments.push(said("--"));
+  arguments.push(said(url));
+  Ok(arguments)
 }
 
-fn book(fetch: Fetch<'_>) -> Result<Vec<String>, Never> {
-    let Fetch { url, into, title, .. } = fetch;
-    let Ok(curl) = Program::Curl.name();
-    let Ok(id) = id_in(url);
-    let Ok(file_name) = file_name(title);
-    let Ok(standard) = crate::standard_ebooks::publication(url);
+fn book(fetch: Fetch<'_>) -> io::Result<Vec<OsString>> {
+  let Fetch {
+    url, into, title, ..
+  } = fetch;
+  let Ok(curl) = Program::Curl.name();
+  let Ok(id) = id_in(url);
+  let Ok(file_name) = file_name(title);
+  let Ok(standard) = crate::standard_ebooks::publication(url);
 
-    let address = match standard {
-        Some(address) => address,
-        None => {
-            let Ok(address) = crate::gutenberg::publication(url);
+  let address = match standard {
+    Some(address) => address,
+    None => {
+      let Ok(address) = crate::gutenberg::publication(url);
 
-            address
-        },
-    };
+      address
+    }
+  };
 
-    let Ok(named) = Stored { title: &file_name, id: id.as_deref(), ending: BOOK }.name();
+  let Ok(named) = Stored {
+    title: &file_name,
+    id: id.as_deref(),
+    ending: BOOK,
+  }
+  .name();
+  let part = format!("{named}{UNFINISHED}");
+  let checked = RelativePath::new(Path::new(&part))
+    .map_err(|fault| io::Error::new(io::ErrorKind::InvalidInput, fault))?;
+  let output = into.join(checked);
 
-    Ok(vec![
-        curl.to_string(),
-        "--silent".to_string(),
-        "--show-error".to_string(),
-        "--fail".to_string(),
-        "--location".to_string(),
-        "--max-time".to_string(),
-        "300".to_string(),
-        "--remove-on-error".to_string(),
-        "--output".to_string(),
-        into.join(format!("{named}{UNFINISHED}")).to_string_lossy().to_string(),
-        "--write-out".to_string(),
-        "%{filename_effective}".to_string(),
-        "--".to_string(),
-        address,
-    ])
+  let said = |word: &str| OsString::from(word);
+
+  Ok(vec![
+    said(curl),
+    said("--silent"),
+    said("--show-error"),
+    said("--fail"),
+    said("--location"),
+    said("--max-time"),
+    said("300"),
+    said("--remove-on-error"),
+    said("--output"),
+    output.into_os_string(),
+    said("--write-out"),
+    said("%{filename_effective}"),
+    said("--"),
+    OsString::from(address),
+  ])
 }
 
 pub fn file_name(title: &str) -> Result<String, Never> {
-    let Ok(longest) = console_core_number_conversion::index(LONGEST_TITLE);
+  let Ok(longest) = console_core_number_conversion::index(LONGEST_TITLE);
 
-    let plain: String = title
-        .chars()
-        .map(|letter| match letter == '/' || letter.is_control() {
-            true => ' ',
-            false => letter,
-        })
-        .take(longest)
-        .collect();
-
-    let plain = plain.trim_start_matches(|letter: char| letter == '.' || letter.is_whitespace()).trim_end();
-
-    Ok(match plain.is_empty() {
-        true => "Book".to_string(),
-        false => plain.to_string(),
+  let plain: String = title
+    .chars()
+    .map(|letter| match ::core::primitive::bool::then_some(letter == '/' || letter.is_control(), ()) {
+      ::core::option::Option::Some(()) => ' ',
+      ::core::option::Option::None => letter,
     })
+    .take(longest)
+    .collect();
+
+  let plain_2 = plain
+    .trim_start_matches(|letter: char| letter == '.' || letter.is_whitespace())
+    .trim_end();
+
+  Ok(match ::core::primitive::bool::then_some(plain_2.is_empty(), ()) {
+    ::core::option::Option::Some(()) => "Book".to_string(),
+    ::core::option::Option::None => plain_2.to_string(),
+  })
 }
 
 pub fn id_in(url: &str) -> Result<Option<String>, Never> {
-    let Ok(standard) = crate::standard_ebooks::id_in(url);
+  let Ok(standard) = crate::standard_ebooks::id_in(url);
 
-    match standard {
-        Some(id) => return Ok(Some(id)),
-        None => {},
-    }
+  match standard {
+    Some(id) => return Ok(Some(id)),
+    None => {}
+  }
 
-    let after = |mark: &str| url.split_once(mark).map(|(_, rest)| rest);
+  let after = |mark: &str| url.split_once(mark).map(|(_, rest)| rest);
 
-    let said = match after("watch?v=")
-        .or_else(|| after("youtu.be/"))
-        .or_else(|| after("shorts/"))
-        .or_else(|| after("/v/"))
-        .or_else(|| after("/ebooks/"))
-    {
-        Some(said) => said,
-        None => return Ok(None),
-    };
+  let said = match after("watch?v=")
+    .or_else(|| after("youtu.be/"))
+    .or_else(|| after("shorts/"))
+    .or_else(|| after("/v/"))
+    .or_else(|| after("/ebooks/"))
+  {
+    Some(said) => said,
+    None => return Ok(None),
+  };
 
-    let end = |letter: char| letter == '&' || letter == '?' || letter == '/' || letter == '#' || letter == '.';
+  let end = |letter: char| {
+    letter == '&' || letter == '?' || letter == '/' || letter == '#' || letter == '.'
+  };
 
-    let before = match said.split(end).next() {
-        Some(before) => before,
-        None => said,
-    };
+  let before = match said.split(end).next() {
+    Some(before) => before,
+    None => said,
+  };
 
-    crate::store::valid_id(before)
+  crate::store::valid_id(before)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Litter {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Have {
-    It,
-    Not,
+  It,
+  Not,
 }
 
-pub fn leftover(name: &str) -> Result<Litter, Never> {
-    let ends = [".part", ".ytdl", ".meta"];
-    let half = name.contains(".temp.") || ends.iter().any(|end| name.ends_with(end));
+pub fn leftover(name: impl AsRef<OsStr>) -> Result<Litter, Never> {
+  let bytes = name.as_ref().as_encoded_bytes();
+  let ends = [b".part".as_slice(), b".ytdl", b".meta"];
+  let half = bytes.windows(6).any(|window| window == b".temp.")
+    || ends.iter().any(|ending| bytes.ends_with(ending));
 
-    Ok(match half {
-        true => Litter::Yes,
-        false => Litter::No,
-    })
+  Ok(match half.then_some(()) {
+    Some(()) => Litter::Yes,
+    None => Litter::No,
+  })
 }
 
-pub fn have_it(names: impl IntoIterator<Item = String>, id: &str) -> Result<Have, Never> {
-    let mark = format!("[{id}]");
-    let found = names
-        .into_iter()
-        .any(|name| {
-            let Ok(litter) = leftover(&name);
+pub fn matches_id(name: &OsStr, id: &str) -> Result<Have, Never> {
+  let Ok(litter) = leftover(name);
+  let mark = format!("[{id}]");
+  let bytes = name.as_encoded_bytes();
+  let marked = bytes
+    .iter()
+    .enumerate()
+    .filter(|(_, byte)| **byte == b'[')
+    .any(|(offset, _)| bytes.get(offset..).is_some_and(|tail| tail.starts_with(mark.as_bytes())));
 
-            litter == Litter::No && name.contains(&mark)
-        });
+  Ok(match (litter == Litter::No && marked).then_some(()) {
+    Some(()) => Have::It,
+    None => Have::Not,
+  })
+}
 
-    Ok(match found {
-        true => Have::It,
-        false => Have::Not,
-    })
+pub fn have_it(
+  names: impl IntoIterator<Item = impl AsRef<OsStr>>,
+  id: &str,
+) -> Result<Have, Never> {
+  Ok(match names.into_iter().any(|name| matches_id(name.as_ref(), id) == Ok(Have::It)).then_some(()) {
+    Some(()) => Have::It,
+    None => Have::Not,
+  })
 }
 
 pub const UNFINISHED: &str = ".part";
 
 pub fn finished(part: &str) -> Result<Option<&str>, Never> {
-    Ok(part.strip_suffix(UNFINISHED))
+  Ok(part.strip_suffix(UNFINISHED))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Book<'a> {
-    pub id: &'a str,
-    pub title: &'a str,
+  pub id: &'a str,
+  pub title: &'a str,
 }
 
-pub fn copies(names: impl IntoIterator<Item = String>, book: Book<'_>) -> Result<Vec<String>, Never> {
-    let mark = format!("[{}]", book.id);
-    let Ok(called) = file_name(book.title);
-    let untagged = format!("{called}.{BOOK}");
+pub fn copies(
+  names: impl IntoIterator<Item = String>,
+  book: Book<'_>,
+) -> Result<Vec<String>, Never> {
+  let mark = format!("[{}]", book.id);
+  let Ok(called) = file_name(book.title);
+  let untagged = format!("{called}.{BOOK}");
 
-    Ok(names
-        .into_iter()
-        .filter(|name| {
-            let Ok(litter) = leftover(name);
-            let stem = name.rsplit_once(" [").map(|(stem, _)| stem);
-            let same = name.contains(&mark) || stem == Some(called.as_str()) || *name == untagged;
+  Ok(
+    names
+      .into_iter()
+      .filter(|name| {
+        let Ok(litter) = leftover(name);
+        let stem = name.rsplit_once(" [").map(|(stem, _)| stem);
+        let same = name.contains(&mark) || stem == Some(called.as_str()) || *name == untagged;
 
-            litter == Litter::No && name.ends_with(&format!(".{BOOK}")) && same
-        })
-        .collect())
+        litter == Litter::No && name.ends_with(&format!(".{BOOK}")) && same
+      })
+      .collect(),
+  )
 }
 
 pub fn holds(folder: &Path, id: &str) -> Result<Have, Never> {
-    let reading = match std::fs::read_dir(folder) {
-        Ok(reading) => reading,
-        Err(_unreadable) => return Ok(Have::Not),
-    };
+  let reading = match std::fs::read_dir(folder) {
+    Ok(reading) => reading,
+    Err(_unreadable) => return Ok(Have::Not),
+  };
 
-    let names = reading.flatten().map(|entry| entry.file_name().to_string_lossy().to_string());
+  let names = reading
+    .flatten()
+    .map(|entry| entry.file_name());
 
-    have_it(names, id)
+  have_it(names, id)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn words(kind: Kind) -> Result<Vec<String>, Never> {
-        arguments(Fetch { kind, url: "https://youtu.be/abc", into: Path::new("/home/ada/Music"), title: "abc" })
+  fn words(kind: Kind) -> io::Result<Vec<OsString>> {
+    arguments(Fetch {
+      kind,
+      url: "https://youtu.be/abc",
+      into: Path::new("/home/ada/Music"),
+      title: "abc",
+    })
+  }
+
+  fn after<'a>(arguments: &'a [OsString], flag: &str) -> Result<Option<&'a str>, Never> {
+    Ok(
+      arguments
+        .iter()
+        .skip_while(|word| *word != flag)
+        .nth(1)
+        .and_then(|word| word.to_str()),
+    )
+  }
+
+  #[test]
+  fn the_thing_that_fetches_is_yt_dlp_and_the_link_is_the_last_word() -> io::Result<()> {
+    let said = words(Kind::Sound)?;
+    let Ok(yt_dlp) = Program::YtDlp.name();
+
+    assert_eq!(said.first().and_then(|word| word.to_str()), Some(yt_dlp));
+    assert!(
+      said.ends_with(&[OsString::from("--"), OsString::from("https://youtu.be/abc")]),
+      "a link is a link and never a flag"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_film_is_the_smallest_file_at_the_height_this_screen_can_show() -> io::Result<()> {
+    let said = words(Kind::Film)?;
+    let sort = format!("res:{TALL},+size");
+
+    assert_eq!(after(&said, "--format-sort"), Ok(Some(sort.as_str())));
+    assert_eq!(after(&said, "--merge-output-format"), Ok(Some(FILM)));
+
+    Ok(())
+  }
+
+  #[test]
+  fn sound_is_the_best_the_site_has_and_is_unwrapped_rather_than_encoded() -> io::Result<()> {
+    let said = words(Kind::Sound)?;
+
+    assert_eq!(after(&said, "--format"), Ok(Some("bestaudio/best")));
+    assert_eq!(after(&said, "--audio-format"), Ok(Some(SOUND)));
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_picture_goes_inside_the_file_whichever_kind_it_is() -> io::Result<()> {
+    for kind in Kind::BOTH {
+      let said = words(kind)?;
+
+      assert!(said.contains(&OsString::from("--embed-thumbnail")));
     }
 
-    fn after<'a>(arguments: &'a [String], flag: &str) -> Result<Option<&'a str>, Never> {
-        Ok(arguments.iter().skip_while(|word| *word != flag).nth(1).map(String::as_str))
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn the_thing_that_fetches_is_yt_dlp_and_the_link_is_the_last_word() {
-        let Ok(said) = words(Kind::Sound);
-        let Ok(yt_dlp) = Program::YtDlp.name();
+  #[test]
+  fn a_fetched_song_is_named_the_way_the_music_library_reads_a_name() -> io::Result<()> {
+    let said = words(Kind::Sound)?;
 
-        assert_eq!(said.first().map(String::as_str), Some(yt_dlp));
-        assert!(said.ends_with(&["--".to_string(), "https://youtu.be/abc".to_string()]), "a link is a link and never a flag");
-    }
+    assert_eq!(after(&said, "--output"), Ok(Some(NAMED)));
+    assert_eq!(
+      Stored {
+        title: "%(title)s",
+        id: Some("%(id)s"),
+        ending: "%(ext)s"
+      }
+      .name(),
+      Ok(NAMED.to_string())
+    );
+    assert_eq!(
+      console_core_file_names::title("Africa [FTQbiNvZqaY].opus"),
+      Ok("Africa".to_string()),
+    );
 
-    #[test]
-    fn a_film_is_the_smallest_file_at_the_height_this_screen_can_show() {
-        let Ok(said) = words(Kind::Film);
-        let sort = format!("res:{TALL},+size");
+    Ok(())
+  }
 
-        assert_eq!(after(&said, "--format-sort"), Ok(Some(sort.as_str())));
-        assert_eq!(after(&said, "--merge-output-format"), Ok(Some(FILM)));
-    }
+  #[test]
+  fn a_folder_that_already_holds_it_is_known_by_the_id_in_the_name() {
+    let names = [
+      "Africa [FTQbiNvZqaY].opus".to_string(),
+      "notes.txt".to_string(),
+    ];
+    assert_eq!(have_it(names.clone(), "FTQbiNvZqaY"), Ok(Have::It));
+    assert_eq!(have_it(names, "qU9mHegkTc4"), Ok(Have::Not));
+  }
 
-    #[test]
-    fn sound_is_the_best_the_site_has_and_is_unwrapped_rather_than_encoded() {
-        let Ok(said) = words(Kind::Sound);
+  #[test]
+  fn what_a_failed_fetch_left_behind_is_not_having_it() {
+    let litter = ["Africa [FTQbiNvZqaY].temp.opus".to_string()];
+    assert_eq!(have_it(litter, "FTQbiNvZqaY"), Ok(Have::Not));
+  }
 
-        assert_eq!(after(&said, "--format"), Ok(Some("bestaudio/best")));
-        assert_eq!(after(&said, "--audio-format"), Ok(Some(SOUND)));
-    }
+  #[test]
+  fn the_sites_name_for_a_thing_is_read_out_of_a_link_to_it() {
+    let id = Some("jNQXAC9IVRw".to_string());
+    assert_eq!(
+      id_in("https://www.youtube.com/watch?v=jNQXAC9IVRw"),
+      Ok(id.clone())
+    );
+    assert_eq!(
+      id_in("https://www.youtube.com/watch?v=jNQXAC9IVRw&t=42"),
+      Ok(id.clone())
+    );
+    assert_eq!(id_in("https://youtu.be/jNQXAC9IVRw"), Ok(id.clone()));
+    assert_eq!(id_in("https://www.youtube.com/shorts/jNQXAC9IVRw"), Ok(id));
+    assert_eq!(id_in("https://example.com/a-film.mp4"), Ok(None));
+  }
 
-    #[test]
-    fn the_picture_goes_inside_the_file_whichever_kind_it_is() {
-        for kind in Kind::BOTH {
-            let Ok(said) = words(kind);
+  #[test]
+  fn a_book_is_its_gutenberg_number_named_the_way_a_song_is() -> io::Result<()> {
+    let arguments = arguments(Fetch {
+      kind: Kind::Book,
+      url: "https://www.gutenberg.org/ebooks/84",
+      into: Path::new("/home/ada/Books"),
+      title: "Frankenstein; or/the modern prometheus",
+    })?;
 
-            assert!(said.contains(&"--embed-thumbnail".to_string()));
+    assert_eq!(
+      after(&arguments, "--output"),
+      Ok(Some(
+        "/home/ada/Books/Frankenstein; or the modern prometheus [84].epub.part"
+      ))
+    );
+    assert_eq!(
+      arguments.last().and_then(|word| word.to_str()),
+      Some("https://www.gutenberg.org/ebooks/84.epub3.images")
+    );
+    assert_eq!(
+      have_it(["Frankenstein [84].epub".to_string()], "84"),
+      Ok(Have::It)
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_book_held_under_its_id_or_its_title_from_either_library_is_the_same_book() {
+    let names = [
+      "Meditations [2680].epub",
+      "Meditations [marcus-aurelius_meditations_george-long].epub",
+      "Meditations.epub",
+      "Meditations [2680].epub.part",
+      "Meditations and Other Essays [999].epub",
+      "Frankenstein [84].epub",
+    ]
+    .map(str::to_string);
+
+    assert_eq!(
+      copies(
+        names,
+        Book {
+          id: "2680",
+          title: "Meditations"
         }
-    }
+      ),
+      Ok(vec![
+        "Meditations [2680].epub".to_string(),
+        "Meditations [marcus-aurelius_meditations_george-long].epub".to_string(),
+        "Meditations.epub".to_string(),
+      ])
+    );
+    assert_eq!(
+      finished("/home/ada/Books/Meditations [2680].epub.part"),
+      Ok(Some("/home/ada/Books/Meditations [2680].epub"))
+    );
+  }
 
-    #[test]
-    fn a_fetched_song_is_named_the_way_the_music_library_reads_a_name() {
-        let Ok(said) = words(Kind::Sound);
+  #[test]
+  fn a_title_cannot_leave_the_folder_it_is_written_into() {
+    assert_eq!(
+      file_name("../../.bashrc"),
+      Ok("bashrc".to_string()),
+      "nor hide in it"
+    );
+    assert_eq!(file_name("..."), Ok("Book".to_string()));
+  }
 
-        assert_eq!(after(&said, "--output"), Ok(Some(NAMED)));
-        assert_eq!(Stored { title: "%(title)s", id: Some("%(id)s"), ending: "%(ext)s" }.name(), Ok(NAMED.to_string()));
-        assert_eq!(
-            console_core_file_names::title("Africa [FTQbiNvZqaY].opus"),
-            Ok("Africa".to_string()),
-        );
-    }
-
-    #[test]
-    fn a_folder_that_already_holds_it_is_known_by_the_id_in_the_name() {
-        let names = ["Africa [FTQbiNvZqaY].opus".to_string(), "notes.txt".to_string()];
-        assert_eq!(have_it(names.clone(), "FTQbiNvZqaY"), Ok(Have::It));
-        assert_eq!(have_it(names, "qU9mHegkTc4"), Ok(Have::Not));
-    }
-
-    #[test]
-    fn what_a_failed_fetch_left_behind_is_not_having_it() {
-        let litter = ["Africa [FTQbiNvZqaY].temp.opus".to_string()];
-        assert_eq!(have_it(litter, "FTQbiNvZqaY"), Ok(Have::Not));
-    }
-
-    #[test]
-    fn the_sites_name_for_a_thing_is_read_out_of_a_link_to_it() {
-        let id = Some("jNQXAC9IVRw".to_string());
-        assert_eq!(id_in("https://www.youtube.com/watch?v=jNQXAC9IVRw"), Ok(id.clone()));
-        assert_eq!(id_in("https://www.youtube.com/watch?v=jNQXAC9IVRw&t=42"), Ok(id.clone()));
-        assert_eq!(id_in("https://youtu.be/jNQXAC9IVRw"), Ok(id.clone()));
-        assert_eq!(id_in("https://www.youtube.com/shorts/jNQXAC9IVRw"), Ok(id));
-        assert_eq!(id_in("https://example.com/a-film.mp4"), Ok(None));
-    }
-
-    #[test]
-    fn a_book_is_its_gutenberg_number_named_the_way_a_song_is() {
-        let Ok(arguments) = arguments(Fetch {
-            kind: Kind::Book,
-            url: "https://www.gutenberg.org/ebooks/84",
-            into: Path::new("/home/ada/Books"),
-            title: "Frankenstein; or/the modern prometheus",
-        });
-
-        assert_eq!(after(&arguments, "--output"), Ok(Some("/home/ada/Books/Frankenstein; or the modern prometheus [84].epub.part")));
-        assert_eq!(arguments.last().map(String::as_str), Some("https://www.gutenberg.org/ebooks/84.epub3.images"));
-        assert_eq!(have_it(["Frankenstein [84].epub".to_string()], "84"), Ok(Have::It));
-    }
-
-    #[test]
-    fn a_book_held_under_its_id_or_its_title_from_either_library_is_the_same_book() {
-        let names = [
-            "Meditations [2680].epub",
-            "Meditations [marcus-aurelius_meditations_george-long].epub",
-            "Meditations.epub",
-            "Meditations [2680].epub.part",
-            "Meditations and Other Essays [999].epub",
-            "Frankenstein [84].epub",
-        ]
-        .map(str::to_string);
-
-        assert_eq!(
-            copies(names, Book { id: "2680", title: "Meditations" }),
-            Ok(vec![
-                "Meditations [2680].epub".to_string(),
-                "Meditations [marcus-aurelius_meditations_george-long].epub".to_string(),
-                "Meditations.epub".to_string(),
-            ])
-        );
-        assert_eq!(finished("/home/ada/Books/Meditations [2680].epub.part"), Ok(Some("/home/ada/Books/Meditations [2680].epub")));
-    }
-
-    #[test]
-    fn a_title_cannot_leave_the_folder_it_is_written_into() {
-        assert_eq!(file_name("../../.bashrc"), Ok("bashrc".to_string()), "nor hide in it");
-        assert_eq!(file_name("..."), Ok("Book".to_string()));
-    }
-
-    #[test]
-    fn what_a_failed_fetch_leaves_behind_is_known_by_its_name() {
-        assert_eq!(leftover("Africa [x].temp.opus"), Ok(Litter::Yes));
-        assert_eq!(leftover("Africa [x].meta"), Ok(Litter::Yes));
-        assert_eq!(leftover("Africa [x].opus.part"), Ok(Litter::Yes));
-        assert_eq!(leftover("Africa [x].opus"), Ok(Litter::No));
-        assert_eq!(leftover("Africa [x].mkv"), Ok(Litter::No));
-    }
+  #[test]
+  fn what_a_failed_fetch_leaves_behind_is_known_by_its_name() {
+    assert_eq!(leftover("Africa [x].temp.opus"), Ok(Litter::Yes));
+    assert_eq!(leftover("Africa [x].meta"), Ok(Litter::Yes));
+    assert_eq!(leftover("Africa [x].opus.part"), Ok(Litter::Yes));
+    assert_eq!(leftover("Africa [x].opus"), Ok(Litter::No));
+    assert_eq!(leftover("Africa [x].mkv"), Ok(Litter::No));
+  }
 }

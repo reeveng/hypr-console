@@ -1,0 +1,23 @@
+error: `into()` turns `Source` into `Destination` and the line says neither
+  --> $DIR/custom_into.rs:13:5
+   |
+LL |     value.into()
+   |     ^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit045_no_unnamed_conversion)]` on by default
+help: name the destination of the same conversion
+   |
+LL -     value.into()
+LL +     <_ as ::core::convert::Into<crate::Destination>>::into(value)
+   |
+
+error: `into()` turns `Inherent` into `Destination` and the line says neither
+  --> $DIR/custom_into.rs:26:5
+   |
+LL |     value.into()
+   |     ^^^^^^^^^^^^
+   |
+   = help: write the destination out -- `Target::from(x)` -- so the reader sees what this becomes without asking the compiler, and so the call stops compiling when the type around it changes rather than converting to the new one behind the line
+
+error: aborting due to 2 previous errors
+

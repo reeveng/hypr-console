@@ -1,0 +1,35 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_prefix_review.rs:10:10
+   |
+LL |     Some(points[1])
+   |          ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_prefix_review.rs:20:10
+   |
+LL |     Some(points[1])
+   |          ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_prefix_review.rs:28:5
+   |
+LL |     points[1]
+   |     ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_prefix_review.rs:36:10
+   |
+LL |     Some(points[4])
+   |          ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: aborting due to 4 previous errors
+

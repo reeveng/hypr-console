@@ -11,300 +11,391 @@
 //!
 //! A stranger is drawn by what it has said about itself, which for most of what
 //! is in the air is nothing at all. bluez names a device that has not told it a
-//! name after its own address, so a room full of watches and earbuds arrives as
-//! a column of hex, and the thing someone is actually holding is one line in
-//! it. Two answers to that, and both come off the same reading: what said a
-//! name goes above what did not, and what is loud goes above what is faint. A
-//! mouse in the hand is the loudest thing in the room.
+//! name after its own address, so a room arrives as a column of hex, and the
+//! thing someone is actually holding is one line in it. Most of that column is
+//! phones: Android's Find My Device has every one of them beacon under Google's
+//! service number from an address that changes every few minutes, so one phone
+//! on a table is a new row every time it moves house, and the cache under the
+//! tab kept a file for each of them.
+//!
+//! The answer used to be the order -- what said a name above what did not -- and
+//! it left the hex on the page under the thing being looked for. A stranger
+//! that has said nothing is now not on the page at all, which is the default
+//! Android and Apple both ship: nothing could be done with the row, because
+//! nobody can tell which address is the headphones in their hand, and a device
+//! that is waiting to be paired says its name. A device this machine has
+//! paired is listed whatever it said, because that row is one somebody made.
+//! Among what is left, what is loud goes above what is faint. A mouse in the
+//! hand is the loudest thing in the room.
+//!
+//! What bluez knows is one answer, asked over the system bus and read by
+//! `console-bluetooth`, the reading the bar and the session read it by. It used
+//! to be three of bluetoothctl's printouts and one more for every device on the
+//! list, searched for `Paired: yes` and for the number in brackets after
+//! `RSSI:`. The answer is kept as the bytes it arrived in, so the tab drawn
+//! before bluez has answered is bluez's last reply read the same way. A bluez
+//! that could not be asked is kept as no answer, which reads as a radio that is
+//! off -- the way the bar draws it, and the one thing the tab can offer about
+//! it, which is the switch.
 
+use console_bluetooth::device::{Connection, Device, Pairing};
+use console_bluetooth::objects::{self, Objects};
+use console_bus::connection::Bus;
+use console_bus::messages;
+use console_core_media_access_control_addresses::{Address, Separator};
 use console_core_never::Never;
 
 const NONE_OF_IT: i32 = 0;
 
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Device {
-    pub address: String,
-    pub name: String,
-}
-
-pub fn devices(said: &str) -> Result<Vec<Device>, Never> {
-    Ok(said
-        .lines()
-        .filter_map(|line| {
-            let mut words = line.split_whitespace();
-            let said = words.next()?;
-            let address = words.next()?;
-            let name = line.splitn(3, ' ').nth(2)?;
-            (said == "Device").then(|| Device {
-                address: address.to_string(),
-                name: name.to_string(),
-            })
-        })
-        .collect())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Radio {
-    On,
-    Off,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Joined {
-    Yes,
-    No,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Known {
-    Yes,
-    No,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Named {
-    Alias,
-    Itself,
+  Alias,
+  Itself,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Looking {
-    Yes,
-    No,
+pub enum Listed {
+  Shown,
+  Hidden,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Met {
-    pub device: Device,
-    pub known: Known,
-    pub joined: Joined,
-    pub heard: Option<i32>,
-}
+pub fn asked() -> Result<Vec<u8>, Never> {
+  let reached = Bus::system();
 
-pub fn on(said: &str) -> Result<Radio, Never> {
-    match said.contains("Powered: yes") {
-        true => Ok(Radio::On),
-        false => Ok(Radio::Off),
+  let mut bus = match reached {
+    Ok(bus) => bus,
+    Err(fault) => {
+      console_core_logging::warn!("console-settings: the system bus: {fault}");
+
+      return Ok(Vec::new());
     }
+  };
+
+  let Ok(asking) = objects::managed();
+  let called = bus.call(&asking);
+
+  let answer = match called {
+    Ok(answer) => answer,
+    Err(fault) => {
+      console_core_logging::warn!("console-settings: asking bluez what it knows: {fault}");
+
+      return Ok(Vec::new());
+    }
+  };
+
+  match &answer.fault {
+    Some(refused) => console_core_logging::warn!("console-settings: bluez would not say what it knows: {refused}"),
+    None => {}
+  }
+
+  Ok(match answer.bytes(answer.serial) {
+    Ok(bytes) => bytes,
+    Err(fault) => {
+      console_core_logging::warn!("console-settings: keeping what bluez said: {fault}");
+
+      Vec::new()
+    }
+  })
 }
 
-pub fn joined(said: &str) -> Result<Joined, Never> {
-    match said.contains("Connected: yes") {
-        true => Ok(Joined::Yes),
-        false => Ok(Joined::No),
-    }
+pub fn read(answer: &[u8]) -> Result<Objects, Never> {
+  let unknown = Objects {
+    adapters: Vec::new(),
+    devices: Vec::new(),
+  };
+
+  let reply = match messages::read(answer) {
+    Ok(reply) => reply,
+    Err(_never_answered) => return Ok(unknown),
+  };
+
+  match reply.fault {
+    Some(_refused) => Ok(unknown),
+    None => objects::read(&reply),
+  }
 }
 
-pub fn known(said: &str) -> Result<Known, Never> {
-    match said.contains("Paired: yes") {
-        true => Ok(Known::Yes),
-        false => Ok(Known::No),
-    }
+pub fn shown(objects: &Objects) -> Result<Vec<Device>, Never> {
+  Ok(
+    objects
+      .devices
+      .iter()
+      .filter(|device| {
+        let Ok(listed) = listed(device);
+
+        listed == Listed::Shown
+      })
+      .cloned()
+      .collect(),
+  )
 }
 
-pub fn looking(said: &str) -> Result<Looking, Never> {
-    match said.contains("Discovering: yes") {
-        true => Ok(Looking::Yes),
-        false => Ok(Looking::No),
-    }
+pub fn listed(device: &Device) -> Result<Listed, Never> {
+  let Ok(named) = naming(device);
+
+  Ok(match (named, device.pairing) {
+    (Named::Alias, Pairing::Paired)
+    | (Named::Alias, Pairing::NotPaired)
+    | (Named::Itself, Pairing::Paired) => Listed::Shown,
+    (Named::Itself, Pairing::NotPaired) => Listed::Hidden,
+  })
 }
 
 pub fn naming(device: &Device) -> Result<Named, Never> {
-    match device.name == device.address.replace(':', "-") {
-        true => Ok(Named::Itself),
-        false => Ok(Named::Alias),
-    }
+  Ok(match Address::read(&device.alias, Separator::Hyphen) {
+    Ok(named) => match ::core::primitive::bool::then_some(named == device.address, ()) {
+      ::core::option::Option::Some(()) => Named::Itself,
+      ::core::option::Option::None => Named::Alias,
+    },
+    Err(_a_name_of_its_own) => Named::Alias,
+  })
 }
 
-pub const FAINTEST: i32 = -100;
+pub const FAINTEST: i16 = -100;
 
-pub const LOUDEST: i32 = -50;
+pub const LOUDEST: i16 = -50;
 
-pub fn parse_rssi(said: &str) -> Result<Option<i32>, Never> {
-    let found = said
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("RSSI:"))
-        .filter_map(|said| said.split('(').nth(1))
-        .filter_map(|said| said.split(')').next())
-        .next();
+pub fn share(heard: i16) -> Result<i32, Never> {
+  let over = i32::from(heard).saturating_sub(i32::from(FAINTEST));
+  let whole = i32::from(LOUDEST).saturating_sub(i32::from(FAINTEST));
+  let share = match over.saturating_mul(100).checked_div(whole) {
+    Some(share) => share,
+    None => NONE_OF_IT,
+  };
 
-    let word = match found {
-        Some(word) => word.trim(),
-        None => return Ok(None),
+  Ok(share.clamp(0, 100))
+}
+
+fn place(device: &Device) -> Result<u32, Never> {
+  let Ok(named) = naming(device);
+
+  Ok(match device.connection {
+    Connection::Connected => 0,
+    Connection::NotConnected => match device.pairing {
+      Pairing::Paired => 1,
+      Pairing::NotPaired => match named {
+        Named::Alias => 2,
+        Named::Itself => 3,
+      },
+    },
+  })
+}
+
+pub fn in_order(mut devices: Vec<Device>) -> Result<Vec<Device>, Never> {
+  devices.sort_by_key(|one| {
+    let Ok(place) = place(one);
+    let heard = match one.signal {
+      Some(heard) => heard,
+      None => FAINTEST,
     };
 
-    Ok(match word.parse() {
-        Ok(heard) => Some(heard),
-        Err(fault) => {
-            eprintln!("console-settings: the radio said {word:?} for a strength: {fault}");
+    let loud = heard.saturating_neg();
 
-            None
-        }
+    (place, loud, one.alias.clone())
+  });
+
+  Ok(devices)
+}
+
+#[cfg(test)]
+pub(crate) mod room {
+  use console_bluetooth::device::{Category, Connection, Device, Pairing, PairingMethod};
+  use console_core_media_access_control_addresses::Address;
+  use console_core_never::Never;
+
+  pub type Standing = (Pairing, Connection, Option<i16>);
+
+  pub const STRANGER: Standing = (Pairing::NotPaired, Connection::NotConnected, None);
+
+  pub const FRIEND: Standing = (Pairing::Paired, Connection::NotConnected, None);
+
+  pub const JOINED: Standing = (Pairing::Paired, Connection::Connected, None);
+
+  pub fn device(
+    last: u8,
+    alias: &str,
+    (pairing, connection, signal): Standing,
+  ) -> Result<Device, Never> {
+    let address = Address([0xE0, 0xC1, 0x02, 0x00, 0xB0, last]);
+
+    Ok(Device {
+      path: format!("/org/bluez/hci0/dev_E0_C1_02_00_B0_{last:02X}"),
+      adapter: "/org/bluez/hci0".to_string(),
+      address,
+      alias: alias.to_string(),
+      pairing,
+      connection,
+      signal,
+      pairs_with: PairingMethod::Simple,
+      category: Category::Other,
     })
-}
+  }
 
-pub fn share(heard: i32) -> Result<i32, Never> {
-    let over = heard.saturating_sub(FAINTEST);
-    let whole = LOUDEST.saturating_sub(FAINTEST);
-    let share = match over.saturating_mul(100).checked_div(whole) {
-        Some(share) => share,
-        None => NONE_OF_IT,
-    };
+  pub fn quiet(last: u8, standing: Standing) -> Result<Device, Never> {
+    device(last, &format!("E0-C1-02-00-B0-{last:02X}"), standing)
+  }
 
-    Ok(share.clamp(0, 100))
-}
+  pub fn named(said: &[&str], standing: Standing) -> Result<Vec<Device>, Never> {
+    Ok(
+      said
+        .iter()
+        .zip(0_u8..)
+        .map(|(alias, last)| {
+          let Ok(one) = device(last, alias, standing);
 
-fn place(met: &Met) -> Result<u32, Never> {
-    let Ok(named) = naming(&met.device);
-
-    Ok(match met.joined {
-        Joined::Yes => 0,
-        Joined::No => match met.known {
-            Known::Yes => 1,
-            Known::No => match named {
-                Named::Alias => 2,
-                Named::Itself => 3,
-            },
-        },
-    })
-}
-
-pub fn in_order(met: Vec<Met>) -> Result<Vec<Met>, Never> {
-    let mut met = met;
-
-    met.sort_by_key(|one| {
-        let Ok(place) = place(one);
-        let heard = match one.heard {
-            Some(heard) => heard,
-            None => FAINTEST,
-        };
-
-        let loud = heard.saturating_neg();
-
-        (place, loud, one.device.name.clone())
-    });
-
-    Ok(met)
+          one
+        })
+        .collect(),
+    )
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_device_is_an_address_and_whatever_it_calls_itself() {
-        let said = "Device AA:BB:CC:DD:EE:FF Some Headphones\nDevice 11:22:33:44:55:66 Pad";
-        assert_eq!(
-            devices(said),
-            Ok(vec![
-                Device {
-                    address: "AA:BB:CC:DD:EE:FF".to_string(),
-                    name: "Some Headphones".to_string()
-                },
-                Device { address: "11:22:33:44:55:66".to_string(), name: "Pad".to_string() },
-            ])
-        );
-    }
+  use console_bluetooth::adapter::{self, Discovery, Power};
+  use console_bluetooth::objects::written::{managed, object, said, set};
+  use console_bus::messages::Truth;
+  use console_bus::properties::{InterfaceName, PropertyName};
 
-    #[test]
-    fn a_line_that_is_not_a_device_is_not_a_row() {
-        assert_eq!(devices("No default controller available"), Ok(vec![]));
-        assert_eq!(devices(""), Ok(vec![]));
-    }
+  use super::room::{FRIEND, JOINED, STRANGER, device, quiet};
 
-    #[test]
-    fn the_radio_and_the_road_are_both_read_off_what_was_said() {
-        assert_eq!(on("Controller AA\n\tPowered: yes\n"), Ok(Radio::On));
-        assert_eq!(on("Controller AA\n\tPowered: no\n"), Ok(Radio::Off));
-        assert_eq!(joined("\tConnected: yes\n"), Ok(Joined::Yes));
-        assert_eq!(joined("\tConnected: no\n"), Ok(Joined::No));
-    }
+  #[test]
+  fn a_device_named_after_its_own_address_has_said_nothing_about_itself() {
+    let Ok(silent) = quiet(0xC3, STRANGER);
+    let Ok(says) = device(0xC3, "Blue Keys", STRANGER);
 
-    #[test]
-    fn being_bonded_and_being_here_are_two_answers() {
-        let keyboard = "\tPaired: yes\n\tBonded: yes\n\tTrusted: yes\n\tConnected: no\n";
+    assert_eq!(naming(&silent), Ok(Named::Itself));
+    assert_eq!(naming(&says), Ok(Named::Alias));
+  }
 
-        assert_eq!(known(keyboard), Ok(Known::Yes));
-        assert_eq!(joined(keyboard), Ok(Joined::No));
+  #[test]
+  fn a_stranger_that_said_nothing_about_itself_is_not_listed() {
+    let Ok(beacon) = quiet(0xE6, STRANGER);
+    let Ok(headphones) = device(0xC3, "MINISO-MS218", STRANGER);
+    let Ok(paired_here) = quiet(0x66, FRIEND);
 
-        let stranger = "\tPaired: no\n\tTrusted: no\n\tConnected: no\n";
+    let shown: Vec<Result<Listed, Never>> = [beacon, headphones, paired_here]
+      .iter()
+      .map(listed)
+      .collect();
 
-        assert_eq!(known(stranger), Ok(Known::No));
-        assert_eq!(joined(stranger), Ok(Joined::No));
-    }
+    assert_eq!(
+      shown,
+      [Ok(Listed::Hidden), Ok(Listed::Shown), Ok(Listed::Shown),],
+      "a phone's Find My Device beacon goes, the headphones stay, and a nameless device paired here stays"
+    );
+  }
 
-    #[test]
-    fn the_radio_says_when_it_is_looking() {
-        assert_eq!(looking("\tDiscovering: yes\n"), Ok(Looking::Yes));
-        assert_eq!(looking("\tDiscovering: no\n"), Ok(Looking::No));
-        assert_eq!(looking(""), Ok(Looking::No));
-    }
+  #[test]
+  fn the_ends_of_the_bar_are_the_ends_of_what_a_radio_hears() {
+    assert_eq!(share(LOUDEST), Ok(100));
+    assert_eq!(share(FAINTEST), Ok(0));
+    assert_eq!(
+      share(-30),
+      Ok(100),
+      "nearer than the loudest is still the whole bar"
+    );
+    assert_eq!(share(-120), Ok(0));
+    assert_eq!(share(-75), Ok(50));
+  }
 
-    #[test]
-    fn a_device_named_after_its_own_address_has_said_nothing_about_itself() {
-        let quiet = Device {
-            address: "AA:BB:CC:DD:EE:FF".to_string(),
-            name: "AA-BB-CC-DD-EE-FF".to_string(),
-        };
-        let says = Device {
-            address: "AA:BB:CC:DD:EE:FF".to_string(),
-            name: "Blue Keys".to_string(),
-        };
+  #[test]
+  fn what_is_here_goes_above_what_is_known_above_what_said_a_name_above_the_rest() {
+    let Ok(quiet_one) = quiet(1, (Pairing::NotPaired, Connection::NotConnected, Some(-40)));
+    let Ok(faint) = device(
+      2,
+      "Faint Mouse",
+      (Pairing::NotPaired, Connection::NotConnected, Some(-90)),
+    );
+    let Ok(near) = device(
+      3,
+      "Near Mouse",
+      (Pairing::NotPaired, Connection::NotConnected, Some(-45)),
+    );
+    let Ok(known) = device(4, "Known Pads", FRIEND);
+    let Ok(speaker) = device(5, "Speaker", JOINED);
 
-        assert_eq!(naming(&quiet), Ok(Named::Itself));
-        assert_eq!(naming(&says), Ok(Named::Alias));
-    }
+    let Ok(in_order) = in_order(vec![quiet_one, faint, near, known, speaker]);
+    let names: Vec<&str> = in_order
+      .iter()
+      .map(|device| device.alias.as_str())
+      .collect();
 
-    #[test]
-    fn how_loud_a_device_is_is_read_off_the_word_bluez_writes_it_in() {
-        let said = "\tName: Mouse\n\tRSSI: 0xffffffa9 (-87)\n\tTxPower: 0x0000 (0)\n";
+    assert_eq!(
+      names,
+      [
+        "Speaker",
+        "Known Pads",
+        "Near Mouse",
+        "Faint Mouse",
+        "E0-C1-02-00-B0-01"
+      ]
+    );
+  }
 
-        assert_eq!(parse_rssi(said), Ok(Some(-87)));
-        assert_eq!(parse_rssi("\tName: Mouse\n"), Ok(None), "a device the radio has not heard");
-        assert_eq!(parse_rssi("\tRSSI: nothing\n"), Ok(None));
-    }
+  #[test]
+  fn what_was_kept_is_read_the_way_the_answer_was_when_it_arrived()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let Ok(powered) = set(PropertyName(adapter::POWERED), Truth::Yes);
+    let Ok(radio) = object(
+      "/org/bluez/hci0",
+      InterfaceName(adapter::INTERFACE),
+      vec![powered],
+    );
+    let Ok(address) = said(
+      PropertyName(console_bluetooth::device::ADDRESS),
+      "E0:C1:02:00:B0:C3",
+    );
+    let Ok(alias) = said(
+      PropertyName(console_bluetooth::device::ALIAS),
+      "MINISO-MS218",
+    );
+    let Ok(headphones) = object(
+      "/org/bluez/hci0/dev_E0_C1_02_00_B0_C3",
+      InterfaceName(console_bluetooth::device::INTERFACE),
+      vec![address, alias],
+    );
+    let Ok(answer) = managed(vec![radio, headphones]);
+    let kept = answer.bytes(7)?;
 
-    #[test]
-    fn the_ends_of_the_bar_are_the_ends_of_what_a_radio_hears() {
-        assert_eq!(share(LOUDEST), Ok(100));
-        assert_eq!(share(FAINTEST), Ok(0));
-        assert_eq!(share(-30), Ok(100), "nearer than the loudest is still the whole bar");
-        assert_eq!(share(-120), Ok(0));
-        assert_eq!(share(-75), Ok(50));
-    }
+    let Ok(live) = objects::read(&answer);
+    let Ok(again) = read(&kept);
 
-    #[test]
-    fn what_is_here_goes_above_what_is_known_above_what_said_a_name_above_the_rest() {
-        let one = |address: &str, name: &str, known, joined, heard| Met {
-            device: Device { address: address.to_string(), name: name.to_string() },
-            known,
-            joined,
-            heard,
-        };
-        let met = vec![
-            one("11:11:11:11:11:11", "11-11-11-11-11-11", Known::No, Joined::No, Some(-40)),
-            one("22:22:22:22:22:22", "Faint Mouse", Known::No, Joined::No, Some(-90)),
-            one("33:33:33:33:33:33", "Near Mouse", Known::No, Joined::No, Some(-45)),
-            one("44:44:44:44:44:44", "Known Pads", Known::Yes, Joined::No, None),
-            one("55:55:55:55:55:55", "Speaker", Known::Yes, Joined::Yes, None),
-        ];
+    assert_eq!(again, live);
+    assert_eq!(again.power(), Ok(Power::On));
+    assert_eq!(again.discovery(), Ok(Discovery::NotSearching));
+    assert_eq!(
+      again
+        .devices
+        .iter()
+        .map(|device| device.alias.as_str())
+        .collect::<Vec<&str>>(),
+      ["MINISO-MS218"]
+    );
 
-        let Ok(in_order) = in_order(met);
-        let names: Vec<&str> = in_order.iter().map(|met| met.device.name.as_str()).collect();
+    Ok(())
+  }
 
-        assert_eq!(names, [
-            "Speaker",
-            "Known Pads",
-            "Near Mouse",
-            "Faint Mouse",
-            "11-11-11-11-11-11"
-        ]);
-    }
+  #[test]
+  fn nothing_kept_and_a_refusal_both_read_as_a_radio_that_is_off()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let Ok(nothing) = read(&[]);
 
-    #[test]
-    fn a_device_nothing_was_said_about_is_a_stranger_rather_than_a_friend() {
-        assert_eq!(known(""), Ok(Known::No));
-        assert_eq!(joined(""), Ok(Joined::No));
-    }
+    assert_eq!(nothing.power(), Ok(Power::Off));
+    assert!(nothing.devices.is_empty());
+
+    let Ok(asking) = objects::managed();
+    let Ok(refusal) = asking.failing(
+      console_bus::messages::ErrorName("org.freedesktop.DBus.Error.ServiceUnknown"),
+      "The name org.bluez was not provided by any .service files",
+    );
+    let kept = refusal.bytes(7)?;
+    let Ok(refused) = read(&kept);
+
+    assert_eq!(refused.power(), Ok(Power::Off));
+
+    Ok(())
+  }
 }

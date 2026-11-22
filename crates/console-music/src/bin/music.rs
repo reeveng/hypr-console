@@ -11,16 +11,23 @@ use console_core_arguments::{Command, Operands};
 use console_panel::card::{App, open_app};
 
 const COMMAND: Command = Command {
-    name: console_music::APP,
-    about: "the music, as an app",
-    flags: &[],
-    operands: Operands::None,
+  name: console_music::APP,
+  about: "the music, as an app",
+  flags: &[],
+  operands: Operands::None,
 };
 
 fn main() -> ExitCode {
-    let asked: Vec<String> = std::env::args().skip(1).collect();
+  let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(code) = open_app(&asked, App { who: console_music::APP, command: COMMAND, card: console_music::library });
+  let Ok(code) = open_app(
+    &asked,
+    App {
+      who: console_music::APP,
+      command: COMMAND,
+      card: console_music::library,
+    },
+  );
 
-    code
+  code
 }

@@ -37,9 +37,10 @@ desktop.png
 #
 # Not carried, because it is guidance for whoever is working on the machine
 # rather than anything the desktop is made of. What this tree owes a reader is
-# README.md and docs/, which argue in public and are held to it -- a second
-# account of the same decisions, kept beside them and read by something else,
-# is the arrangement where the two come to disagree and no one finds out.
+# README.md and the module heads, and the argument behind them is the
+# documentation in Orbit -- a second account of the same decisions, kept beside
+# them and read by something else, is the arrangement where the two come to
+# disagree and no one finds out.
 #
 # It is also the only file here that would name the device by model. Everything
 # published says what the machine is because the buttons are named for it;

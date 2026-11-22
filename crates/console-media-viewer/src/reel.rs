@@ -26,298 +26,311 @@ use console_core_walking::Ring;
 
 const THE_FIRST_SHOT: u32 = 0;
 
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Shot {
-    pub name: String,
-    pub kind: Kind,
+  pub name: String,
+  pub kind: Kind,
 }
 
 impl Shot {
-    pub fn new(name: &str, kind: Kind) -> Result<Self, Never> {
-        Ok(Shot { name: name.to_string(), kind })
-    }
+  pub fn new(name: &str, kind: Kind) -> Result<Self, Never> {
+    Ok(Shot {
+      name: name.to_string(),
+      kind,
+    })
+  }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Reel {
-    shots: Vec<Shot>,
-    at: u32,
+  shots: Vec<Shot>,
+  at: u32,
 }
 
 impl Reel {
-    pub fn of(listing: &[(String, String)], opened: &str) -> Result<Option<Reel>, Never> {
-        let shots: Vec<Shot> = listing
-            .iter()
-            .filter_map(|(name, mime)| {
-                let Ok(kind) = kinds::of(mime);
+  pub fn of(listing: &[(String, String)], opened: &str) -> Result<Option<Reel>, Never> {
+    let shots: Vec<Shot> = listing
+      .iter()
+      .filter_map(|(name, mime)| {
+        let Ok(kind) = kinds::of(mime);
 
-                kind.map(|kind| {
-                    let Ok(shot) = Shot::new(name, kind);
+        kind.map(|kind_2| {
+          let Ok(shot) = Shot::new(name, kind_2);
 
-                    shot
-                })
-            })
-            .collect();
-
-        match shots.is_empty() {
-            true => return Ok(None),
-            false => {},
-        }
-
-        let Ok(at) = match shots.iter().position(|shot| shot.name == opened) {
-            Some(at) => fitted(at),
-            None => Ok(THE_FIRST_SHOT),
-        };
-
-        Ok(Some(Reel { shots, at }))
-    }
-
-    pub fn current(&self) -> Result<&Shot, Never> {
-        static NOTHING: Shot = Shot { name: String::new(), kind: Kind::Picture };
-
-        let Ok(at) = index(self.at);
-
-        Ok(match self.shots.get(at).or_else(|| self.shots.first()) {
-            Some(shot) => shot,
-            None => &NOTHING,
+          shot
         })
+      })
+      .collect();
+
+    match ::core::primitive::bool::then_some(shots.is_empty(), ()) {
+      ::core::option::Option::Some(()) => return Ok(None),
+      ::core::option::Option::None => {}
     }
 
-    pub fn many(&self) -> Result<u32, Never> {
-        fitted(self.shots.len())
-    }
+    let Ok(at) = match shots.iter().position(|shot| shot.name == opened) {
+      Some(at) => fitted(at),
+      None => Ok(THE_FIRST_SHOT),
+    };
 
-    pub fn which(&self) -> Result<u32, Never> {
-        Ok(self.at.saturating_add(1))
-    }
+    Ok(Some(Reel { shots, at }))
+  }
 
-    pub fn step(&mut self, by: i32) -> Result<(), Never> {
-        let Ok(round) = Ring::of(&self.shots);
+  pub fn current(&self) -> Result<&Shot, Never> {
+    static NOTHING: Shot = Shot {
+      name: String::new(),
+      kind: Kind::Picture,
+    };
 
-        let ring = match round {
-            Some(ring) => ring,
-            None => return Ok(()),
-        };
+    let Ok(at) = index(self.at);
 
-        let Ok(went) = ring.walk(self.at, by);
+    Ok(match self.shots.get(at).or_else(|| self.shots.first()) {
+      Some(shot) => shot,
+      None => &NOTHING,
+    })
+  }
 
-        self.at = went;
+  pub fn many(&self) -> Result<u32, Never> {
+    fitted(self.shots.len())
+  }
 
-        Ok(())
-    }
+  pub fn which(&self) -> Result<u32, Never> {
+    Ok(self.at.saturating_add(1))
+  }
 
-    pub fn stand_on(&mut self, name: &str) -> Result<Stood, Never> {
-        Ok(match self.shots.iter().position(|shot| shot.name == name) {
-            Some(at) => {
-                let Ok(at) = fitted(at);
+  pub fn step(&mut self, by: i32) -> Result<(), Never> {
+    let Ok(round) = Ring::of(&self.shots);
 
-                self.at = at;
-                Stood::OnIt
-            }
-            None => Stood::NotThere,
-        })
-    }
+    let ring = match round {
+      Some(ring) => ring,
+      None => return Ok(()),
+    };
 
-    pub fn every(&self) -> Result<&[Shot], Never> {
-        Ok(&self.shots)
-    }
+    let Ok(went) = ring.walk(self.at, by);
 
-    pub fn names(&self) -> Result<impl Iterator<Item = &str>, Never> {
-        Ok(self.shots.iter().map(|shot| shot.name.as_str()))
-    }
+    self.at = went;
+
+    Ok(())
+  }
+
+  pub fn stand_on(&mut self, name: &str) -> Result<Stood, Never> {
+    Ok(match self.shots.iter().position(|shot| shot.name == name) {
+      Some(at) => {
+        let Ok(at_2) = fitted(at);
+
+        self.at = at_2;
+        Stood::OnIt
+      }
+      None => Stood::NotThere,
+    })
+  }
+
+  pub fn every(&self) -> Result<&[Shot], Never> {
+    Ok(&self.shots)
+  }
+
+  pub fn names(&self) -> Result<impl Iterator<Item = &str>, Never> {
+    Ok(self.shots.iter().map(|shot| shot.name.as_str()))
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stood {
-    OnIt,
-    NotThere,
+  OnIt,
+  NotThere,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn listed(named: &[(&str, &str)]) -> Result<Vec<(String, String)>, Never> {
-        Ok(named.iter().map(|(name, mime)| (String::from(*name), String::from(*mime))).collect())
-    }
+  fn listed(named: &[(&str, &str)]) -> Result<Vec<(String, String)>, Never> {
+    Ok(
+      named
+        .iter()
+        .map(|(name, mime)| (String::from(*name), String::from(*mime)))
+        .collect(),
+    )
+  }
 
-    fn folder() -> Result<Vec<(String, String)>, Never> {
-        listed(&[
-            ("beach.jpg", "image/jpeg"),
-            ("beach.jpg.xmp", "application/rdf+xml"),
-            ("boat.png", "image/png"),
-            ("notes.txt", "text/plain"),
-            ("swim.mp4", "video/mp4"),
-        ])
-    }
+  fn folder() -> Result<Vec<(String, String)>, Never> {
+    listed(&[
+      ("beach.jpg", "image/jpeg"),
+      ("beach.jpg.xmp", "application/rdf+xml"),
+      ("boat.png", "image/png"),
+      ("notes.txt", "text/plain"),
+      ("swim.mp4", "video/mp4"),
+    ])
+  }
 
-    #[derive(Debug)]
-    struct NoReel;
+  #[derive(Debug)]
+  struct NoReel;
 
-    fn of(listing: &[(String, String)], opened: &str) -> Result<Reel, NoReel> {
-        let Ok(reel) = Reel::of(listing, opened);
+  fn of(listing: &[(String, String)], opened: &str) -> Result<Reel, NoReel> {
+    let Ok(reel) = Reel::of(listing, opened);
 
-        reel.ok_or(NoReel)
-    }
+    reel.ok_or(NoReel)
+  }
 
-    fn reel(opened: &str) -> Result<Reel, NoReel> {
-        let Ok(folder) = folder();
+  fn reel(opened: &str) -> Result<Reel, NoReel> {
+    let Ok(folder) = folder();
 
-        of(&folder, opened)
-    }
+    of(&folder, opened)
+  }
 
-    fn current_of(reel: &Reel) -> Result<&Shot, Never> {
-        reel.current()
-    }
+  fn current_of(reel: &Reel) -> Result<&Shot, Never> {
+    reel.current()
+  }
 
-    fn step_by(reel: &mut Reel, by: i32) -> Result<String, Never> {
-        let Ok(()) = reel.step(by);
-        let Ok(shot) = reel.current();
+  fn step_by(reel: &mut Reel, by: i32) -> Result<String, Never> {
+    let Ok(()) = reel.step(by);
+    let Ok(shot) = reel.current();
 
-        Ok(shot.name.clone())
-    }
+    Ok(shot.name.clone())
+  }
 
-    #[test]
-    fn a_reel_opens_standing_on_the_thing_that_was_opened() -> Result<(), NoReel> {
-        let boat = reel("boat.png")?;
-        let swim = reel("swim.mp4")?;
-        let Ok(on_boat) = current_of(&boat);
-        let Ok(on_swim) = current_of(&swim);
+  #[test]
+  fn a_reel_opens_standing_on_the_thing_that_was_opened() -> Result<(), NoReel> {
+    let boat = reel("boat.png")?;
+    let swim = reel("swim.mp4")?;
+    let Ok(on_boat) = current_of(&boat);
+    let Ok(on_swim) = current_of(&swim);
 
-        assert_eq!(on_boat.name, "boat.png");
-        assert_eq!(boat.which(), Ok(2));
-        assert_eq!(on_swim.name, "swim.mp4");
+    assert_eq!(on_boat.name, "boat.png");
+    assert_eq!(boat.which(), Ok(2));
+    assert_eq!(on_swim.name, "swim.mp4");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn what_this_cannot_show_is_not_in_the_reel() -> Result<(), NoReel> {
-        let reel = reel("beach.jpg")?;
-        let Ok(names) = reel.names();
+  #[test]
+  fn what_this_cannot_show_is_not_in_the_reel() -> Result<(), NoReel> {
+    let reel = reel("beach.jpg")?;
+    let Ok(names) = reel.names();
 
-        assert_eq!(names.collect::<Vec<_>>(), ["beach.jpg", "boat.png", "swim.mp4"]);
-        assert_eq!(reel.many(), Ok(3));
+    assert_eq!(
+      names.collect::<Vec<_>>(),
+      ["beach.jpg", "boat.png", "swim.mp4"]
+    );
+    assert_eq!(reel.many(), Ok(3));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_picture_and_a_film_are_both_in_it_and_know_which_they_are() -> Result<(), NoReel> {
-        let swim = reel("swim.mp4")?;
-        let beach = reel("beach.jpg")?;
-        let Ok(film) = current_of(&swim);
-        let Ok(picture) = current_of(&beach);
+  #[test]
+  fn a_picture_and_a_film_are_both_in_it_and_know_which_they_are() -> Result<(), NoReel> {
+    let swim = reel("swim.mp4")?;
+    let beach = reel("beach.jpg")?;
+    let Ok(film) = current_of(&swim);
+    let Ok(picture) = current_of(&beach);
 
-        assert_eq!(film.kind, Kind::Film);
-        assert_eq!(picture.kind, Kind::Picture);
+    assert_eq!(film.kind, Kind::Film);
+    assert_eq!(picture.kind, Kind::Picture);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn the_folders_own_order_is_kept() -> Result<(), NoReel> {
-        let Ok(listing) = listed(&[("z.jpg", "image/jpeg"), ("a.jpg", "image/jpeg")]);
-        let reel = of(&listing, "z.jpg")?;
-        let Ok(names) = reel.names();
+  #[test]
+  fn the_folders_own_order_is_kept() -> Result<(), NoReel> {
+    let Ok(listing) = listed(&[("z.jpg", "image/jpeg"), ("a.jpg", "image/jpeg")]);
+    let reel = of(&listing, "z.jpg")?;
+    let Ok(names) = reel.names();
 
-        assert_eq!(names.collect::<Vec<_>>(), ["z.jpg", "a.jpg"]);
+    assert_eq!(names.collect::<Vec<_>>(), ["z.jpg", "a.jpg"]);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn walking_goes_forward_and_back() -> Result<(), NoReel> {
-        let mut reel = reel("beach.jpg")?;
+  #[test]
+  fn walking_goes_forward_and_back() -> Result<(), NoReel> {
+    let mut reel = reel("beach.jpg")?;
 
-        assert_eq!(step_by(&mut reel, 1), Ok(String::from("boat.png")));
-        assert_eq!(step_by(&mut reel, 1), Ok(String::from("swim.mp4")));
-        assert_eq!(step_by(&mut reel, -1), Ok(String::from("boat.png")));
+    assert_eq!(step_by(&mut reel, 1), Ok(String::from("boat.png")));
+    assert_eq!(step_by(&mut reel, 1), Ok(String::from("swim.mp4")));
+    assert_eq!(step_by(&mut reel, -1), Ok(String::from("boat.png")));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn walking_off_either_end_comes_round() -> Result<(), NoReel> {
-        let mut reel = reel("swim.mp4")?;
+  #[test]
+  fn walking_off_either_end_comes_round() -> Result<(), NoReel> {
+    let mut reel = reel("swim.mp4")?;
 
-        assert_eq!(step_by(&mut reel, 1), Ok(String::from("beach.jpg")));
-        assert_eq!(step_by(&mut reel, -1), Ok(String::from("swim.mp4")));
+    assert_eq!(step_by(&mut reel, 1), Ok(String::from("beach.jpg")));
+    assert_eq!(step_by(&mut reel, -1), Ok(String::from("swim.mp4")));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_step_of_more_than_the_whole_reel_still_lands_somewhere() -> Result<(), NoReel> {
-        let mut reel = reel("beach.jpg")?;
+  #[test]
+  fn a_step_of_more_than_the_whole_reel_still_lands_somewhere() -> Result<(), NoReel> {
+    let mut reel = reel("beach.jpg")?;
 
-        assert_eq!(step_by(&mut reel, 7), Ok(String::from("boat.png")));
-        assert_eq!(step_by(&mut reel, -7), Ok(String::from("beach.jpg")));
-        assert_eq!(step_by(&mut reel, 0), Ok(String::from("beach.jpg")));
+    assert_eq!(step_by(&mut reel, 7), Ok(String::from("boat.png")));
+    assert_eq!(step_by(&mut reel, -7), Ok(String::from("beach.jpg")));
+    assert_eq!(step_by(&mut reel, 0), Ok(String::from("beach.jpg")));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_folder_with_one_picture_in_it_is_a_reel() -> Result<(), NoReel> {
-        let Ok(listing) = listed(&[("beach.jpg", "image/jpeg")]);
-        let mut reel = of(&listing, "beach.jpg")?;
+  #[test]
+  fn a_folder_with_one_picture_in_it_is_a_reel() -> Result<(), NoReel> {
+    let Ok(listing) = listed(&[("beach.jpg", "image/jpeg")]);
+    let mut reel = of(&listing, "beach.jpg")?;
 
-        assert_eq!(reel.many(), Ok(1));
-        assert_eq!(step_by(&mut reel, 1), Ok(String::from("beach.jpg")));
-        assert_eq!(step_by(&mut reel, -1), Ok(String::from("beach.jpg")));
+    assert_eq!(reel.many(), Ok(1));
+    assert_eq!(step_by(&mut reel, 1), Ok(String::from("beach.jpg")));
+    assert_eq!(step_by(&mut reel, -1), Ok(String::from("beach.jpg")));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_folder_with_nothing_to_show_is_no_reel_at_all() {
-        let Ok(listing) = listed(&[("notes.txt", "text/plain")]);
+  #[test]
+  fn a_folder_with_nothing_to_show_is_no_reel_at_all() {
+    let Ok(listing) = listed(&[("notes.txt", "text/plain")]);
 
-        assert_eq!(Reel::of(&listing, "notes.txt"), Ok(None));
-        assert_eq!(Reel::of(&[], "beach.jpg"), Ok(None));
-    }
+    assert_eq!(Reel::of(&listing, "notes.txt"), Ok(None));
+    assert_eq!(Reel::of(&[], "beach.jpg"), Ok(None));
+  }
 
-    #[test]
-    fn opening_something_unshowable_still_opens_the_folder() -> Result<(), NoReel> {
-        let reel = reel("notes.txt")?;
-        let Ok(shot) = current_of(&reel);
+  #[test]
+  fn opening_something_unshowable_still_opens_the_folder() -> Result<(), NoReel> {
+    let reel = reel("notes.txt")?;
+    let Ok(shot) = current_of(&reel);
 
-        assert_eq!(shot.name, "beach.jpg");
-        assert_eq!(reel.which(), Ok(1));
+    assert_eq!(shot.name, "beach.jpg");
+    assert_eq!(reel.which(), Ok(1));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_reel_read_again_can_be_put_back_where_it_was() -> Result<(), NoReel> {
-        let mut reel = reel("beach.jpg")?;
+  #[test]
+  fn a_reel_read_again_can_be_put_back_where_it_was() -> Result<(), NoReel> {
+    let mut reel = reel("beach.jpg")?;
 
-        assert_eq!(reel.stand_on("swim.mp4"), Ok(Stood::OnIt));
+    assert_eq!(reel.stand_on("swim.mp4"), Ok(Stood::OnIt));
 
-        let Ok(stood) = current_of(&reel);
+    let Ok(stood) = current_of(&reel);
 
-        assert_eq!(stood.name, "swim.mp4");
-        assert_eq!(reel.stand_on("gone.jpg"), Ok(Stood::NotThere));
+    assert_eq!(stood.name, "swim.mp4");
+    assert_eq!(reel.stand_on("gone.jpg"), Ok(Stood::NotThere));
 
-        let Ok(left) = current_of(&reel);
+    let Ok(left) = current_of(&reel);
 
-        assert_eq!(left.name, "swim.mp4", "left where it was");
+    assert_eq!(left.name, "swim.mp4", "left where it was");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn which_one_this_is_is_counted_the_way_a_person_says_it() -> Result<(), NoReel> {
-        let mut reel = reel("beach.jpg")?;
+  #[test]
+  fn which_one_this_is_is_counted_the_way_a_person_says_it() -> Result<(), NoReel> {
+    let mut reel = reel("beach.jpg")?;
 
-        assert_eq!((reel.which(), reel.many()), (Ok(1), Ok(3)));
+    assert_eq!((reel.which(), reel.many()), (Ok(1), Ok(3)));
 
-        let Ok(()) = reel.step(2);
+    let Ok(()) = reel.step(2);
 
-        assert_eq!((reel.which(), reel.many()), (Ok(3), Ok(3)));
+    assert_eq!((reel.which(), reel.many()), (Ok(3), Ok(3)));
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

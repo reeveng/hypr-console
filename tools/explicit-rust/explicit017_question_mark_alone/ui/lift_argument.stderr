@@ -1,0 +1,27 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/lift_argument.rs:9:29
+   |
+LL |     let packed = combine(1, next()?);
+   |                             ^^^^^^^
+   |
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = next()?;
+LL ~     let packed = combine(1, checked_value);
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/lift_argument.rs:10:34
+   |
+LL |     let (previous, following) = (next()?, 3u8);
+   |                                  ^^^^^^^
+   |
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value_2 = next()?;
+LL ~     let (previous, following) = (checked_value_2, 3u8);
+   |
+
+error: aborting due to 2 previous errors
+

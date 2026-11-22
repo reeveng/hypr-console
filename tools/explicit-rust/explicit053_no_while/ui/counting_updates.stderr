@@ -1,0 +1,48 @@
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/counting_updates.rs:10:5
+   |
+LL | /     'walk: while index < core::cmp::min(end, i32::MAX) {
+LL | |         if index == stop {
+LL | |             break 'walk;
+...  |
+LL | |         };
+LL | |     }
+   | |_____^
+   |
+   = note: `#[deny(explicit053_no_while)]` on by default
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL -     'walk: while index < core::cmp::min(end, i32::MAX) {
+LL +     'walk: for _ in (::core::ops::Range { start: index, end: core::cmp::min(end, i32::MAX) }) {
+   |
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/counting_updates.rs:24:5
+   |
+LL | /     while index < limit {
+LL | |         let Ok(()) = wrapping_add_index(1, &mut index);
+LL | |     }
+   | |_____^
+   |
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL -     while index < limit {
+LL +     for _ in (::core::ops::Range { start: index, end: limit }) {
+   |
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/counting_updates.rs:31:5
+   |
+LL | /     while offset > limit {
+LL | |         let Ok(()) = wrapping_sub_offset(1, &mut offset);
+LL | |     }
+   | |_____^
+   |
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL -     while offset > limit {
+LL +     for _ in (::core::ops::Range { start: limit, end: offset }).rev() {
+   |
+
+error: aborting due to 3 previous errors
+

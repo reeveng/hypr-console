@@ -39,11 +39,11 @@ use console_test_stages::palette::palette;
 use crate::Unchecked;
 
 pub const FILLS: Check = Check {
-    name: "440-the-strip-under-the-bar-fills",
-    about: "The strip under the bar fills to how far along the long thing is.",
-    feature: "updating",
-    since: "2026-09-08",
-    bodies: &[Body::Desktop(fills)],
+  name: "440-the-strip-under-the-bar-fills",
+  about: "The strip under the bar fills to how far along the long thing is.",
+  feature: "updating",
+  since: "2026-09-08",
+  bodies: &[Body::Desktop(fills)],
 };
 
 const HOW_FAR: u16 = 600;
@@ -61,107 +61,125 @@ const RIGHT: f64 = 0.85;
 const EVERY: f64 = 0.5;
 
 fn fitting() -> Result<Fitting, Never> {
-    Fitting::of_em()
+  Fitting::of_em()
 }
 
 pub fn rows(fitting: Fitting) -> Result<Vec<f64>, Never> {
-    let deep = f64::from(fitting.deep);
-    let thin = f64::from(fitting.thin);
+  let deep = f64::from(fitting.deep);
+  Ok(
+    (0..fitting.thin)
+      .flat_map(|row| {
+        let first = deep + f64::from(row);
 
-    Ok(std::iter::successors(Some(deep), |at| Some(at + EVERY))
-        .take_while(|at| *at < deep + thin)
-        .collect())
+        [first, first + EVERY]
+      })
+      .collect(),
+  )
 }
 
 pub fn reserved() -> Result<f64, Never> {
-    let Ok(fitting) = fitting();
-    let Ok(tall) = fitting.height();
+  let Ok(fitting) = fitting();
+  let Ok(tall) = fitting.height();
 
-    Ok(f64::from(tall))
+  Ok(f64::from(tall))
 }
 
 fn spent(name: &str) -> Result<String, Unchecked> {
-    let Ok(wanted) = palette();
+  let Ok(wanted) = palette();
 
-    wanted.get(name).cloned().ok_or_else(|| Unchecked::NoColor(name.to_string()))
+  wanted
+    .get(name)
+    .cloned()
+    .ok_or_else(|| Unchecked::NoColor(name.to_string()))
 }
 
 fn fills(stage: &mut Desktop) -> CheckResult {
-    stage.filling(&Progress { permille: HOW_FAR, label: DOING.to_string() })?;
+  stage.filling(&Progress {
+    permille: HOW_FAR,
+    label: DOING.to_string(),
+  })?;
 
-    let fill = spent("fill")?;
-    let ground = spent("ground")?;
-    let room = stage.logical()?;
-    let Ok(fitting) = fitting();
-    let Ok(down) = rows(fitting);
-    let across = |part: f64| f64::from(room.width) * part;
+  let fill = spent("fill")?;
+  let ground = spent("ground")?;
+  let room = stage.logical()?;
+  let Ok(fitting) = fitting();
+  let Ok(down) = rows(fitting);
+  let across = |part: f64| f64::from(room.width) * part;
 
-    let mut saw = Vec::new();
-    let mut filled = Ready::NotYet;
+  let mut saw = Vec::new();
+  let mut filled = Ready::NotYet;
 
-    for row in down {
-        let mut read: Vec<String> = Vec::new();
+  for row in down {
+    let mut read: Vec<String> = Vec::new();
 
-        for part in [LEFT, NEARLY, PAST, RIGHT] {
-            let said = stage.color(Point { x: across(part), y: row })?;
+    for part in [LEFT, NEARLY, PAST, RIGHT] {
+      let said = stage.color(Point {
+        x: across(part),
+        y: row,
+      })?;
 
-            read.push(said);
-        }
-
-        let said = match read.as_slice() {
-            [left, nearly, past, right] => {
-                let painted =
-                    *left == fill && *nearly == fill && *past == ground && *right == ground;
-
-                match painted {
-                    true => filled = Ready::Yes,
-                    false => {},
-                }
-
-                format!("{row}: {left} {nearly} {past} {right}")
-            }
-            _fewer_than_four => format!("{row}: nothing was read"),
-        };
-
-        saw.push(said);
+      read.push(said);
     }
 
-    expect_ready(filled, || {
-        format!(
-            "the strip was told it was {HOW_FAR} thousandths of the way through, so the row \
+    let said = match read.as_slice() {
+      [left, nearly, past, right] => {
+        let painted = *left == fill && *nearly == fill && *past == ground && *right == ground;
+
+        match ::core::primitive::bool::then_some(painted, ()) {
+          ::core::option::Option::Some(()) => filled = Ready::Yes,
+          ::core::option::Option::None => {}
+        }
+
+        format!("{row}: {left} {nearly} {past} {right}")
+      }
+      _fewer_than_four => format!("{row}: nothing was read"),
+    };
+
+    saw.push(said);
+  }
+
+  expect_ready(filled, || {
+    format!(
+      "the strip was told it was {HOW_FAR} thousandths of the way through, so the row \
              under the bar \
              should be #{fill} at {LEFT} and {NEARLY} across and #{ground} at {PAST} and {RIGHT}. \
              What is there instead, row by row: {}",
-            saw.join(", ")
-        )
-    })
+      saw.join(", ")
+    )
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn every_row_looked_at_is_one_the_strip_covers() {
-        let Ok(fitting) = fitting();
-        let Ok(rows) = rows(fitting);
-        let deep = f64::from(fitting.deep);
-        let Ok(tall) = fitting.height();
-        let bottom = f64::from(tall);
+  #[test]
+  fn every_row_looked_at_is_one_the_strip_covers() {
+    let Ok(fitting) = fitting();
+    let Ok(rows) = rows(fitting);
+    let deep = f64::from(fitting.deep);
+    let Ok(tall) = fitting.height();
+    let bottom = f64::from(tall);
 
-        assert!(rows.iter().all(|row| (deep..bottom).contains(row)), "{rows:?}");
-        assert!(rows.first() == Some(&deep), "the top of the strip is not looked at: {rows:?}");
-    }
+    assert!(
+      rows.iter().all(|row| (deep..bottom).contains(row)),
+      "{rows:?}"
+    );
+    assert!(
+      rows.first() == Some(&deep),
+      "the top of the strip is not looked at: {rows:?}"
+    );
+  }
 
-    #[test]
-    fn the_rows_under_the_bar_are_the_bars_own_arithmetic() {
-        let Ok(fitting) = fitting();
-        let Ok(tall) = fitting.height();
+  #[test]
+  fn the_rows_under_the_bar_are_the_bars_own_arithmetic() {
+    let Ok(fitting) = fitting();
+    let Ok(tall) = fitting.height();
 
-        assert_eq!(
-            fitting.deep.saturating_add(fitting.thin),
-            tall,
-            "the strip is drawn in rows the bar does not reserve"
-        );
-    }
+    assert_eq!(
+      fitting.deep.saturating_add(fitting.thin),
+      tall,
+      "the strip is drawn in rows the bar does not reserve"
+    );
+  }
 }

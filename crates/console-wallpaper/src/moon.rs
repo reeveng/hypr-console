@@ -14,6 +14,7 @@
 //! telescope and does not matter to someone choosing a picture, so the mean is
 //! what is used and the error is written down here rather than corrected for.
 
+use crate::units::UnixSeconds;
 use console_core_never::Never;
 use console_core_words::Words;
 
@@ -23,100 +24,114 @@ const CYCLE: f64 = 29.530_588_853;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
 pub enum Moon {
-    #[words(word = "full")]
-    Full,
-    #[words(word = "new")]
-    New,
-    #[words(word = "waning")]
-    Waning,
-    #[words(word = "waxing")]
-    Waxing,
+  #[words(word = "full")]
+  Full,
+  #[words(word = "new")]
+  New,
+  #[words(word = "waning")]
+  Waning,
+  #[words(word = "waxing")]
+  Waxing,
 }
 
 impl Moon {
-    pub const EVERY: [Moon; 4] = [Moon::Full, Moon::New, Moon::Waning, Moon::Waxing];
+  pub const EVERY: [Moon; 4] = [Moon::Full, Moon::New, Moon::Waning, Moon::Waxing];
 
-    pub fn of(word: &str) -> Result<Option<Self>, Never> {
-        Moon::from_word(&word.trim().to_lowercase())
-    }
+  pub fn of(word: &str) -> Result<Option<Self>, Never> {
+    Moon::from_word(&word.trim().to_lowercase())
+  }
 }
 
-pub fn through(unix: f64) -> Result<f64, Never> {
-    Ok((((unix - A_NEW_MOON) / 86_400.0) / CYCLE).rem_euclid(1.0))
+pub fn through(unix: impl Into<UnixSeconds>) -> Result<f64, Never> {
+  Ok(
+    (((<_ as ::core::convert::Into<crate::units::UnixSeconds>>::into(unix).0 - A_NEW_MOON)
+      / 86_400.0)
+      / CYCLE)
+      .rem_euclid(1.0),
+  )
 }
 
-pub fn moon(unix: f64) -> Result<Moon, Never> {
-    let through = through(unix)?;
+pub fn moon(unix: impl Into<UnixSeconds>) -> Result<Moon, Never> {
+  let through = through(unix)?;
 
-    Ok(match through < 0.0625 || through >= 0.9375 {
-        true => Moon::New,
-        false => match through < 0.4375 {
-            true => Moon::Waxing,
-            false => match through < 0.5625 {
-                true => Moon::Full,
-                false => Moon::Waning,
-            },
-        },
-    })
+  Ok(
+    match ::core::primitive::bool::then_some(through < 0.0625 || through >= 0.9375, ()) {
+      ::core::option::Option::Some(()) => Moon::New,
+      ::core::option::Option::None => {
+        match ::core::primitive::bool::then_some(through < 0.4375, ()) {
+          ::core::option::Option::Some(()) => Moon::Waxing,
+          ::core::option::Option::None => {
+            match ::core::primitive::bool::then_some(through < 0.5625, ()) {
+              ::core::option::Option::Some(()) => Moon::Full,
+              ::core::option::Option::None => Moon::Waning,
+            }
+          }
+        }
+      }
+    },
+  )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const DAY: f64 = 86_400.0;
+  const DAY: f64 = 86_400.0;
 
-    #[test]
-    fn the_moon_the_count_starts_from_is_a_new_one() {
-        assert_eq!(moon(A_NEW_MOON), Ok(Moon::New));
+  #[test]
+  fn the_moon_the_count_starts_from_is_a_new_one() {
+    assert_eq!(moon(A_NEW_MOON), Ok(Moon::New));
 
-        let Ok(through) = through(A_NEW_MOON);
+    let Ok(through) = through(A_NEW_MOON);
 
-        assert!(through < 0.001);
+    assert!(through < 0.001);
+  }
+
+  #[test]
+  fn the_moon_fills_and_empties_over_a_cycle() {
+    let after = |days: f64| moon(A_NEW_MOON + days * DAY);
+    assert_eq!(after(CYCLE * 0.25), Ok(Moon::Waxing));
+    assert_eq!(after(CYCLE * 0.5), Ok(Moon::Full));
+    assert_eq!(after(CYCLE * 0.75), Ok(Moon::Waning));
+    assert_eq!(after(CYCLE), Ok(Moon::New));
+  }
+
+  #[test]
+  fn the_same_phase_comes_back_a_cycle_later() {
+    for cycles in [1.0, 13.0, 200.0, 330.0] {
+      let Ok(later) = through(A_NEW_MOON + cycles * CYCLE * DAY);
+
+      let Ok(first) = through(A_NEW_MOON);
+
+      let apart = (later - first).abs();
+
+      assert!(
+        apart < 0.001 || apart > 0.999,
+        "{cycles} cycles on it was {apart} through"
+      );
+    }
+  }
+
+  #[test]
+  fn a_moment_before_the_count_starts_is_still_somewhere_in_a_cycle() {
+    let long_ago = A_NEW_MOON - 400.0 * CYCLE * DAY - 3.0 * DAY;
+    let Ok(through) = through(long_ago);
+
+    assert!((0.0..1.0).contains(&through), "{through}");
+
+    let Ok(moon) = moon(long_ago);
+
+    assert!(Moon::EVERY.contains(&moon));
+  }
+
+  #[test]
+  fn a_moon_is_written_and_read_as_the_same_word() {
+    for moon in Moon::EVERY {
+      let Ok(word) = moon.word();
+
+      assert_eq!(Moon::of(word), Ok(Some(moon)));
     }
 
-    #[test]
-    fn the_moon_fills_and_empties_over_a_cycle() {
-        let after = |days: f64| moon(A_NEW_MOON + days * DAY);
-        assert_eq!(after(CYCLE * 0.25), Ok(Moon::Waxing));
-        assert_eq!(after(CYCLE * 0.5), Ok(Moon::Full));
-        assert_eq!(after(CYCLE * 0.75), Ok(Moon::Waning));
-        assert_eq!(after(CYCLE), Ok(Moon::New));
-    }
-
-    #[test]
-    fn the_same_phase_comes_back_a_cycle_later() {
-        for cycles in [1.0, 13.0, 200.0, 330.0] {
-            let Ok(later) = through(A_NEW_MOON + cycles * CYCLE * DAY);
-
-            let Ok(first) = through(A_NEW_MOON);
-
-            let apart = (later - first).abs();
-
-            assert!(apart < 0.001 || apart > 0.999, "{cycles} cycles on it was {apart} through");
-        }
-    }
-
-    #[test]
-    fn a_moment_before_the_count_starts_is_still_somewhere_in_a_cycle() {
-        let long_ago = A_NEW_MOON - 400.0 * CYCLE * DAY - 3.0 * DAY;
-        let Ok(through) = through(long_ago);
-
-        assert!((0.0..1.0).contains(&through), "{through}");
-
-        let Ok(moon) = moon(long_ago);
-
-        assert!(Moon::EVERY.contains(&moon));
-    }
-
-    #[test]
-    fn a_moon_is_written_and_read_as_the_same_word() {
-        for moon in Moon::EVERY {
-            let Ok(word) = moon.word();
-
-            assert_eq!(Moon::of(word), Ok(Some(moon)));
-        }
-
-        assert_eq!(Moon::of("blue"), Ok(None));
-    }
+    assert_eq!(Moon::of("blue"), Ok(None));
+  }
 }

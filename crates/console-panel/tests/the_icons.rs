@@ -24,59 +24,68 @@ type Failure = Box<dyn std::error::Error>;
 const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 
 fn sources() -> Result<Vec<PathBuf>, Never> {
-    let root = Path::new(ROOT);
-    let ourself = root.join(file!());
-    let declaring = root.join("crates/console-panel/src/icons.rs");
+  let root = Path::new(ROOT);
+  let ourself = root.join(file!());
+  let declaring = root.join("crates/console-panel/src/icons.rs");
 
-    of_every_crate(root, &[&ourself, &declaring])
+  of_every_crate(root, &[&ourself, &declaring])
 }
 
 #[test]
 fn nothing_hands_gtk_an_icon_name_it_spelled_itself() -> Result<(), Failure> {
-    let doors = [format!("{}_icon_name(", "set"), format!("{}_icon_name(", "from")];
-    let mut strange: Vec<String> = Vec::new();
-    let Ok(every) = sources();
+  let doors = [
+    format!("{}_icon_name(", "set"),
+    format!("{}_icon_name(", "from"),
+  ];
+  let mut strange: Vec<String> = Vec::new();
+  let Ok(every) = sources();
 
-    for at in every {
-        let said = std::fs::read_to_string(&at)?;
+  for at in every {
+    let said = std::fs::read_to_string(&at)?;
 
-        for door in &doors {
-            for rest in said.split(door.as_str()).skip(1) {
-                let spelled = rest.trim_start().starts_with('"')
-                    || rest.trim_start().starts_with("Some(\"");
+    for door in &doors {
+      for rest in said.split(door.as_str()).skip(1) {
+        let spelled =
+          rest.trim_start().starts_with('"') || rest.trim_start().starts_with("Some(\"");
 
-                match spelled {
-                    true => strange.push(format!("{}: {door}", at.display())),
-                    false => {},
-                }
-            }
+        match ::core::primitive::bool::then_some(spelled, ()) {
+          ::core::option::Option::Some(()) => strange.push(format!("{}: {door}", at.display())),
+          ::core::option::Option::None => {}
         }
+      }
     }
+  }
 
-    assert!(
-        strange.is_empty(),
-        "these spell an icon name instead of asking console_panel::icons for one: {strange:?}"
-    );
+  assert!(
+    strange.is_empty(),
+    "these spell an icon name instead of asking console_panel::icons for one: {strange:?}"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn nothing_named_here_has_stopped_being_drawn() -> Result<(), Failure> {
-    let Ok(every) = sources();
-    let read: Vec<String> = every.iter().map(std::fs::read_to_string).collect::<Result<_, _>>()?;
-    let said = read.join("\n");
-    let gone: Vec<&str> = EVERY
-        .iter()
-        .filter(|icon| spells(&said, Word(&format!("Icon::{icon:?}"))) == Ok(Spelled::No))
-        .map(|icon| {
-            let Ok(name) = icon.name();
+  let Ok(every) = sources();
+  let read: Vec<String> = every
+    .iter()
+    .map(std::fs::read_to_string)
+    .collect::<Result<_, _>>()?;
+  let said = read.join("\n");
+  let gone: Vec<&str> = EVERY
+    .iter()
+    .filter(|icon| spells(&said, Word(&format!("Icon::{icon:?}"))) == Ok(Spelled::No))
+    .map(|icon| {
+      let Ok(name) = icon.name();
 
-            name
-        })
-        .collect();
+      name
+    })
+    .collect();
 
-    assert!(gone.is_empty(), "the enum names what nothing draws: {gone:?}");
+  assert!(
+    gone.is_empty(),
+    "the enum names what nothing draws: {gone:?}"
+  );
 
-    Ok(())
+  Ok(())
 }

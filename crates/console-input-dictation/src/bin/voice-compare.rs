@@ -17,214 +17,261 @@
 use std::process::{Command, ExitCode, Stdio};
 use std::time::Instant;
 
-use console_program_lifetime::{BoundToParent, alongside};
-use console_input_dictation::comparing::{COMMAND, Compare, Comparison, Found, CompareEvent, CompareEffect, Candidate, Task, Timing, Where};
-use console_core_external_programs::Program as ExternalProgram;
 use console_core_atomic_writes::{Stored, read};
+use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
+use console_input_dictation::comparing::{
+  COMMAND, Candidate, CommandPath, Compare, CompareEffect, CompareEvent, Comparison, Found, Task,
+  Timing, Where,
+};
+use console_operating_system_linux::program_lifetime::{BoundToParent, alongside};
 
+use console_operating_system_linux::program_runtime::{Clock, Interpreter};
 use console_program_contract::Event;
-use console_program_runtime::Interpreter;
 
 const NOTHING_TIMED: u128 = 0;
-
 
 const TRIES: [u8; 3] = [1, 2, 3];
 
 const NAMED: &str = "/proc/sys/kernel/hostname";
 
 struct Machine {
-    recording: Option<BoundToParent>,
+  recording: Option<BoundToParent>,
 }
 
 impl Interpreter for Machine {
-    type Event = CompareEvent;
-    type Effect = CompareEffect;
+  type Event = CompareEvent;
+  type Effect = CompareEffect;
 
-    fn interpret(&mut self, acts: &CompareEffect) -> Vec<Event<CompareEvent>> {
-        match acts {
-            CompareEffect::Look(every) => {
-                let seen = every
-                    .iter()
-                    .map(|at| {
-                        let Ok(found) = probe(at);
+  fn interpret(&mut self, acts: &CompareEffect, _clock: &Clock) -> Vec<Event<CompareEvent>> {
+    match acts {
+      CompareEffect::Look(every) => {
+        let seen = every
+          .iter()
+          .map(|at| {
+            let Ok(found) = probe(at.as_ref());
 
-                        Candidate { at: at.clone(), is: found }
-                    })
-                    .collect();
-
-                vec![Event::Custom(CompareEvent::Looked(seen))]
+            Candidate {
+              at: at.clone(),
+              is: found,
             }
+          })
+          .collect();
 
-            CompareEffect::Ran(arguments) => {
-                let Ok(said) = run_stderr(arguments);
+        vec![Event::Custom(CompareEvent::Looked(seen))]
+      }
 
-                vec![Event::Custom(CompareEvent::Output(said))]
-            }
+      CompareEffect::Ran(arguments) => {
+        let Ok(said) = run_stderr(arguments);
 
-            CompareEffect::Timed(arguments) => {
-                let Ok(took) = timed(arguments);
+        vec![Event::Custom(CompareEvent::Output(said))]
+      }
 
-                vec![Event::Custom(CompareEvent::Timed(took))]
-            }
+      CompareEffect::Timed(arguments) => {
+        let Ok(took) = timed(arguments);
 
-            CompareEffect::Record(into) => {
-                let Ok(mut recording) = ExternalProgram::PwRecord.command();
+        vec![Event::Custom(CompareEvent::Timed(took))]
+      }
 
-                recording
-                    .args(["--rate", "16000", "--channels", "1", "--format", "s16"])
-                    .arg(into)
-                    .stdout(Stdio::null());
+      CompareEffect::Record(into) => {
+        let Ok(mut recording) = ExternalProgram::PwRecord.command();
 
-                self.recording = match alongside(&mut recording) {
-                    Ok(started) => Some(started),
-                    Err(fault) => {
-                        eprintln!("voice-compare: nothing is listening: {fault}");
+        recording
+          .args(["--rate", "16000", "--channels", "1", "--format", "s16"])
+          .arg(into)
+          .stdout(Stdio::null());
 
-                        None
-                    }
-                };
+        self.recording = match alongside(&mut recording) {
+          Ok(started) => Some(started),
+          Err(fault) => {
+            eprintln!("voice-compare: nothing is listening: {fault}");
 
-                vec![Event::Custom(CompareEvent::Finished)]
-            }
+            None
+          }
+        };
 
-            CompareEffect::Enough => {
-                self.recording = None;
+        vec![Event::Custom(CompareEvent::Finished)]
+      }
 
-                vec![Event::Custom(CompareEvent::Finished)]
-            }
-        }
+      CompareEffect::Enough => {
+        self.recording = None;
+
+        vec![Event::Custom(CompareEvent::Finished)]
+      }
     }
+  }
 }
 
 fn probe(at: &std::path::Path) -> Result<Found, Never> {
-    use std::os::unix::fs::PermissionsExt;
+  use std::os::unix::fs::PermissionsExt;
 
-    Ok(match std::fs::metadata(at) {
-        Err(_not_there) => Found::Absent,
-        Ok(what) => match (what.is_file(), what.permissions().mode() & 0o111) {
-            (true, 0) | (false, _) => Found::There,
-            (true, _) => Found::Runnable,
-        },
-    })
+  Ok(match std::fs::metadata(at) {
+    Err(_not_there) => Found::Absent,
+    Ok(what) => match (what.is_file(), what.permissions().mode() & 0o111) {
+      (true, 0) | (false, _) => Found::There,
+      (true, _) => Found::Runnable,
+    },
+  })
 }
 
 fn starting(arguments: &[String]) -> Result<Option<Command>, Never> {
-    let first = match arguments.first() {
-        Some(first) => first,
-        None => return Ok(None),
-    };
+  let first = match arguments.first() {
+    Some(first) => first,
+    None => return Ok(None),
+  };
 
-    let mut starting = Command::new(first);
+  let mut starting = Command::new(first);
 
-    starting.args(arguments.iter().skip(1));
+  starting.args(arguments.iter().skip(1));
 
-    Ok(Some(starting))
+  Ok(Some(starting))
 }
 
 fn run_stderr(arguments: &[String]) -> Result<String, Never> {
-    let Ok(starting) = starting(arguments);
+  let Ok(starting) = starting(arguments);
 
-    Ok(match starting {
-        None => String::new(),
-        Some(mut starting) => match starting.stderr(Stdio::piped()).output() {
-            Err(_would_not_start) => String::new(),
-            Ok(done) => format!(
-                "{}{}",
-                String::from_utf8_lossy(&done.stdout),
-                String::from_utf8_lossy(&done.stderr)
-            ),
-        },
-    })
+  Ok(match starting {
+    None => String::new(),
+    Some(mut starting_2) => match starting_2.stderr(Stdio::piped()).output() {
+      Err(_would_not_start) => String::new(),
+      Ok(done) => {
+        let Ok(stdout) = output_text(done.stdout, "stdout");
+        let Ok(stderr) = output_text(done.stderr, "stderr");
+
+        format!("{stdout}{stderr}")
+      }
+    },
+  })
 }
 
 fn timed(arguments: &[String]) -> Result<Timing, Never> {
-    let mut first = None;
-    let mut best = None;
-    let mut heard = String::new();
+  let mut first = None;
+  let mut best = None;
+  let mut heard = String::new();
 
-    for _ in TRIES {
-        let began = Instant::now();
+  for _ in TRIES {
+    let began = Instant::now();
 
-        let Ok(starting) = starting(arguments);
+    let Ok(starting) = starting(arguments);
 
-        heard = match starting {
-            None => String::new(),
-            Some(mut starting) => match starting.stderr(Stdio::null()).output() {
-                Err(_would_not_start) => String::new(),
-                Ok(done) => String::from_utf8_lossy(&done.stdout).to_string(),
-            },
-        };
+    heard = match starting {
+      None => String::new(),
+      Some(mut starting_2) => match starting_2.stderr(Stdio::null()).output() {
+        Err(_would_not_start) => String::new(),
+        Ok(done) => {
+          let Ok(stdout) = output_text(done.stdout, "stdout");
 
-        let took = began.elapsed().as_millis();
+          stdout
+        }
+      },
+    };
 
-        first = first.or(Some(took));
-        best = Some(best.map_or(took, |best: u128| best.min(took)));
+    let took = began.elapsed().as_millis();
+
+    first = first.or(Some(took));
+    best = Some(best.map_or(took, |best_2: u128| best_2.min(took)));
+  }
+
+  let first_3 = match first {
+    Some(first_2) => first_2,
+    None => NOTHING_TIMED,
+  };
+
+  let best_4 = match best {
+    Some(best_3) => best_3,
+    None => NOTHING_TIMED,
+  };
+
+  Ok(Timing {
+    first: first_3,
+    best: best_4,
+    said: heard,
+  })
+}
+
+fn output_text(bytes: Vec<u8>, stream: &str) -> Result<String, Never> {
+  Ok(match String::from_utf8(bytes) {
+    Ok(text) => text,
+    Err(fault) => {
+      eprintln!("voice-compare: the engine's {stream} was not UTF-8: {fault}");
+
+      String::new()
     }
-
-    let first = match first {
-        Some(first) => first,
-        None => NOTHING_TIMED,
-    };
-
-    let best = match best {
-        Some(best) => best,
-        None => NOTHING_TIMED,
-    };
-
-    Ok(Timing { first, best, said: heard })
+  })
 }
 
 fn here() -> Result<String, Never> {
-    let Ok(held) = read(std::path::Path::new(NAMED));
+  let Ok(held) = read(std::path::Path::new(NAMED));
 
-    Ok(match held {
-        Stored::Text(said) => said.trim().to_string(),
-        Stored::Absent => String::new(),
-        Stored::Failed(fault) => {
-            eprintln!("voice-compare: {NAMED}: {fault}");
+  Ok(match held {
+    Stored::Text(said) => said.trim().to_string(),
+    Stored::Absent => String::new(),
+    Stored::Failed(fault) => {
+      eprintln!("voice-compare: {NAMED}: {fault}");
 
-            String::new()
-        }
-    })
+      String::new()
+    }
+  })
 }
 
 fn stamped() -> Result<String, Never> {
-    let Ok(asking) = ExternalProgram::Date.arguments(&["+%Y-%m-%d-%H%M"]);
+  let Ok(asking) = ExternalProgram::Date.arguments(&["+%Y-%m-%d-%H%M"]);
 
-    Ok(match console_core_external_programs::capture_output(&asking) {
-        Ok(said) => said.trim().to_string(),
-        Err(_unprinted) => String::new(),
-    })
+  Ok(
+    match console_core_external_programs::capture_output(&asking) {
+      Ok(said) => said.trim().to_string(),
+      Err(_unprinted) => String::new(),
+    },
+  )
 }
 
 fn main() -> ExitCode {
-    let Ok(kept) = console_input_dictation::models_path();
+  let Ok(kept) = console_input_dictation::models_path();
 
-    let kept = match kept {
-        Some(kept) => kept,
-        None => {
-            eprintln!("voice-compare: nothing says where the recordings are kept");
+  let kept_3 = match kept {
+    Some(kept_2) => kept_2,
+    None => {
+      eprintln!("voice-compare: nothing says where the recordings are kept");
 
-            return ExitCode::FAILURE;
-        }
-    };
+      return ExitCode::FAILURE;
+    }
+  };
 
-    let words: Vec<String> = std::env::args().skip(1).collect();
+  let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let job = match console_core_arguments::read(&COMMAND, &words).and_then(|line| Task::of(&line)) {
-        Ok(job) => job,
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
+  let job = match console_core_arguments::read(&COMMAND, &words).and_then(|line| Task::of(&line))
+  {
+    Ok(job) => job,
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
 
-            return ExitCode::from(code);
-        }
-    };
-    let Ok(host) = here();
-    let Ok(stamp) = stamped();
-    let comparison = Comparison { at: Where { kept, host, stamp }, job };
-    let mut machine = Machine { recording: None };
-    let Ok(code) = console_program_runtime::run::<Compare, Machine>(COMMAND.name, &comparison, &mut machine);
+      return ExitCode::from(code);
+    }
+  };
+  let Ok(host) = here();
+  let Ok(stamp) = stamped();
+  let directory = match CommandPath::new(kept_3) {
+    Ok(directory) => directory,
+    Err(fault) => {
+      eprintln!("voice-compare: {fault}");
 
-    code
+      return ExitCode::FAILURE;
+    }
+  };
+  let comparison = Comparison {
+    at: Where {
+      kept: directory,
+      host,
+      stamp,
+    },
+    job,
+  };
+  let mut machine = Machine { recording: None };
+  let Ok(code) = console_operating_system_linux::program_runtime::run::<Compare, Machine>(
+    COMMAND.name,
+    &comparison,
+    &mut machine,
+  );
+
+  code
 }

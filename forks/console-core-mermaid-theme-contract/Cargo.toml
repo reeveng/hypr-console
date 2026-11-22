@@ -1,0 +1,28 @@
+[package]
+name = "console-core-mermaid-theme-contract"
+version = "0.10.0-alpha.2"
+edition = "2024"
+authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
+license = "AGPL-3.0-or-later"
+homepage = "https://github.com/Latias94/merman"
+repository = "https://github.com/Latias94/merman"
+rust-version = "1.95"
+description = "Versioned authoring and canonical JSON contracts for Merman themes."
+documentation = "https://docs.rs/merman-theme-contract"
+readme = "README.md"
+keywords = ["mermaid", "themes", "json", "contracts"]
+categories = ["encoding", "visualization"]
+
+[features]
+default = []
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+serde_json_canonicalizer = "0.4.1"
+thiserror = "2.0.21"
+
+[dev-dependencies]
+
+[lib]
+name = "merman_theme_contract"

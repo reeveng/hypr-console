@@ -1,0 +1,22 @@
+error: `Result::ok()` turns an error into `None`
+  --> $DIR/uninhabited.rs:7:5
+   |
+LL |     value.ok()
+   |     ^^^^^^^^^^ help: name the variant that can occur: `match value { ::core::result::Result::Ok(_result_value) => ::core::option::Option::Some(_result_value), ::core::result::Result::Err(_impossible_variant) => match _impossible_variant {} }`
+   |
+   = note: `#[deny(explicit006_option_not_error)]` on by default
+
+error: `Result::err()` throws away the value and keeps only the failure
+  --> $DIR/uninhabited.rs:11:5
+   |
+LL |     value.err()
+   |     ^^^^^^^^^^^ help: name the variant that can occur: `match value { ::core::result::Result::Err(_result_value) => ::core::option::Option::Some(_result_value), ::core::result::Result::Ok(_impossible_variant) => match _impossible_variant {} }`
+
+error: `Result::ok()` turns an error into `None`
+  --> $DIR/uninhabited.rs:15:5
+   |
+LL |     value.ok().is_some()
+   |     ^^^^^^^^^^ help: name the variant that can occur: `(match value { ::core::result::Result::Ok(_result_value) => ::core::option::Option::Some(_result_value), ::core::result::Result::Err(_impossible_variant) => match _impossible_variant {} })`
+
+error: aborting due to 3 previous errors
+

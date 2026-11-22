@@ -144,6 +144,26 @@ fn is_the_word(named: &str, word: &str) -> bool {
     }
 }
 
+fn is_one_shot(cx: &LateContext<'_>, effect: &Expr<'_>) -> bool {
+    let ExprKind::Call(_, [subscription]) = effect.kind else {
+        return false;
+    };
+    let ExprKind::Call(constructor, _) = subscription.kind else {
+        return false;
+    };
+    let ExprKind::Path(ref path) = constructor.kind else {
+        return false;
+    };
+    let Res::Def(DefKind::Ctor(..), id) = cx.qpath_res(path, constructor.hir_id) else {
+        return false;
+    };
+    let variant = cx.tcx.parent(id);
+
+    cx.tcx.crate_name(id.krate).as_str() == "console_program_contract"
+        && cx.tcx.item_name(variant).as_str() == "Once"
+        && cx.tcx.item_name(cx.tcx.parent(variant)).as_str() == "Subscription"
+}
+
 impl<'tcx> LateLintPass<'tcx> for Explicit043NoUnmatchedListen {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
         if expr.span.from_expansion() {
@@ -156,6 +176,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit043NoUnmatchedListen {
 
         for (which, (listens, stops_listening)) in PAIRS.into_iter().enumerate() {
             match is_the_word(named.as_str(), listens) {
+                true if listens == "Effect::Subscribe" && is_one_shot(cx, expr) => {}
                 true => self.listened.push((which, expr.hir_id, expr.span)),
                 false => {}
             }

@@ -24,60 +24,68 @@ use std::path::PathBuf;
 
 use console_core_never::Never;
 
-use crate::Unresumed;
+use crate::{LocalName, Unresumed};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Already {
-    Restore,
-    NotYet,
-    CannotTell,
+  Restore,
+  NotYet,
+  CannotTell,
 }
 
 fn mark() -> Result<Option<PathBuf>, Never> {
-    let Ok(said) = console_core_places::runtime();
+  let Ok(said) = console_core_places::runtime();
 
-    let runtime = match said {
-        Some(runtime) => runtime,
-        None => return Ok(None),
-    };
+  let runtime = match said {
+    Some(runtime) => runtime,
+    None => return Ok(None),
+  };
 
-    let Ok(named) = console_compositor::instance();
+  let Ok(named) = console_compositor::instance();
 
-    let instance = match named {
-        Some(instance) => instance,
-        None => return Ok(None),
-    };
+  let instance = match named {
+    Some(instance) => instance,
+    None => return Ok(None),
+  };
 
-    Ok(Some(runtime.join(crate::APPLICATION).join(instance)))
+  let component = match LocalName::read(&instance) {
+    Ok(component) => component,
+    Err(_invalid_compositor_signature) => return Ok(None),
+  };
+
+  Ok(Some(runtime.join(crate::APPLICATION).join(component)))
 }
 
 pub fn check() -> Result<Already, Never> {
-    let Ok(mark) = mark();
+  let Ok(mark) = mark();
 
-    let at = match mark {
-        Some(at) => at,
-        None => return Ok(Already::CannotTell),
-    };
+  let at = match mark {
+    Some(at) => at,
+    None => return Ok(Already::CannotTell),
+  };
 
-    Ok(match at.exists() {
-        true => Already::Restore,
-        false => Already::NotYet,
-    })
+  Ok(match std::fs::metadata(&at) {
+    Ok(_mark) => Already::Restore,
+    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+      ::core::option::Option::Some(()) => Already::NotYet,
+      ::core::option::Option::None => Already::CannotTell,
+    },
+  })
 }
 
 pub fn mark_resumed() -> Result<(), Unresumed> {
-    let Ok(mark) = mark();
+  let Ok(mark) = mark();
 
-    let at = match mark {
-        Some(at) => at,
-        None => return Ok(()),
-    };
+  let at = match mark {
+    Some(at) => at,
+    None => return Ok(()),
+  };
 
-    match at.parent() {
-        Some(above) => std::fs::create_dir_all(above)
-            .map_err(|fault| Unresumed::Making(above.to_path_buf(), fault))?,
-        None => {},
-    }
+  match at.parent() {
+    Some(above) => std::fs::create_dir_all(above)
+      .map_err(|fault| Unresumed::Making(above.to_path_buf(), fault))?,
+    None => {}
+  }
 
-    console_core_atomic_writes::whole(&at, b"").map_err(Unresumed::Unwritten)
+  console_core_atomic_writes::whole(&at, b"").map_err(Unresumed::Unwritten)
 }

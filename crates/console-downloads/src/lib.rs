@@ -27,6 +27,7 @@ pub mod looking;
 pub mod opds;
 pub mod rows;
 pub mod same;
+mod searches;
 pub mod standard_ebooks;
 pub mod standing;
 pub mod store;

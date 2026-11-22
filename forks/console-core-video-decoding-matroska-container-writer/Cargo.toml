@@ -1,0 +1,13 @@
+[package]
+name = "console-core-video-decoding-matroska-container-writer"
+description = "The Matroska and WebM writer, taken out of the reader to wait for its own rewrite"
+version = "0.4.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+rust-version = "1.95"
+repository = "https://github.com/storytold/filmcraft"
+publish = false
+
+[lib]
+name = "console_core_video_decoding_matroska_container_writer"
+path = "src/mux.rs"

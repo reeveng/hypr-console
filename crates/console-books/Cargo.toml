@@ -18,6 +18,8 @@ name = "books-catalog"
 path = "src/bin/books-catalog.rs"
 
 [dependencies]
+console-operating-system-linux.workspace = true
+console-core-finite-numbers.workspace = true
 console-core-file-names.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-color.workspace = true
@@ -26,8 +28,11 @@ console-core-words.workspace = true
 console-defaults.workspace = true
 console-core-external-programs.workspace = true
 console-core-geometry.workspace = true
+console-core-line.workspace = true
 console-core-arguments.workspace = true
 console-core-never.workspace = true
+console-core-epub-files.workspace = true
+console-core-markup-tokens.workspace = true
 console-core-iteration.workspace = true
 console-events.workspace = true
 console-program-contract.workspace = true

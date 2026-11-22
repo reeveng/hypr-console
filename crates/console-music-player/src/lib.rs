@@ -12,7 +12,7 @@
 //! samples and ffprobe read its tags, both of them in `[packages]` already.
 //! That was a start of ffmpeg's libraries on every press of next and every
 //! seek, and somebody else's program in the middle of the one thing a music
-//! player does. So the codecs are in the tree now, carried in `forks/`:
+//! player does. So the codecs are in the tree now, carried in `crates/`:
 //! symphonia's readers and decoders for every container and codec but Opus,
 //! and filmcraft's clean-room decoder for Opus. [`decoding`] reads a song into
 //! samples, [`sounding`] carries them, and pw-cat plays what it is handed.
@@ -35,11 +35,27 @@
 
 pub mod answers;
 pub mod art;
+pub mod bookmark;
 pub mod bus;
+pub mod decoding;
 pub mod library;
 pub mod playlist;
-pub mod bookmark;
-pub mod decoding;
 pub mod sounding;
 pub mod stretching;
 pub mod tags;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the scalar representation of a playback position, duration, or signed offset in seconds"
+  )
+)]
+pub struct Seconds(pub f64);
+
+impl From<f64> for Seconds {
+  fn from(seconds: f64) -> Self {
+    Self(seconds)
+  }
+}

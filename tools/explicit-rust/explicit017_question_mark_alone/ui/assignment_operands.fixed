@@ -1,0 +1,76 @@
+// run-rustfix
+// edition:2024
+use std::cell::Cell;
+
+struct Bounds { prev_end: u32, end: u32 }
+impl Bounds {
+    fn extend(&mut self, width: u32) -> Option<()> {
+        let checked_value = self.prev_end.checked_add(width)?;
+        self.end = checked_value;
+        Some(())
+    }
+}
+fn slot(trace: &Cell<u8>) -> usize {
+    trace.set(trace.get() * 10 + 2);
+    0
+}
+fn read(trace: &Cell<u8>, succeed: bool) -> Option<u8> {
+    trace.set(trace.get() * 10 + 1);
+    succeed.then_some(7)
+}
+fn write(bytes: &mut [u8; 1], trace: &Cell<u8>, succeed: bool) -> Option<()> {
+    let checked_value = read(trace, succeed)?;
+    bytes[slot(trace)] = checked_value;
+    Some(())
+}
+fn parameters(minimum: u32, mut read: impl FnMut() -> Option<u32>) -> Option<[u32; 3]> {
+    let checked_value = read()?;
+    let ctb = u32::wrapping_add(minimum, checked_value);
+    let checked_value_2 = read()?;
+    let tb = minimum.wrapping_add(checked_value_2);
+    let checked_value_3 = read()?;
+    let band = minimum + checked_value_3;
+    Some([ctb, tb, band])
+}
+fn branch(read: impl FnOnce() -> Option<bool>) -> Option<u8> {
+    let checked_value = read()?;
+    match checked_value { true => Some(1), false => Some(2) }
+}
+fn projection(minimum: (u32, u32), read: impl FnOnce() -> Option<u32>) -> Option<u32> {
+    let checked_value = read()?;
+    Some(minimum.1 + checked_value)
+}
+fn pixel(dst: &[u8], col: usize, effects: &Cell<u8>) -> Result<u32, ()> {
+    let checked_value = <[_]>::get(&*dst, col).ok_or(())?;
+    let channel = u32::from(*checked_value);
+    effects.set(effects.get() + 1);
+    Ok(channel)
+}
+fn conditional(read: impl FnOnce() -> Option<bool>) -> Option<u8> {
+    let checked_value = read()?;
+    if checked_value { Some(3) } else { Some(4) }
+}
+fn main() {
+    let mut bounds = Bounds { prev_end: 4, end: 1 };
+    assert_eq!(bounds.extend(5), Some(()));
+    assert_eq!(bounds.end, 9);
+    assert_eq!(bounds.extend(u32::MAX), None);
+    assert_eq!(bounds.end, 9);
+    let trace = Cell::new(0);
+    let mut row = [3];
+    assert_eq!(write(&mut row, &trace, false), None);
+    assert_eq!((row, trace.get()), ([3], 1));
+    trace.set(0);
+    assert_eq!(write(&mut row, &trace, true), Some(()));
+    assert_eq!((row, trace.get()), ([7], 12));
+    let mut words = [1u32, 2, 3].into_iter();
+    assert_eq!(parameters(4, || words.next()), Some([5, 6, 7]));
+    assert_eq!(parameters(4, || None), None);
+    assert_eq!(branch(|| Some(false)), Some(2));
+    assert_eq!(projection((9, 7), || Some(3)), Some(10));
+    let effects = Cell::new(0);
+    assert_eq!(pixel(&[17], 0, &effects), Ok(17));
+    assert_eq!(pixel(&[], 0, &effects), Err(()));
+    assert_eq!(effects.get(), 1);
+    assert_eq!(conditional(|| None), None);
+}

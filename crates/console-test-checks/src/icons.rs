@@ -17,33 +17,33 @@ use console_test_stages::checking::{Body, Check, CheckResult, cannot, empty};
 use console_test_stages::device::Device;
 
 pub const ICONS: Check = Check {
-    name: "300-every-icon-is-one-the-theme-has",
-    about: "Every icon name a panel asks for is one the device's icon theme can draw.",
-    feature: "icons",
-    since: "2026-09-04",
-    bodies: &[Body::Device(there)],
+  name: "300-every-icon-is-one-the-theme-has",
+  about: "Every icon name a panel asks for is one the device's icon theme can draw.",
+  feature: "icons",
+  since: "2026-09-04",
+  bodies: &[Body::Device(there)],
 };
 
 fn there(stage: &mut Device) -> CheckResult {
-    let Ok(theme) = stage.icon_theme();
+  let Ok(theme) = stage.icon_theme();
 
-    match theme.is_empty() {
-        true => return cannot("the machine's gtk-4.0 settings name no icon theme"),
-        false => {},
-    }
+  match ::core::primitive::bool::then_some(theme.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return cannot("the machine's gtk-4.0 settings name no icon theme"),
+    ::core::option::Option::None => {}
+  }
 
-    let names: Vec<&str> = EVERY
-        .iter()
-        .map(|icon| {
-            let Ok(named) = Icon::name(*icon);
+  let names: Vec<&str> = EVERY
+    .iter()
+    .map(|icon| {
+      let Ok(named) = Icon::name(*icon);
 
-            named
-        })
-        .collect();
-
-    let Ok(missing) = stage.icons_missing(&theme, &names);
-
-    empty(&missing, || {
-        format!("{theme} has nothing for {missing:?}, so those are drawn as broken squares")
+      named
     })
+    .collect();
+
+  let Ok(missing) = stage.icons_missing(&theme, &names);
+
+  empty(&missing, || {
+    format!("{theme} has nothing for {missing:?}, so those are drawn as broken squares")
+  })
 }

@@ -1,0 +1,33 @@
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/sequence_manual.rs:4:5
+   |
+LL | /     let [Some(value)] = row else {
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+   = help: write the decision as a `match` in the initializer -- `let held = match value { Some(held) => held, None => … };` -- so the case that leaves is named as well as the case that binds
+   = note: `#[deny(explicit023_no_let_else)]` on by default
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/sequence_manual.rs:11:5
+   |
+LL | /     let [Some(value), ..] = row else {
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+   = help: write the decision as a `match` in the initializer -- `let held = match value { Some(held) => held, None => … };` -- so the case that leaves is named as well as the case that binds
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/sequence_manual.rs:22:5
+   |
+LL | /     let (Some(left), Some(right)) = (owned(), owned()) else {
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+   = help: write the decision as a `match` in the initializer -- `let held = match value { Some(held) => held, None => … };` -- so the case that leaves is named as well as the case that binds
+
+error: aborting due to 3 previous errors
+

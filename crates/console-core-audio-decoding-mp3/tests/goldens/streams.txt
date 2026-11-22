@@ -1,0 +1,80 @@
+joint gapless Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66150), delay: Some(1105), padding: Some(713), packets: 59, refused: 0, bytes: 529200, crc: 4150749729 }
+joint raw Decoded { sample_rate: Some(44100), channels: 2, frames: Some(67968), delay: Some(1105), padding: Some(713), packets: 59, refused: 0, bytes: 543744, crc: 2111762910 }
+joint accurate Sought { required: 30000, actual: 27695, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66150), delay: Some(1105), padding: Some(713), packets: 34, refused: 0, bytes: 307640, crc: 614710846 } }
+joint coarse Sought { required: 30000, actual: 27695, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66150), delay: Some(1105), padding: Some(713), packets: 34, refused: 0, bytes: 307640, crc: 614710846 } }
+crc_plain gapless Decoded { sample_rate: Some(44100), channels: 2, frames: Some(52992), delay: None, padding: None, packets: 47, refused: 0, bytes: 423936, crc: 4289152340 }
+crc_plain raw Decoded { sample_rate: Some(44100), channels: 2, frames: Some(52992), delay: None, padding: None, packets: 47, refused: 0, bytes: 433152, crc: 381574179 }
+crc_plain accurate Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(52992), delay: None, padding: None, packets: 22, refused: 0, bytes: 193536, crc: 828237049 } }
+crc_plain coarse Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(52992), delay: None, padding: None, packets: 21, refused: 0, bytes: 193536, crc: 2319228387 } }
+mono_mpeg2 gapless Decoded { sample_rate: Some(22050), channels: 1, frames: Some(33075), delay: Some(1105), padding: Some(380), packets: 60, refused: 0, bytes: 132300, crc: 3531134653 }
+mono_mpeg2 raw Decoded { sample_rate: Some(22050), channels: 1, frames: Some(34560), delay: Some(1105), padding: Some(380), packets: 60, refused: 0, bytes: 138240, crc: 2119431352 }
+mono_mpeg2 accurate Sought { required: 30000, actual: 28847, decoded: Decoded { sample_rate: Some(22050), channels: 1, frames: Some(33075), delay: Some(1105), padding: Some(380), packets: 8, refused: 0, bytes: 16912, crc: 1409134416 } }
+mono_mpeg2 coarse Sought { required: 30000, actual: 28847, decoded: Decoded { sample_rate: Some(22050), channels: 1, frames: Some(33075), delay: Some(1105), padding: Some(380), packets: 8, refused: 0, bytes: 16912, crc: 1409134416 } }
+mpeg25 gapless Decoded { sample_rate: Some(11025), channels: 1, frames: Some(14400), delay: None, padding: None, packets: 25, refused: 0, bytes: 57600, crc: 693763262 }
+mpeg25 raw Decoded { sample_rate: Some(11025), channels: 1, frames: Some(14400), delay: None, padding: None, packets: 25, refused: 0, bytes: 57600, crc: 693763262 }
+mpeg25 accurate Sought { required: 6000, actual: 5184, decoded: Decoded { sample_rate: Some(11025), channels: 1, frames: Some(14400), delay: None, padding: None, packets: 16, refused: 0, bytes: 36864, crc: 2135892011 } }
+mpeg25 coarse Sought { required: 6000, actual: 5184, decoded: Decoded { sample_rate: Some(11025), channels: 1, frames: Some(14400), delay: None, padding: None, packets: 15, refused: 0, bytes: 34560, crc: 3731208367 } }
+vbr gapless Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66150), delay: Some(1105), padding: Some(713), packets: 59, refused: 0, bytes: 529200, crc: 2401735044 }
+vbr raw Decoded { sample_rate: Some(44100), channels: 2, frames: Some(67968), delay: Some(1105), padding: Some(713), packets: 59, refused: 0, bytes: 543744, crc: 3490072537 }
+vbr accurate Sought { required: 30000, actual: 27695, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66150), delay: Some(1105), padding: Some(713), packets: 34, refused: 0, bytes: 307640, crc: 1254996190 } }
+vbr coarse Sought { required: 30000, actual: 27695, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66150), delay: Some(1105), padding: Some(713), packets: 35, refused: 0, bytes: 307640, crc: 1600976320 } }
+stereo_48k gapless Decoded { sample_rate: Some(48000), channels: 2, frames: Some(72000), delay: Some(1105), padding: Some(623), packets: 64, refused: 0, bytes: 576000, crc: 2134508131 }
+stereo_48k raw Decoded { sample_rate: Some(48000), channels: 2, frames: Some(73728), delay: Some(1105), padding: Some(623), packets: 64, refused: 0, bytes: 589824, crc: 1214131240 }
+stereo_48k accurate Sought { required: 30000, actual: 28847, decoded: Decoded { sample_rate: Some(48000), channels: 2, frames: Some(72000), delay: Some(1105), padding: Some(623), packets: 38, refused: 0, bytes: 345224, crc: 2742894993 } }
+stereo_48k coarse Sought { required: 30000, actual: 28847, decoded: Decoded { sample_rate: Some(48000), channels: 2, frames: Some(72000), delay: Some(1105), padding: Some(623), packets: 38, refused: 0, bytes: 345224, crc: 2742894993 } }
+joint_mpeg2 gapless Decoded { sample_rate: Some(22050), channels: 2, frames: Some(27648), delay: None, padding: None, packets: 48, refused: 0, bytes: 221184, crc: 1048661317 }
+joint_mpeg2 raw Decoded { sample_rate: Some(22050), channels: 2, frames: Some(27648), delay: None, padding: None, packets: 48, refused: 0, bytes: 221184, crc: 1048661317 }
+joint_mpeg2 accurate SeekRefused
+joint_mpeg2 coarse SeekRefused
+intensity gapless Decoded { sample_rate: Some(44100), channels: 2, frames: Some(67968), delay: None, padding: None, packets: 59, refused: 0, bytes: 543744, crc: 3860681009 }
+intensity raw Decoded { sample_rate: Some(44100), channels: 2, frames: Some(67968), delay: None, padding: None, packets: 59, refused: 0, bytes: 543744, crc: 3860681009 }
+intensity accurate Sought { required: 30000, actual: 27648, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(67968), delay: None, padding: None, packets: 35, refused: 0, bytes: 322560, crc: 2963524197 } }
+intensity coarse Sought { required: 30000, actual: 27648, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(67968), delay: None, padding: None, packets: 35, refused: 0, bytes: 322560, crc: 2963524197 } }
+intensity_ms gapless Decoded { sample_rate: Some(44100), channels: 2, frames: Some(67968), delay: None, padding: None, packets: 59, refused: 0, bytes: 543744, crc: 3860681009 }
+intensity_ms raw Decoded { sample_rate: Some(44100), channels: 2, frames: Some(67968), delay: None, padding: None, packets: 59, refused: 0, bytes: 543744, crc: 3860681009 }
+intensity_ms accurate Sought { required: 30000, actual: 27648, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(67968), delay: None, padding: None, packets: 35, refused: 0, bytes: 322560, crc: 2963524197 } }
+intensity_ms coarse Sought { required: 30000, actual: 27648, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(67968), delay: None, padding: None, packets: 35, refused: 0, bytes: 322560, crc: 2963524197 } }
+intensity_mpeg2 gapless Decoded { sample_rate: Some(22050), channels: 2, frames: Some(27648), delay: None, padding: None, packets: 48, refused: 0, bytes: 221184, crc: 3985235437 }
+intensity_mpeg2 raw Decoded { sample_rate: Some(22050), channels: 2, frames: Some(27648), delay: None, padding: None, packets: 48, refused: 0, bytes: 221184, crc: 3985235437 }
+intensity_mpeg2 accurate SeekRefused
+intensity_mpeg2 coarse SeekRefused
+intensity_mpeg2_only gapless Decoded { sample_rate: Some(22050), channels: 2, frames: Some(27648), delay: None, padding: None, packets: 48, refused: 0, bytes: 221184, crc: 3246848208 }
+intensity_mpeg2_only raw Decoded { sample_rate: Some(22050), channels: 2, frames: Some(27648), delay: None, padding: None, packets: 48, refused: 0, bytes: 221184, crc: 3246848208 }
+intensity_mpeg2_only accurate SeekRefused
+intensity_mpeg2_only coarse SeekRefused
+l1_stereo gapless Decoded { sample_rate: Some(44100), channels: 2, frames: Some(23040), delay: None, padding: None, packets: 60, refused: 0, bytes: 184320, crc: 2083586377 }
+l1_stereo raw Decoded { sample_rate: Some(44100), channels: 2, frames: Some(23040), delay: None, padding: None, packets: 60, refused: 0, bytes: 184320, crc: 2083586377 }
+l1_stereo accurate Sought { required: 10000, actual: 9600, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(23040), delay: None, padding: None, packets: 35, refused: 0, bytes: 107520, crc: 697788315 } }
+l1_stereo coarse Sought { required: 10000, actual: 9600, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(23040), delay: None, padding: None, packets: 35, refused: 0, bytes: 107520, crc: 697788315 } }
+l1_joint_crc gapless Decoded { sample_rate: Some(44100), channels: 2, frames: Some(23040), delay: None, padding: None, packets: 60, refused: 0, bytes: 184320, crc: 837061267 }
+l1_joint_crc raw Decoded { sample_rate: Some(44100), channels: 2, frames: Some(23040), delay: None, padding: None, packets: 60, refused: 0, bytes: 184320, crc: 837061267 }
+l1_joint_crc accurate Sought { required: 10000, actual: 9600, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(23040), delay: None, padding: None, packets: 35, refused: 0, bytes: 107520, crc: 249650020 } }
+l1_joint_crc coarse Sought { required: 10000, actual: 9600, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(23040), delay: None, padding: None, packets: 35, refused: 0, bytes: 107520, crc: 249650020 } }
+l2_stereo gapless Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 58, refused: 0, bytes: 534528, crc: 4028012736 }
+l2_stereo raw Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 58, refused: 0, bytes: 534528, crc: 4028012736 }
+l2_stereo accurate Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 33, refused: 0, bytes: 304128, crc: 3014116493 } }
+l2_stereo coarse Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 32, refused: 0, bytes: 294912, crc: 360463221 } }
+l2_mono gapless Decoded { sample_rate: Some(44100), channels: 1, frames: Some(66816), delay: None, padding: None, packets: 58, refused: 0, bytes: 267264, crc: 1356508034 }
+l2_mono raw Decoded { sample_rate: Some(44100), channels: 1, frames: Some(66816), delay: None, padding: None, packets: 58, refused: 0, bytes: 267264, crc: 1356508034 }
+l2_mono accurate Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(44100), channels: 1, frames: Some(66816), delay: None, padding: None, packets: 33, refused: 0, bytes: 152064, crc: 1013817871 } }
+l2_mono coarse Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(44100), channels: 1, frames: Some(66816), delay: None, padding: None, packets: 32, refused: 0, bytes: 147456, crc: 1133505031 } }
+l2_48k gapless Decoded { sample_rate: Some(48000), channels: 2, frames: Some(72576), delay: None, padding: None, packets: 63, refused: 0, bytes: 580608, crc: 465933036 }
+l2_48k raw Decoded { sample_rate: Some(48000), channels: 2, frames: Some(72576), delay: None, padding: None, packets: 63, refused: 0, bytes: 580608, crc: 465933036 }
+l2_48k accurate Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(48000), channels: 2, frames: Some(72576), delay: None, padding: None, packets: 38, refused: 0, bytes: 350208, crc: 1845020641 } }
+l2_48k coarse Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(48000), channels: 2, frames: Some(72576), delay: None, padding: None, packets: 38, refused: 0, bytes: 350208, crc: 1845020641 } }
+l2_mpeg2 gapless Decoded { sample_rate: Some(22050), channels: 2, frames: Some(32256), delay: None, padding: None, packets: 29, refused: 0, bytes: 258048, crc: 3457041796 }
+l2_mpeg2 raw Decoded { sample_rate: Some(22050), channels: 2, frames: Some(32256), delay: None, padding: None, packets: 29, refused: 0, bytes: 267264, crc: 1263578109 }
+l2_mpeg2 accurate Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(22050), channels: 2, frames: Some(32256), delay: None, padding: None, packets: 4, refused: 0, bytes: 27648, crc: 3936645686 } }
+l2_mpeg2 coarse Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(22050), channels: 2, frames: Some(32256), delay: None, padding: None, packets: 3, refused: 0, bytes: 27648, crc: 4208588342 } }
+l2_joint gapless Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 58, refused: 0, bytes: 534528, crc: 3983695261 }
+l2_joint raw Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 58, refused: 0, bytes: 534528, crc: 3983695261 }
+l2_joint accurate Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 33, refused: 0, bytes: 304128, crc: 2640066079 } }
+l2_joint coarse Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 33, refused: 0, bytes: 304128, crc: 2640066079 } }
+l2_crc gapless Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 58, refused: 0, bytes: 534528, crc: 877409075 }
+l2_crc raw Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 58, refused: 0, bytes: 534528, crc: 877409075 }
+l2_crc accurate Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 33, refused: 0, bytes: 304128, crc: 983877267 } }
+l2_crc coarse Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 33, refused: 0, bytes: 304128, crc: 983877267 } }
+l2_dual gapless Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 58, refused: 0, bytes: 534528, crc: 470301338 }
+l2_dual raw Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 58, refused: 0, bytes: 534528, crc: 470301338 }
+l2_dual accurate Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 33, refused: 0, bytes: 304128, crc: 1131007663 } }
+l2_dual coarse Sought { required: 30000, actual: 28800, decoded: Decoded { sample_rate: Some(44100), channels: 2, frames: Some(66816), delay: None, padding: None, packets: 33, refused: 0, bytes: 304128, crc: 1131007663 } }

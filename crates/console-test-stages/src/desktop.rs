@@ -61,6 +61,7 @@
 //! that could be taken.
 
 use std::path::{Path, PathBuf};
+use std::os::unix::fs::FileTypeExt;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -68,12 +69,12 @@ use console_compositor::{Window, Workspace};
 use console_core_external_programs::Program;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
-use console_notifications::updating::{self, Progress};
 use console_notifications::serving;
-use console_program_lifetime::{BoundToParent, alongside};
-use console_waiting::{Schedule, Ready, Outcome, until};
+use console_notifications::updating::{self, Progress};
+use console_operating_system_linux::program_lifetime::{BoundToParent, alongside};
+use console_waiting::{Outcome, Ready, Schedule, until};
 
-use crate::Error;
+use crate::{Error, RuntimeName, missing_is_removed, remove_scratch};
 use crate::picture::{Picture, where_};
 
 const NESTING: &str = "console-desktop";
@@ -83,12 +84,14 @@ const POINTER: &str = "console-point";
 pub const PATIENCE: u64 = 180;
 
 fn pressing_hand() -> Result<(), Error> {
-    let Ok(at) = console_core_internal_programs::beside_this_program(POINTER);
+  let Ok(at) = console_core_internal_programs::beside_this_program(POINTER);
 
-    match at.is_file() {
-        true => Ok(()),
-        false => Err(Error::NoPointer(at)),
-    }
+  let built = std::fs::metadata(&at).is_ok_and(|metadata| metadata.is_file());
+
+  match bool::then_some(built, ()) {
+    Some(()) => Ok(()),
+    None => Err(Error::NoPointer(at)),
+  }
 }
 
 const SEEN: &str = "clients.json";
@@ -122,461 +125,490 @@ const CONFIGURATION: &str = r#"<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D
 "#;
 
 pub struct Desktop {
-    open_these: Vec<String>,
-    press_these: Vec<String>,
-    not_before: Option<PathBuf>,
-    filling: Option<Progress>,
-    talking: Option<BoundToParent>,
-    here: PathBuf,
-    taken: Option<Picture>,
+  open_these: Vec<String>,
+  press_these: Vec<String>,
+  not_before: Option<PathBuf>,
+  filling: Option<Progress>,
+  talking: Option<BoundToParent>,
+  here: PathBuf,
+  taken: Option<Picture>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Installed {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 impl Default for Desktop {
-    fn default() -> Self {
-        let Ok(desktop) = Desktop::new();
+  fn default() -> Self {
+    let Ok(desktop) = Desktop::new();
 
-        desktop
-    }
+    desktop
+  }
 }
 
 impl Desktop {
-    pub fn new() -> Result<Self, Never> {
-        #[cfg_attr(
-            dylint_lib = "explicit044_no_ambient_value",
-            allow(
-                explicit044_no_ambient_value,
-                reason = "the stage is made before anything can fail and the directory when it is first written, and it holds the bus the nested desktop is still listening on, which emptying it again would take away"
-            )
-        )]
-        let here = std::env::temp_dir().join(format!("console-desktop-{}", std::process::id()));
+  pub fn new() -> Result<Self, Never> {
+    let Ok(runtime) = console_core_places::runtime_or_user();
+    let name = RuntimeName::desktop(std::process::id())?;
+    let here = runtime.join(name);
 
-        Ok(Desktop {
-            open_these: Vec::new(),
-            press_these: Vec::new(),
-            not_before: None,
-            filling: None,
-            talking: None,
-            here,
-            taken: None,
-        })
+    Ok(Desktop {
+      open_these: Vec::new(),
+      press_these: Vec::new(),
+      not_before: None,
+      filling: None,
+      talking: None,
+      here,
+      taken: None,
+    })
+  }
+
+  pub fn fresh(&mut self) -> Result<(), Never> {
+    self.open_these.clear();
+    self.press_these.clear();
+    self.not_before = None;
+    self.filling = None;
+    self.talking = None;
+    self.taken = None;
+
+    Ok(())
+  }
+
+  pub fn notifications(&self) -> Result<PathBuf, Never> {
+    Ok(self.here.join(serving::KEPT))
+  }
+
+  pub fn notifying(&mut self) -> Result<(), Error> {
+    match ::core::primitive::bool::then_some(self.taken.is_some(), ()) {
+      ::core::option::Option::Some(()) => return Err(Error::AlreadyTaken("start the bus")),
+      ::core::option::Option::None => {}
     }
 
-    pub fn fresh(&mut self) -> Result<(), Never> {
-        self.open_these.clear();
-        self.press_these.clear();
-        self.not_before = None;
-        self.filling = None;
-        self.talking = None;
-        self.taken = None;
+    match ::core::primitive::bool::then_some(self.talking.is_some(), ()) {
+      ::core::option::Option::Some(()) => return Ok(()),
+      ::core::option::Option::None => {}
+    }
+
+    std::fs::create_dir_all(&self.here).map_err(Error::Machine)?;
+
+    let socket = self.here.join(BUS);
+    missing_is_removed(std::fs::remove_file(&socket)).map_err(Error::Machine)?;
+    let address = format!("unix:path={}", socket.display());
+    let at = self.here.join(SESSION);
+
+    console_core_atomic_writes::whole(
+      &at,
+      CONFIGURATION.replace("@address@", &address).as_bytes(),
+    )
+    .map_err(Error::Unwritten)?;
+
+    let Ok(mut asking) = Program::DbusDaemon.command();
+
+    asking
+      .arg(format!("--config-file={}", at.display()))
+      .arg("--nofork");
+    asking.stdout(Stdio::null()).stderr(Stdio::null());
+
+    let talking = alongside(&mut asking).map_err(Error::Machine)?;
+    let Ok(patience) = Schedule::of(LISTENING);
+    let Ok(listening) = until(patience, || {
+      let listening = std::fs::symlink_metadata(&socket).is_ok_and(|entry| {
+        entry.file_type().is_socket()
+      });
+
+      Ok(match bool::then_some(listening, ()) {
+        Some(()) => Ready::Yes,
+        None => Ready::NotYet,
+      })
+    });
+
+    match listening {
+      Outcome::Happened => {
+        self.talking = Some(talking);
 
         Ok(())
+      }
+      Outcome::RanOut => Err(Error::NoBus(socket)),
+    }
+  }
+
+  pub fn filling(&mut self, far: &Progress) -> Result<(), Error> {
+    match ::core::primitive::bool::then_some(self.taken.is_some(), ()) {
+      ::core::option::Option::Some(()) => Err(Error::AlreadyTaken("fill the strip")),
+      ::core::option::Option::None => {
+        self.filling = Some(far.clone());
+
+        Ok(())
+      }
+    }
+  }
+
+  pub fn not_before(&mut self, at: &Path) -> Result<(), Error> {
+    match ::core::primitive::bool::then_some(self.taken.is_some(), ()) {
+      ::core::option::Option::Some(()) => Err(Error::AlreadyTaken("say this")),
+      ::core::option::Option::None => {
+        self.not_before = Some(at.to_path_buf());
+
+        Ok(())
+      }
+    }
+  }
+
+  pub fn open(&mut self, command: &str) -> Result<(), Error> {
+    match ::core::primitive::bool::then_some(self.taken.is_some(), ()) {
+      ::core::option::Option::Some(()) => return Err(Error::AlreadyTaken("open")),
+      ::core::option::Option::None => {}
     }
 
-    pub fn notifications(&self) -> Result<PathBuf, Never> {
-        Ok(self.here.join(serving::KEPT))
+    self.open_these.push(command.to_string());
+    Ok(())
+  }
+
+  pub fn inside(&mut self, command: &str) -> Result<(), Error> {
+    self.press(command.to_string())
+  }
+
+  pub fn keeping_timings(&mut self) -> Result<(), Error> {
+    let kept = self.here.join(TIMINGS);
+
+    self.press(format!(
+      "cp \"$XDG_STATE_HOME/console/waited.jsonl\" {}",
+      kept.display()
+    ))
+  }
+
+  pub fn timings(&mut self) -> Result<Vec<console_response_times::line::Entry>, Error> {
+    self.picture()?;
+
+    let at = self.here.join(TIMINGS);
+    let said = std::fs::read_to_string(&at).map_err(|fault| Error::Read(at.clone(), fault))?;
+
+    Ok(
+      said
+        .lines()
+        .filter_map(|line| match console_response_times::line::read(line) {
+          Ok(entry) => entry,
+          Err(never) => match never {},
+        })
+        .collect(),
+    )
+  }
+
+  pub fn point(&mut self, at: (u32, u32)) -> Result<(), Error> {
+    self.pointing(None, at, "")
+  }
+
+  pub fn click(&mut self, at: (u32, u32)) -> Result<(), Error> {
+    self.pointing(None, at, " --click")
+  }
+
+  pub fn scroll(&mut self, at: (u32, u32), notches: i32) -> Result<(), Error> {
+    self.pointing(None, at, &format!(" --scroll {notches}"))
+  }
+
+  pub fn point_in(&mut self, namespace: &str, at: (u32, u32)) -> Result<(), Error> {
+    self.pointing(Some(namespace), at, "")
+  }
+
+  pub fn click_in(&mut self, namespace: &str, at: (u32, u32)) -> Result<(), Error> {
+    self.pointing(Some(namespace), at, " --click")
+  }
+
+  pub fn drag_in(
+    &mut self,
+    namespace: &str,
+    from: (u32, u32),
+    through: &[(u32, u32)],
+  ) -> Result<(), Error> {
+    let places: Vec<String> = through
+      .iter()
+      .map(|(across, down)| format!("{across} {down}"))
+      .collect();
+
+    self.pointing(
+      Some(namespace),
+      from,
+      &format!(" --drag {}", places.join(" ")),
+    )
+  }
+
+  pub fn scroll_in(
+    &mut self,
+    namespace: &str,
+    at: (u32, u32),
+    notches: i32,
+  ) -> Result<(), Error> {
+    self.pointing(Some(namespace), at, &format!(" --scroll {notches}"))
+  }
+
+  fn pointing(&mut self, inside: Option<&str>, at: (u32, u32), doing: &str) -> Result<(), Error> {
+    let within = match inside {
+      Some(namespace) => format!("--in {namespace} "),
+      None => String::new(),
+    };
+
+    self.press(format!("console-point {within}{} {}{doing}", at.0, at.1))
+  }
+
+  fn press(&mut self, command: String) -> Result<(), Error> {
+    match self.taken {
+      Some(_) => Err(Error::AlreadyTaken("press")),
+      None => {
+        self.press_these.push(command);
+
+        Ok(())
+      }
     }
+  }
 
-    pub fn notifying(&mut self) -> Result<(), Error> {
-        match self.taken.is_some() {
-            true => return Err(Error::AlreadyTaken("start the bus")),
-            false => {},
-        }
+  fn pressing(&self) -> Result<Option<String>, Never> {
+    Ok(match ::core::primitive::bool::then_some(self.press_these.is_empty(), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(self.press_these.join("; ")),
+    })
+  }
 
-        match self.talking.is_some() {
-            true => return Ok(()),
-            false => {},
-        }
-
+  fn picture(&mut self) -> Result<&Picture, Error> {
+    match ::core::primitive::bool::then_some(self.taken.is_none(), ()) {
+      ::core::option::Option::Some(()) => {
         std::fs::create_dir_all(&self.here).map_err(Error::Machine)?;
+        missing_is_removed(std::fs::remove_file(self.here.join(SEEN))).map_err(Error::Machine)?;
+        missing_is_removed(std::fs::remove_file(self.here.join(SCREEN))).map_err(Error::Machine)?;
+        let shot = self.here.join("screen.png");
+        let Ok(program) = console_core_internal_programs::beside_this_program(NESTING);
+        let mut nesting = Command::new(program);
+        nesting.arg("shot").arg(&shot);
+        nesting.arg("--clients").arg(self.here.join(SEEN));
+        nesting.arg("--monitors").arg(self.here.join(SCREEN));
 
-        let socket = self.here.join(BUS);
-        let _ = std::fs::remove_file(&socket);
-        let address = format!("unix:path={}", socket.display());
-        let at = self.here.join(SESSION);
+        match &self.filling {
+          Some(far) => {
+            let at = self.here.join(FILLING);
+            let Ok(written) = updating::serialize(far);
 
-        console_core_atomic_writes::whole(&at, CONFIGURATION.replace("@address@", &address).as_bytes())
-            .map_err(Error::Unwritten)?;
-
-        let Ok(mut asking) = Program::DbusDaemon.command();
-
-        asking.arg(format!("--config-file={}", at.display())).arg("--nofork");
-        asking.stdout(Stdio::null()).stderr(Stdio::null());
-
-        let talking = alongside(&mut asking).map_err(Error::Machine)?;
-        let Ok(patience) = Schedule::of(LISTENING);
-        let Ok(listening) = until(patience, || {
-            Ok(match socket.exists() {
-                true => Ready::Yes,
-                false => Ready::NotYet,
-            })
-        });
-
-        match listening {
-            Outcome::Happened => {
-                self.talking = Some(talking);
-
-                Ok(())
-            }
-            Outcome::RanOut => Err(Error::NoBus(socket)),
-        }
-    }
-
-    pub fn filling(&mut self, far: &Progress) -> Result<(), Error> {
-        match self.taken.is_some() {
-            true => Err(Error::AlreadyTaken("fill the strip")),
-            false => {
-                self.filling = Some(far.clone());
-
-                Ok(())
-            },
-        }
-    }
-
-    pub fn not_before(&mut self, at: &Path) -> Result<(), Error> {
-        match self.taken.is_some() {
-            true => Err(Error::AlreadyTaken("say this")),
-            false => {
-                self.not_before = Some(at.to_path_buf());
-
-                Ok(())
-            },
-        }
-    }
-
-    pub fn open(&mut self, command: &str) -> Result<(), Error> {
-        match self.taken.is_some() {
-            true => return Err(Error::AlreadyTaken("open")),
-            false => {},
+            console_core_atomic_writes::whole(&at, written.as_bytes())
+              .map_err(Error::Unwritten)?;
+            nesting.env(updating::WHERE, &at);
+          }
+          None => {}
         }
 
-        self.open_these.push(command.to_string());
-        Ok(())
-    }
-
-    pub fn inside(&mut self, command: &str) -> Result<(), Error> {
-        self.press(command.to_string())
-    }
-
-    pub fn keeping_timings(&mut self) -> Result<(), Error> {
-        let kept = self.here.join(TIMINGS);
-
-        self.press(format!("cp \"$XDG_STATE_HOME/console/waited.jsonl\" {}", kept.display()))
-    }
-
-    pub fn timings(&mut self) -> Result<Vec<console_response_times::line::Entry>, Error> {
-        self.picture()?;
-
-        let at = self.here.join(TIMINGS);
-        let said = std::fs::read_to_string(&at).map_err(|fault| Error::Read(at.clone(), fault))?;
-
-        Ok(said
-            .lines()
-            .filter_map(|line| match console_response_times::line::read(line) {
-                Ok(entry) => entry,
-                Err(never) => match never {},
-            })
-            .collect())
-    }
-
-    pub fn point(&mut self, at: (u32, u32)) -> Result<(), Error> {
-        self.pointing(None, at, "")
-    }
-
-    pub fn click(&mut self, at: (u32, u32)) -> Result<(), Error> {
-        self.pointing(None, at, " --click")
-    }
-
-    pub fn scroll(&mut self, at: (u32, u32), notches: i32) -> Result<(), Error> {
-        self.pointing(None, at, &format!(" --scroll {notches}"))
-    }
-
-    pub fn point_in(&mut self, namespace: &str, at: (u32, u32)) -> Result<(), Error> {
-        self.pointing(Some(namespace), at, "")
-    }
-
-    pub fn click_in(&mut self, namespace: &str, at: (u32, u32)) -> Result<(), Error> {
-        self.pointing(Some(namespace), at, " --click")
-    }
-
-    pub fn drag_in(&mut self, namespace: &str, from: (u32, u32), through: &[(u32, u32)]) -> Result<(), Error> {
-        let places: Vec<String> = through.iter().map(|(across, down)| format!("{across} {down}")).collect();
-
-        self.pointing(Some(namespace), from, &format!(" --drag {}", places.join(" ")))
-    }
-
-    pub fn scroll_in(
-        &mut self,
-        namespace: &str,
-        at: (u32, u32),
-        notches: i32,
-    ) -> Result<(), Error> {
-        self.pointing(Some(namespace), at, &format!(" --scroll {notches}"))
-    }
-
-    fn pointing(
-        &mut self,
-        inside: Option<&str>,
-        at: (u32, u32),
-        doing: &str,
-    ) -> Result<(), Error> {
-        let within = match inside {
-            Some(namespace) => format!("--in {namespace} "),
-            None => String::new(),
-        };
-
-        self.press(format!("console-point {within}{} {}{doing}", at.0, at.1))
-    }
-
-    fn press(&mut self, command: String) -> Result<(), Error> {
-        match self.taken {
-            Some(_) => Err(Error::AlreadyTaken("press")),
-            None => {
-                self.press_these.push(command);
-
-                Ok(())
-            },
-        }
-    }
-
-    fn pressing(&self) -> Result<Option<String>, Never> {
-        Ok(match self.press_these.is_empty() {
-            true => None,
-            false => Some(self.press_these.join("; ")),
-        })
-    }
-
-    fn picture(&mut self) -> Result<&Picture, Error> {
-        match self.taken.is_none() {
-            true => {
-                std::fs::create_dir_all(&self.here).map_err(Error::Machine)?;
-                let _ = std::fs::remove_file(self.here.join(SEEN));
-                let _ = std::fs::remove_file(self.here.join(SCREEN));
-                let shot = self.here.join("screen.png");
-                let Ok(program) = console_core_internal_programs::beside_this_program(NESTING);
-                let mut nesting = Command::new(program);
-                nesting.arg("shot").arg(&shot);
-                nesting.arg("--clients").arg(self.here.join(SEEN));
-                nesting.arg("--monitors").arg(self.here.join(SCREEN));
-
-                match &self.filling {
-                    Some(far) => {
-                        let at = self.here.join(FILLING);
-                        let Ok(written) = updating::serialize(far);
-
-                        console_core_atomic_writes::whole(&at, written.as_bytes())
-                            .map_err(Error::Unwritten)?;
-                        nesting.env(updating::WHERE, &at);
-                    }
-                    None => {},
-                }
-
-                match &self.talking {
-                    Some(_talking) => {
-                        nesting.env(ADDRESS, format!("unix:path={}", self.here.join(BUS).display()));
-                        nesting.env(serving::WHERE, self.here.join(serving::KEPT));
-                    }
-                    None => {},
-                }
-
-                match &self.not_before {
-                    Some(at) => {
-                        nesting.arg("--until").arg(at);
-                    }
-                    None => {},
-                }
-
-                for command in &self.open_these {
-                    nesting.args(["--open", command]);
-                }
-
-                let Ok(pressing) = self.pressing();
-
-                match pressing {
-                    Some(script) => {
-                        pressing_hand()?;
-
-                        nesting.args(["--press", &script]);
-                    }
-                    None => {},
-                }
-
-                let said = nesting.output().map_err(Error::Machine)?;
-
-                match shot.exists() {
-                    true => {},
-                    false => {
-                        let why = String::from_utf8_lossy(&said.stderr);
-                        let last = match why.trim().lines().next_back() {
-                            Some(last) => last.to_string(),
-                            None => String::new(),
-                        };
-                        return Err(Error::TookNoPicture(last));
-                    }
-                }
-
-                let picture = Picture::read(&shot)?;
-
-                self.taken = Some(picture);
-            }
-            false => {},
+        match &self.talking {
+          Some(_talking) => {
+            nesting.env(
+              ADDRESS,
+              format!("unix:path={}", self.here.join(BUS).display()),
+            );
+            nesting.env(serving::WHERE, self.here.join(serving::KEPT));
+          }
+          None => {}
         }
 
-        self.taken.as_ref().ok_or(Error::NestedPictureGone)
+        match &self.not_before {
+          Some(at) => {
+            nesting.arg("--until").arg(at);
+          }
+          None => {}
+        }
+
+        for command in &self.open_these {
+          nesting.args(["--open", command]);
+        }
+
+        let Ok(pressing) = self.pressing();
+
+        match pressing {
+          Some(script) => {
+            pressing_hand()?;
+
+            nesting.args(["--press", &script]);
+          }
+          None => {}
+        }
+
+        let said = nesting.output().map_err(Error::Machine)?;
+
+        let picture = read_photo(&shot, &said.stderr)?;
+
+        self.taken = Some(picture);
+      }
+      ::core::option::Option::None => {}
     }
 
-    pub fn installed(&self, program: &str) -> Result<Installed, Never> {
-        let Ok(quoted) = crate::device::shell_quote(program);
-        let Ok(mut asking) = Program::Sh.command();
+    self.taken.as_ref().ok_or(Error::NestedPictureGone)
+  }
 
-        let found = asking
-            .args(["-c", &format!("command -v {quoted}")])
-            .output()
-            .is_ok_and(|done| done.status.success());
+  pub fn installed(&self, program: &str) -> Result<Installed, Never> {
+    let Ok(found) = console_core_external_programs::installed(program);
 
-        Ok(match found {
-            true => Installed::Yes,
-            false => Installed::No,
-        })
+    Ok(match found {
+      console_core_external_programs::Installed::Yes => Installed::Yes,
+      console_core_external_programs::Installed::No => Installed::No,
+    })
+  }
+
+  pub fn color(&mut self, at: Point<f64>) -> Result<String, Error> {
+    let logical = self.logical()?;
+    let picture = self.picture()?;
+
+    where_(picture, at, logical)
+  }
+
+  pub fn logical(&mut self) -> Result<Size<u32>, Error> {
+    self.picture()?;
+
+    let at = self.here.join(SCREEN);
+    let said =
+      std::fs::read_to_string(&at).map_err(|fault| Error::NoScreenSaid(at.clone(), fault))?;
+    let read = console_compositor::read_value(&said)?;
+    let Ok(monitors) = console_compositor::monitors(&read);
+
+    let first = monitors
+      .first()
+      .ok_or_else(|| Error::NoScreenAtAll(at.clone()))?;
+    let Ok(logical) = first.logical();
+
+    logical.ok_or_else(|| Error::NoSize(at.clone(), first.named.clone()))
+  }
+
+  pub fn front(&mut self) -> Result<Workspace, Error> {
+    self.picture()?;
+
+    let at = self.here.join(SCREEN);
+    let said =
+      std::fs::read_to_string(&at).map_err(|fault| Error::NoScreenSaid(at.clone(), fault))?;
+    let read = console_compositor::read_value(&said)?;
+    let first = read
+      .as_array()
+      .and_then(|monitors| monitors.first())
+      .ok_or_else(|| Error::NoScreenAtAll(at.clone()))?;
+    let Ok(front) = console_compositor::front_of(first);
+
+    front.ok_or_else(|| Error::NoScreenAtAll(at.clone()))
+  }
+
+  pub fn patch(&mut self, at: Point<f64>) -> Result<String, Error> {
+    let picture = self.picture()?;
+    let Ok(average) = picture.average(at, crate::picture::PATCH);
+
+    Ok(average)
+  }
+
+  pub fn background(&mut self) -> Result<String, Error> {
+    let picture = self.picture()?;
+    let Ok(most_common) = picture.most_common();
+
+    Ok(most_common)
+  }
+
+  pub fn windows(&mut self) -> Result<Vec<Window>, Error> {
+    self.picture()?;
+
+    let at = self.here.join(SEEN);
+
+    let said =
+      std::fs::read_to_string(&at).map_err(|fault| Error::NoWindowsSaid(at.clone(), fault))?;
+
+    let clients = console_compositor::read_value(&said)?;
+    let Ok(open) = console_compositor::windows_open(&clients);
+
+    Ok(open)
+  }
+
+  pub fn close(&mut self) -> Result<(), Never> {
+    remove_scratch(&self.here)
+  }
+}
+
+fn read_photo(path: &Path, stderr: &[u8]) -> Result<Picture, Error> {
+  match Picture::read(path) {
+    Ok(picture) => Ok(picture),
+    Err(Error::Read(at, fault)) => {
+      match bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        Some(()) => {
+          let Ok(why) = photo_failed(stderr);
+
+          Err(Error::TookNoPicture(why))
+        }
+        None => Err(Error::Read(at, fault)),
+      }
     }
+    Err(fault) => Err(fault),
+  }
+}
 
-    pub fn color(&mut self, at: Point<f64>) -> Result<String, Error> {
-        let logical = self.logical()?;
-        let picture = self.picture()?;
+fn photo_failed(stderr: &[u8]) -> Result<String, Never> {
+  let why = match std::str::from_utf8(stderr) {
+    Ok(text) => text,
+    Err(fault) => return Ok(format!("the nested desktop printed invalid UTF-8: {fault}")),
+  };
 
-        where_(picture, at, logical)
-    }
-
-    pub fn logical(&mut self) -> Result<Size<u32>, Error> {
-        self.picture()?;
-
-        let at = self.here.join(SCREEN);
-        let said = std::fs::read_to_string(&at)
-            .map_err(|fault| Error::NoScreenSaid(at.clone(), fault))?;
-        let read = console_compositor::read_value(&said)?;
-        let Ok(monitors) = console_compositor::monitors(&read);
-
-        let first = monitors.first().ok_or_else(|| Error::NoScreenAtAll(at.clone()))?;
-        let Ok(logical) = first.logical();
-
-        logical.ok_or_else(|| Error::NoSize(at.clone(), first.named.clone()))
-    }
-
-    pub fn front(&mut self) -> Result<Workspace, Error> {
-        self.picture()?;
-
-        let at = self.here.join(SCREEN);
-        let said = std::fs::read_to_string(&at)
-            .map_err(|fault| Error::NoScreenSaid(at.clone(), fault))?;
-        let read = console_compositor::read_value(&said)?;
-        let first = read
-            .as_array()
-            .and_then(|monitors| monitors.first())
-            .ok_or_else(|| Error::NoScreenAtAll(at.clone()))?;
-        let Ok(front) = console_compositor::front_of(first);
-
-        front.ok_or_else(|| Error::NoScreenAtAll(at.clone()))
-    }
-
-    pub fn patch(&mut self, at: Point<f64>) -> Result<String, Error> {
-        let picture = self.picture()?;
-        let Ok(average) = picture.average(at, crate::picture::PATCH);
-
-        Ok(average)
-    }
-
-    pub fn background(&mut self) -> Result<String, Error> {
-        let picture = self.picture()?;
-        let Ok(most_common) = picture.most_common();
-
-        Ok(most_common)
-    }
-
-    pub fn windows(&mut self) -> Result<Vec<Window>, Error> {
-        self.picture()?;
-
-        let at = self.here.join(SEEN);
-
-        let said = std::fs::read_to_string(&at)
-            .map_err(|fault| Error::NoWindowsSaid(at.clone(), fault))?;
-
-        let clients = console_compositor::read_value(&said)?;
-        let Ok(open) = console_compositor::windows_open(&clients);
-
-        Ok(open)
-    }
-
-    pub fn close(&mut self) -> Result<(), Never> {
-        let _ = std::fs::remove_dir_all(&self.here);
-
-        Ok(())
-    }
+  Ok(match why.trim().lines().next_back() {
+    Some(last) => last.to_owned(),
+    None => String::new(),
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    fn new() -> Result<Desktop, Never> {
-        let Ok(desktop) = Desktop::new();
+  fn new() -> Result<Desktop, Never> {
+    let Ok(desktop) = Desktop::new();
 
-        Ok(desktop)
-    }
+    Ok(desktop)
+  }
 
-    #[test]
-    fn nothing_can_be_opened_once_the_picture_has_been_taken() -> Result<(), Box<dyn Error>> {
-        let Ok(mut desktop) = new();
+  #[test]
+  fn nothing_can_be_opened_once_the_picture_has_been_taken() -> Result<(), Box<dyn Error>> {
+    let Ok(mut desktop) = new();
 
-        desktop.open("alacritty")?;
-        desktop.taken = None;
-        desktop.open("mapping-panel")?;
+    desktop.open("alacritty")?;
+    desktop.taken = None;
+    desktop.open("mapping-panel")?;
 
-        assert_eq!(desktop.open_these.len(), 2);
+    assert_eq!(desktop.open_these.len(), 2);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_fresh_desktop_has_nothing_open_and_nothing_looked_at() -> Result<(), Box<dyn Error>> {
-        let Ok(mut desktop) = new();
-        desktop.open("alacritty")?;
-        desktop.point((10, 20))?;
-        let Ok(()) = desktop.fresh();
-        assert!(desktop.open_these.is_empty());
-        assert!(desktop.press_these.is_empty());
+  #[test]
+  fn a_fresh_desktop_has_nothing_open_and_nothing_looked_at() -> Result<(), Box<dyn Error>> {
+    let Ok(mut desktop) = new();
+    desktop.open("alacritty")?;
+    desktop.point((10, 20))?;
+    let Ok(()) = desktop.fresh();
+    assert!(desktop.open_these.is_empty());
+    assert!(desktop.press_these.is_empty());
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn nothing_pressed_is_a_session_that_is_not_kept_open_for_it() {
-        let Ok(new) = new();
-        let Ok(pressing) = new.pressing();
+  #[test]
+  fn nothing_pressed_is_a_session_that_is_not_kept_open_for_it() {
+    let Ok(new) = new();
+    let Ok(pressing) = new.pressing();
 
-        assert_eq!(pressing, None);
-    }
+    assert_eq!(pressing, None);
+  }
 
-    #[test]
-    fn the_presses_are_one_script_in_the_order_they_were_asked_for() -> Result<(), Box<dyn Error>> {
-        let Ok(mut desktop) = new();
-        desktop.point((10, 20))?;
-        desktop.click((30, 40))?;
-        desktop.scroll((30, 40), -2)?;
+  #[test]
+  fn the_presses_are_one_script_in_the_order_they_were_asked_for() -> Result<(), Box<dyn Error>> {
+    let Ok(mut desktop) = new();
+    desktop.point((10, 20))?;
+    desktop.click((30, 40))?;
+    desktop.scroll((30, 40), -2)?;
 
-        let Ok(pressing) = desktop.pressing();
+    let Ok(pressing) = desktop.pressing();
 
-        assert_eq!(
-            pressing.as_deref(),
-            Some("console-point 10 20; console-point 30 40 --click; console-point 30 40 --scroll -2")
-        );
+    assert_eq!(
+      pressing.as_deref(),
+      Some("console-point 10 20; console-point 30 40 --click; console-point 30 40 --scroll -2")
+    );
 
-        Ok(())
-    }
-
+    Ok(())
+  }
 }

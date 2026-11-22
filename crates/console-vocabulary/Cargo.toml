@@ -13,6 +13,7 @@ path = "src/lib.rs"
 console-core-directory-listing.workspace = true
 console-core-external-programs.workspace = true
 console-core-ini-files.workspace = true
+console-core-finite-numbers.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-repository.workspace = true

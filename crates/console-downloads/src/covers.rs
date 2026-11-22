@@ -15,9 +15,9 @@
 use std::path::Path;
 
 use console_core_external_programs::Program;
-use console_core_geometry::Size;
 use console_core_jpeg_files::{JpegError, Quality};
 use console_core_never::Never;
+use console_core_size::Size;
 use console_pictures::PictureError;
 
 pub const SIDE: u32 = 128;
@@ -26,96 +26,136 @@ const QUALITY: u8 = 85;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Fetched {
-    Arrived,
-    Failed,
+  Arrived,
+  Failed,
 }
 
 pub fn fetched(from: &str, into: &Path) -> Result<Fetched, Never> {
-    let Ok(mut curl) = Program::Curl.command();
+  let Ok(mut curl) = Program::Curl.command();
 
-    let done = curl
-        .args(["--silent", "--fail", "--location", "--max-time", "20", "--output"])
-        .arg(into)
-        .arg(from)
-        .status();
+  let done = curl
+    .args([
+      "--silent",
+      "--fail",
+      "--location",
+      "--max-time",
+      "20",
+      "--output",
+    ])
+    .arg(into)
+    .arg("--")
+    .arg(from)
+    .status();
 
-    Ok(match done.is_ok_and(|how| how.success()) {
-        true => Fetched::Arrived,
-        false => {
-            let _ = std::fs::remove_file(into);
+  match done.map(|status| status.code()) {
+    Ok(Some(0)) => return Ok(Fetched::Arrived),
+    Ok(code) => console_core_logging::debug!("downloads: cover command stopped with {code:?}"),
+    Err(fault) => console_core_logging::warn!("downloads: starting the cover command: {fault}"),
+  }
 
-            Fetched::Failed
-        },
-    })
+  match crate::store::remove_if_present(into) {
+    Ok(()) => {}
+    Err(fault) => {
+      console_core_logging::warn!("downloads: clearing {}: {fault}", into.display());
+    }
+  }
+
+  Ok(Fetched::Failed)
 }
 
 #[derive(Debug)]
 pub enum Unshrunk {
-    Unread(PictureError),
-    NotAPicture,
-    Unwritable(JpegError),
-    Unwritten(console_core_atomic_writes::Unwritten),
+  Unread(PictureError),
+  NotAPicture,
+  Unwritable(JpegError),
+  Unwritten(console_core_atomic_writes::Unwritten),
 }
 
 impl std::fmt::Display for Unshrunk {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unshrunk::Unread(fault) => write!(formatter, "reading the picture: {fault}"),
-            Unshrunk::NotAPicture => write!(formatter, "it is not a picture this desktop reads"),
-            Unshrunk::Unwritable(fault) => write!(formatter, "making it a JPEG: {fault}"),
-            Unshrunk::Unwritten(fault) => write!(formatter, "writing it down: {fault}"),
-        }
+  fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unshrunk::Unread(fault) => write!(formatter, "reading the picture: {fault}"),
+      Unshrunk::NotAPicture => write!(formatter, "it is not a picture this desktop reads"),
+      Unshrunk::Unwritable(fault) => write!(formatter, "making it a JPEG: {fault}"),
+      Unshrunk::Unwritten(fault) => write!(formatter, "writing it down: {fault}"),
     }
+  }
 }
 
 impl std::error::Error for Unshrunk {}
 
 pub fn shrunk(from: &Path, to: &Path) -> Result<(), Unshrunk> {
-    let read = console_pictures::decoded(from, Size { width: SIDE, height: SIDE }).map_err(Unshrunk::Unread)?;
-    let pixels = read.ok_or(Unshrunk::NotAPicture)?;
-    let size = Size { width: pixels.width, height: pixels.height };
-    let picture = console_core_jpeg_files::Picture { size, rgba: pixels.bytes.to_vec() };
-    let Ok(quality) = Quality::percent(QUALITY);
-    let jpeg = console_core_jpeg_files::encoded(&picture, quality).map_err(Unshrunk::Unwritable)?;
+  let read = console_pictures::decoded(
+    from,
+    Size {
+      width: SIDE,
+      height: SIDE,
+    },
+  )
+  .map_err(Unshrunk::Unread)?;
+  let pixels = read.ok_or(Unshrunk::NotAPicture)?;
+  let Ok(size) = pixels.size();
+  let picture = console_core_jpeg_files::Picture {
+    size,
+    bytes: pixels.bytes,
+  };
+  let Ok(quality) = Quality::percent(QUALITY);
+  let jpeg = console_core_jpeg_files::encoded(&picture, quality).map_err(Unshrunk::Unwritable)?;
 
-    console_core_atomic_writes::whole(to, &jpeg).map_err(Unshrunk::Unwritten)
+  console_core_atomic_writes::whole(to, &jpeg).map_err(Unshrunk::Unwritten)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_wide_picture_is_kept_as_a_jpeg_no_wider_than_a_row_and_as_wide_as_it_was() -> Result<(), Box<dyn std::error::Error>> {
-        let folder = console_core_temporary_directories::fresh("downloads-covers")?;
-        let from = folder.join("cover.part");
-        let to = folder.join("cover.jpg");
-        let size = Size { width: 300, height: 200 };
-        let rgba = vec![200_u8; 240_000];
-        let png = console_core_png_files::encoded(&console_core_png_files::Picture { size, rgba })?;
+  #[test]
+  fn a_wide_picture_is_kept_as_a_jpeg_no_wider_than_a_row_and_as_wide_as_it_was()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let folder = console_core_temporary_directories::fresh("downloads-covers")?;
+    let from = folder.join("cover.part");
+    let to = folder.join("cover.jpg");
+    let size = Size {
+      width: 300,
+      height: 200,
+    };
+    let rgba = vec![200_u8; 240_000];
+    let png =
+      console_core_png_files::encoded(&console_core_png_files::Picture { size, bytes: rgba })?;
 
-        console_core_atomic_writes::whole(&from, &png)?;
-        shrunk(&from, &to)?;
+    console_core_atomic_writes::whole(&from, &png)?;
+    shrunk(&from, &to)?;
 
-        let jpeg = std::fs::read(&to)?;
-        let measured = console_core_jpeg_files::measured(&jpeg)?;
+    let jpeg = std::fs::read(&to)?;
+    let measured = console_core_jpeg_files::measured(&jpeg)?;
 
-        assert_eq!(measured, Size { width: 128, height: 85 });
+    assert_eq!(
+      measured,
+      Size {
+        width: 128,
+        height: 85
+      }
+    );
 
-        Ok(())
+    Ok(())
+  }
+
+  #[test]
+  fn what_is_not_a_picture_is_said_so_and_nothing_is_written()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let folder = console_core_temporary_directories::fresh("downloads-covers-not")?;
+    let from = folder.join("cover.part");
+    let to = folder.join("cover.jpg");
+
+    console_core_atomic_writes::whole(&from, b"<html>not found</html>")?;
+
+    assert!(matches!(shrunk(&from, &to), Err(Unshrunk::NotAPicture)));
+
+    match std::fs::read(&to) {
+      Ok(_) => return Err(Box::from("the invalid picture was written")),
+      Err(fault) => assert_eq!(fault.kind(), std::io::ErrorKind::NotFound),
     }
 
-    #[test]
-    fn what_is_not_a_picture_is_said_so_and_nothing_is_written() -> Result<(), Box<dyn std::error::Error>> {
-        let folder = console_core_temporary_directories::fresh("downloads-covers-not")?;
-        let from = folder.join("cover.part");
-        let to = folder.join("cover.jpg");
-
-        console_core_atomic_writes::whole(&from, b"<html>not found</html>")?;
-
-        assert!(matches!(shrunk(&from, &to), Err(Unshrunk::NotAPicture)));
-        assert!(!to.exists());
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

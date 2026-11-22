@@ -1,0 +1,34 @@
+error: `unwrap_or_else` turns a failure into a value with nothing said
+  --> $DIR/conversion_outcomes.rs:7:5
+   |
+LL |     answer.unwrap_or_else(|impossible| match impossible {})
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: spell out the outcome of this conversion: `match answer { ::core::result::Result::Ok(value) => value }`
+   |
+   = note: `#[deny(explicit001_fallible_result)]` on by default
+
+error: `ok` turns a failure into a value with nothing said
+  --> $DIR/conversion_outcomes.rs:10:37
+   |
+LL | fn byte(input: i32) -> Option<u8> { u8::try_from(input).ok() }
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^ help: spell out the outcome of this conversion: `match u8::try_from(input) { ::core::result::Result::Ok(value) => ::core::option::Option::Some(value), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }`
+
+error: `is_ok` turns a failure into a value with nothing said
+  --> $DIR/conversion_outcomes.rs:11:37
+   |
+LL | fn can_encode(input: i32) -> bool { u8::try_from(input).is_ok() }
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: spell out the outcome of this conversion: `match &(u8::try_from(input)) { ::core::result::Result::Ok(_) => true, ::core::result::Result::Err(_outside_integer_range) => false }`
+
+error: `is_err` turns a failure into a value with nothing said
+  --> $DIR/conversion_outcomes.rs:14:20
+   |
+LL |     let rejected = read.is_err();
+   |                    ^^^^^^^^^^^^^ help: spell out the outcome of this conversion: `match &(read) { ::core::result::Result::Ok(_) => false, ::core::result::Result::Err(_invalid_utf8) => true }`
+
+error: `is_err` turns a failure into a value with nothing said
+  --> $DIR/conversion_outcomes.rs:15:17
+   |
+LL |     rejected && read.is_err()
+   |                 ^^^^^^^^^^^^^ help: spell out the outcome of this conversion: `match &(read) { ::core::result::Result::Ok(_) => false, ::core::result::Result::Err(_invalid_utf8) => true }`
+
+error: aborting due to 5 previous errors
+

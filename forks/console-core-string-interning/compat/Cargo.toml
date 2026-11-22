@@ -1,0 +1,18 @@
+[package]
+name = "string_cache"
+version = "0.11.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Cargo compatibility package for the console string interning fork"
+# The upstream copyright and permission notices remain with the source.
+license = "AGPL-3.0-or-later"
+publish = false
+
+[features]
+default = ["serde_support"]
+malloc_size_of = ["string-interning/malloc_size_of"]
+serde = ["string-interning/serde"]
+serde_support = ["serde", "string-interning/serde_support"]
+
+[dependencies]
+string-interning = { package = "console-core-string-interning", path = "..", default-features = false }

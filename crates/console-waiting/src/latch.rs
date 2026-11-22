@@ -35,7 +35,7 @@
 //! pipe that never reports its writer gone.
 
 use rustix::io::read;
-use rustix::pipe::{pipe_with, PipeFlags};
+use rustix::pipe::{PipeFlags, pipe_with};
 use std::fs::File;
 use std::io;
 use std::os::fd::OwnedFd;
@@ -44,48 +44,50 @@ use console_core_never::Never;
 
 #[derive(Debug)]
 pub struct Latch {
-    pub waiting: OwnedFd,
-    pub saying: File,
+  pub waiting: OwnedFd,
+  pub saying: File,
 }
 
 pub fn pipe() -> Result<Latch, io::Error> {
-    let (waiting, saying) = pipe_with(PipeFlags::CLOEXEC | PipeFlags::NONBLOCK)?;
-    let saying = File::from(saying);
+  let (waiting, writer) = pipe_with(PipeFlags::CLOEXEC | PipeFlags::NONBLOCK)?;
+  let saying = File::from(writer);
 
-    Ok(Latch { waiting, saying })
+  Ok(Latch { waiting, saying })
 }
 
 pub fn drain(waiting: &OwnedFd) -> Result<(), Never> {
-    let mut heard = [0_u8; 64];
+  let mut heard = [0_u8; 64];
 
-    let _ = read(waiting, &mut heard);
+  let _read_or_already_empty = read(waiting, &mut heard);
 
-    Ok(())
+  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::io::Write;
+  use super::*;
+  use std::io::Write;
 
-    #[test]
-    fn a_byte_written_down_it_is_a_byte_the_loop_can_read() -> Result<(), Box<dyn std::error::Error>> {
-        let woken = pipe()?;
-        let mut saying = woken.saying;
+  #[test]
+  fn a_byte_written_down_it_is_a_byte_the_loop_can_read() -> Result<(), Box<dyn std::error::Error>>
+  {
+    let woken = pipe()?;
+    let mut saying = woken.saying;
 
-        saying.write_all(&[1])?;
+    saying.write_all(&[1])?;
 
-        assert_eq!(drain(&woken.waiting), Ok(()));
+    assert_eq!(drain(&woken.waiting), Ok(()));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn draining_one_no_one_wrote_to_answers_rather_than_waiting_for_a_byte() -> Result<(), Box<dyn std::error::Error>> {
-        let woken = pipe()?;
+  #[test]
+  fn draining_one_no_one_wrote_to_answers_rather_than_waiting_for_a_byte()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let woken = pipe()?;
 
-        assert_eq!(drain(&woken.waiting), Ok(()));
+    assert_eq!(drain(&woken.waiting), Ok(()));
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

@@ -7,64 +7,70 @@
 //! configuration file, so something has to turn them into a command line, and
 //! that something needs them by name.
 
-use console_core_color::Short;
 use crate::palette::{Palette, Spent};
 use crate::spend::ROLES;
+use console_core_color::Short;
 
 pub fn spend(palette: &Palette) -> Result<String, Short> {
-    let lines = palette.lines(&ROLES, |Spent { name, color }| format!("{name}={color}"))?;
-    let body = lines.join("\n");
-    Ok(format!(
-        "# Written by console-palette from theme/palette.toml.\n\
+  let lines = palette.lines(&ROLES, |Spent { name, color }| format!("{name}={color}"))?;
+  let body = lines.join("\n");
+  Ok(format!(
+    "# Written by console-palette from theme/palette.toml.\n\
          # Read by the keyboard and the checks, and sourced by the nested\n\
          # desktop. Nothing that reads it holds a color of its own.\n\n{body}\n"
-    ))
+  ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
-    use crate::spend::tests::blossom;
+  use super::*;
+  use crate::spend::tests::blossom;
+  use std::error::Error;
 
-    #[test]
-    fn nothing_is_padded_before_the_equals_sign() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let spent = spend(&palette)?;
+  #[test]
+  fn nothing_is_padded_before_the_equals_sign() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let spent = spend(&palette)?;
 
-        for line in spent.lines().filter(|line| line.contains('=')) {
-            let (name, _) = line.split_once('=').ok_or("an assignment")?;
-            assert!(!name.ends_with(' '), "{line:?} pads before the equals sign");
-            assert!(!name.starts_with(' '), "{line:?} is indented");
-        }
-
-        Ok(())
+    for line in spent.lines().filter(|line| line.contains('=')) {
+      let (name, _) = line.split_once('=').ok_or("an assignment")?;
+      assert!(!name.ends_with(' '), "{line:?} pads before the equals sign");
+      assert!(!name.starts_with(' '), "{line:?} is indented");
     }
 
-    #[test]
-    fn every_role_is_assigned_once() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let sh = spend(&palette)?;
+    Ok(())
+  }
 
-        for name in ROLES {
-            let assigned: Vec<&str> = sh.lines().filter(|line| line.starts_with(&format!("{name}="))).collect();
-            assert_eq!(assigned.len(), 1, "{name} is assigned as {assigned:?}");
-        }
+  #[test]
+  fn every_role_is_assigned_once() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let sh = spend(&palette)?;
 
-        Ok(())
+    for name in ROLES {
+      let assigned: Vec<&str> = sh
+        .lines()
+        .filter(|line| line.starts_with(&format!("{name}=")))
+        .collect();
+      assert_eq!(assigned.len(), 1, "{name} is assigned as {assigned:?}");
     }
 
-    #[test]
-    fn a_value_is_six_hex_digits_with_no_hash_and_no_quotes() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let spent = spend(&palette)?;
+    Ok(())
+  }
 
-        for line in spent.lines().filter(|line| line.contains('=')) {
-            let (_, value) = line.split_once('=').ok_or("an assignment")?;
-            assert_eq!(value.len(), 6, "{line:?}");
-            assert!(value.chars().all(|digit| digit.is_ascii_hexdigit()), "{line:?}");
-        }
+  #[test]
+  fn a_value_is_six_hex_digits_with_no_hash_and_no_quotes() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let spent = spend(&palette)?;
 
-        Ok(())
+    for line in spent.lines().filter(|line| line.contains('=')) {
+      let (_, value) = line.split_once('=').ok_or("an assignment")?;
+      assert_eq!(value.len(), 6, "{line:?}");
+      assert!(
+        value.chars().all(|digit| digit.is_ascii_hexdigit()),
+        "{line:?}"
+      );
     }
+
+    Ok(())
+  }
 }

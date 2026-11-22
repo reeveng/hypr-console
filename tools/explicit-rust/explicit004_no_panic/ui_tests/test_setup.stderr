@@ -1,0 +1,55 @@
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/test_setup.rs:14:17
+   |
+LL |     let first = read(&[7]).unwrap();
+   |                 ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit004_no_panic)]` on by default
+help: report failed test setup through its concrete error type
+   |
+LL ~ fn reads_two_headers() -> ::core::result::Result<(), crate::ReadError> {
+LL ~     let first = read(&[7])?;
+LL ~     let second = read(&[3])?;
+LL |     assert_eq!(first + second, 10);
+LL +     ::core::result::Result::Ok(())
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/test_setup.rs:15:18
+   |
+LL |     let second = read(&[3]).unwrap();
+   |                  ^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/test_setup.rs:21:18
+   |
+LL |     let header = read(&[4]).unwrap();
+   |                  ^^^^^^^^^^^^^^^^^^^
+   |
+help: report failed test setup through its concrete error type
+   |
+LL -     let header = read(&[4]).unwrap();
+LL +     let header = read(&[4])?;
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/test_setup.rs:33:18
+   |
+LL |     let header = read(&bytes).unwrap();
+   |                  ^^^^^^^^^^^^^^^^^^^^^
+   |
+help: report failed test setup through its concrete error type
+   |
+LL ~ fn formatted_fixture() -> ::core::result::Result<(), crate::ReadError> {
+LL |     #[rustfmt::skip]
+...
+LL |         ];
+LL ~     let header = read(&bytes)?;
+LL |     assert_eq!(header, 7, "fixture #1");
+LL +     ::core::result::Result::Ok(())
+   |
+
+error: aborting due to 4 previous errors
+

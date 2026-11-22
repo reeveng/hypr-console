@@ -1,0 +1,21 @@
+[package]
+name = "console-core-audio-decoding-wave-container"
+version = "0.5.5"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_core_audio_decoding_wave_container"
+path = "src/lib.rs"
+
+[dependencies]
+extended = "0.1.0"
+console-core-audio-decoding-interfaces = { path = "../console-core-audio-decoding-interfaces" }
+console-core-audio-decoding-tags = { path = "../console-core-audio-decoding-tags" }
+console-core-byte-streams.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+
+[lints]
+workspace = true

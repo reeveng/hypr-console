@@ -43,7 +43,7 @@ mod reading;
 
 use std::collections::BTreeSet;
 
-use reading::{Failure, missing, read, root, files_containing};
+use reading::{Failure, files_containing, missing, read, root};
 
 const EXCUSED: [&str; 2] = ["console-core-places", "console-manifest-migrations"];
 
@@ -51,75 +51,88 @@ const BASES: [&str; 4] = [".config", ".local/state", ".local/share", ".cache"];
 
 #[test]
 fn one_crate_works_out_where_this_desktop_keeps_things() -> Result<(), Failure> {
-    let mut spelling: Vec<String> = Vec::new();
+  let mut spelling: Vec<String> = Vec::new();
 
-    for said in BASES.iter().flat_map(|base| [format!("{base}/console/"), format!("{base}/console\"")]) {
-        let found = files_containing(&said, &EXCUSED)?;
+  for said in BASES
+    .iter()
+    .flat_map(|base| [format!("{base}/console/"), format!("{base}/console\"")])
+  {
+    let found = files_containing(&said, &EXCUSED)?;
 
-        spelling.extend(found);
-    }
+    spelling.extend(found);
+  }
 
-    assert!(
-        spelling.is_empty(),
-        "these work out where this desktop keeps things for themselves; ask \
+  assert!(
+    spelling.is_empty(),
+    "these work out where this desktop keeps things for themselves; ask \
          console_core_places::Base for the directory and join your own name onto it: {spelling:?}"
-    );
+  );
 
-    Ok(())
+  Ok(())
 }
 
-const BASES_OF_A_TOOLKIT: [&str; 4] =
-    ["user_config_dir", "user_state_dir", "user_data_dir", "user_cache_dir"];
+const BASES_OF_A_TOOLKIT: [&str; 4] = [
+  "user_config_dir",
+  "user_state_dir",
+  "user_data_dir",
+  "user_cache_dir",
+];
 
 const ASKING_A_TOOLKIT: &[&str] = &[];
 
 #[test]
 fn the_ones_that_ask_a_toolkit_for_a_base_are_the_ones_that_are_known() -> Result<(), Failure> {
-    let mut asking: BTreeSet<String> = BTreeSet::new();
+  let mut asking: BTreeSet<String> = BTreeSet::new();
 
-    for word in BASES_OF_A_TOOLKIT {
-        let found = files_containing(word, &EXCUSED)?;
+  for word in BASES_OF_A_TOOLKIT {
+    let found = files_containing(word, &EXCUSED)?;
 
-        asking.extend(found);
-    }
+    asking.extend(found);
+  }
 
-    let Ok(root) = root();
-    let known: BTreeSet<String> = ASKING_A_TOOLKIT.iter().map(|at| root.join(at).display().to_string()).collect();
+  let Ok(root) = root();
+  let known: BTreeSet<String> = ASKING_A_TOOLKIT
+    .iter()
+    .map(|at| reading::beneath(&root, at).map(|path| path.display().to_string()))
+    .collect::<Result<_, Failure>>()?;
 
-    assert_eq!(
-        asking, known,
-        "a toolkit is asked for a base somewhere new, or one of the named has stopped \
+  assert_eq!(
+    asking, known,
+    "a toolkit is asked for a base somewhere new, or one of the named has stopped \
          asking; ask console_core_places::Base, and take the line out of \
          ASKING_A_TOOLKIT when the site goes"
-    );
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn the_crate_that_answers_still_holds_the_four() -> Result<(), Failure> {
-    let said = read("crates/console-core-places/src/lib.rs")?;
+  let said = read("crates/console-core-places/src/lib.rs")?;
 
-    assert!(
-        said.contains("pub const EVERY: [Base; 4]"),
-        "a base has arrived or left, and the migration that moves a machine off the old name \
+  assert!(
+    said.contains("pub const EVERY: [Base; 4]"),
+    "a base has arrived or left, and the migration that moves a machine off the old name \
          is worked out from this list"
-    );
+  );
 
-    for base in BASES {
-        assert!(
-            said.contains(&format!("\"{base}\"")),
-            "{base} is not one of the bases any more, and the crates that were under it are \
+  for base in BASES {
+    assert!(
+      said.contains(&format!("\"{base}\"")),
+      "{base} is not one of the bases any more, and the crates that were under it are \
              somewhere else now"
-        );
-    }
+    );
+  }
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn every_excused_crate_is_a_crate() {
-    let Ok(missing) = missing(&EXCUSED);
+  let Ok(missing) = missing(&EXCUSED);
 
-    assert!(missing.is_empty(), "excused from a rule but not in the tree: {missing:?}");
+  assert!(
+    missing.is_empty(),
+    "excused from a rule but not in the tree: {missing:?}"
+  );
 }

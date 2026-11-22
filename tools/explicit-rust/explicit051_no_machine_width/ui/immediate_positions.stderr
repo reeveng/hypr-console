@@ -1,0 +1,55 @@
+error: `pixel_stride` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/immediate_positions.rs:12:12
+   |
+LL |     let Ok(pixel_stride) = stride(row);
+   |            ^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+help: pass the returned position directly to its consumer
+   |
+LL -     let Ok(pixel_stride) = stride(row);
+LL -     Ok(pixel_stride)
+LL +     stride(row)
+   |
+
+error: `pixel_stride` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/immediate_positions.rs:18:16
+   |
+LL |         let Ok(pixel_stride) = stride(row);
+   |                ^^^^^^^^^^^^
+   |
+help: pass the returned position directly to its consumer
+   |
+LL -         let Ok(pixel_stride) = stride(row);
+LL -         pixel_stride
+LL +         stride(row)?
+   |
+
+error: `size` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/immediate_positions.rs:34:16
+   |
+LL |         let Ok(size) = Guard(&dropped).size();
+   |                ^^^^
+   |
+help: pass the returned position directly to its consumer
+   |
+LL -         let Ok(size) = Guard(&dropped).size();
+LL -         size
+LL +         match Guard(&dropped).size() { ::core::result::Result::Ok(size) => size }
+   |
+
+error: `size` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/immediate_positions.rs:42:20
+   |
+LL |             let Ok(size) = stride(&[2, 3]);
+   |                    ^^^^
+   |
+help: pass the returned position directly to its consumer
+   |
+LL -             let Ok(size) = stride(&[2, 3]);
+LL -             size
+LL +             match stride(&[2, 3]) { ::core::result::Result::Ok(size) => size }
+   |
+
+error: aborting due to 4 previous errors
+

@@ -56,28 +56,30 @@
 //! keyboard is the only way to type. It is the ordinary answer to a question
 //! asked slightly too late, and the loop goes round again.
 
-
 use console_core_geometry::Size;
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+use console_draw_surface::memory::Shared;
+use std::os::fd::{AsFd, BorrowedFd};
 
 use rustix::event::{Nsecs, PollFd, PollFlags, Secs, Timespec, poll};
 
+use wayland_client::backend::WaylandError;
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{
-    wl_buffer, wl_compositor, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface,
-    wl_touch,
+  wl_buffer, wl_compositor, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface,
+  wl_touch,
 };
-use wayland_client::backend::WaylandError;
-use wayland_client::{Connection, Dispatch, DispatchError, EventQueue, QueueHandle, delegate_noop};
+use wayland_client::{
+  Connection, Dispatch, DispatchError, EventQueue, QueueHandle, delegate_noop,
+};
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
-    zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1,
+  zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1,
 };
-use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
-
-use crate::shared_memory::{Mapped, drawing_buffer};
+use wayland_protocols_wlr::layer_shell::v1::client::{
+  zwlr_layer_shell_v1, zwlr_layer_surface_v1,
+};
 
 pub const NAMESPACE: &str = "console-keyboard";
 
@@ -85,495 +87,560 @@ const DEEP: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PointerEvent {
-    Down { x: f64, y: f64 },
-    Moved { x: f64, y: f64 },
-    Up,
+  Down { x: f64, y: f64 },
+  Moved { x: f64, y: f64 },
+  Up,
 }
 
 pub struct Screen {
-    connection: Connection,
-    queue: EventQueue<Board>,
-    board: Board,
+  connection: Connection,
+  queue: EventQueue<Board>,
+  board: Board,
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit048_no_unreal_state",
-    allow(
-        explicit048_no_unreal_state,
-        reason = "every one of these is a separate thing wayland has or has not said yet -- a surface configured, a frame owed, a size known, a keyboard manager bound, a close asked for, a pointer down -- and they arrive in any order, so there is no state here that names them together"
-    )
+  dylint_lib = "explicit048_no_unreal_state",
+  allow(
+    explicit048_no_unreal_state,
+    reason = "every one of these is a separate thing wayland has or has not said yet -- a surface configured, a frame owed, a size known, a keyboard manager bound, a close asked for, a pointer down -- and they arrive in any order, so there is no state here that names them together"
+  )
 )]
 pub struct Board {
-    compositor: wl_compositor::WlCompositor,
-    shm: wl_shm::WlShm,
-    shell: zwlr_layer_shell_v1::ZwlrLayerShellV1,
-    pub seat: wl_seat::WlSeat,
-    up: Option<Up>,
-    frame: Option<Frame>,
-    pub size: Option<(u32, u32)>,
-    pub scale: i32,
-    pub closed: bool,
-    pub typing: Option<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1>,
-    pub pointer_events: Vec<PointerEvent>,
-    pointer_at: (f64, f64),
-    pointer_down: bool,
+  compositor: wl_compositor::WlCompositor,
+  shm: wl_shm::WlShm,
+  shell: zwlr_layer_shell_v1::ZwlrLayerShellV1,
+  pub seat: wl_seat::WlSeat,
+  up: Option<Up>,
+  frame: Option<Frame>,
+  pub size: Option<(u32, u32)>,
+  pub scale: i32,
+  pub closed: bool,
+  pub typing: Option<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1>,
+  pub pointer_events: Vec<PointerEvent>,
+  pointer_at: (f64, f64),
+  pointer_down: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Showing {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Closed {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 struct Up {
-    surface: wl_surface::WlSurface,
-    layer: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
+  surface: wl_surface::WlSurface,
+  layer: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
 }
 
 struct Frame {
-    _file: OwnedFd,
-    pool: wl_shm_pool::WlShmPool,
-    buffer: wl_buffer::WlBuffer,
-    pixels: Mapped,
-    width: u32,
-    height: u32,
+  pool: wl_shm_pool::WlShmPool,
+  buffer: wl_buffer::WlBuffer,
+  pixels: Shared,
+  width: u32,
+  height: u32,
+}
+
+enum Flushed {
+  Sent,
+  Pending,
 }
 
 #[derive(Debug)]
 pub enum SurfaceError {
-    Compositor(wayland_client::ConnectError),
-    Global(&'static str),
-    Closed(wayland_client::DispatchError),
-    Hung,
-    Memory(std::io::Error),
+  Compositor(wayland_client::ConnectError),
+  Global(&'static str),
+  Closed(wayland_client::DispatchError),
+  Hung,
+  Memory(std::io::Error),
 }
 
 impl std::fmt::Display for SurfaceError {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SurfaceError::Compositor(_) => {
-                write!(to, "no compositor answered on WAYLAND_DISPLAY")
-            }
-            SurfaceError::Global(what) => write!(to, "the compositor has no {what}"),
-            SurfaceError::Closed(why) => write!(to, "the compositor went away: {why}"),
-            SurfaceError::Hung => write!(to, "the compositor closed the connection"),
-            SurfaceError::Memory(why) => write!(to, "no memory for a frame: {why}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      SurfaceError::Compositor(_) => {
+        write!(to, "no compositor answered on WAYLAND_DISPLAY")
+      }
+      SurfaceError::Global(what) => write!(to, "the compositor has no {what}"),
+      SurfaceError::Closed(why) => write!(to, "the compositor went away: {why}"),
+      SurfaceError::Hung => write!(to, "the compositor closed the connection"),
+      SurfaceError::Memory(why) => write!(to, "no memory for a frame: {why}"),
     }
+  }
 }
 
 impl std::error::Error for SurfaceError {}
 
 impl Screen {
-    pub fn connect() -> Result<Screen, SurfaceError> {
-        let connection = Connection::connect_to_env().map_err(SurfaceError::Compositor)?;
-        let (globals, queue) = registry_queue_init::<Board>(&connection)
-            .map_err(|_| SurfaceError::Global("the compositor's list of globals"))?;
-        let hand = queue.handle();
+  pub fn connect() -> Result<Screen, SurfaceError> {
+    let connection = Connection::connect_to_env().map_err(SurfaceError::Compositor)?;
+    let (globals, queue) = registry_queue_init::<Board>(&connection)
+      .map_err(|_| SurfaceError::Global("the compositor's list of globals"))?;
+    let hand = queue.handle();
 
-        let compositor = globals
-            .bind::<wl_compositor::WlCompositor, _, _>(&hand, 1..=6, ())
-            .map_err(|_| SurfaceError::Global("wl_compositor"))?;
-        let shm = globals
-            .bind::<wl_shm::WlShm, _, _>(&hand, 1..=1, ())
-            .map_err(|_| SurfaceError::Global("wl_shm"))?;
-        let shell = globals
-            .bind::<zwlr_layer_shell_v1::ZwlrLayerShellV1, _, _>(&hand, 1..=4, ())
-            .map_err(|_| SurfaceError::Global("zwlr_layer_shell_v1, which is what makes a keyboard"))?;
-        let seat = globals
-            .bind::<wl_seat::WlSeat, _, _>(&hand, 1..=7, ())
-            .map_err(|_| SurfaceError::Global("wl_seat"))?;
-        let typing = globals
-            .bind::<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, _, _>(
-                &hand,
-                1..=1,
-                (),
-            )
-            .map_or_else(
-                |_| {
-                    eprintln!(
-                        "this compositor has no virtual keyboard protocol; \
+    let compositor = globals
+      .bind::<wl_compositor::WlCompositor, _, _>(&hand, 1..=6, ())
+      .map_err(|_| SurfaceError::Global("wl_compositor"))?;
+    let shm = globals
+      .bind::<wl_shm::WlShm, _, _>(&hand, 1..=1, ())
+      .map_err(|_| SurfaceError::Global("wl_shm"))?;
+    let shell = globals
+      .bind::<zwlr_layer_shell_v1::ZwlrLayerShellV1, _, _>(&hand, 1..=4, ())
+      .map_err(|_| SurfaceError::Global("zwlr_layer_shell_v1, which is what makes a keyboard"))?;
+    let seat = globals
+      .bind::<wl_seat::WlSeat, _, _>(&hand, 1..=7, ())
+      .map_err(|_| SurfaceError::Global("wl_seat"))?;
+    let typing = globals
+      .bind::<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, _, _>(
+        &hand,
+        1..=1,
+        (),
+      )
+      .map_or_else(
+        |_| {
+          eprintln!(
+            "this compositor has no virtual keyboard protocol; \
                          the keyboard will draw and type nothing"
-                    );
-                    None
-                },
-                Some,
-            );
+          );
+          None
+        },
+        Some,
+      );
 
-        let board = Board {
-            compositor,
-            shm,
-            shell,
-            seat,
-            up: None,
-            frame: None,
-            size: None,
-            scale: 1,
-            closed: false,
-            typing,
-            pointer_events: Vec::new(),
-            pointer_at: (0.0, 0.0),
-            pointer_down: false,
-        };
-        Ok(Screen { connection, queue, board })
+    let board = Board {
+      compositor,
+      shm,
+      shell,
+      seat,
+      up: None,
+      frame: None,
+      size: None,
+      scale: 1,
+      closed: false,
+      typing,
+      pointer_events: Vec::new(),
+      pointer_at: (0.0, 0.0),
+      pointer_down: false,
+    };
+    Ok(Screen {
+      connection,
+      queue,
+      board,
+    })
+  }
+
+  pub fn show(&mut self, tall: u32) -> Result<(), SurfaceError> {
+    match ::core::primitive::bool::then_some(self.board.up.is_some(), ()) {
+      ::core::option::Option::Some(()) => return Ok(()),
+      ::core::option::Option::None => {}
     }
 
-    pub fn show(&mut self, tall: u32) -> Result<(), SurfaceError> {
-        match self.board.up.is_some() {
-            true => return Ok(()),
-            false => {},
-        }
+    let hand = self.queue.handle();
+    let surface = self.board.compositor.create_surface(&hand, ());
+    let layer = self.board.shell.get_layer_surface(
+      &surface,
+      None,
+      zwlr_layer_shell_v1::Layer::Overlay,
+      NAMESPACE.to_string(),
+      &hand,
+      (),
+    );
+    layer.set_size(0, tall);
+    layer.set_anchor(
+      zwlr_layer_surface_v1::Anchor::Bottom
+        | zwlr_layer_surface_v1::Anchor::Left
+        | zwlr_layer_surface_v1::Anchor::Right,
+    );
+    layer.set_keyboard_interactivity(zwlr_layer_surface_v1::KeyboardInteractivity::None);
+    let Ok(zone) = fitted(tall);
 
-        let hand = self.queue.handle();
-        let surface = self.board.compositor.create_surface(&hand, ());
-        let layer = self.board.shell.get_layer_surface(
-            &surface,
-            None,
-            zwlr_layer_shell_v1::Layer::Overlay,
-            NAMESPACE.to_string(),
-            &hand,
-            (),
-        );
-        layer.set_size(0, tall);
-        layer.set_anchor(
-            zwlr_layer_surface_v1::Anchor::Bottom
-                | zwlr_layer_surface_v1::Anchor::Left
-                | zwlr_layer_surface_v1::Anchor::Right,
-        );
-        layer.set_keyboard_interactivity(zwlr_layer_surface_v1::KeyboardInteractivity::None);
-        let Ok(zone) = fitted(tall);
+    layer.set_exclusive_zone(zone);
+    surface.commit();
 
-        layer.set_exclusive_zone(zone);
-        surface.commit();
+    self.board.size = None;
+    self.board.up = Some(Up { surface, layer });
 
-        self.board.size = None;
-        self.board.up = Some(Up { surface, layer });
+    let shown = console_core_iteration::iterate(self, |this| {
+      Ok(match ::core::primitive::bool::then_some(this.board.size.is_none() && !this.board.closed, ()) {
+        ::core::option::Option::Some(()) => match this.queue.blocking_dispatch(&mut this.board) {
+          Ok(_dispatched) => Step::Again(this),
+          Err(fault) => Step::Halt(Err(SurfaceError::Closed(fault))),
+        },
+        ::core::option::Option::None => Step::Halt(Ok(())),
+      })
+    });
 
-        let shown = console_core_iteration::iterate(self, |this| {
-            Ok(match this.board.size.is_none() && !this.board.closed {
-                true => match this.queue.blocking_dispatch(&mut this.board) {
-                    Ok(_dispatched) => Step::Again(this),
-                    Err(fault) => Step::Halt(Err(SurfaceError::Closed(fault))),
-                },
-                false => Step::Halt(Ok(())),
-            })
-        });
+    match shown {
+      Ok(shown_2) => shown_2,
+      Err(_endless) => Ok(()),
+    }
+  }
 
-        match shown {
-            Ok(shown) => shown,
-            Err(_endless) => Ok(()),
-        }
+  pub fn hide(&mut self) -> Result<(), Never> {
+    let up = match self.board.up.take() {
+      Some(up) => up,
+      None => return Ok(()),
+    };
+
+    up.layer.destroy();
+    up.surface.destroy();
+    self.board.frame = None;
+    self.board.size = None;
+
+    Ok(())
+  }
+
+  pub fn visibility(&self) -> Result<Showing, Never> {
+    Ok(match self.board.up {
+      Some(_) => Showing::Yes,
+      None => Showing::No,
+    })
+  }
+
+  pub fn size(&self) -> Result<Option<(u32, u32)>, Never> {
+    Ok(self.board.size)
+  }
+
+  pub fn scale(&self) -> Result<i32, Never> {
+    Ok(self.board.scale)
+  }
+
+  pub fn seat(&self) -> Result<&wl_seat::WlSeat, Never> {
+    Ok(&self.board.seat)
+  }
+
+  pub fn typing(
+    &self,
+  ) -> Result<Option<&zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1>, Never> {
+    Ok(self.board.typing.as_ref())
+  }
+
+  pub fn pointer_events(&mut self) -> Result<Vec<PointerEvent>, Never> {
+    Ok(std::mem::take(&mut self.board.pointer_events))
+  }
+
+  pub fn hand(&self) -> Result<QueueHandle<Board>, Never> {
+    Ok(self.queue.handle())
+  }
+
+  pub fn closed(&self) -> Result<Closed, Never> {
+    Ok(match ::core::primitive::bool::then_some(self.board.closed, ()) {
+      ::core::option::Option::Some(()) => Closed::Yes,
+      ::core::option::Option::None => Closed::No,
+    })
+  }
+
+  pub fn draw(
+    &mut self,
+    paint: impl FnOnce(&mut [u8], u32, u32, i32),
+  ) -> Result<(), SurfaceError> {
+    let (wide, tall) = match self.board.size {
+      Some((wide, tall)) => (wide, tall),
+      None => return Ok(()),
+    };
+
+    let up = match self.board.up.as_ref() {
+      Some(up) => up,
+      None => return Ok(()),
+    };
+
+    let hand = self.queue.handle();
+    let scale = self.board.scale;
+    let Ok(many) = fitted::<i32, u32>(scale);
+
+    let across = wide.saturating_mul(many);
+    let down = tall.saturating_mul(many);
+
+    let stale = self
+      .board
+      .frame
+      .as_ref()
+      .is_none_or(|frame| frame.width != across || frame.height != down);
+
+    match ::core::primitive::bool::then_some(stale, ()) {
+      ::core::option::Option::Some(()) => {
+        let frame = Frame::new(
+          &self.board.shm,
+          &hand,
+          Size {
+            width: across,
+            height: down,
+          },
+        )?;
+
+        self.board.frame = Some(frame);
+      }
+      ::core::option::Option::None => {}
     }
 
-    pub fn hide(&mut self) -> Result<(), Never> {
-        let up = match self.board.up.take() {
-            Some(up) => up,
-            None => return Ok(()),
-        };
+    let frame = match self.board.frame.as_mut() {
+      Some(frame) => frame,
+      None => return Ok(()),
+    };
 
-        up.layer.destroy();
-        up.surface.destroy();
-        self.board.frame = None;
-        self.board.size = None;
-        let _ = self.connection.flush();
+    let Ok(pixels) = frame.pixels.pixels();
 
-        Ok(())
+    paint(pixels, across, down, scale);
+
+    up.surface.attach(Some(&frame.buffer), 0, 0);
+    up.surface.set_buffer_scale(scale);
+    let Ok(damaged_across) = fitted(across);
+    let Ok(damaged_down) = fitted(down);
+
+    up.surface.damage_buffer(0, 0, damaged_across, damaged_down);
+    up.surface.commit();
+    self.flush().map(|_pending_output_is_retried_in_wait| ())
+  }
+
+  fn flush(&self) -> Result<Flushed, SurfaceError> {
+    match self.connection.flush() {
+      Ok(()) => Ok(Flushed::Sent),
+      Err(fault) => retry_when_ready(fault).map(|()| Flushed::Pending),
     }
+  }
 
-    pub fn visibility(&self) -> Result<Showing, Never> {
-        Ok(match self.board.up {
-            Some(_) => Showing::Yes,
-            None => Showing::No,
+  pub fn wait_with(
+    &mut self,
+    also: &[BorrowedFd<'_>],
+    until: Option<std::time::Duration>,
+  ) -> Result<u32, SurfaceError> {
+    self
+      .queue
+      .dispatch_pending(&mut self.board)
+      .map_err(SurfaceError::Closed)?;
+    let flushed = self.flush()?;
+
+    let guard = match self.connection.prepare_read() {
+      Some(guard) => guard,
+      None => {
+        self
+          .queue
+          .dispatch_pending(&mut self.board)
+          .map_err(SurfaceError::Closed)?;
+        return Ok(0);
+      }
+    };
+
+    let socket = self.connection.as_fd();
+    let events = match flushed {
+      Flushed::Sent => PollFlags::IN,
+      Flushed::Pending => PollFlags::IN | PollFlags::OUT,
+    };
+    let mut watch = vec![PollFd::from_borrowed_fd(socket, events)];
+    watch.extend(
+      also
+        .iter()
+        .map(|fd| PollFd::from_borrowed_fd(*fd, PollFlags::IN)),
+    );
+    let wait = match until {
+      None => None,
+      Some(duration) => {
+        let long = duration.max(std::time::Duration::from_millis(1));
+        let Ok(seconds) = fitted::<u64, Secs>(long.as_secs());
+        let Ok(nanoseconds) = fitted::<u32, Nsecs>(long.subsec_nanos());
+
+        Some(Timespec {
+          tv_sec: seconds,
+          tv_nsec: nanoseconds,
         })
+      }
+    };
+
+    match poll(&mut watch, wait.as_ref()) {
+      Ok(_ready) => {}
+      Err(_the_poll_failed) => {
+        drop(guard);
+        return Ok(0);
+      }
     }
 
-    pub fn size(&self) -> Result<Option<(u32, u32)>, Never> {
-        Ok(self.board.size)
+    let answer = match watch.first() {
+      Some(answer) => answer,
+      None => {
+        drop(guard);
+        return Ok(0);
+      }
+    };
+
+    match ::core::primitive::bool::then_some(answer.revents().contains(PollFlags::IN), ()) {
+      ::core::option::Option::Some(()) => match guard.read() {
+        Ok(_) => {}
+        Err(fault) => retry_when_ready(fault)?,
+      },
+      ::core::option::Option::None => drop(guard),
     }
 
-    pub fn scale(&self) -> Result<i32, Never> {
-        Ok(self.board.scale)
+    self
+      .queue
+      .dispatch_pending(&mut self.board)
+      .map_err(SurfaceError::Closed)?;
+
+    match ::core::primitive::bool::then_some(answer
+      .revents()
+      .intersects(PollFlags::HUP | PollFlags::ERR | PollFlags::NVAL), ())
+    {
+      ::core::option::Option::Some(()) => return Err(SurfaceError::Hung),
+      ::core::option::Option::None => {}
     }
 
-    pub fn seat(&self) -> Result<&wl_seat::WlSeat, Never> {
-        Ok(&self.board.seat)
-    }
+    let mut spoke = 0u32;
 
-    pub fn typing(&self) -> Result<Option<&zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1>, Never> {
-        Ok(self.board.typing.as_ref())
-    }
+    for (bit, polled) in watch.iter().skip(1).enumerate() {
+      match ::core::primitive::bool::then_some(polled.revents().contains(PollFlags::IN), ()) {
+        ::core::option::Option::Some(()) => {
+          let Ok(bit_2) = fitted::<_, u32>(bit);
 
-    pub fn pointer_events(&mut self) -> Result<Vec<PointerEvent>, Never> {
-        Ok(std::mem::take(&mut self.board.pointer_events))
-    }
-
-    pub fn hand(&self) -> Result<QueueHandle<Board>, Never> {
-        Ok(self.queue.handle())
-    }
-
-    pub fn closed(&self) -> Result<Closed, Never> {
-        Ok(match self.board.closed {
-            true => Closed::Yes,
-            false => Closed::No,
-        })
-    }
-
-    pub fn draw(&mut self, paint: impl FnOnce(&mut [u8], u32, u32, i32)) -> Result<(), SurfaceError> {
-        let (wide, tall) = match self.board.size {
-            Some((wide, tall)) => (wide, tall),
-            None => return Ok(()),
-        };
-
-        let up = match self.board.up.as_ref() {
-            Some(up) => up,
-            None => return Ok(()),
-        };
-
-        let hand = self.queue.handle();
-        let scale = self.board.scale;
-        let Ok(many) = fitted::<i32, u32>(scale);
-
-        let across = wide.saturating_mul(many);
-        let down = tall.saturating_mul(many);
-
-        let stale = self.board.frame.as_ref().is_none_or(|frame| frame.width != across || frame.height != down);
-
-        match stale {
-            true => {
-                let frame = Frame::new(&self.board.shm, &hand, Size { width: across, height: down })?;
-
-                self.board.frame = Some(frame);
-            }
-            false => {},
+          spoke |= 1u32.wrapping_shl(bit_2);
         }
-
-        let frame = match self.board.frame.as_mut() {
-            Some(frame) => frame,
-            None => return Ok(()),
-        };
-
-        let Ok(pixels) = frame.pixels.pixels();
-
-        paint(pixels, across, down, scale);
-
-        up.surface.attach(Some(&frame.buffer), 0, 0);
-        up.surface.set_buffer_scale(scale);
-        let Ok(damaged_across) = fitted(across);
-        let Ok(damaged_down) = fitted(down);
-
-        up.surface.damage_buffer(0, 0, damaged_across, damaged_down);
-        up.surface.commit();
-        let _ = self.connection.flush();
-        Ok(())
+        ::core::option::Option::None => {}
+      }
     }
 
-    pub fn wait_with(
-        &mut self,
-        also: &[BorrowedFd<'_>],
-        until: Option<std::time::Duration>,
-    ) -> Result<u32, SurfaceError> {
-        self.queue.dispatch_pending(&mut self.board).map_err(SurfaceError::Closed)?;
-        let _ = self.connection.flush();
+    Ok(spoke)
+  }
 
-        let guard = match self.connection.prepare_read() {
-            Some(guard) => guard,
-            None => {
-                self.queue.dispatch_pending(&mut self.board).map_err(SurfaceError::Closed)?;
-                return Ok(0);
-            }
-        };
+  pub fn wait(&mut self) -> Result<(), SurfaceError> {
+    self
+      .queue
+      .blocking_dispatch(&mut self.board)
+      .map(|_| ())
+      .map_err(SurfaceError::Closed)
+  }
 
-        let socket = self.connection.as_fd();
-        let mut watch = vec![PollFd::from_borrowed_fd(socket, PollFlags::IN)];
-        watch.extend(also.iter().map(|fd| PollFd::from_borrowed_fd(*fd, PollFlags::IN)));
-        let wait = match until {
-            None => None,
-            Some(duration) => {
-                let long = duration.max(std::time::Duration::from_millis(1));
-                let Ok(seconds) = fitted::<u64, Secs>(long.as_secs());
-                let Ok(nanoseconds) = fitted::<u32, Nsecs>(long.subsec_nanos());
+  pub fn catch_up(&mut self) -> Result<(), SurfaceError> {
+    self
+      .queue
+      .roundtrip(&mut self.board)
+      .map(|_| ())
+      .map_err(SurfaceError::Closed)
+  }
+}
 
-                Some(Timespec { tv_sec: seconds, tv_nsec: nanoseconds })
-            }
-        };
+fn retry_when_ready(fault: WaylandError) -> Result<(), SurfaceError> {
+  let blocked = match &fault {
+    WaylandError::Io(why) => why.kind() == std::io::ErrorKind::WouldBlock,
+    WaylandError::Protocol(_) => false,
+  };
 
-        match poll(&mut watch, wait.as_ref()) {
-            Ok(_ready) => {},
-            Err(_the_poll_failed) => {
-                drop(guard);
-                return Ok(0);
-            }
-        }
-
-        let answer = match watch.first() {
-            Some(answer) => answer,
-            None => {
-                drop(guard);
-                return Ok(0);
-            }
-        };
-
-        match answer.revents().contains(PollFlags::IN) {
-            true => {
-                match guard.read() {
-                    Ok(_) => {},
-                    Err(why) => {
-                        let blocked = match &why {
-                            WaylandError::Io(fault) => fault.kind() == std::io::ErrorKind::WouldBlock,
-                            WaylandError::Protocol(_) => false,
-                        };
-
-                        match blocked {
-                            true => {},
-                            false => return Err(SurfaceError::Closed(DispatchError::Backend(why))),
-                        }
-                    },
-                }
-            },
-            false => drop(guard),
-        }
-
-        self.queue.dispatch_pending(&mut self.board).map_err(SurfaceError::Closed)?;
-
-        match answer.revents().intersects(PollFlags::HUP | PollFlags::ERR | PollFlags::NVAL) {
-            true => return Err(SurfaceError::Hung),
-            false => {},
-        }
-
-        let mut spoke = 0u32;
-
-        for (bit, polled) in watch.iter().skip(1).enumerate() {
-            match polled.revents().contains(PollFlags::IN) {
-                true => {
-                    let Ok(bit) = fitted::<_, u32>(bit);
-
-                    spoke |= 1u32.wrapping_shl(bit);
-                }
-                false => {},
-            }
-        }
-
-        Ok(spoke)
-    }
-
-    pub fn wait(&mut self) -> Result<(), SurfaceError> {
-        self.queue.blocking_dispatch(&mut self.board).map(|_| ()).map_err(SurfaceError::Closed)
-    }
-
-    pub fn catch_up(&mut self) -> Result<(), SurfaceError> {
-        self.queue.roundtrip(&mut self.board).map(|_| ()).map_err(SurfaceError::Closed)
-    }
+  match bool::then_some(blocked, ()) {
+    Some(()) => Ok(()),
+    None => Err(SurfaceError::Closed(DispatchError::Backend(fault))),
+  }
 }
 
 impl Frame {
-    fn new(
-        shm: &wl_shm::WlShm,
-        hand: &QueueHandle<Board>,
-        room: Size<u32>,
-    ) -> Result<Frame, SurfaceError> {
-        let Size { width: wide, height: tall } = room;
-        let stride = wide.saturating_mul(DEEP);
-        let long = u64::from(stride.saturating_mul(tall));
-        let file = drawing_buffer(long).map_err(SurfaceError::Memory)?;
-        let pixels = Mapped::of(&file, long).map_err(SurfaceError::Memory)?;
+  fn new(
+    shm: &wl_shm::WlShm,
+    hand: &QueueHandle<Board>,
+    room: Size<u32>,
+  ) -> Result<Frame, SurfaceError> {
+    let Size {
+      width: wide,
+      height: tall,
+    } = room;
+    let stride = wide.saturating_mul(DEEP);
+    let long = u64::from(stride.saturating_mul(tall));
+    let pixels = Shared::of(long).map_err(SurfaceError::Memory)?;
+    let Ok(file) = pixels.descriptor();
 
-        let Ok(room) = fitted(long);
-        let Ok(across) = fitted(wide);
-        let Ok(down) = fitted(tall);
-        let Ok(along) = fitted(stride);
+    let Ok(room_2) = fitted(long);
+    let Ok(across) = fitted(wide);
+    let Ok(down) = fitted(tall);
+    let Ok(along) = fitted(stride);
 
-        let pool = shm.create_pool(file.as_fd(), room, hand, ());
-        let buffer = pool.create_buffer(
-            0,
-            across,
-            down,
-            along,
-            wl_shm::Format::Argb8888,
-            hand,
-            (),
-        );
-        Ok(Frame { _file: file, pool, buffer, pixels, width: wide, height: tall })
-    }
+    let pool = shm.create_pool(file.as_fd(), room_2, hand, ());
+    let buffer = pool.create_buffer(0, across, down, along, wl_shm::Format::Argb8888, hand, ());
+    Ok(Frame {
+      pool,
+      buffer,
+      pixels,
+      width: wide,
+      height: tall,
+    })
+  }
 }
 
 impl Drop for Frame {
-    fn drop(&mut self) {
-        self.buffer.destroy();
-        self.pool.destroy();
-    }
+  fn drop(&mut self) {
+    self.buffer.destroy();
+    self.pool.destroy();
+  }
 }
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Board {
-    fn event(
-        _board: &mut Self,
-        _registry: &wl_registry::WlRegistry,
-        _event: wl_registry::Event,
-        _held: &GlobalListContents,
-        _connection: &Connection,
-        _hand: &QueueHandle<Self>,
-    ) {
-    }
+  fn event(
+    _board: &mut Self,
+    _registry: &wl_registry::WlRegistry,
+    _event: wl_registry::Event,
+    _held: &GlobalListContents,
+    _connection: &Connection,
+    _hand: &QueueHandle<Self>,
+  ) {
+  }
 }
 
 impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Board {
-    #[cfg_attr(
-        dylint_lib = "explicit016_no_wildcard_arm",
-        allow(
-            explicit016_no_wildcard_arm,
-            reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
-        )
-    )]
-    fn event(
-        board: &mut Self,
-        layer: &zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
-        event: zwlr_layer_surface_v1::Event,
-        _held: &(),
-        _connection: &Connection,
-        _hand: &QueueHandle<Self>,
-    ) {
-        match event {
-            zwlr_layer_surface_v1::Event::Configure { serial, width, height } => {
-                layer.ack_configure(serial);
-                board.size = Some((width, height));
-            },
-            zwlr_layer_surface_v1::Event::Closed => {
-                board.closed = true;
-                board.up = None;
-                board.frame = None;
-                board.size = None;
-            },
-            _ => {},
-        }
+  #[cfg_attr(
+    dylint_lib = "explicit016_no_wildcard_arm",
+    allow(
+      explicit016_no_wildcard_arm,
+      reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
+    )
+  )]
+  fn event(
+    board: &mut Self,
+    layer: &zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
+    event: zwlr_layer_surface_v1::Event,
+    _held: &(),
+    _connection: &Connection,
+    _hand: &QueueHandle<Self>,
+  ) {
+    match event {
+      zwlr_layer_surface_v1::Event::Configure {
+        serial,
+        width,
+        height,
+      } => {
+        layer.ack_configure(serial);
+        board.size = Some((width, height));
+      }
+      zwlr_layer_surface_v1::Event::Closed => {
+        board.closed = true;
+        board.up = None;
+        board.frame = None;
+        board.size = None;
+      }
+      _ => {}
     }
+  }
 }
 
 impl Dispatch<wl_surface::WlSurface, ()> for Board {
-    #[cfg_attr(
-        dylint_lib = "explicit016_no_wildcard_arm",
-        allow(
-            explicit016_no_wildcard_arm,
-            reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
-        )
-    )]
-    fn event(
-        board: &mut Self,
-        _surface: &wl_surface::WlSurface,
-        event: wl_surface::Event,
-        _held: &(),
-        _connection: &Connection,
-        _hand: &QueueHandle<Self>,
-    ) {
-        match event {
-            wl_surface::Event::PreferredBufferScale { factor } => board.scale = factor.max(1),
-            _ => {},
-        }
+  #[cfg_attr(
+    dylint_lib = "explicit016_no_wildcard_arm",
+    allow(
+      explicit016_no_wildcard_arm,
+      reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
+    )
+  )]
+  fn event(
+    board: &mut Self,
+    _surface: &wl_surface::WlSurface,
+    event: wl_surface::Event,
+    _held: &(),
+    _connection: &Connection,
+    _hand: &QueueHandle<Self>,
+  ) {
+    match event {
+      wl_surface::Event::PreferredBufferScale { factor } => board.scale = factor.max(1),
+      _ => {}
     }
+  }
 }
 
 delegate_noop!(Board: ignore wl_compositor::WlCompositor);
@@ -585,158 +652,177 @@ delegate_noop!(Board: ignore zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboard
 delegate_noop!(Board: ignore zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1);
 
 impl Dispatch<wl_seat::WlSeat, ()> for Board {
-    #[cfg_attr(
-        dylint_lib = "explicit016_no_wildcard_arm",
-        allow(
-            explicit016_no_wildcard_arm,
-            reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
-        )
-    )]
-    fn event(
-        _board: &mut Self,
-        seat: &wl_seat::WlSeat,
-        event: wl_seat::Event,
-        _held: &(),
-        _connection: &Connection,
-        hand: &QueueHandle<Self>,
-    ) {
-        match event {
-            wl_seat::Event::Capabilities { capabilities } => {
-                let has = match capabilities {
-                    wayland_client::WEnum::Value(has) => has,
-                    wayland_client::WEnum::Unknown(_) => return,
-                };
+  #[cfg_attr(
+    dylint_lib = "explicit016_no_wildcard_arm",
+    allow(
+      explicit016_no_wildcard_arm,
+      reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
+    )
+  )]
+  fn event(
+    _board: &mut Self,
+    seat: &wl_seat::WlSeat,
+    event: wl_seat::Event,
+    _held: &(),
+    _connection: &Connection,
+    hand: &QueueHandle<Self>,
+  ) {
+    match event {
+      wl_seat::Event::Capabilities { capabilities } => {
+        let has = match capabilities {
+          wayland_client::WEnum::Value(has) => has,
+          wayland_client::WEnum::Unknown(_) => return,
+        };
 
-                match has.contains(wl_seat::Capability::Touch) {
-                    true => {
-                        seat.get_touch(hand, ());
-                    }
-                    false => {
-                        {};
-                    }
-                }
-
-                match has.contains(wl_seat::Capability::Pointer) {
-                    true => {
-                        seat.get_pointer(hand, ());
-                    }
-                    false => {
-                        {};
-                    }
-                }
-            }
-            _ => {},
+        match ::core::primitive::bool::then_some(has.contains(wl_seat::Capability::Touch), ()) {
+          ::core::option::Option::Some(()) => {
+            seat.get_touch(hand, ());
+          }
+          ::core::option::Option::None => {
+            {};
+          }
         }
+
+        match ::core::primitive::bool::then_some(has.contains(wl_seat::Capability::Pointer), ()) {
+          ::core::option::Option::Some(()) => {
+            seat.get_pointer(hand, ());
+          }
+          ::core::option::Option::None => {
+            {};
+          }
+        }
+      }
+      _ => {}
     }
+  }
 }
 
 impl Dispatch<wl_touch::WlTouch, ()> for Board {
-    #[cfg_attr(
-        dylint_lib = "explicit016_no_wildcard_arm",
-        allow(
-            explicit016_no_wildcard_arm,
-            reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
-        )
-    )]
-    fn event(
-        board: &mut Self,
-        _touch: &wl_touch::WlTouch,
-        event: wl_touch::Event,
-        _held: &(),
-        _connection: &Connection,
-        _hand: &QueueHandle<Self>,
-    ) {
-        match event {
-            wl_touch::Event::Down { x, y, .. } => board.pointer_events.push(PointerEvent::Down { x, y }),
-            wl_touch::Event::Motion { x, y, .. } => board.pointer_events.push(PointerEvent::Moved { x, y }),
-            wl_touch::Event::Up { .. } => board.pointer_events.push(PointerEvent::Up),
-            wl_touch::Event::Cancel => board.pointer_events.push(PointerEvent::Up),
-            _ => {},
-        }
+  #[cfg_attr(
+    dylint_lib = "explicit016_no_wildcard_arm",
+    allow(
+      explicit016_no_wildcard_arm,
+      reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
+    )
+  )]
+  fn event(
+    board: &mut Self,
+    _touch: &wl_touch::WlTouch,
+    event: wl_touch::Event,
+    _held: &(),
+    _connection: &Connection,
+    _hand: &QueueHandle<Self>,
+  ) {
+    match event {
+      wl_touch::Event::Down { x, y, .. } => {
+        board.pointer_events.push(PointerEvent::Down { x, y })
+      }
+      wl_touch::Event::Motion { x, y, .. } => {
+        board.pointer_events.push(PointerEvent::Moved { x, y })
+      }
+      wl_touch::Event::Up { .. } => board.pointer_events.push(PointerEvent::Up),
+      wl_touch::Event::Cancel => board.pointer_events.push(PointerEvent::Up),
+      _ => {}
     }
+  }
 }
 
 impl Dispatch<wl_pointer::WlPointer, ()> for Board {
-    #[cfg_attr(
-        dylint_lib = "explicit016_no_wildcard_arm",
-        allow(
-            explicit016_no_wildcard_arm,
-            reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
-        )
-    )]
-    fn event(
-        board: &mut Self,
-        _pointer: &wl_pointer::WlPointer,
-        event: wl_pointer::Event,
-        _held: &(),
-        _connection: &Connection,
-        _hand: &QueueHandle<Self>,
-    ) {
-        match event {
-            wl_pointer::Event::Enter { surface_x, surface_y, .. } => {
-                board.pointer_at = (surface_x, surface_y);
-            },
-            wl_pointer::Event::Motion { surface_x, surface_y, .. } => {
-                board.pointer_at = (surface_x, surface_y);
+  #[cfg_attr(
+    dylint_lib = "explicit016_no_wildcard_arm",
+    allow(
+      explicit016_no_wildcard_arm,
+      reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
+    )
+  )]
+  fn event(
+    board: &mut Self,
+    _pointer: &wl_pointer::WlPointer,
+    event: wl_pointer::Event,
+    _held: &(),
+    _connection: &Connection,
+    _hand: &QueueHandle<Self>,
+  ) {
+    match event {
+      wl_pointer::Event::Enter {
+        surface_x,
+        surface_y,
+        ..
+      } => {
+        board.pointer_at = (surface_x, surface_y);
+      }
+      wl_pointer::Event::Motion {
+        surface_x,
+        surface_y,
+        ..
+      } => {
+        board.pointer_at = (surface_x, surface_y);
 
-                match board.pointer_down {
-                    true => {
-                        board.pointer_events.push(PointerEvent::Moved { x: surface_x, y: surface_y });
-                    }
-                    false => {},
-                }
-            },
-            wl_pointer::Event::Button { state, .. } => {
-                let down = matches!(state, wayland_client::WEnum::Value(wl_pointer::ButtonState::Pressed));
-                board.pointer_down = down;
-                let (x, y) = board.pointer_at;
-                board.pointer_events.push(match down {
-                    true => PointerEvent::Down { x, y },
-                    false => PointerEvent::Up,
-                });
-            },
-            wl_pointer::Event::Leave { .. } => match board.pointer_down {
-                true => {
-                    board.pointer_down = false;
-                    board.pointer_events.push(PointerEvent::Up);
-                }
-                false => {},
-            },
-            _ => {},
+        match ::core::primitive::bool::then_some(board.pointer_down, ()) {
+          ::core::option::Option::Some(()) => {
+            board.pointer_events.push(PointerEvent::Moved {
+              x: surface_x,
+              y: surface_y,
+            });
+          }
+          ::core::option::Option::None => {}
         }
+      }
+      wl_pointer::Event::Button { state, .. } => {
+        let down = matches!(
+          state,
+          wayland_client::WEnum::Value(wl_pointer::ButtonState::Pressed)
+        );
+        board.pointer_down = down;
+        let (x, y) = board.pointer_at;
+        board.pointer_events.push(match ::core::primitive::bool::then_some(down, ()) {
+          ::core::option::Option::Some(()) => PointerEvent::Down { x, y },
+          ::core::option::Option::None => PointerEvent::Up,
+        });
+      }
+      wl_pointer::Event::Leave { .. } => match ::core::primitive::bool::then_some(board.pointer_down, ()) {
+        ::core::option::Option::Some(()) => {
+          board.pointer_down = false;
+          board.pointer_events.push(PointerEvent::Up);
+        }
+        ::core::option::Option::None => {}
+      },
+      _ => {}
     }
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    #[test]
-    fn the_keyboard_publishes_the_name_the_desktop_looks_for() -> Result<(), Failure> {
-        let name = the_desktops_keyboard_name()?;
+  #[test]
+  fn the_keyboard_publishes_the_name_the_desktop_looks_for() -> Result<(), Failure> {
+    let name = the_desktops_keyboard_name()?;
 
-        assert_eq!(NAMESPACE, name);
+    assert_eq!(NAMESPACE, name);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    fn the_desktops_keyboard_name() -> Result<String, Failure> {
-        let at = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../console-onscreen/src/lib.rs");
-        let held = std::fs::read_to_string(at)?;
-        let name = held
-            .lines()
-            .find_map(|line| {
-                let rest = line.trim().strip_prefix("pub const KEYBOARD: &str =")?;
-                let (_, quoted) = rest.split_once('"')?;
-                let (name, _) = quoted.split_once('"')?;
+  fn the_desktops_keyboard_name() -> Result<String, Failure> {
+    let at = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .with_file_name("console-onscreen")
+      .join("src/lib.rs");
+    let held = std::fs::read_to_string(at)?;
+    let name = held
+      .lines()
+      .find_map(|line| {
+        let rest = line.trim().strip_prefix("pub const KEYBOARD: &str =")?;
+        let (_, quoted) = rest.split_once('"')?;
+        let (name, _) = quoted.split_once('"')?;
 
-                Some(name.to_string())
-            })
-            .ok_or("KEYBOARD in what is on the screen")?;
+        Some(name.to_string())
+      })
+      .ok_or("KEYBOARD in what is on the screen")?;
 
-        Ok(name)
-    }
+    Ok(name)
+  }
 }

@@ -57,15 +57,29 @@
 
 use console_core_arguments::{Flag, Takes};
 use console_core_never::Never;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
+#[cfg_attr(
+  dylint_lib = "explicit080_macro_budget",
+  expect(
+    explicit080_macro_budget,
+    reason = "the directory literal is used on its own and in concat! when forming compile-time executable paths"
+  )
+)]
 macro_rules! executable_directory {
-    () => {
-        "/usr/local/bin"
-    };
+  () => {
+    "/usr/local/bin"
+  };
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit080_macro_budget",
+  expect(
+    explicit080_macro_budget,
+    reason = "one entry supplies the program variant, its name, and its installed path so callers and the installer share the same register"
+  )
+)]
 macro_rules! ours {
     ($($variant:ident, $name:literal;)*) => {
         #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -93,22 +107,31 @@ macro_rules! ours {
 
 ours! {
     Asking, "console-asking";
+    Bluetooth, "console-bluetooth";
+    Bar, "console-bar";
     Books, "books";
     BooksCatalog, "books-catalog";
     Brightness, "console-brightness";
     Browser, "console-browser";
     Calculator, "calculator";
     CalendarPanel, "calendar-panel";
+    Camera, "console-camera";
+    Clipboard, "console-clipboard";
     Confirm, "console-confirm";
+    ControlCenter, "console-control-center";
     ConsoleSay, "console-say";
     Dictate, "console-dictate";
     Downloads, "downloads";
     DownloadsFind, "downloads-find";
+    DownloadsFormat, "downloads-format";
     DownloadsGet, "downloads-get";
     Files, "files";
+    FilesThumbnails, "files-thumbnails";
+    FilesUnzip, "files-unzip";
     ForecastPanel, "forecast-panel";
     KeyboardShow, "keyboard-show";
     KeyboardToggle, "keyboard-toggle";
+    LanguageSwitch, "language-switch";
     Launcher, "launcher";
     LoginGreeter, "login-greeter";
     LoginWindow, "login-window";
@@ -120,6 +143,7 @@ ours! {
     NightShift, "console-warm";
     Notes, "notes";
     NotificationsPanel, "notifications-panel";
+    Notify, "console-notify";
     Overview, "console-overview";
     PanelPictures, "panel-pictures";
     PutAway, "console-put-away";
@@ -129,17 +153,21 @@ ours! {
     SessionGame, "session-game";
     SettingsLoginPattern, "settings-login-pattern";
     SettingsPanel, "settings-panel";
+    TaskManager, "console-task-manager";
     Viewer, "viewer";
     Volume, "console-volume";
+    Wallpaper, "console-wallpaper";
+    WallpaperRender, "wallpaper-render";
 }
 
-pub const APPS: [InternalProgram; 6] = [
-    InternalProgram::Books,
-    InternalProgram::Downloads,
-    InternalProgram::Files,
-    InternalProgram::Music,
-    InternalProgram::Notes,
-    InternalProgram::Viewer,
+pub const APPS: [InternalProgram; 7] = [
+  InternalProgram::Books,
+  InternalProgram::Camera,
+  InternalProgram::Downloads,
+  InternalProgram::Files,
+  InternalProgram::Music,
+  InternalProgram::Notes,
+  InternalProgram::Viewer,
 ];
 
 pub const EXECUTABLE_DIRECTORY: &str = executable_directory!();
@@ -148,61 +176,101 @@ pub const CONFIRM_DOES: &str = "CONSOLE_CONFIRM_DOES";
 
 pub const CONFIRM_UNASKED: u8 = 96;
 
+pub const CLIPBOARD_COPY_TEXT: Flag = Flag {
+  spelling: "--copy-text",
+  takes: Takes::None,
+  about: "copy UTF-8 text from standard input to the clipboard",
+};
+
 pub const LAUNCHER_KEEP: Flag = Flag {
-    spelling: "--keep",
-    takes: Takes::None,
-    about: "stay open when asked for again, rather than putting the menu away",
+  spelling: "--keep",
+  takes: Takes::None,
+  about: "stay open when asked for again, rather than putting the menu away",
 };
 
 pub const OVERVIEW_SHOW: Flag = Flag {
-    spelling: "--show",
-    takes: Takes::None,
-    about: "open the overview that is already running, rather than becoming it",
+  spelling: "--show",
+  takes: Takes::None,
+  about: "open the overview that is already running, rather than becoming it",
+};
+
+pub const SELECT_SCREENSHOT_AREA: Flag = Flag {
+  spelling: "--screenshot-area",
+  takes: Takes::None,
+  about: "open the screenshot area selector in Control Center",
 };
 
 pub const WALLPAPER_TAKE: Flag = Flag {
-    spelling: "--take",
-    takes: Takes::None,
-    about: "render the pictures at PATH, whatever and wherever they are",
+  spelling: "--take",
+  takes: Takes::None,
+  about: "render the pictures at PATH, whatever and wherever they are",
 };
 
 pub const WALLPAPER_DROPPED: Flag = Flag {
-    spelling: "--dropped",
-    takes: Takes::None,
-    about: "render what is in Pictures/Wallpapers",
+  spelling: "--dropped",
+  takes: Takes::None,
+  about: "render what is in Pictures/Wallpapers",
 };
 
 impl InternalProgram {
-    pub fn at(self) -> Result<PathBuf, Never> {
-        let Ok(named) = self.name();
+  pub fn at(self) -> Result<PathBuf, Never> {
+    let Ok(named) = self.name();
 
-        beside_this_program(named)
-    }
+    beside_this_program(named)
+  }
 
-    pub fn command(self) -> Result<Command, Never> {
-        let Ok(at) = self.at();
+  pub fn command(self) -> Result<Command, Never> {
+    let Ok(at) = self.at();
 
-        Ok(Command::new(at))
-    }
+    Ok(Command::new(at))
+  }
 }
 
 pub fn beside_this_program(named: &str) -> Result<PathBuf, Never> {
-    let running = match std::env::current_exe() {
-        Ok(running) => running,
-        Err(_this_program_cannot_say_where_it_is) => return Ok(PathBuf::from(named)),
-    };
+  let named_path = Path::new(named);
+  let sibling = match Sibling::of(named_path) {
+    Ok(Some(sibling)) => sibling,
+    Ok(None) => return Ok(named_path.to_path_buf()),
+  };
+  let running = match std::env::current_exe() {
+    Ok(running) => running,
+    Err(_this_program_cannot_say_where_it_is) => return Ok(PathBuf::from(named)),
+  };
 
-    let beside = running.parent().map(Path::to_path_buf);
-    let above_that = running.parent().and_then(Path::parent).map(Path::to_path_buf);
+  let beside = running.parent();
+  let above_that = beside.and_then(Path::parent);
 
-    let built = [beside, above_that]
-        .into_iter()
-        .flatten()
-        .map(|at| at.join(named))
-        .find(|at| at.is_file());
+  let built = [beside, above_that]
+    .into_iter()
+    .flatten()
+    .map(|at| at.join(sibling))
+    .find(|at| match std::fs::metadata(at) {
+      Ok(entry) => entry.is_file(),
+      Err(_candidate_metadata_unavailable) => false,
+    });
 
-    Ok(match built {
-        Some(built) => built,
-        None => PathBuf::from(named),
-    })
+  Ok(match built {
+    Some(built_2) => built_2,
+    None => PathBuf::from(named),
+  })
+}
+
+#[derive(Clone, Copy)]
+struct Sibling<'a>(&'a Path);
+
+impl<'a> Sibling<'a> {
+  fn of(path: &'a Path) -> Result<Option<Self>, Never> {
+    let stays_beside = path.file_name().is_some()
+      && path
+        .components()
+        .all(|part| matches!(part, Component::Normal(_) | Component::CurDir));
+
+    Ok(stays_beside.then_some(Self(path)))
+  }
+}
+
+impl AsRef<Path> for Sibling<'_> {
+  fn as_ref(&self) -> &Path {
+    self.0
+  }
 }

@@ -1,0 +1,122 @@
+// run-rustfix
+// edition:2024
+
+#![allow(dead_code, non_camel_case_types, unused_braces)]
+
+use std::cell::Cell;
+
+enum Command {
+    Move(u8, u8),
+    Close,
+    Draw { length: u8 },
+    r#move,
+}
+
+impl Command {
+    fn destination(&self) -> u8 {
+        if let Self::Move(x, y) = self { x + y } else { 0 }
+    }
+}
+
+fn payload(input: Result<Option<u8>, ()>) -> u8 {
+    if let Ok(Some(value)) = input { value } else { 0 }
+}
+
+fn pair(left: &Option<u8>, right: &Option<u8>) -> u8 {
+    if let (Some(x), Some(y)) = (left, right) { x + y } else { 0 }
+}
+
+struct Table(Option<u8>);
+
+impl Table {
+    fn read(&self) -> Result<u8, ()> {
+        self.0.ok_or(())
+    }
+}
+
+fn table(first: &Table, second: &Table) -> u8 {
+    if let Ok(value) = first.read() {
+        value
+    } else if let Ok(value) = second.read() {
+        value
+    } else {
+        0
+    }
+}
+
+const fn marker(count: u8) -> &'static str {
+    match { count != 0 } {
+        true => { "text" }
+        false => "empty",
+    }
+}
+
+fn has_neighbors(items: &[u8]) -> &'static str {
+    match { !items.is_empty() } {
+        true => "neighbors",
+        false => "isolated",
+    }
+}
+
+fn ordered_arms() {
+    let mut lhs = 4;
+    let result = match lhs >= { lhs = 11; 9 } {
+        true => lhs,
+        false => 0,
+    };
+    assert_eq!(result, 0);
+    assert_eq!(lhs, 11);
+}
+
+struct Observe<'a>(&'a Cell<u8>);
+
+impl Drop for Observe<'_> {
+    fn drop(&mut self) {
+        self.0.set(self.0.get() + 1);
+    }
+}
+
+impl Observe<'_> {
+    fn length(&self) -> u8 { 3 }
+}
+
+fn drop_scopes() {
+    let drops = Cell::new(0);
+    if Observe(&drops).length() > 1 {
+        assert_eq!(drops.get(), 1);
+    }
+    match Observe(&drops).length() > 1 {
+        true => assert_eq!(drops.get(), 1),
+        false => unreachable!(),
+    }
+    match { Observe(&drops).length() > 1 } {
+        true => assert_eq!(drops.get(), 3),
+        false => unreachable!(),
+    }
+    fn after(_: (), count: u8) { assert_eq!(count, 4); }
+    after(
+        if let Ok(()) = Err(Observe(&drops)) { unreachable!() },
+        drops.get(),
+    );
+}
+
+fn main() {
+    assert_eq!(Command::Move(1, 2).destination(), 3);
+    assert_eq!(Command::Close.destination(), 0);
+    assert_eq!(Command::Draw { length: 5 }.destination(), 0);
+    assert_eq!(Command::r#move.destination(), 0);
+    assert_eq!(payload(Ok(Some(6))), 6);
+    assert_eq!(payload(Ok(None)), 0);
+    assert_eq!(payload(Err(())), 0);
+    assert_eq!(pair(&Some(7), &Some(8)), 15);
+    assert_eq!(pair(&None, &Some(8)), 0);
+    assert_eq!(pair(&Some(8), &None), 0);
+    assert_eq!(table(&Table(None), &Table(Some(4))), 4);
+    assert_eq!(table(&Table(None), &Table(None)), 0);
+    assert_eq!(marker(0), "empty");
+    assert_eq!(marker(1), "text");
+    assert_eq!(has_neighbors(&[]), "isolated");
+    assert_eq!(has_neighbors(&[1]), "neighbors");
+    ordered_arms();
+    drop_scopes();
+}

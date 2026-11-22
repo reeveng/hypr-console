@@ -1,0 +1,16 @@
+[package]
+name = "console-core-vertical-orientation"
+version = "0.2.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_core_vertical_orientation"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-never.workspace = true
+
+[lints]
+workspace = true

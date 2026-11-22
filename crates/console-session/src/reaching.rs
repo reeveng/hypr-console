@@ -34,77 +34,77 @@ pub const OWNER: &str = "set -- $(ls -1 /home 2>/dev/null); \
 pub struct Whom<'a>(pub &'a str);
 
 pub fn environment(whom: Whom<'_>) -> Result<String, Never> {
-    let whom = whom.0;
+  let owner = whom.0;
 
-    Ok(format!(
-        "export XDG_RUNTIME_DIR=/run/user/$(id -u {whom}); \
+  Ok(format!(
+    "export XDG_RUNTIME_DIR=/run/user/$(id -u {owner}); \
          export HYPRLAND_INSTANCE_SIGNATURE=$(ls -1t \"$XDG_RUNTIME_DIR/hypr\" 2>/dev/null \
          | head -1); \
          export WAYLAND_DISPLAY=$(ls -1t \"$XDG_RUNTIME_DIR\" 2>/dev/null \
          | grep -E '^wayland-[0-9]+$' | head -1); \
          [ -n \"$HYPRLAND_INSTANCE_SIGNATURE\" ] || \
          {{ echo 'nothing on the device is in a Hyprland session' >&2; exit 1; }}"
-    ))
+  ))
 }
 
 pub fn in_session(whom: Whom<'_>, command: &str) -> Result<String, Never> {
-    let Ok(environment) = environment(whom);
-    let whom = whom.0;
+  let Ok(environment) = environment(whom);
+  let owner = whom.0;
 
-    let inside = format!("{environment}; {command}");
+  let inside = format!("{environment}; {command}");
 
-    let Ok(quoted) = shell_quote(&inside);
-    let Ok(runuser) = Program::Runuser.name();
-    let Ok(shell) = Program::Sh.name();
+  let Ok(quoted) = shell_quote(&inside);
+  let Ok(runuser) = Program::Runuser.name();
+  let Ok(shell) = Program::Sh.name();
 
-    Ok(format!("{runuser} -u {whom} -- {shell} -c {quoted}"))
+  Ok(format!("{runuser} -u {owner} -- {shell} -c {quoted}"))
 }
 
 pub fn as_them(whom: Whom<'_>, command: &str) -> Result<String, Never> {
-    let whom = whom.0;
-    let Ok(quoted) = shell_quote(command);
-    let Ok(runuser) = Program::Runuser.name();
-    let Ok(shell) = Program::Sh.name();
+  let owner = whom.0;
+  let Ok(quoted) = shell_quote(command);
+  let Ok(runuser) = Program::Runuser.name();
+  let Ok(shell) = Program::Sh.name();
 
-    Ok(format!("{runuser} -u {whom} -- {shell} -c {quoted}"))
+  Ok(format!("{runuser} -u {owner} -- {shell} -c {quoted}"))
 }
 
 pub fn shell_quote(word: &str) -> Result<String, Never> {
-    Ok(format!("'{}'", word.replace('\'', "'\\''")))
+  Ok(format!("'{}'", word.replace('\'', "'\\''")))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_quote_inside_a_command_does_not_end_the_command() {
-        let Ok(quoted) = shell_quote("say 'hello'");
+  #[test]
+  fn a_quote_inside_a_command_does_not_end_the_command() {
+    let Ok(quoted) = shell_quote("say 'hello'");
 
-        assert_eq!(quoted, "'say '\\''hello'\\'''");
-    }
+    assert_eq!(quoted, "'say '\\''hello'\\'''");
+  }
 
-    #[test]
-    fn reaching_the_session_becomes_the_person_and_hands_over_their_socket() {
-        let Ok(asked) = in_session(Whom("someone"), "console-confirm 'send it?'");
+  #[test]
+  fn reaching_the_session_becomes_the_person_and_hands_over_their_socket() {
+    let Ok(asked) = in_session(Whom("someone"), "console-confirm 'send it?'");
 
-        assert!(asked.starts_with("runuser -u someone -- sh -c "));
-        assert!(asked.contains("WAYLAND_DISPLAY"));
-        assert!(asked.contains("HYPRLAND_INSTANCE_SIGNATURE"));
-    }
+    assert!(asked.starts_with("runuser -u someone -- sh -c "));
+    assert!(asked.contains("WAYLAND_DISPLAY"));
+    assert!(asked.contains("HYPRLAND_INSTANCE_SIGNATURE"));
+  }
 
-    #[test]
-    fn nothing_is_put_in_front_of_what_the_caller_asked_for() {
-        let Ok(asked) = in_session(Whom("someone"), "command -v card || exit 97; exec card");
+  #[test]
+  fn nothing_is_put_in_front_of_what_the_caller_asked_for() {
+    let Ok(asked) = in_session(Whom("someone"), "command -v card || exit 97; exec card");
 
-        assert!(asked.contains("; command -v card || exit 97; exec card'"));
-        assert!(!asked.contains("exec command"));
-    }
+    assert!(asked.contains("; command -v card || exit 97; exec card'"));
+    assert!(!asked.contains("exec command"));
+  }
 
-    #[test]
-    fn being_the_person_is_not_the_same_as_being_in_their_session() {
-        let Ok(asked) = as_them(Whom("someone"), "ls");
+  #[test]
+  fn being_the_person_is_not_the_same_as_being_in_their_session() {
+    let Ok(asked) = as_them(Whom("someone"), "ls");
 
-        assert!(!asked.contains("WAYLAND_DISPLAY"));
-    }
+    assert!(!asked.contains("WAYLAND_DISPLAY"));
+  }
 }

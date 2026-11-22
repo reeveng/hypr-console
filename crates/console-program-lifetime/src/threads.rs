@@ -24,7 +24,7 @@ use console_core_never::Never;
 use std::thread::JoinHandle;
 
 pub fn let_go(thread: JoinHandle<()>) -> Result<(), Never> {
-    drop(thread);
+  drop(thread);
 
-    Ok(())
+  Ok(())
 }

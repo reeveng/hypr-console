@@ -2,11 +2,14 @@
 #![warn(unused_extern_crates)]
 
 extern crate rustc_abi;
+extern crate rustc_errors;
 extern crate rustc_hir;
 extern crate rustc_middle;
 extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+use clippy_utils::diagnostics::span_lint_and_then;
+use clippy_utils::source::snippet_indent;
+use rustc_errors::Applicability;
 use rustc_abi::ExternAbi;
 use rustc_hir::{FnDecl, FnRetTy};
 use rustc_lint::{LateContext, LateLintPass, LintContext};
@@ -125,10 +128,14 @@ impl<'tcx> LateLintPass<'tcx> for Explicit034NoUnclaimedAnswer {
         kind: rustc_hir::intravisit::FnKind<'tcx>,
         decl: &'tcx FnDecl<'tcx>,
         _body: &'tcx rustc_hir::Body<'tcx>,
-        _span: rustc_span::Span,
+        fn_span: rustc_span::Span,
         def_id: rustc_hir::def_id::LocalDefId,
     ) {
         if matches!(kind, rustc_hir::intravisit::FnKind::Closure) {
+            return;
+        }
+        // The generated signature is only ours to mark when the macro is ours.
+        if fn_span.in_external_macro(cx.sess().source_map()) {
             return;
         }
         if implements_a_trait(cx, def_id) {
@@ -167,14 +174,25 @@ impl<'tcx> LateLintPass<'tcx> for Explicit034NoUnclaimedAnswer {
             FnRetTy::DefaultReturn(sp) => sp,
         };
 
-        span_lint_and_help(
+        span_lint_and_then(
             cx,
             EXPLICIT034_NO_UNCLAIMED_ANSWER,
             span,
             "this answer can be dropped in the middle of a block and read as a thing being done",
-            None,
-            "a function that hands back a value and changes nothing is a question. Say `#[must_use]`, so \
-             that a caller who throws the answer away writes `let _ = ...` and EXPLICIT009 can see it",
+            |diag| {
+                if !fn_span.from_expansion() && !span.from_expansion()
+                    && let Some(indent) = snippet_indent(cx, fn_span)
+                {
+                    diag.span_suggestion(
+                        fn_span.shrink_to_lo(),
+                        "add #[must_use] to this function",
+                        format!("#[must_use]\n{indent}"),
+                        Applicability::MachineApplicable,
+                    );
+                } else {
+                    diag.help("mark the function with #[must_use]");
+                }
+            },
         );
     }
 }

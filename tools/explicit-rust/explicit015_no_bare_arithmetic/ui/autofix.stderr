@@ -1,0 +1,146 @@
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:3:33
+   |
+LL | fn divides(value: i32) -> i32 { value / 2 }
+   |                                 ^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::i32::wrapping_div(value, 2)`
+   |
+   = note: `#[deny(explicit015_no_bare_arithmetic)]` on by default
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:5:37
+   |
+LL | fn references(value: &u32) -> u32 { value % 3 }
+   |                                     ^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_rem(*(value), 3)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:7:32
+   |
+LL | fn shifts(value: i32) -> i32 { value >> 3 }
+   |                                ^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::i32::wrapping_shr(value, 3_u32)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:9:49
+   |
+LL | fn masks_shift(value: u32, shift: u32) -> u32 { value << (shift & 31) }
+   |                                                 ^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_shl(value, shift & 31)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:11:32
+   |
+LL | fn narrows(value: u8) -> u32 { (value as u32) + 1 }
+   |                                ^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_add((value as u32), 1)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:13:35
+   |
+LL | fn masks_add(value: u32) -> u32 { (value & 15) + 1 }
+   |                                   ^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_add(value & 15, 1)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:15:55
+   |
+LL | fn nonzero_divisor(value: u32, divisor: u32) -> u32 { value / (divisor | 1) }
+   |                                                       ^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_div(value, divisor | 1)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:17:39
+   |
+LL | fn negative_mask(value: i32) -> i32 { -(value & 7) }
+   |                                       ^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::i32::wrapping_neg(value & 7)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:19:61
+   |
+LL | fn evaluates_both(value: u32, effect: fn() -> u32) -> u32 { value * (effect() & 0) }
+   |                                                             ^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_mul(value, effect() & 0)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:21:42
+   |
+LL | fn unknown_overflow(value: u32) -> u32 { value + 1 }
+   |                                          ^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:23:35
+   |
+LL | fn underflow(value: u32) -> u32 { (value & 7) - 1 }
+   |                                   ^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:25:50
+   |
+LL | fn signed_division_overflow(value: i32) -> i32 { value / -1 }
+   |                                                  ^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:27:38
+   |
+LL | fn zero_divisor(value: u32) -> u32 { value / 0 }
+   |                                      ^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:29:37
+   |
+LL | fn invalid_shift(value: u8) -> u8 { value << 8 }
+   |                                     ^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:31:40
+   |
+LL | fn negative_shift(value: i32) -> i32 { value >> -1 }
+   |                                        ^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:33:42
+   |
+LL | fn unknown_negation(value: i32) -> i32 { -value }
+   |                                          ^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:35:53
+   |
+LL | fn compound(value: &mut u32, effect: fn() -> u32) { *value += effect(); }
+   |                                                     ^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:37:62
+   |
+LL | fn effectful_shift(value: u32, effect: fn() -> u32) -> u32 { value << { effect(); 3 } }
+   |                                                              ^^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_shl(value, ::core::primitive::i32::unsigned_abs({ effect(); 3 }))`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:39:38
+   |
+LL | fn named_bounds(value: u32) -> u32 { value.wrapping_mul(0) + 1 }
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_add(value.wrapping_mul(0), 1)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:41:67
+   |
+LL | fn nested_effects(left: fn() -> u32, right: fn() -> u32) -> u32 { left() + right() * 0 }
+   |                                                                   ^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_add(left(), right() * 0)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/autofix.rs:41:76
+   |
+LL | fn nested_effects(left: fn() -> u32, right: fn() -> u32) -> u32 { left() + right() * 0 }
+   |                                                                            ^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_mul(right(), 0)`
+
+error: aborting due to 21 previous errors
+

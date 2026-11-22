@@ -1,0 +1,28 @@
+error: a `Result` is being dropped where it stands
+  --> $DIR/infallible_unit.rs:25:5
+   |
+LL |     send(&counter);
+   |     -^^^^^^^^^^^^^^
+   |     |
+   |     help: acknowledge the only possible result: `let ::core::result::Result::Ok(()) =`
+   |
+   = note: `#[deny(explicit005_handle_fallible)]` on by default
+
+error: a `Result` is being dropped where it stands
+  --> $DIR/infallible_unit.rs:26:5
+   |
+LL |     Result::<(), Infallible>::Ok(());
+   |     -^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     |
+   |     help: acknowledge the only possible result: `let ::core::result::Result::Ok(()) =`
+
+error: a `Result` is being dropped where it stands
+  --> $DIR/infallible_unit.rs:28:5
+   |
+LL |     Result::<_, Infallible>::Ok(CountOnDrop(&counter));
+   |     -^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     |
+   |     help: acknowledge the only possible result: `let ::core::result::Result::Ok(_) =`
+
+error: aborting due to 3 previous errors
+

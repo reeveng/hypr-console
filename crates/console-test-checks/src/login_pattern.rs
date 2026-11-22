@@ -29,22 +29,22 @@ use console_login_window::stored_pattern::{self, StoredPattern};
 use console_test_stages::checking::{Body, Check, CheckResult, failed, less_than};
 use console_test_stages::desktop::Desktop;
 
-use crate::Unchecked;
+use crate::{Unchecked, after_removal};
 
 pub const STILL: Check = Check {
-    name: "460-the-login-pattern-sits-still",
-    about: "The login pattern screen, left alone, spends next to nothing redrawing itself.",
-    feature: "login-pattern",
-    since: "2026-09-23",
-    bodies: &[Body::Desktop(still)],
+  name: "460-the-login-pattern-sits-still",
+  about: "The login pattern screen, left alone, spends next to nothing redrawing itself.",
+  feature: "login-pattern",
+  since: "2026-09-23",
+  bodies: &[Body::Desktop(still)],
 };
 
 pub const BY_HAND: Check = Check {
-    name: "461-a-login-pattern-is-drawn-by-hand",
-    about: "A stroke drawn across four dots, twice, keeps the pattern it drew.",
-    feature: "login-pattern",
-    since: "2026-09-24",
-    bodies: &[Body::Desktop(by_hand)],
+  name: "461-a-login-pattern-is-drawn-by-hand",
+  about: "A stroke drawn across four dots, twice, keeps the pattern it drew.",
+  feature: "login-pattern",
+  since: "2026-09-24",
+  bodies: &[Body::Desktop(by_hand)],
 };
 
 const SCREEN: &str = "settings-login-pattern";
@@ -56,121 +56,127 @@ const SPENT: &str = "spent";
 const MOST: u64 = 20;
 
 fn still(stage: &mut Desktop) -> CheckResult {
-    let at = ours()?;
-    let spent = at.join(SPENT);
-    let Ok(script) = script(&spent);
+  let at = ours()?;
+  let spent = at.join(SPENT);
+  let Ok(script) = script(&spent);
 
-    stage.open(&script)?;
-    stage.not_before(&spent)?;
-    stage.windows()?;
+  stage.open(&script)?;
+  stage.not_before(&spent)?;
+  stage.windows()?;
 
-    let said = std::fs::read_to_string(&spent);
-    let _ = std::fs::remove_dir_all(&at);
-    let said = match said {
-        Ok(said) => said,
-        Err(fault) => return failed(format!("the screen never said what it spent: {fault}")),
-    };
-    let Ok(ticks) = ticks(&said);
+  let checked = match std::fs::read_to_string(&spent) {
+    Ok(said) => {
+      let Ok(reading) = ticks(&said);
 
-    match ticks {
-        Some(ticks) => less_than(ticks, MOST, || {
-            format!(
-                "left alone for two seconds the screen spent {ticks} ticks of a core, so it is \
-                 drawing when nothing changed"
-            )
+      match reading {
+        Some(tick_count) => less_than(tick_count, MOST, || {
+          format!(
+            "left alone for two seconds the screen spent {tick_count} ticks of a core, so it is \
+             drawing when nothing changed"
+          )
         }),
-        None => failed(format!("what the screen spent did not read as two readings: {said:?}")),
+        None => failed(format!(
+          "what the screen spent did not read as two readings: {said:?}"
+        )),
+      }
     }
+    Err(fault) => failed(format!("the screen never said what it spent: {fault}")),
+  };
+
+  after_removal(checked, &at, std::fs::remove_dir_all(&at))
 }
 
 fn by_hand(stage: &mut Desktop) -> CheckResult {
-    let home = ours()?;
-    let canvas = stage.logical()?;
-    let Ok(()) = stage.fresh();
-    let Ok(places) = stroke(canvas);
-    let (first, rest) = match places.split_first() {
-        Some(split) => split,
-        None => return failed("the stroke has no dots in it".to_string()),
-    };
+  let home = ours()?;
+  let canvas = stage.logical()?;
+  let Ok(()) = stage.fresh();
+  let Ok(places) = stroke(canvas);
+  let (first, rest) = match places.split_first() {
+    Some(split) => split,
+    None => return failed("the stroke has no dots in it".to_string()),
+  };
 
-    stage.open(&format!("HOME={} {SCREEN}", home.display()))?;
-    stage.drag_in(SCREEN, *first, rest)?;
-    stage.drag_in(SCREEN, *first, rest)?;
-    stage.windows()?;
+  stage.open(&format!("HOME={} {SCREEN}", home.display()))?;
+  stage.drag_in(SCREEN, *first, rest)?;
+  stage.drag_in(SCREEN, *first, rest)?;
+  stage.windows()?;
 
-    let kept = stored_pattern::stored(&home);
-    let _ = std::fs::remove_dir_all(&home);
-
-    match kept {
-        Ok(StoredPattern::Hash(_)) => Ok(()),
-        Ok(StoredPattern::Absent) => failed(format!(
-            "a stroke across dots {STROKE:?} was drawn twice at {places:?} and no pattern was kept, \
+  let checked = match stored_pattern::stored(&home) {
+    Ok(StoredPattern::Hash(_)) => Ok(()),
+    Ok(StoredPattern::Absent) => failed(format!(
+      "a stroke across dots {STROKE:?} was drawn twice at {places:?} and no pattern was kept, \
              so the screen is not hearing the hand"
-        )),
-        Err(fault) => failed(format!("what the screen kept could not be read: {fault}")),
-    }
+    )),
+    Err(fault) => failed(format!("what the screen kept could not be read: {fault}")),
+  };
+
+  after_removal(checked, &home, std::fs::remove_dir_all(&home))
 }
 
 fn stroke(canvas: Size<u32>) -> Result<Vec<(u32, u32)>, Never> {
-    Ok(STROKE
-        .iter()
-        .filter_map(|at| {
-            let Ok(dot) = dot(*at);
+  Ok(
+    STROKE
+      .iter()
+      .filter_map(|at| {
+        let Ok(dot) = dot(*at);
 
-            dot
-        })
-        .map(|dot| {
-            let Ok(on_screen) = from_the_room(canvas, dot.centre);
-            let Ok(across) = fitted::<i32, u32>(on_screen.x);
-            let Ok(down) = fitted::<i32, u32>(on_screen.y);
+        dot
+      })
+      .map(|dot| {
+        let Ok(on_screen) = from_the_room(canvas, dot.centre);
+        let Ok(across) = fitted::<i32, u32>(on_screen.x);
+        let Ok(down) = fitted::<i32, u32>(on_screen.y);
 
-            (across, down)
-        })
-        .collect())
+        (across, down)
+      })
+      .collect(),
+  )
 }
 
 fn ours() -> Result<PathBuf, Unchecked> {
-    console_core_temporary_directories::fresh("login-pattern").map_err(Unchecked::Temporary)
+  console_core_temporary_directories::fresh("login-pattern").map_err(Unchecked::Temporary)
 }
 
 fn script(spent: &Path) -> Result<String, Never> {
-    let at = spent.display();
-    let read = "cut -d' ' -f14,15 /proc/$p/stat";
+  let at = spent.display();
+  let read = "cut -d' ' -f14,15 /proc/$p/stat";
 
-    Ok(format!("{SCREEN} & p=$!; sleep 2; a=$({read}); sleep 2; b=$({read}); echo \"$a $b\" > {at}.part && mv {at}.part {at}"))
+  Ok(format!(
+    "{SCREEN} & p=$!; sleep 2; a=$({read}); sleep 2; b=$({read}); echo \"$a $b\" > {at}.part && mv {at}.part {at}"
+  ))
 }
 
 fn ticks(said: &str) -> Result<Option<u64>, Never> {
-    let read: Result<Vec<u64>, _> = said.split_whitespace().map(str::parse).collect();
-    let read = match read {
-        Ok(read) => read,
-        Err(_not_a_number) => return Ok(None),
-    };
+  let read: Result<Vec<u64>, _> = said.split_whitespace().map(str::parse).collect();
+  let read_3 = match read {
+    Ok(read_2) => read_2,
+    Err(_not_a_number) => return Ok(None),
+  };
 
-    Ok(match read.as_slice() {
-        [user, system, user_after, system_after] => {
-            let before = user.saturating_add(*system);
-            let after = user_after.saturating_add(*system_after);
+  Ok(match read_3.as_slice() {
+    [user, system, user_after, system_after] => {
+      let before = user.saturating_add(*system);
+      let after = user_after.saturating_add(*system_after);
 
-            Some(after.saturating_sub(before))
-        }
-        _ => None,
-    })
+      Some(after.saturating_sub(before))
+    }
+    _ => None,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn two_readings_are_what_was_spent_between_them() {
-        assert_eq!(ticks("10 5 13 6\n"), Ok(Some(4)));
-    }
+  #[test]
+  fn two_readings_are_what_was_spent_between_them() {
+    assert_eq!(ticks("10 5 13 6\n"), Ok(Some(4)));
+  }
 
-    #[test]
-    fn anything_else_is_not_a_reading() {
-        assert_eq!(ticks("10 5\n"), Ok(None));
-        assert_eq!(ticks(""), Ok(None));
-        assert_eq!(ticks("10 5 x 6\n"), Ok(None));
-    }
+  #[test]
+  fn anything_else_is_not_a_reading() {
+    assert_eq!(ticks("10 5\n"), Ok(None));
+    assert_eq!(ticks(""), Ok(None));
+    assert_eq!(ticks("10 5 x 6\n"), Ok(None));
+  }
 }

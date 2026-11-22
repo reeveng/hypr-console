@@ -1,0 +1,27 @@
+error: `value` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_immediate_positions.rs:10:18
+   |
+LL |     let Slot::Ok(value) = Slot::Ok(2);
+   |                  ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+
+error: `value` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_immediate_positions.rs:15:12
+   |
+LL |     let Ok(value) = Result::<Position, Infallible>::Ok(3);
+   |            ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `value` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_immediate_positions.rs:24:16
+   |
+LL |         let Ok(value) = Result::<Position, Infallible>::Ok(3);
+   |                ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: aborting due to 3 previous errors
+

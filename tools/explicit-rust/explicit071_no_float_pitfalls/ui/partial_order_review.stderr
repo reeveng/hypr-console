@@ -1,0 +1,51 @@
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/partial_order_review.rs:6:50
+   |
+LL | fn packed(left: &Exchange, right: f64) -> bool { left.price == right }
+   |                                                  ^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `total_cmp`, which is total over every value the type holds, or -- where the comparison is about the bit pattern -- compare `to_bits()` on purpose. Where both sides are known good by construction, allow this rule here and let the reason say so
+   = note: `#[warn(explicit071_no_float_pitfalls)]` on by default
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/partial_order_review.rs:7:39
+   |
+LL | fn mutation(mut value: f32) -> bool { value == { value = 2.0; value } }
+   |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `total_cmp`, which is total over every value the type holds, or -- where the comparison is about the bit pattern -- compare `to_bits()` on purpose. Where both sides are known good by construction, allow this rule here and let the reason say so
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/partial_order_review.rs:8:52
+   |
+LL | const fn constant(left: f32, right: f32) -> bool { left == right }
+   |                                                    ^^^^^^^^^^^^^
+   |
+   = help: ask with `total_cmp`, which is total over every value the type holds, or -- where the comparison is about the bit pattern -- compare `to_bits()` on purpose. Where both sides are known good by construction, allow this rule here and let the reason say so
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/partial_order_review.rs:9:47
+   |
+LL | fn annotated(left: f64, right: f64) -> bool { left /* units */ == right }
+   |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `total_cmp`, which is total over every value the type holds, or -- where the comparison is about the bit pattern -- compare `to_bits()` on purpose. Where both sides are known good by construction, allow this rule here and let the reason say so
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/partial_order_review.rs:11:76
+   |
+LL | fn explanation(left: f32, right: f32) -> (bool, &'static str) { explained!(left == right) }
+   |                                                                            ^^^^^^^^^^^^^
+   |
+   = help: ask with `total_cmp`, which is total over every value the type holds, or -- where the comparison is about the bit pattern -- compare `to_bits()` on purpose. Where both sides are known good by construction, allow this rule here and let the reason say so
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/partial_order_review.rs:12:72
+   |
+LL | fn literal_explanation(left: f32) -> (bool, &'static str) { explained!(left != 0.0) }
+   |                                                                        ^^^^^^^^^^^
+   |
+   = help: ask with `total_cmp`, which is total over every value the type holds, or -- where the comparison is about the bit pattern -- compare `to_bits()` on purpose. Where both sides are known good by construction, allow this rule here and let the reason say so
+
+warning: 6 warnings emitted
+

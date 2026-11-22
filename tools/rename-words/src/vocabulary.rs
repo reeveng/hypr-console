@@ -6,7 +6,9 @@
 //! identifier: a note after `--`, a clause after `, where`, a backticked aside
 //! are for the reader. `A, B` and `A or B` are options. A `[what X was]`
 //! section is the choice already made per crate or module, which is the one
-//! thing the table says about a place rather than a word. The words under
+//! thing the table says about a place rather than a word -- and a choice that
+//! is the word itself keeps it at that place, for a crate that reads a format
+//! whose own vocabulary spells it, the way X11 names a key `Home`. The words under
 //! `[what a person reads]` are Apple's for a screen; as a name they are only
 //! ever offered, never assumed.
 
@@ -218,6 +220,10 @@ impl Vocabulary {
 
         best.map(|(_, name)| name)
     }
+
+    pub fn kept_at(&self, word: &str, relative: &str) -> bool {
+        self.site_choice(word, relative) == Some(word)
+    }
 }
 
 #[cfg(test)]
@@ -231,5 +237,14 @@ mod tests {
         assert_eq!(vocabulary.words.get("said"), Some(&vec!["contents".to_string(), "output".to_string()]));
         assert!(vocabulary.walking.contains("said"));
         assert!(!vocabulary.walking.contains("Fault"));
+    }
+
+    #[test]
+    fn a_place_whose_choice_is_the_word_itself_keeps_it_there_and_nowhere_else() {
+        let vocabulary = parse("[what a person reads] (Apple)\nHome = Home Screen\n[what Home was]\nconsole-input-keymaps (Home) = Home\n");
+
+        assert!(vocabulary.kept_at("Home", "crates/console-input-keymaps/src/keysym.rs"));
+        assert!(!vocabulary.kept_at("Home", "crates/console-home-screen/src/lib.rs"));
+        assert_eq!(vocabulary.words.get("Home"), Some(&vec!["HomeScreen".to_string()]));
     }
 }

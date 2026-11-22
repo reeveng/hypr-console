@@ -88,13 +88,14 @@
 use console_core_geometry::Point;
 use std::collections::BTreeSet;
 
-use console_home_screen::{Holding, HomeScreen, Spot};
 use console_core_never::Never;
+use console_home_screen::{Holding, HomeScreen, Spot};
 use console_test_stages::checking::{
-    Body, Check, CheckResult, cannot, empty, failed, happened, happened_handed, less_than, same, expect_ready,
+  Body, Check, CheckResult, cannot, empty, expect_ready, failed, happened, happened_handed,
+  less_than, same,
 };
 use console_test_stages::desktop::Desktop;
-use console_test_stages::device::{Device, PATIENCE, Ready, Outcome};
+use console_test_stages::device::{Device, Outcome, PATIENCE, Ready};
 use console_test_stages::here::{Here, TURNS};
 use console_test_stages::palette::palette;
 
@@ -107,390 +108,435 @@ const THE_HOME_SCREEN: &str = r#"{"eDP-1":{"levels":{
     "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
 pub const WHOSE_BUTTONS: Check = Check {
-    name: "260-the-home-screens-buttons",
-    about: "A is the pointer's until the d-pad wakes the home screen, and the \
+  name: "260-the-home-screens-buttons",
+  about: "A is the pointer's until the d-pad wakes the home screen, and the \
             home screen's after.",
-    feature: "home",
-    since: "2026-09-03",
-    bodies: &[Body::Here(whose_here), Body::Device(whose_there)],
+  feature: "home",
+  since: "2026-09-03",
+  bodies: &[Body::Here(whose_here), Body::Device(whose_there)],
 };
 
 pub const ARRANGING: Check = Check {
-    name: "290-arranging-the-home-screen",
-    about: "Y on a square offers to move it, the d-pad carries it, and A puts \
+  name: "290-arranging-the-home-screen",
+  about: "Y on a square offers to move it, the d-pad carries it, and A puts \
             it down where the highlight is.",
-    feature: "home",
-    since: "2026-09-04",
-    bodies: &[Body::Device(arranging_there)],
+  feature: "home",
+  since: "2026-09-04",
+  bodies: &[Body::Device(arranging_there)],
 };
 
 pub const PRESSABLE: Check = Check {
-    name: "270-the-bar-answers-a-finger",
-    about: "A tap on the bar opens what the bar says it opens, with the home \
-            screen drawn under it.",
-    feature: "home",
-    since: "2026-09-03",
-    bodies: &[Body::Device(pressable_there)],
+  name: "270-the-bar-answers-a-finger",
+  about: "Tapping the launcher icon opens and closes the menu, with the home \
+            screen drawn underneath.",
+  feature: "home",
+  since: "2026-09-03",
+  bodies: &[Body::Device(pressable_there)],
 };
 
 pub const POINTED: Check = Check {
-    name: "310-the-pointer-stands-on-a-square",
-    about: "The square under the pointer is lit the way the d-pad lights one, \
+  name: "310-the-pointer-stands-on-a-square",
+  about: "The square under the pointer is lit the way the d-pad lights one, \
             and the home screen stays asleep while it is.",
-    feature: "home",
-    since: "2026-09-05",
-    bodies: &[Body::Desktop(pointed_here), Body::Device(pointed_there)],
+  feature: "home",
+  since: "2026-09-05",
+  bodies: &[Body::Desktop(pointed_here), Body::Device(pointed_there)],
 };
 
 fn whose_here(stage: &mut Here) -> CheckResult {
-    stage.set_layers(THE_HOME_SCREEN)?;
+  stage.set_layers(THE_HOME_SCREEN)?;
 
-    stage.press("a")?;
+  stage.press("a")?;
 
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(clicked) = stage.check_sent(console_input_event_devices::EventType::KEY, console_input_event_devices::KeyCode::BTN_LEFT.0, 1);
+  let Ok(()) = stage.settle(TURNS);
+  let Ok(clicked) = stage.check_sent(
+    console_input_event_devices::EventType::KEY,
+    console_input_event_devices::KeyCode::BTN_LEFT.0,
+    1,
+  );
 
-    expect_ready(clicked, || "A on a sleeping home screen was not the pointer's button".to_string())?;
+  expect_ready(clicked, || {
+    "A on a sleeping home screen was not the pointer's button".to_string()
+  })?;
 
-    let Ok(asleep) = stage.pad_inputs();
+  let Ok(asleep) = stage.pad_inputs();
 
-    empty(asleep, || format!("the home screen was told {asleep:?} while asleep"))?;
+  empty(asleep, || {
+    format!("the home screen was told {asleep:?} while asleep")
+  })?;
 
-    let Ok(()) = stage.fresh();
+  let Ok(()) = stage.fresh();
 
-    stage.press("dpad-right")?;
+  stage.press("dpad-right")?;
 
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(walked) = stage.pad_inputs();
+  let Ok(()) = stage.settle(TURNS);
+  let Ok(walked) = stage.pad_inputs();
 
-    same(&walked, &[console_onscreen::PadInput::Right].as_slice(), || {
-        format!("the d-pad said {walked:?} to the home screen")
-    })?;
+  same(
+    &walked,
+    &[console_onscreen::PadInput::Right].as_slice(),
+    || format!("the d-pad said {walked:?} to the home screen"),
+  )?;
 
-    let Ok(()) = stage.fresh();
+  let Ok(()) = stage.fresh();
 
-    stage.press("a")?;
+  stage.press("a")?;
 
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(awake) = stage.pad_inputs();
+  let Ok(()) = stage.settle(TURNS);
+  let Ok(awake) = stage.pad_inputs();
 
-    same(&awake, &[console_onscreen::PadInput::Pressed].as_slice(), || {
-        format!("A on an awake home screen said {awake:?}")
-    })?;
+  same(
+    &awake,
+    &[console_onscreen::PadInput::Pressed].as_slice(),
+    || format!("A on an awake home screen said {awake:?}"),
+  )?;
 
-    empty(&stage.written, || "A was still the pointer's button".to_string())?;
+  let Ok(written) = stage.written();
 
-    let Ok(()) = stage.fresh();
+  empty(written, || {
+    "A was still the pointer's button".to_string()
+  })?;
 
-    stage.press("b")?;
+  let Ok(()) = stage.fresh();
 
-    let Ok(()) = stage.settle(TURNS);
+  stage.press("b")?;
 
-    stage.press("a")?;
+  let Ok(()) = stage.settle(TURNS);
 
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(back) = stage.check_sent(console_input_event_devices::EventType::KEY, console_input_event_devices::KeyCode::BTN_LEFT.0, 1);
+  stage.press("a")?;
 
-    expect_ready(back, || "B did not give A back to the pointer".to_string())
+  let Ok(()) = stage.settle(TURNS);
+  let Ok(back) = stage.check_sent(
+    console_input_event_devices::EventType::KEY,
+    console_input_event_devices::KeyCode::BTN_LEFT.0,
+    1,
+  );
+
+  expect_ready(back, || "B did not give A back to the pointer".to_string())
 }
 
 fn whose_there(stage: &mut Device) -> CheckResult {
-    cleared(stage)?;
-    let Ok(holding) = stage.home_awake();
+  cleared(stage)?;
+  let Ok(holding) = stage.home_awake();
 
-    same(&holding, &Ready::NotYet, || {
-        "the home screen was holding a highlight with no one having asked for one".to_string()
-    })?;
+  same(&holding, &Ready::NotYet, || {
+    "the home screen was holding a highlight with no one having asked for one".to_string()
+  })?;
 
-    let Ok(()) = stage.press("dpad-right");
-    let Ok(_) = stage.until(Device::home_awake, PATIENCE);
-    let Ok(woken) = stage.home_awake();
+  let Ok(()) = stage.press("dpad-right");
+  let Ok(_) = stage.until(Device::home_awake, PATIENCE);
+  let Ok(woken) = stage.home_awake();
 
-    same(&woken, &Ready::Yes, || "the d-pad did not wake the home screen".to_string())?;
+  same(&woken, &Ready::Yes, || {
+    "the d-pad did not wake the home screen".to_string()
+  })?;
 
-    let Ok(()) = stage.press("y");
-    let Ok(_) = wait_for_menu(stage, "home-square");
-    let Ok(up) = stage.menus();
-    let Ok(on_screen) = on_screen(&up, "home-square");
+  let Ok(()) = stage.press("y");
+  let Ok(_) = wait_for_menu(stage, "home-square");
+  let Ok(up) = stage.menus();
+  let Ok(on_screen) = on_screen(&up, "home-square");
 
-    expect_ready(on_screen, || format!("Y on an awake home screen opened {up:?}"))?;
+  expect_ready(on_screen, || {
+    format!("Y on an awake home screen opened {up:?}")
+  })?;
 
-    let Ok(()) = stage.press("b");
-    let Ok(_) = stage.wait_for_close(PATIENCE);
-    let Ok(()) = stage.press("b");
-    let Ok(_) = stage.until(asleep, PATIENCE);
-    let Ok(away) = stage.home_awake();
+  let Ok(()) = stage.press("b");
+  let Ok(_) = stage.wait_for_close(PATIENCE);
+  let Ok(()) = stage.press("b");
+  let Ok(_) = stage.until(asleep, PATIENCE);
+  let Ok(away) = stage.home_awake();
 
-    same(&away, &Ready::NotYet, || "B did not put the highlight away".to_string())
+  same(&away, &Ready::NotYet, || {
+    "B did not put the highlight away".to_string()
+  })
 }
 
 fn pressable_there(stage: &mut Device) -> CheckResult {
-    cleared(stage)?;
-    let Ok(bar) = stage.layer(console_onscreen::BAR);
+  cleared(stage)?;
+  let Ok(bar) = stage.layer(console_onscreen::BAR);
 
-    let (left, top, _taken_2, tall) = match bar {
-        Some((left, top, _taken_2, tall)) => (left, top, _taken_2, tall),
-        None => return cannot("the bar is not on the screen to be pressed"),
-    };
+  let (left, top, _taken_2, tall) = match bar {
+    Some((left, top, _taken_2, tall)) => (left, top, _taken_2, tall),
+    None => return cannot("the bar is not on the screen to be pressed"),
+  };
 
-    let at = (
-        left.saturating_add(tall.saturating_div(2)),
-        top.saturating_add(tall.saturating_div(2)),
-    );
+  let at = (
+    left.saturating_add(tall.saturating_div(2)),
+    top.saturating_add(tall.saturating_div(2)),
+  );
 
-    let Ok(before) = stage.menus();
+  let Ok(before) = stage.menus();
 
-    empty(&before, || format!("something was already up: {before:?}"))?;
+  empty(&before, || format!("something was already up: {before:?}"))?;
 
-    stage.touch(at)?;
+  stage.touch(at)?;
 
-    let Ok(_) = wait_for_menu(stage, "launcher");
-    let Ok(up) = stage.menus();
-    let Ok(first) = on_screen(&up, "launcher");
+  let Ok(_) = wait_for_menu(stage, "launcher");
+  let Ok(up) = stage.menus();
+  let Ok(first) = on_screen(&up, "launcher");
 
-    expect_ready(first, || format!("a finger on the launcher icon at {at:?} opened {up:?}"))?;
+  expect_ready(first, || {
+    format!("a finger on the launcher icon at {at:?} opened {up:?}")
+  })?;
 
-    cleared(stage)?;
+  stage.touch(at)?;
 
-    stage.touch(at)?;
+  let Ok(closed) = stage.wait_for_close(PATIENCE);
 
-    let Ok(_) = wait_for_menu(stage, "launcher");
-    let Ok(again) = stage.menus();
-    let Ok(second) = on_screen(&again, "launcher");
+  happened_handed(closed, stage, |seen| {
+    let Ok(up) = seen.menus();
 
-    expect_ready(second, || format!("the second finger on the launcher icon opened {again:?}"))?;
+    format!("a second tap on the launcher icon at {at:?} left {up:?} open")
+  })?;
 
-    cleared(stage)?;
+  stage.touch(at)?;
 
-    Ok(())
+  let Ok(_) = wait_for_menu(stage, "launcher");
+  let Ok(again) = stage.menus();
+  let Ok(second) = on_screen(&again, "launcher");
+
+  expect_ready(second, || {
+    format!("tapping the launcher icon after closing it opened {again:?}")
+  })?;
+
+  cleared(stage)?;
+
+  Ok(())
 }
 
 fn cleared(stage: &mut Device) -> CheckResult {
-    let Ok(()) = stage.fresh();
-    let Ok(ready) = stage.until::<Never>(
-        |seen| {
-            let Ok(menus) = seen.menus();
-            let Ok(worn) = seen.profile();
+  let Ok(()) = stage.fresh();
+  let Ok(ready) = stage.until::<Never>(
+    |seen| {
+      let Ok(menus) = seen.menus();
+      let Ok(worn) = seen.profile();
 
-            Ok(match menus.is_empty() && worn == crate::picker::WORN {
-                true => Ready::Yes,
-                false => Ready::NotYet,
-            })
-        },
-        PATIENCE,
-    );
+      Ok(match ::core::primitive::bool::then_some(menus.is_empty() && worn == crate::picker::WORN, ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      })
+    },
+    PATIENCE,
+  );
 
-    happened_handed(ready, stage, |stage| {
-        let Ok(left) = stage.menus();
-        let Ok(worn) = stage.profile();
+  happened_handed(ready, stage, |stage_2| {
+    let Ok(left) = stage_2.menus();
+    let Ok(worn) = stage_2.profile();
 
-        format!(
-            "clearing the screen left {left:?} on it and the pad wearing {worn}, so a press \
+    format!(
+      "clearing the screen left {left:?} on it and the pad wearing {worn}, so a press \
              would not reach the home screen"
-        )
-    })
+    )
+  })
 }
 
 fn arranging_there(stage: &mut Device) -> CheckResult {
-    cleared(stage)?;
+  cleared(stage)?;
 
-    let Ok(emptied) = stage.to_an_empty_workspace();
+  let Ok(emptied) = stage.to_an_empty_workspace();
 
-    happened(emptied, || "no empty workspace would come to the front to show the home screen on".to_string())?;
+  happened(emptied, || {
+    "no empty workspace would come to the front to show the home screen on".to_string()
+  })?;
 
-    let Ok(before) = home_layout(stage);
-    let Ok(holding) = before.occupancy();
+  let Ok(before) = home_layout(stage);
+  let Ok(holding) = before.occupancy();
 
-    match holding {
-        Holding::Some => {},
-        Holding::None => return cannot("the home screen has nothing on it to move"),
+  match holding {
+    Holding::Some => {}
+    Holding::None => return cannot("the home screen has nothing on it to move"),
+  }
+
+  let Ok(shape) = shaped(stage);
+  let Ok(panes) = before.panes();
+
+  let first = Spot::FIRST;
+  let far = Spot {
+    pane: panes,
+    row: shape.rows.saturating_sub(1),
+    column: shape.columns.saturating_sub(1),
+  };
+
+  let one = match before.at(first) {
+    Ok(Some(one)) => one.to_string(),
+    Ok(None) | Err(_) => {
+      return cannot("the first square of the first pane has nothing on it to carry");
     }
+  };
 
-    let Ok(shape) = shaped(stage);
-    let Ok(panes) = before.panes();
+  let Ok(()) = stage.press("dpad-right");
+  let Ok(woke) = stage.until(Device::home_awake, PATIENCE);
 
-    let first = Spot::FIRST;
-    let far = Spot {
-        pane: panes,
-        row: shape.rows.saturating_sub(1),
-        column: shape.columns.saturating_sub(1),
-    };
+  happened_handed(woke, stage, |stage_2| {
+    let Ok(up) = stage_2.menus();
+    let Ok(here) = stage_2.windows_here();
 
-    let one = match before.at(first) {
-        Ok(Some(one)) => one.to_string(),
-        Ok(None) | Err(_) => {
-            return cannot("the first square of the first pane has nothing on it to carry");
-        }
-    };
-
-    let Ok(()) = stage.press("dpad-right");
-    let Ok(woke) = stage.until(Device::home_awake, PATIENCE);
-
-    happened_handed(woke, stage, |stage| {
-        let Ok(up) = stage.menus();
-        let Ok(here) = stage.windows_here();
-
-        format!(
-            "the d-pad did not wake the home screen, with {up:?} drawn over it and {here} \
+    format!(
+      "the d-pad did not wake the home screen, with {up:?} drawn over it and {here} \
              windows on the workspace"
-        )
-    })?;
+    )
+  })?;
 
-    let Ok(panes) = console_core_number_conversion::fitted::<_, u32>(panes);
-    let Ok(there) = far_corner(shape, panes);
-    let Ok(back) = first_corner(shape, panes);
+  let Ok(panes_2) = console_core_number_conversion::fitted::<_, u32>(panes);
+  let Ok(there) = far_corner(shape, panes_2);
+  let Ok(back) = first_corner(shape, panes_2);
 
-    walking(stage, &back)?;
+  walking(stage, &back)?;
 
-    carry_square(stage, &there)?;
+  carry_square(stage, &there)?;
 
-    let Ok(after) = home_layout(stage);
-    let Ok(went) = after.where_(&one);
+  let Ok(after) = home_layout(stage);
+  let Ok(went) = after.where_(&one);
 
-    same(&went, &Some(far), || {
-        format!(
-            "{one:?} was carried from {first:?} to the far corner and the home screen keeps it \
+  same(&went, &Some(far), || {
+    format!(
+      "{one:?} was carried from {first:?} to the far corner and the home screen keeps it \
              at {went:?}"
-        )
-    })?;
+    )
+  })?;
 
-    carry_square(stage, &back)?;
+  carry_square(stage, &back)?;
 
-    let Ok(again) = home_layout(stage);
+  let Ok(again) = home_layout(stage);
 
-    same(&again, &before, || {
-        "carried back, the home screen is not the one this started with".to_string()
-    })?;
+  same(&again, &before, || {
+    "carried back, the home screen is not the one this started with".to_string()
+  })?;
 
-    let Ok(()) = stage.press("b");
-    let Ok(_) = stage.until(asleep, PATIENCE);
+  let Ok(()) = stage.press("b");
+  let Ok(_) = stage.until(asleep, PATIENCE);
 
-    Ok(())
+  Ok(())
 }
 
 fn shaped(stage: &mut Device) -> Result<console_home_screen::Shape, Never> {
-    let Ok(home) = stage.home();
-    let Ok(standing) = stage.standing();
-    let Ok(at) = console_home_screen::shape::at(std::path::Path::new(&home), standing);
-    let Ok(said) = stage.user(&format!("cat {} 2>/dev/null", at.display()));
+  let Ok(home) = stage.home();
+  let Ok(standing) = stage.standing();
+  let Ok(at) = console_home_screen::shape::at(std::path::Path::new(&home), standing);
+  let Ok(said) = stage.user(&format!("cat {} 2>/dev/null", at.display()));
 
-    console_home_screen::Shape::read(&said, standing)
+  console_home_screen::Shape::read(&said, standing)
 }
 
 fn first_corner(
-    shape: console_home_screen::Shape,
-    panes: u32,
+  shape: console_home_screen::Shape,
+  panes: u32,
 ) -> Result<Vec<(&'static str, u32)>, Never> {
-    let Ok(across) = crossing(shape, panes);
-    let Ok(rows) = console_core_number_conversion::fitted::<_, u32>(shape.rows);
+  let Ok(across) = crossing(shape, panes);
+  let Ok(rows) = console_core_number_conversion::fitted::<_, u32>(shape.rows);
 
-    Ok(vec![("dpad-left", across), ("dpad-up", rows)])
+  Ok(vec![("dpad-left", across), ("dpad-up", rows)])
 }
 
 fn far_corner(
-    shape: console_home_screen::Shape,
-    panes: u32,
+  shape: console_home_screen::Shape,
+  panes: u32,
 ) -> Result<Vec<(&'static str, u32)>, Never> {
-    let Ok(across) = crossing(shape, panes);
-    let Ok(rows) = console_core_number_conversion::fitted::<_, u32>(shape.rows);
+  let Ok(across) = crossing(shape, panes);
+  let Ok(rows) = console_core_number_conversion::fitted::<_, u32>(shape.rows);
 
-    Ok(vec![("dpad-right", across), ("dpad-down", rows)])
+  Ok(vec![("dpad-right", across), ("dpad-down", rows)])
 }
 
 fn crossing(shape: console_home_screen::Shape, panes: u32) -> Result<u32, Never> {
-    let Ok(columns) = console_core_number_conversion::fitted::<_, u32>(shape.columns);
+  let Ok(columns) = console_core_number_conversion::fitted::<_, u32>(shape.columns);
 
-    Ok(columns.saturating_mul(panes.saturating_add(1)))
+  Ok(columns.saturating_mul(panes.saturating_add(1)))
 }
 
 fn walking(stage: &mut Device, ways: &[(&str, u32)]) -> CheckResult {
-    for (way, steps) in ways {
-        let Ok(()) = stage.presses(way, *steps);
-    }
+  for (way, steps) in ways {
+    let Ok(()) = stage.presses(way, *steps);
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn carry_square(stage: &mut Device, ways: &[(&str, u32)]) -> CheckResult {
-    let Ok(was) = home_layout(stage);
-    let Ok(awake) = stage.home_awake();
+  let Ok(was) = home_layout(stage);
+  let Ok(awake) = stage.home_awake();
 
-    same(&awake, &Ready::Yes, || {
-        "the home screen is asleep, so Y is the desktop's menu rather than what else can be \
+  same(&awake, &Ready::Yes, || {
+    "the home screen is asleep, so Y is the desktop's menu rather than what else can be \
          done with the square"
-            .to_string()
-    })?;
+      .to_string()
+  })?;
 
-    let Ok(()) = stage.press("y");
-    let Ok(_) = wait_for_menu(stage, "home-square");
-    let Ok(up) = stage.menus();
-    let Ok(on_screen) = on_screen(&up, "home-square");
+  let Ok(()) = stage.press("y");
+  let Ok(_) = wait_for_menu(stage, "home-square");
+  let Ok(up) = stage.menus();
+  let Ok(on_screen) = on_screen(&up, "home-square");
 
-    expect_ready(on_screen, || format!("Y on the square under the highlight opened {up:?}"))?;
+  expect_ready(on_screen, || {
+    format!("Y on the square under the highlight opened {up:?}")
+  })?;
 
-    let Ok(()) = stage.press("a");
-    let Ok(went) = stage.wait_for_close(PATIENCE);
+  let Ok(()) = stage.press("a");
+  let Ok(went) = stage.wait_for_close(PATIENCE);
 
-    happened_handed(went, stage, |stage| {
-        let Ok(up) = stage.menus();
+  happened_handed(went, stage, |stage_2| {
+    let Ok(up_2) = stage_2.menus();
 
-        format!("A on the card left {up:?} on the screen, so the card said nothing on its way out")
-    })?;
+    format!(
+      "A on the card left {up:?} on the screen, so the card said nothing on its way out",
+      up = up_2
+    )
+  })?;
 
-    let Ok(lifted) = stage.until(Device::home_carrying, PATIENCE);
+  let Ok(lifted) = stage.until(Device::home_carrying, PATIENCE);
 
-    happened(lifted, || {
-        "the card was answered and the home screen says its hand is empty, so there is nothing \
+  happened(lifted, || {
+    "the card was answered and the home screen says its hand is empty, so there is nothing \
          to carry and the d-pad would only walk the highlight"
-            .to_string()
-    })?;
+      .to_string()
+  })?;
 
-    walking(stage, ways)?;
+  walking(stage, ways)?;
 
-    let Ok(()) = stage.press("a");
-    let Ok(landed) = stage.changed(home_layout, &was, PATIENCE);
+  let Ok(()) = stage.press("a");
+  let Ok(landed) = stage.changed(home_layout, &was, PATIENCE);
 
-    happened_handed(landed, stage, |stage| {
-        let Ok(hand) = stage.home_carrying();
+  happened_handed(landed, stage, |stage_3| {
+    let Ok(hand) = stage_3.home_carrying();
 
-        format!(
-            "the square was carried {ways:?} and put down, what the home screen keeps is what it \
+    format!(
+      "the square was carried {ways:?} and put down, what the home screen keeps is what it \
              was before, and its hand says {hand:?}"
-        )
-    })
+    )
+  })
 }
 
 fn home_layout(stage: &mut Device) -> Result<HomeScreen, Never> {
-    let home = stage.home()?;
-    let standing = stage.standing()?;
-    let at = console_home_screen::file(std::path::Path::new(&home), standing)?;
-    let said = stage.user(&format!("cat {} 2>/dev/null", at.display()))?;
+  let home = stage.home()?;
+  let standing = stage.standing()?;
+  let at = console_home_screen::file(std::path::Path::new(&home), standing)?;
+  let said = stage.user(&format!("cat {} 2>/dev/null", at.display()))?;
 
-    HomeScreen::read(&said)
+  HomeScreen::read(&said)
 }
 
 fn asleep(seen: &mut Device) -> Result<Ready, Never> {
-    let Ok(awake) = seen.home_awake();
+  let Ok(awake) = seen.home_awake();
 
-    awake.flipped()
+  awake.flipped()
 }
 
 fn wait_for_menu(stage: &mut Device, namespace: &str) -> Result<Outcome, Never> {
-    stage.until(
-        |seen| {
-            let Ok(up) = seen.menus();
+  stage.until(
+    |seen| {
+      let Ok(up) = seen.menus();
 
-            on_screen(&up, namespace)
-        },
-        PATIENCE,
-    )
+      on_screen(&up, namespace)
+    },
+    PATIENCE,
+  )
 }
 
 fn on_screen(up: &[String], namespace: &str) -> Result<Ready, Never> {
-    Ok(match up.iter().any(|name| name == namespace) {
-        true => Ready::Yes,
-        false => Ready::NotYet,
-    })
+  Ok(match ::core::primitive::bool::then_some(up.iter().any(|name| name == namespace), ()) {
+    ::core::option::Option::Some(()) => Ready::Yes,
+    ::core::option::Option::None => Ready::NotYet,
+  })
 }
 
 const STANDING: &str = "mint";
@@ -502,242 +548,250 @@ const EDGE: u32 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Lit {
-    Somewhere,
-    Nowhere,
+  Somewhere,
+  Nowhere,
 }
 
 fn sample_until_settled(
-    stage: &mut Device,
-    over: (u32, u32, u32, u32),
-    spent: &str,
+  stage: &mut Device,
+  over: (u32, u32, u32, u32),
+  spent: &str,
 ) -> Result<BTreeSet<u32>, Unchecked> {
-    let mut settling = Settling::default();
+  let mut settling = Settling::default();
 
-    let waited = stage.until_handed::<Settling, Unchecked>(
-        &mut settling,
-        |settling, seen| {
-            let Ok(()) = seen.again();
+  let waited = stage.until_handed::<Settling, Unchecked>(
+    &mut settling,
+    |settling_2, seen| {
+      let Ok(()) = seen.again();
 
-            let found = lit(seen, over, spent, Device::color)?;
-            let same = settling.twice.as_ref() == Some(&found);
+      let found = lit(seen, over, spent, Device::color)?;
+      let same = settling_2.twice.as_ref() == Some(&found);
 
-            settling.twice = Some(found.clone());
-            settling.now = found;
+      settling_2.twice = Some(found.clone());
+      settling_2.now = found;
 
-            Ok(match same {
-                true => Ready::Yes,
-                false => Ready::NotYet,
-            })
-        },
-        PATIENCE,
-    )?;
+      Ok(match ::core::primitive::bool::then_some(same, ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      })
+    },
+    PATIENCE,
+  )?;
 
-    match waited {
-        Outcome::Happened => Ok(settling.now),
-        Outcome::RanOut => Err(Unchecked::StillRepainting),
-    }
+  match waited {
+    Outcome::Happened => Ok(settling.now),
+    Outcome::RanOut => Err(Unchecked::StillRepainting),
+  }
 }
 
 #[derive(Default)]
 struct Settling {
-    twice: Option<BTreeSet<u32>>,
-    now: BTreeSet<u32>,
+  twice: Option<BTreeSet<u32>>,
+  now: BTreeSet<u32>,
 }
 
 fn newly(
-    stage: &mut Device,
-    over: (u32, u32, u32, u32),
-    spent: &str,
-    before: &BTreeSet<u32>,
-    want: Lit,
+  stage: &mut Device,
+  over: (u32, u32, u32, u32),
+  spent: &str,
+  before: &BTreeSet<u32>,
+  want: Lit,
 ) -> Result<BTreeSet<u32>, Unchecked> {
-    let mut found = BTreeSet::new();
+  let mut found = BTreeSet::new();
 
-    let _waited = stage.until_handed::<BTreeSet<u32>, Unchecked>(
-        &mut found,
-        |found, seen| {
-            let Ok(()) = seen.again();
+  let _waited = stage.until_handed::<BTreeSet<u32>, Unchecked>(
+    &mut found,
+    |found_2, seen| {
+      let Ok(()) = seen.again();
 
-            let now = lit(seen, over, spent, Device::color)?;
+      let now = lit(seen, over, spent, Device::color)?;
 
-            *found = now.difference(before).copied().collect();
+      *found_2 = now.difference(before).copied().collect();
 
-            let lighting = match found.is_empty() {
-                true => Lit::Nowhere,
-                false => Lit::Somewhere,
-            };
+      let lighting = match ::core::primitive::bool::then_some(found_2.is_empty(), ()) {
+        ::core::option::Option::Some(()) => Lit::Nowhere,
+        ::core::option::Option::None => Lit::Somewhere,
+      };
 
-            Ok(match lighting == want {
-                true => Ready::Yes,
-                false => Ready::NotYet,
-            })
-        },
-        PATIENCE,
-    )?;
+      Ok(match ::core::primitive::bool::then_some(lighting == want, ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      })
+    },
+    PATIENCE,
+  )?;
 
-    Ok(found)
+  Ok(found)
 }
 
 fn lit<S>(
-    stage: &mut S,
-    over: (u32, u32, u32, u32),
-    spent: &str,
-    color: impl Fn(&mut S, Point<f64>) -> Result<String, Error>,
+  stage: &mut S,
+  over: (u32, u32, u32, u32),
+  spent: &str,
+  color: impl Fn(&mut S, Point<f64>) -> Result<String, Error>,
 ) -> Result<BTreeSet<u32>, Unchecked> {
-    let found = lit_at(stage, over, spent, color)?;
+  let found = lit_at(stage, over, spent, color)?;
 
-    Ok(found.into_iter().map(|(across, _down)| across).collect())
+  Ok(found.into_iter().map(|(across, _down)| across).collect())
 }
 
 fn lit_at<S>(
-    stage: &mut S,
-    over: (u32, u32, u32, u32),
-    spent: &str,
-    color: impl Fn(&mut S, Point<f64>) -> Result<String, Error>,
+  stage: &mut S,
+  over: (u32, u32, u32, u32),
+  spent: &str,
+  color: impl Fn(&mut S, Point<f64>) -> Result<String, Error>,
 ) -> Result<BTreeSet<(u32, u32)>, Unchecked> {
-    let Ok(every) = palette();
+  let Ok(every) = palette();
 
-    let plate = match every.get(spent) {
-        Some(plate) => plate,
-        None => return Err(Unchecked::NoPlate(spent.to_string())),
-    };
+  let plate = match every.get(spent) {
+    Some(plate) => plate,
+    None => return Err(Unchecked::NoPlate(spent.to_string())),
+  };
 
-    let (left, top, wide, tall) = over;
-    let band = top..top.saturating_add(tall);
-    let side = left..left.saturating_add(wide);
-    let mut found = BTreeSet::new();
-    let Ok(down_by) = console_core_number_conversion::index(DOWN);
-    let Ok(across_by) = console_core_number_conversion::index(ACROSS);
+  let (left, top, wide, tall) = over;
+  let band = top..top.saturating_add(tall);
+  let side = left..left.saturating_add(wide);
+  let mut found = BTreeSet::new();
+  let Ok(down_by) = console_core_number_conversion::index(DOWN);
+  let Ok(across_by) = console_core_number_conversion::index(ACROSS);
 
-    for down in band.step_by(down_by) {
-        for across in side.clone().step_by(across_by) {
-            let said =
-                color(stage, Point { x: f64::from(across), y: f64::from(down) })?;
+  for down in band.step_by(down_by.max(1)) {
+    for across in side.clone().step_by(across_by.max(1)) {
+      let said = color(
+        stage,
+        Point {
+          x: f64::from(across),
+          y: f64::from(down),
+        },
+      )?;
 
-            match &said == plate {
-                true => {
-                    let _ = found.insert((across, down));
-                },
-                false => {},
-            }
+      match ::core::primitive::bool::then_some(&said == plate, ()) {
+        ::core::option::Option::Some(()) => {
+          let _ = found.insert((across, down));
         }
+        ::core::option::Option::None => {}
+      }
     }
+  }
 
-    Ok(found)
+  Ok(found)
 }
 
 fn reaches(found: &BTreeSet<u32>) -> Result<Option<(u32, u32)>, Never> {
-    let first = match found.iter().next() {
-        Some(first) => first,
-        None => return Ok(None),
-    };
+  let first = match found.iter().next() {
+    Some(first) => first,
+    None => return Ok(None),
+  };
 
-    let last = match found.iter().next_back() {
-        Some(last) => last,
-        None => return Ok(None),
-    };
+  let last = match found.iter().next_back() {
+    Some(last) => last,
+    None => return Ok(None),
+  };
 
-    Ok(Some((*first, *last)))
+  Ok(Some((*first, *last)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Under {
-    ThePointer,
-    SomewhereElse,
+  ThePointer,
+  SomewhereElse,
 }
 
 fn under(reaches: (u32, u32), at: u32) -> Result<Under, Never> {
-    Ok(match reaches.0 <= at && at <= reaches.1 {
-        true => Under::ThePointer,
-        false => Under::SomewhereElse,
-    })
+  Ok(match ::core::primitive::bool::then_some(reaches.0 <= at && at <= reaches.1, ()) {
+    ::core::option::Option::Some(()) => Under::ThePointer,
+    ::core::option::Option::None => Under::SomewhereElse,
+  })
 }
 
 fn stood_on(reaches: (u32, u32), at: (u32, u32), wide: u32) -> CheckResult {
-    let Ok(under) = under(reaches, at.0);
+  let Ok(under) = under(reaches, at.0);
 
-    same(&under, &Under::ThePointer, || {
-        format!("the pointer stood at {at:?} and what lit up was {reaches:?}")
-    })?;
+  same(&under, &Under::ThePointer, || {
+    format!("the pointer stood at {at:?} and what lit up was {reaches:?}")
+  })?;
 
-    less_than(reaches.1.saturating_sub(reaches.0), wide.saturating_div(2), || {
-        format!("{reaches:?} is wider than a square, so more than one is lit")
-    })
+  less_than(
+    reaches.1.saturating_sub(reaches.0),
+    wide.saturating_div(2),
+    || format!("{reaches:?} is wider than a square, so more than one is lit"),
+  )
 }
 
 fn pointed_here(stage: &mut Desktop) -> CheckResult {
-    let screen = console_test_stages::screen()?;
-    let Ok(room) = screen.logical();
+  let screen = console_test_stages::screen()?;
+  let Ok(room) = screen.logical();
 
-    let over = (0, 0, room.width, room.height);
-    let at = (room.width.saturating_div(2), room.height.saturating_div(2));
+  let over = (0, 0, room.width, room.height);
+  let at = (room.width.saturating_div(2), room.height.saturating_div(2));
 
-    stage.open("console-home")?;
-    stage.point(at)?;
+  stage.open("console-home")?;
+  stage.point(at)?;
 
-    let found = lit(stage, over, STANDING, Desktop::color)?;
+  let found = lit(stage, over, STANDING, Desktop::color)?;
 
-    let reached = match reaches(&found) {
-        Ok(Some(reached)) => reached,
-        Ok(None) | Err(_) => {
-            return failed(format!(
-                "the pointer stood at {at:?} on the home screen and no square lit up"
-            ));
-        }
-    };
+  let reached = match reaches(&found) {
+    Ok(Some(reached)) => reached,
+    Ok(None) | Err(_) => {
+      return failed(format!(
+        "the pointer stood at {at:?} on the home screen and no square lit up"
+      ));
+    }
+  };
 
-    stood_on(reached, at, room.width)
+  stood_on(reached, at, room.width)
 }
 
 fn pointed_there(stage: &mut Device) -> CheckResult {
-    cleared(stage)?;
-    let Ok(drawn) = stage.layer("console-home");
+  cleared(stage)?;
+  let Ok(drawn) = stage.layer("console-home");
 
-    let over = match drawn {
-        Some(over) => over,
-        None => return cannot("the home screen is not drawn, so there is nothing to point at"),
-    };
+  let over = match drawn {
+    Some(over) => over,
+    None => return cannot("the home screen is not drawn, so there is nothing to point at"),
+  };
 
-    let middle = over.1.saturating_add(over.3.saturating_div(2));
-    let away = (over.0.saturating_add(EDGE), middle);
-    let at = (over.0.saturating_add(over.2.saturating_div(2)), middle);
+  let middle = over.1.saturating_add(over.3.saturating_div(2));
+  let away = (over.0.saturating_add(EDGE), middle);
+  let at = (over.0.saturating_add(over.2.saturating_div(2)), middle);
 
-    stage.point(away)?;
+  stage.point(away)?;
 
-    let before = sample_until_settled(stage, over, STANDING)?;
+  let before = sample_until_settled(stage, over, STANDING)?;
 
-    stage.point(at)?;
+  stage.point(at)?;
 
-    let found = newly(stage, over, STANDING, &before, Lit::Somewhere)?;
+  let found = newly(stage, over, STANDING, &before, Lit::Somewhere)?;
 
-    let reached = match reaches(&found) {
-        Ok(Some(reached)) => reached,
-        Ok(None) | Err(_) => {
-            return failed(format!(
-                "the pointer moved from {away:?} to {at:?} and no square lit up"
-            ));
-        }
-    };
-
-    stood_on(reached, at, over.2)?;
-
-    let Ok(awake) = stage.home_awake();
-
-    same(&awake, &Ready::NotYet, || {
-        "the pointer woke the home screen, so A is the home screen's and not the pointer's"
-            .to_string()
-    })?;
-
-    stage.point(away)?;
-
-    let last = newly(stage, over, STANDING, &before, Lit::Nowhere)?;
-
-    let Ok(still) = reaches(&last);
-
-    match still {
-        Some(reached) => {
-            failed(format!("the pointer left the squares and {reached:?} is lit without it"))
-        },
-        None => Ok(()),
+  let reached = match reaches(&found) {
+    Ok(Some(reached)) => reached,
+    Ok(None) | Err(_) => {
+      return failed(format!(
+        "the pointer moved from {away:?} to {at:?} and no square lit up"
+      ));
     }
+  };
+
+  stood_on(reached, at, over.2)?;
+
+  let Ok(awake) = stage.home_awake();
+
+  same(&awake, &Ready::NotYet, || {
+    "the pointer woke the home screen, so A is the home screen's and not the pointer's"
+      .to_string()
+  })?;
+
+  stage.point(away)?;
+
+  let last = newly(stage, over, STANDING, &before, Lit::Nowhere)?;
+
+  let Ok(still) = reaches(&last);
+
+  match still {
+    Some(reached_2) => failed(format!(
+      "the pointer left the squares and {reached:?} is lit without it",
+      reached = reached_2
+    )),
+    None => Ok(()),
+  }
 }

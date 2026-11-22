@@ -1,0 +1,47 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_prefix_reads.rs:5:35
+   |
+LL |     enabled && bytes.len() > 1 && bytes[0] == b'!' && bytes[1].is_ascii_alphabetic()
+   |                                   ^^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: use one checked lookup for the bounds guard and the comparison
+   |
+LL -     enabled && bytes.len() > 1 && bytes[0] == b'!' && bytes[1].is_ascii_alphabetic()
+LL +     enabled && match <[_]>::first_chunk::<2>(&*bytes) { ::core::option::Option::Some(&[checked_element_0, checked_element_1]) => checked_element_0 == b'!' && checked_element_1.is_ascii_alphabetic(), ::core::option::Option::None => false }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_prefix_reads.rs:5:55
+   |
+LL |     enabled && bytes.len() > 1 && bytes[0] == b'!' && bytes[1].is_ascii_alphabetic()
+   |                                                       ^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_prefix_reads.rs:9:24
+   |
+LL |     bytes.len() < 3 || bytes[1] == b'!'
+   |                        ^^^^^^^^
+   |
+help: use one checked lookup for the bounds guard and the comparison
+   |
+LL -     bytes.len() < 3 || bytes[1] == b'!'
+LL +     match <[_]>::first_chunk::<3>(&*bytes) { ::core::option::Option::Some(&[_, checked_element_1, _]) => checked_element_1 == b'!', ::core::option::Option::None => true }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/guarded_prefix_reads.rs:14:37
+   |
+LL |     while position < bytes.len() && bytes[position].is_ascii_digit() {
+   |                                     ^^^^^^^^^^^^^^^
+   |
+help: use one checked lookup for the bounds guard and the comparison
+   |
+LL -     while position < bytes.len() && bytes[position].is_ascii_digit() {
+LL +     while match <[_]>::get(&*bytes, position) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_digit(), ::core::option::Option::None => false } {
+   |
+
+error: aborting due to 4 previous errors
+

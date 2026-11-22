@@ -22,17 +22,17 @@
 //! meant.
 
 use console_core_color::Oklch;
+use console_core_fonts::{EM, TextStyle};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted, index, toward_zero_i32};
-use console_core_fonts::{EM, TextStyle};
 use console_core_shapes::{Edge as Border, Panel, Round, Shape, Text};
 
 use crate::reading::Urgency;
 
 pub use console_onscreen::NOTIFICATION as WHO;
 
-pub use console_core_color::palette::{SPENDS, PaletteError, Wearing};
+pub use console_core_color::palette::{PaletteError, SPENDS, Wearing};
 
 pub const WIDE: i32 = EM * 160 / 9;
 
@@ -55,39 +55,50 @@ pub const MOST: u32 = 3;
 const WHOLE: i64 = 100;
 
 pub fn x() -> Result<i32, Never> {
-    Ok(WIDE
-        .saturating_sub(PAD.saturating_mul(2))
-        .saturating_sub(EDGE.saturating_mul(2)))
+  Ok(
+    WIDE
+      .saturating_sub(PAD.saturating_mul(2))
+      .saturating_sub(EDGE.saturating_mul(2)),
+  )
 }
 
 pub fn filled(value: i64) -> Result<i32, Never> {
-    let Ok(across) = x();
+  let Ok(across) = x();
 
-    let held = value.clamp(0, WHOLE);
-    let Ok(held) = held.float();
-    let Ok(across) = i64::from(across).float();
+  let held = value.clamp(0, WHOLE);
+  let Ok(held_2) = held.float();
+  let Ok(across_2) = i64::from(across).float();
 
-    toward_zero_i32(across * held / 100.0)
+  toward_zero_i32(across_2 * held_2 / 100.0)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Worn {
-    edge: Oklch,
-    ink: Oklch,
+  edge: Oklch,
+  ink: Oklch,
 }
 
 fn worn(wearing: &Wearing, urgency: Urgency) -> Result<Worn, Never> {
-    Ok(match urgency {
-        Urgency::Normal => Worn { edge: wearing.edge, ink: wearing.text },
-        Urgency::Low => Worn { edge: wearing.soft, ink: wearing.soft },
-        Urgency::Critical => Worn { edge: wearing.coral, ink: wearing.text },
-    })
+  Ok(match urgency {
+    Urgency::Normal => Worn {
+      edge: wearing.edge,
+      ink: wearing.text,
+    },
+    Urgency::Low => Worn {
+      edge: wearing.soft,
+      ink: wearing.soft,
+    },
+    Urgency::Critical => Worn {
+      edge: wearing.coral,
+      ink: wearing.text,
+    },
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Measured {
-    pub summary: Size<u32>,
-    pub body: Option<Size<u32>>,
+  pub summary: Size<u32>,
+  pub body: Option<Size<u32>>,
 }
 
 pub const SUMMARY: TextStyle = TextStyle::Headline;
@@ -96,470 +107,574 @@ pub const BODY: TextStyle = TextStyle::Callout;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CardContent<'a> {
-    pub id: u32,
-    pub summary: &'a str,
-    pub body: &'a str,
-    pub urgency: Urgency,
-    pub value: Option<i64>,
+  pub id: u32,
+  pub summary: &'a str,
+  pub body: &'a str,
+  pub urgency: Urgency,
+  pub value: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Card {
-    pub shapes: Vec<Shape>,
-    pub height: u32,
+  pub shapes: Vec<Shape>,
+  pub height: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HitRegion {
-    pub id: u32,
-    pub panel: Panel,
+  pub id: u32,
+  pub panel: Panel,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stack {
-    pub shapes: Vec<Shape>,
-    pub room: Size<u32>,
-    pub touching: Vec<HitRegion>,
+  pub shapes: Vec<Shape>,
+  pub room: Size<u32>,
+  pub touching: Vec<HitRegion>,
 }
 
 pub fn height(measured: &Measured, value: Option<i64>) -> Result<u32, Never> {
-    let Ok(edges) = twice(EDGE);
-    let Ok(padding) = twice(PAD);
-    let mut down = measured.summary.height;
+  let Ok(edges) = twice(EDGE);
+  let Ok(padding) = twice(PAD);
+  let mut down = measured.summary.height;
 
-    match measured.body {
-        Some(body) => {
-            let Ok(gap) = gap();
+  match measured.body {
+    Some(body) => {
+      let Ok(gap) = gap();
 
-            down = down.saturating_add(gap).saturating_add(body.height);
-        }
-        None => {},
+      down = down.saturating_add(gap).saturating_add(body.height);
     }
+    None => {}
+  }
 
-    match value {
-        Some(_) => {
-            let Ok(gap) = gap();
-            let Ok(deep) = deep();
+  match value {
+    Some(_) => {
+      let Ok(gap) = gap();
+      let Ok(deep) = deep();
 
-            down = down.saturating_add(gap).saturating_add(deep);
-        }
-        None => {},
+      down = down.saturating_add(gap).saturating_add(deep);
     }
+    None => {}
+  }
 
-    Ok(down.saturating_add(edges).saturating_add(padding))
+  Ok(down.saturating_add(edges).saturating_add(padding))
 }
 
 pub fn card(
-    saying: &CardContent<'_>,
-    measured: &Measured,
-    wearing: &Wearing,
-    at: Point<i32>,
+  saying: &CardContent<'_>,
+  measured: &Measured,
+  wearing: &Wearing,
+  at: Point<i32>,
 ) -> Result<Card, Never> {
-    let Ok(tall) = height(measured, saying.value);
-    let Ok(worn) = worn(wearing, saying.urgency);
-    let Ok(wide) = fitted::<i32, u32>(WIDE);
-    let Ok(inner) = x();
-    let Ok(inner) = fitted::<i32, u32>(inner);
-    let Ok(inset) = fitted::<i32, i32>(EDGE.saturating_add(PAD));
-    let Ok(border) = fitted::<i32, u32>(EDGE);
-    let Ok(round) = fitted::<i32, u32>(ROUND);
-    let Ok(summary_font) = SUMMARY.font();
-    let Ok(summary_weight) = SUMMARY.weight();
-    let Ok(body_font) = BODY.font();
-    let Ok(body_weight) = BODY.weight();
+  let Ok(tall) = height(measured, saying.value);
+  let Ok(worn) = worn(wearing, saying.urgency);
+  let Ok(wide) = fitted::<i32, u32>(WIDE);
+  let Ok(inner) = x();
+  let Ok(inner_2) = fitted::<i32, u32>(inner);
+  let Ok(inset) = fitted::<i32, i32>(EDGE.saturating_add(PAD));
+  let Ok(border) = fitted::<i32, u32>(EDGE);
+  let Ok(round) = fitted::<i32, u32>(ROUND);
+  let Ok(summary_font) = SUMMARY.font();
+  let Ok(summary_weight) = SUMMARY.weight();
+  let Ok(body_font) = BODY.font();
+  let Ok(body_weight) = BODY.weight();
 
-    let mut shapes = vec![Shape::Panel(Panel {
-        at,
-        size: Size { width: wide, height: tall },
-        round: Round(round),
-        fill: wearing.panel,
-        edge: Border::Of { wide: border, color: worn.edge },
-    })];
-    let across = at.x.saturating_add(inset);
-    let mut down = at.y.saturating_add(inset);
+  let mut shapes = vec![Shape::Panel(Panel {
+    at,
+    size: Size {
+      width: wide,
+      height: tall,
+    },
+    round: Round(round),
+    fill: wearing.panel,
+    edge: Border::Of {
+      wide: border,
+      color: worn.edge,
+    },
+  })];
+  let across = at.x.saturating_add(inset);
+  let mut down = at.y.saturating_add(inset);
 
-    shapes.push(Shape::Text(Text {
+  shapes.push(Shape::Text(Text {
+    at: Point { x: across, y: down },
+    width: inner_2,
+    said: saying.summary.to_string(),
+    weight: summary_weight,
+    font: summary_font,
+    ink: worn.ink,
+  }));
+
+  let Ok(over) = step(measured.summary.height);
+
+  down = down.saturating_add(over);
+
+  match measured.body {
+    Some(body) => {
+      shapes.push(Shape::Text(Text {
         at: Point { x: across, y: down },
-        width: inner,
-        said: saying.summary.to_string(),
-        weight: summary_weight,
-        font: summary_font,
+        width: inner_2,
+        said: saying.body.to_string(),
+        weight: body_weight,
+        font: body_font,
         ink: worn.ink,
-    }));
+      }));
 
-    let Ok(over) = step(measured.summary.height);
+      let Ok(over_2) = step(body.height);
 
-    down = down.saturating_add(over);
-
-    match measured.body {
-        Some(body) => {
-            shapes.push(Shape::Text(Text {
-                at: Point { x: across, y: down },
-                width: inner,
-                said: saying.body.to_string(),
-                weight: body_weight,
-                font: body_font,
-                ink: worn.ink,
-            }));
-
-            let Ok(over) = step(body.height);
-
-            down = down.saturating_add(over);
-        }
-        None => {},
+      down = down.saturating_add(over_2);
     }
+    None => {}
+  }
 
-    match saying.value {
-        Some(value) => {
-            let Ok(filled) = filled(value);
-            let Ok(filled) = fitted::<i32, u32>(filled);
+  match saying.value {
+    Some(value) => {
+      let Ok(filled) = filled(value);
+      let Ok(filled_2) = fitted::<i32, u32>(filled);
 
-            let Ok(deep) = deep();
+      let Ok(deep) = deep();
 
-            shapes.push(Shape::Panel(Panel {
-                at: Point { x: across, y: down },
-                size: Size { width: inner, height: deep },
-                round: Round(round),
-                fill: wearing.ground,
-                edge: Border::None,
-            }));
-            shapes.push(Shape::Panel(Panel {
-                at: Point { x: across, y: down },
-                size: Size { width: filled, height: deep },
-                round: Round(round),
-                fill: wearing.fill,
-                edge: Border::None,
-            }));
-        }
-        None => {},
+      shapes.push(Shape::Panel(Panel {
+        at: Point { x: across, y: down },
+        size: Size {
+          width: inner_2,
+          height: deep,
+        },
+        round: Round(round),
+        fill: wearing.ground,
+        edge: Border::None,
+      }));
+      shapes.push(Shape::Panel(Panel {
+        at: Point { x: across, y: down },
+        size: Size {
+          width: filled_2,
+          height: deep,
+        },
+        round: Round(round),
+        fill: wearing.fill,
+        edge: Border::None,
+      }));
     }
+    None => {}
+  }
 
-    Ok(Card { shapes, height: tall })
+  Ok(Card {
+    shapes,
+    height: tall,
+  })
 }
 
 impl Stack {
-    pub fn on(&self, at: Point<i32>) -> Result<Option<u32>, Never> {
-        Ok(self.touching.iter().find_map(|touching| match touching.panel.covers(at) {
-            Ok(console_core_shapes::Covers::Yes) => Some(touching.id),
-            Ok(console_core_shapes::Covers::No) | Err(_) => None,
-        }))
-    }
+  pub fn on(&self, at: Point<i32>) -> Result<Option<u32>, Never> {
+    Ok(
+      self
+        .touching
+        .iter()
+        .find_map(|touching| match touching.panel.covers(at) {
+          Ok(console_core_shapes::Covers::Yes) => Some(touching.id),
+          Ok(console_core_shapes::Covers::No) | Err(_) => None,
+        }),
+    )
+  }
 }
 
 pub fn cards(said: &[(CardContent<'_>, Measured)], wearing: &Wearing) -> Result<Stack, Never> {
-    let Ok(wide) = fitted::<i32, u32>(WIDE);
-    let mut shapes = Vec::new();
-    let mut touching = Vec::new();
-    let mut down: u32 = 0;
+  let Ok(wide) = fitted::<i32, u32>(WIDE);
+  let mut shapes = Vec::new();
+  let mut touching = Vec::new();
+  let mut down: u32 = 0;
 
-    let Ok(most) = index(MOST);
+  let Ok(most) = index(MOST);
 
-    for (saying, measured) in said.iter().take(most) {
-        let Ok(at) = fitted::<u32, i32>(down);
-        let Ok(card) = card(saying, measured, wearing, Point { x: 0, y: at });
+  for (saying, measured) in said.iter().take(most) {
+    let Ok(at) = fitted::<u32, i32>(down);
+    let Ok(card) = card(saying, measured, wearing, Point { x: 0, y: at });
 
-        touching.push(HitRegion {
-            id: saying.id,
-            panel: Panel {
-                at: Point { x: 0, y: at },
-                size: Size { width: wide, height: card.height },
-                round: Round(0),
-                fill: wearing.panel,
-                edge: Border::None,
-            },
-        });
-        shapes.extend(card.shapes);
-
-        let Ok(gap) = gap();
-
-        down = down.saturating_add(card.height).saturating_add(gap);
-    }
+    touching.push(HitRegion {
+      id: saying.id,
+      panel: Panel {
+        at: Point { x: 0, y: at },
+        size: Size {
+          width: wide,
+          height: card.height,
+        },
+        round: Round(0),
+        fill: wearing.panel,
+        edge: Border::None,
+      },
+    });
+    shapes.extend(card.shapes);
 
     let Ok(gap) = gap();
-    let tall = down.saturating_sub(gap);
 
-    Ok(Stack { shapes, room: Size { width: wide, height: tall }, touching })
+    down = down.saturating_add(card.height).saturating_add(gap);
+  }
+
+  let Ok(gap) = gap();
+  let tall = down.saturating_sub(gap);
+
+  Ok(Stack {
+    shapes,
+    room: Size {
+      width: wide,
+      height: tall,
+    },
+    touching,
+  })
 }
 
 fn step(over: u32) -> Result<i32, Never> {
-    let Ok(gap) = gap();
+  let Ok(gap) = gap();
 
-    fitted(over.saturating_add(gap))
+  fitted(over.saturating_add(gap))
 }
 
 fn gap() -> Result<u32, Never> {
-    fitted(BETWEEN)
+  fitted(BETWEEN)
 }
 
 fn deep() -> Result<u32, Never> {
-    fitted(DEEP)
+  fitted(DEEP)
 }
 
 fn twice(many: i32) -> Result<u32, Never> {
-    fitted(many.saturating_mul(2))
+  fitted(many.saturating_mul(2))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-    use super::*;
+  use super::*;
+  use std::collections::BTreeMap;
 
-    #[test]
-    fn a_reading_of_nothing_fills_nothing_and_a_full_one_fills_the_width() {
-        assert_eq!(filled(0), Ok(0));
-        assert_eq!(filled(100), x());
+  #[test]
+  fn a_reading_of_nothing_fills_nothing_and_a_full_one_fills_the_width() {
+    assert_eq!(filled(0), Ok(0));
+    assert_eq!(filled(100), x());
+  }
+
+  #[test]
+  fn a_reading_halfway_is_halfway_across() {
+    let Ok(across) = x();
+    let Ok(half) = filled(50);
+
+    assert!(
+      (half.saturating_mul(2).saturating_sub(across)).abs() <= 1,
+      "{half} of {across}"
+    );
+  }
+
+  #[test]
+  fn a_reading_past_either_end_is_the_end_rather_than_a_bar_off_the_card() {
+    assert_eq!(filled(-20), Ok(0));
+    assert_eq!(filled(4000), x());
+  }
+
+  pub(super) fn wearing() -> Result<Wearing, PaletteError> {
+    let mut spent = BTreeMap::new();
+
+    for (named, six) in [
+      ("panel", "372c3a"),
+      ("text", "f7e7f3"),
+      ("edge", "8a7d8e"),
+      ("soft", "e5cde0"),
+      ("coral", "ff8f8f"),
+      ("ground", "231b26"),
+      ("fill", "723b5f"),
+      ("night", "1a1320"),
+      ("pink", "f9b8d8"),
+    ] {
+      spent.insert(named.to_string(), six.to_string());
     }
 
-    #[test]
-    fn a_reading_halfway_is_halfway_across() {
-        let Ok(across) = x();
-        let Ok(half) = filled(50);
+    Wearing::out_of(&spent)
+  }
 
-        assert!((half.saturating_mul(2).saturating_sub(across)).abs() <= 1, "{half} of {across}");
+  pub(super) const MEASURED: Measured = Measured {
+    summary: Size {
+      width: 280,
+      height: 20,
+    },
+    body: None,
+  };
+
+  pub(super) const SAYING: CardContent<'static> = CardContent {
+    id: 1,
+    summary: "something happened",
+    body: "",
+    urgency: Urgency::Normal,
+    value: None,
+  };
+
+  #[test]
+  fn a_palette_missing_a_color_names_it_rather_than_drawing_in_black() {
+    let mut spent = BTreeMap::new();
+
+    spent.insert("panel".to_string(), "372c3a".to_string());
+
+    assert_eq!(Wearing::out_of(&spent), Err(PaletteError::Absent("text")));
+  }
+
+  #[test]
+  fn a_palette_spending_something_that_is_not_a_color_says_so() {
+    let mut spent = BTreeMap::new();
+
+    for named in SPENDS {
+      spent.insert(named.to_string(), "372c3a".to_string());
     }
 
-    #[test]
-    fn a_reading_past_either_end_is_the_end_rather_than_a_bar_off_the_card() {
-        assert_eq!(filled(-20), Ok(0));
-        assert_eq!(filled(4000), x());
-    }
+    spent.insert("edge".to_string(), "mauve".to_string());
 
-    pub(super) fn wearing() -> Result<Wearing, PaletteError> {
-        let mut spent = BTreeMap::new();
+    assert_eq!(
+      Wearing::out_of(&spent),
+      Err(PaletteError::Invalid {
+        color: "edge",
+        value: "mauve".to_string()
+      })
+    );
+  }
 
-        for (named, six) in [
-            ("panel", "372c3a"),
-            ("text", "f7e7f3"),
-            ("edge", "8a7d8e"),
-            ("soft", "e5cde0"),
-            ("coral", "ff8f8f"),
-            ("ground", "231b26"),
-            ("fill", "723b5f"),
-            ("night", "1a1320"),
-            ("pink", "f9b8d8"),
-        ] {
-            spent.insert(named.to_string(), six.to_string());
-        }
+  #[test]
+  fn a_card_is_its_edges_its_padding_and_what_it_says() {
+    let Ok(y) = height(&MEASURED, None);
 
-        Wearing::out_of(&spent)
-    }
+    let Ok(padding) = twice(PAD);
+    let Ok(edges) = twice(EDGE);
 
-    pub(super) const MEASURED: Measured = Measured { summary: Size { width: 280, height: 20 }, body: None };
+    assert_eq!(y, padding.saturating_add(edges).saturating_add(20));
+  }
 
-    pub(super) const SAYING: CardContent<'static> = CardContent {
-        id: 1,
-        summary: "something happened",
-        body: "",
-        urgency: Urgency::Normal,
-        value: None,
+  #[test]
+  fn a_reading_makes_a_card_taller_by_the_bar_and_the_gap_over_it() {
+    let Ok(without) = height(&MEASURED, None);
+    let Ok(with) = height(&MEASURED, Some(50));
+
+    let Ok(gap) = gap();
+    let Ok(deep) = deep();
+
+    assert_eq!(with.saturating_sub(without), gap.saturating_add(deep));
+  }
+
+  #[test]
+  fn a_card_with_nothing_but_a_summary_is_a_panel_and_a_run_of_words() -> Result<(), PaletteError>
+  {
+    let wearing = wearing()?;
+    let Ok(card) = card(&SAYING, &MEASURED, &wearing, Point { x: 0, y: 0 });
+
+    assert_eq!(card.shapes.len(), 2, "{:?}", card.shapes);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_reading_adds_the_bar_and_the_fill_over_it() -> Result<(), PaletteError> {
+    let wearing = wearing()?;
+    let saying = CardContent {
+      value: Some(50),
+      ..SAYING
     };
+    let Ok(card) = card(&saying, &MEASURED, &wearing, Point { x: 0, y: 0 });
 
-    #[test]
-    fn a_palette_missing_a_color_names_it_rather_than_drawing_in_black() {
-        let mut spent = BTreeMap::new();
+    assert_eq!(card.shapes.len(), 4, "{:?}", card.shapes);
 
-        spent.insert("panel".to_string(), "372c3a".to_string());
+    Ok(())
+  }
 
-        assert_eq!(Wearing::out_of(&spent), Err(PaletteError::Absent("text")));
-    }
+  #[test]
+  fn what_a_card_says_starts_inside_its_edge_and_its_padding() -> Result<(), PaletteError> {
+    let wearing = wearing()?;
+    let Ok(card) = card(&SAYING, &MEASURED, &wearing, Point { x: 0, y: 0 });
+    let inset = EDGE.saturating_add(PAD);
+    let words = card.shapes.iter().find_map(|shape| match shape {
+      Shape::Text(words) => Some(words.at),
+      Shape::Panel(_)
+      | Shape::Picture(_)
+      | Shape::Cropped(_)
+      | Shape::Line(_)
+      | Shape::Clip(_) => None,
+    });
 
-    #[test]
-    fn a_palette_spending_something_that_is_not_a_color_says_so() {
-        let mut spent = BTreeMap::new();
+    assert_eq!(words, Some(Point { x: inset, y: inset }));
 
-        for named in SPENDS {
-            spent.insert(named.to_string(), "372c3a".to_string());
-        }
+    Ok(())
+  }
 
-        spent.insert("edge".to_string(), "mauve".to_string());
+  #[test]
+  fn a_low_notification_wears_the_soft_color_on_both_its_edge_and_its_words()
+  -> Result<(), PaletteError> {
+    let wearing = wearing()?;
+    let saying = CardContent {
+      urgency: Urgency::Low,
+      ..SAYING
+    };
+    let Ok(card) = card(&saying, &MEASURED, &wearing, Point { x: 0, y: 0 });
+    let worn = &wearing;
+    let ink = card.shapes.iter().find_map(|shape| match shape {
+      Shape::Text(words) => Some(words.ink),
+      Shape::Panel(_)
+      | Shape::Picture(_)
+      | Shape::Cropped(_)
+      | Shape::Line(_)
+      | Shape::Clip(_) => None,
+    });
 
-        assert_eq!(
-            Wearing::out_of(&spent),
-            Err(PaletteError::Invalid { color: "edge", value: "mauve".to_string() })
-        );
-    }
+    assert_eq!(ink, Some(worn.soft));
 
-    #[test]
-    fn a_card_is_its_edges_its_padding_and_what_it_says() {
-        let Ok(y) = height(&MEASURED, None);
+    Ok(())
+  }
 
-        let Ok(padding) = twice(PAD);
-        let Ok(edges) = twice(EDGE);
+  #[test]
+  fn a_critical_notification_wears_coral_on_its_edge_and_keeps_its_words_readable()
+  -> Result<(), PaletteError> {
+    let wearing = wearing()?;
+    let saying = CardContent {
+      urgency: Urgency::Critical,
+      ..SAYING
+    };
+    let Ok(card) = card(&saying, &MEASURED, &wearing, Point { x: 0, y: 0 });
+    let worn = &wearing;
+    let edge = card.shapes.iter().find_map(|shape| match shape {
+      Shape::Panel(panel) => Some(panel.edge),
+      Shape::Text(_)
+      | Shape::Picture(_)
+      | Shape::Cropped(_)
+      | Shape::Line(_)
+      | Shape::Clip(_) => None,
+    });
+    let ink = card.shapes.iter().find_map(|shape| match shape {
+      Shape::Text(words) => Some(words.ink),
+      Shape::Panel(_)
+      | Shape::Picture(_)
+      | Shape::Cropped(_)
+      | Shape::Line(_)
+      | Shape::Clip(_) => None,
+    });
 
-        assert_eq!(y, padding.saturating_add(edges).saturating_add(20));
-    }
+    assert!(
+      matches!(edge, Some(console_core_shapes::Edge::Of { color, .. }) if color == worn.coral)
+    );
+    assert_eq!(ink, Some(worn.text));
 
-    #[test]
-    fn a_reading_makes_a_card_taller_by_the_bar_and_the_gap_over_it() {
-        let Ok(without) = height(&MEASURED, None);
-        let Ok(with) = height(&MEASURED, Some(50));
+    Ok(())
+  }
 
-        let Ok(gap) = gap();
-        let Ok(deep) = deep();
+  #[test]
+  fn no_more_than_three_cards_are_ever_drawn() -> Result<(), PaletteError> {
+    let wearing = wearing()?;
+    let said: Vec<(CardContent<'_>, Measured)> = (0..6).map(|_| (SAYING, MEASURED)).collect();
+    let Ok(stack) = cards(&said, &wearing);
 
-        assert_eq!(with.saturating_sub(without), gap.saturating_add(deep));
-    }
+    let Ok(shapes) = fitted::<_, u32>(stack.shapes.len());
+    let Ok(touching) = fitted::<_, u32>(stack.touching.len());
 
-    #[test]
-    fn a_card_with_nothing_but_a_summary_is_a_panel_and_a_run_of_words() -> Result<(), PaletteError> {
-        let wearing = wearing()?;
-        let Ok(card) = card(&SAYING, &MEASURED, &wearing, Point { x: 0, y: 0 });
+    assert_eq!(shapes, MOST.saturating_mul(2));
+    assert_eq!(touching, MOST);
 
-        assert_eq!(card.shapes.len(), 2, "{:?}", card.shapes);
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn a_thumb_on_the_second_card_is_on_the_second_card_and_not_the_first()
+  -> Result<(), PaletteError> {
+    let wearing = wearing()?;
+    let first = CardContent { id: 7, ..SAYING };
+    let second = CardContent { id: 9, ..SAYING };
+    let said = vec![(first, MEASURED), (second, MEASURED)];
+    let Ok(stack) = cards(&said, &wearing);
+    let Ok(one) = height(&MEASURED, None);
+    let Ok(gap) = gap();
+    let Ok(into) = fitted::<u32, i32>(one.saturating_add(gap).saturating_add(2));
+    let Ok(found) = stack.on(Point { x: 10, y: into });
 
-    #[test]
-    fn a_reading_adds_the_bar_and_the_fill_over_it() -> Result<(), PaletteError> {
-        let wearing = wearing()?;
-        let saying = CardContent { value: Some(50), ..SAYING };
-        let Ok(card) = card(&saying, &MEASURED, &wearing, Point { x: 0, y: 0 });
+    assert_eq!(found, Some(9));
 
-        assert_eq!(card.shapes.len(), 4, "{:?}", card.shapes);
+    use console_draw_surface::{KeyboardFocus, Keysym, layer_focus::Selection};
+    let actions: Vec<_> = stack.touching.iter().map(|region| region.id).collect();
+    let mut selected = Selection::Idle;
+    let now = std::time::Instant::now();
+    let Ok(()) = selected.enter(&actions, now);
+    let Ok(()) = selected.observe(KeyboardFocus::Here, now);
+    assert_eq!(selected.pressed(Keysym::Down, &actions), Ok(None));
+    assert_eq!(selected.pressed(Keysym::Return, &actions), Ok(found));
+    let Ok(()) = selected.keep(&[7]);
+    assert_eq!(selected.pressed(Keysym::Return, &[7]), Ok(Some(7)));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn what_a_card_says_starts_inside_its_edge_and_its_padding() -> Result<(), PaletteError> {
-        let wearing = wearing()?;
-        let Ok(card) = card(&SAYING, &MEASURED, &wearing, Point { x: 0, y: 0 });
-        let inset = EDGE.saturating_add(PAD);
-        let words = card.shapes.iter().find_map(|shape| match shape {
-            Shape::Text(words) => Some(words.at),
-            Shape::Panel(_) | Shape::Picture(_) | Shape::Cropped(_) | Shape::Line(_) | Shape::Clip(_) => None,
-        });
+  #[test]
+  fn a_thumb_in_the_gap_between_two_cards_is_on_neither() -> Result<(), PaletteError> {
+    let wearing = wearing()?;
+    let said = vec![
+      (SAYING, MEASURED),
+      (CardContent { id: 9, ..SAYING }, MEASURED),
+    ];
+    let Ok(stack) = cards(&said, &wearing);
+    let Ok(one) = height(&MEASURED, None);
+    let Ok(into) = fitted::<u32, i32>(one.saturating_add(1));
+    let Ok(found) = stack.on(Point { x: 10, y: into });
 
-        assert_eq!(words, Some(Point { x: inset, y: inset }));
+    assert_eq!(found, None);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_low_notification_wears_the_soft_color_on_both_its_edge_and_its_words() -> Result<(), PaletteError> {
-        let wearing = wearing()?;
-        let saying = CardContent { urgency: Urgency::Low, ..SAYING };
-        let Ok(card) = card(&saying, &MEASURED, &wearing, Point { x: 0, y: 0 });
-        let worn = &wearing;
-        let ink = card.shapes.iter().find_map(|shape| match shape {
-            Shape::Text(words) => Some(words.ink),
-            Shape::Panel(_) | Shape::Picture(_) | Shape::Cropped(_) | Shape::Line(_) | Shape::Clip(_) => None,
-        });
+  #[test]
+  fn a_stack_of_cards_is_as_tall_as_the_cards_and_the_gaps_between_them()
+  -> Result<(), PaletteError> {
+    let wearing = wearing()?;
+    let said = vec![(SAYING, MEASURED), (SAYING, MEASURED)];
+    let Ok(stack) = cards(&said, &wearing);
+    let Ok(one) = height(&MEASURED, None);
+    let Ok(width) = fitted::<i32, u32>(WIDE);
 
-        assert_eq!(ink, Some(worn.soft));
+    let Ok(gap) = gap();
 
-        Ok(())
-    }
+    assert_eq!(stack.room.height, one.saturating_mul(2).saturating_add(gap));
+    assert_eq!(stack.room.width, width);
 
-    #[test]
-    fn a_critical_notification_wears_coral_on_its_edge_and_keeps_its_words_readable() -> Result<(), PaletteError> {
-        let wearing = wearing()?;
-        let saying = CardContent { urgency: Urgency::Critical, ..SAYING };
-        let Ok(card) = card(&saying, &MEASURED, &wearing, Point { x: 0, y: 0 });
-        let worn = &wearing;
-        let edge = card.shapes.iter().find_map(|shape| match shape {
-            Shape::Panel(panel) => Some(panel.edge),
-            Shape::Text(_) | Shape::Picture(_) | Shape::Cropped(_) | Shape::Line(_) | Shape::Clip(_) => None,
-        });
-        let ink = card.shapes.iter().find_map(|shape| match shape {
-            Shape::Text(words) => Some(words.ink),
-            Shape::Panel(_) | Shape::Picture(_) | Shape::Cropped(_) | Shape::Line(_) | Shape::Clip(_) => None,
-        });
-
-        assert!(matches!(edge, Some(console_core_shapes::Edge::Of { color, .. }) if color == worn.coral));
-        assert_eq!(ink, Some(worn.text));
-
-        Ok(())
-    }
-
-    #[test]
-    fn no_more_than_three_cards_are_ever_drawn() -> Result<(), PaletteError> {
-        let wearing = wearing()?;
-        let said: Vec<(CardContent<'_>, Measured)> =
-            (0..6).map(|_| (SAYING, MEASURED)).collect();
-        let Ok(stack) = cards(&said, &wearing);
-
-        let Ok(shapes) = fitted::<_, u32>(stack.shapes.len());
-        let Ok(touching) = fitted::<_, u32>(stack.touching.len());
-
-        assert_eq!(shapes, MOST.saturating_mul(2));
-        assert_eq!(touching, MOST);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_thumb_on_the_second_card_is_on_the_second_card_and_not_the_first() -> Result<(), PaletteError> {
-        let wearing = wearing()?;
-        let first = CardContent { id: 7, ..SAYING };
-        let second = CardContent { id: 9, ..SAYING };
-        let said = vec![(first, MEASURED), (second, MEASURED)];
-        let Ok(stack) = cards(&said, &wearing);
-        let Ok(one) = height(&MEASURED, None);
-        let Ok(gap) = gap();
-        let Ok(into) = fitted::<u32, i32>(one.saturating_add(gap).saturating_add(2));
-        let Ok(found) = stack.on(Point { x: 10, y: into });
-
-        assert_eq!(found, Some(9));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_thumb_in_the_gap_between_two_cards_is_on_neither() -> Result<(), PaletteError> {
-        let wearing = wearing()?;
-        let said = vec![(SAYING, MEASURED), (CardContent { id: 9, ..SAYING }, MEASURED)];
-        let Ok(stack) = cards(&said, &wearing);
-        let Ok(one) = height(&MEASURED, None);
-        let Ok(into) = fitted::<u32, i32>(one.saturating_add(1));
-        let Ok(found) = stack.on(Point { x: 10, y: into });
-
-        assert_eq!(found, None);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_stack_of_cards_is_as_tall_as_the_cards_and_the_gaps_between_them() -> Result<(), PaletteError> {
-        let wearing = wearing()?;
-        let said = vec![(SAYING, MEASURED), (SAYING, MEASURED)];
-        let Ok(stack) = cards(&said, &wearing);
-        let Ok(one) = height(&MEASURED, None);
-        let Ok(width) = fitted::<i32, u32>(WIDE);
-
-        let Ok(gap) = gap();
-
-        assert_eq!(stack.room.height, one.saturating_mul(2).saturating_add(gap));
-        assert_eq!(stack.room.width, width);
-
-        Ok(())
-    }
+    Ok(())
+  }
 }
 
 #[cfg(test)]
 mod the_stack {
-    use super::*;
-    use super::tests::{MEASURED, SAYING, wearing};
+  use super::tests::{MEASURED, SAYING, wearing};
+  use super::*;
 
-    #[test]
-    fn the_last_card_ends_exactly_where_the_stack_does() -> Result<(), PaletteError> {
-        let wearing = wearing()?;
-        let said = vec![
-            (SAYING, MEASURED),
-            (SAYING, Measured { summary: Size { width: 280, height: 44 }, body: None }),
-            (SAYING, MEASURED),
-        ];
-        let Ok(stack) = cards(&said, &wearing);
-        let ended = stack.touching.iter().map(|touching| {
-            let Ok(height) = fitted::<u32, i32>(touching.panel.size.height);
+  #[test]
+  fn the_last_card_ends_exactly_where_the_stack_does() -> Result<(), PaletteError> {
+    let wearing = wearing()?;
+    let said = vec![
+      (SAYING, MEASURED),
+      (
+        SAYING,
+        Measured {
+          summary: Size {
+            width: 280,
+            height: 44,
+          },
+          body: None,
+        },
+      ),
+      (SAYING, MEASURED),
+    ];
+    let Ok(stack) = cards(&said, &wearing);
+    let ended = stack
+      .touching
+      .iter()
+      .map(|touching| {
+        let Ok(height) = fitted::<u32, i32>(touching.panel.size.height);
 
-            touching.panel.at.y.saturating_add(height)
-        }).max();
-        let Ok(room) = fitted::<u32, i32>(stack.room.height);
+        touching.panel.at.y.saturating_add(height)
+      })
+      .max();
+    let Ok(room) = fitted::<u32, i32>(stack.room.height);
 
-        assert_eq!(ended, Some(room), "the stack is not as tall as what is in it");
+    assert_eq!(
+      ended,
+      Some(room),
+      "the stack is not as tall as what is in it"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

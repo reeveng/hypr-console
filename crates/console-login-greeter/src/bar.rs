@@ -28,77 +28,84 @@ use console_status_bar::reading::{Reading, StatusItem, read_level};
 use crate::greeting::GreeterEvent;
 
 fn read(item: StatusItem) -> Result<Option<Reading>, Never> {
-    match item {
-        StatusItem::Sound => read_level(),
-        StatusItem::Battery | StatusItem::Bluetooth | StatusItem::Network => item.reading().map(Some),
-    }
+  match item {
+    StatusItem::Sound => read_level(),
+    StatusItem::Battery | StatusItem::Bluetooth | StatusItem::Network => item.reading().map(Some),
+  }
 }
 
 fn told(asked: LockScreenBarEvent) -> Result<GreeterEvent, Never> {
-    Ok(GreeterEvent::Bar(asked))
+  Ok(GreeterEvent::Bar(asked))
 }
 
 pub fn read_all() -> Result<Vec<GreeterEvent>, Never> {
-    let Ok(now) = clock::now();
-    let Ok(ticked) = told(LockScreenBarEvent::Ticked(now));
-    let mut read_out = vec![ticked];
+  let Ok(now) = clock::now();
+  let Ok(ticked) = told(LockScreenBarEvent::Ticked(now));
+  let mut read_out = vec![ticked];
 
-    for item in READ {
-        let Ok(reading) = read(item);
-        let Ok(said) = told(LockScreenBarEvent::Read(item, reading));
+  for item in READ {
+    let Ok(reading) = read(item);
+    let Ok(said) = told(LockScreenBarEvent::Read(item, reading));
 
-        read_out.push(said);
-    }
+    read_out.push(said);
+  }
 
-    Ok(read_out)
+  Ok(read_out)
 }
 
 pub fn again(was: Standing) -> Result<(Standing, Vec<GreeterEvent>), Never> {
-    let Ok(now) = clock::current();
+  let Ok(now) = clock::current();
 
-    match now == was {
-        true => Ok((now, Vec::new())),
-        false => {
-            let Ok(read_out) = read_all();
+  match ::core::primitive::bool::then_some(now == was, ()) {
+    ::core::option::Option::Some(()) => Ok((now, Vec::new())),
+    ::core::option::Option::None => {
+      let Ok(read_out) = read_all();
 
-            Ok((now, read_out))
-        }
+      Ok((now, read_out))
     }
+  }
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit093_no_inherited_environment",
+  allow(
+    explicit093_no_inherited_environment,
+    reason = "the volume command reaches the person's sound server through the environment the greeter was started with, so a cleared environment would leave it unable to find one"
+  )
+)]
 fn ran(mut command: Command) -> Result<(), Never> {
-    command.stdin(Stdio::null()).stdout(Stdio::null());
+  command.stdin(Stdio::null()).stdout(Stdio::null());
 
-    match command.status() {
-        Ok(status) => match status.success() {
-            true => {}
-            false => eprintln!("{command:?} ended {status}"),
-        },
-        Err(why) => eprintln!("{command:?} would not start: {why}"),
-    }
+  match command.status() {
+    Ok(status) => match ::core::primitive::bool::then_some(status.success(), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => eprintln!("{command:?} ended {status}"),
+    },
+    Err(why) => eprintln!("{command:?} would not start: {why}"),
+  }
 
-    Ok(())
+  Ok(())
 }
 
 pub fn carried(effect: LockScreenBarEffect) -> Result<Vec<GreeterEvent>, Never> {
-    match effect {
-        LockScreenBarEffect::Volume(volume) => {
-            let Ok(command) = volume.command();
-            let Ok(()) = ran(command);
+  match effect {
+    LockScreenBarEffect::Volume(volume) => {
+      let Ok(command) = volume.command();
+      let Ok(()) = ran(command);
 
-            Ok(Vec::new())
-        }
-        LockScreenBarEffect::Power(power) => {
-            let Ok(command) = power.command();
-            let Ok(()) = ran(command);
-
-            Ok(Vec::new())
-        }
-        LockScreenBarEffect::Read(item) => {
-            let Ok(reading) = read(item);
-            let Ok(said) = told(LockScreenBarEvent::Read(item, reading));
-
-            Ok(vec![said])
-        }
+      Ok(Vec::new())
     }
+    LockScreenBarEffect::Power(power) => {
+      let Ok(command) = power.command();
+      let Ok(()) = ran(command);
+
+      Ok(Vec::new())
+    }
+    LockScreenBarEffect::Read(item) => {
+      let Ok(reading) = read(item);
+      let Ok(said) = told(LockScreenBarEvent::Read(item, reading));
+
+      Ok(vec![said])
+    }
+  }
 }

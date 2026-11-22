@@ -25,79 +25,81 @@ use console_core_words::Words;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Kind {
-    #[words(says = "picture")]
-    Picture,
-    #[words(says = "film")]
-    Film,
+  #[words(says = "picture")]
+  Picture,
+  #[words(says = "film")]
+  Film,
 }
 
 pub fn of(mime: &str) -> Result<Option<Kind>, Never> {
-    Ok(match (mime.starts_with("image/"), mime.starts_with("video/")) {
-        (true, true) | (true, false) => Some(Kind::Picture),
-        (false, true) => Some(Kind::Film),
-        (false, false) => None,
-    })
+  Ok(
+    match (mime.starts_with("image/"), mime.starts_with("video/")) {
+      (true, true) | (true, false) => Some(Kind::Picture),
+      (false, true) => Some(Kind::Film),
+      (false, false) => None,
+    },
+  )
 }
 
 pub fn shows(mime: &str) -> Result<Shows, Never> {
-    let Ok(of) = of(mime);
+  let Ok(of) = of(mime);
 
-    Ok(match of {
-        Some(_) => Shows::It,
-        None => Shows::Not,
-    })
+  Ok(match of {
+    Some(_) => Shows::It,
+    None => Shows::Not,
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shows {
-    It,
-    Not,
+  It,
+  Not,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_photograph_is_a_picture_and_a_film_is_a_film() {
-        assert_eq!(of("image/jpeg"), Ok(Some(Kind::Picture)));
-        assert_eq!(of("image/png"), Ok(Some(Kind::Picture)));
-        assert_eq!(of("video/mp4"), Ok(Some(Kind::Film)));
-        assert_eq!(of("video/matroska"), Ok(Some(Kind::Film)));
+  #[test]
+  fn a_photograph_is_a_picture_and_a_film_is_a_film() {
+    assert_eq!(of("image/jpeg"), Ok(Some(Kind::Picture)));
+    assert_eq!(of("image/png"), Ok(Some(Kind::Picture)));
+    assert_eq!(of("video/mp4"), Ok(Some(Kind::Film)));
+    assert_eq!(of("video/matroska"), Ok(Some(Kind::Film)));
+  }
+
+  #[test]
+  fn a_type_nothing_here_names_is_still_placed_by_its_prefix() {
+    assert_eq!(of("image/x-canon-cr2"), Ok(Some(Kind::Picture)));
+    assert_eq!(of("video/x-ms-wmv"), Ok(Some(Kind::Film)));
+  }
+
+  #[test]
+  fn music_and_writing_are_not_this_panels_business() {
+    assert_eq!(of("audio/mpeg"), Ok(None));
+    assert_eq!(of("audio/x-opus+ogg"), Ok(None));
+    assert_eq!(of("text/plain"), Ok(None));
+    assert_eq!(of("inode/directory"), Ok(None));
+    assert_eq!(shows("audio/flac"), Ok(Shows::Not));
+  }
+
+  #[test]
+  fn the_prefix_is_the_front_of_the_type_and_not_a_word_in_it() {
+    assert_eq!(of("application/vnd.image-thing"), Ok(None));
+    assert_eq!(of("text/video-script"), Ok(None));
+    assert_eq!(of(""), Ok(None));
+  }
+
+  #[test]
+  fn each_kind_says_what_it_is_in_a_word() {
+    assert_eq!(Kind::Picture.says(), Ok("picture"));
+    assert_eq!(Kind::Film.says(), Ok("film"));
+
+    for kind in [Kind::Picture, Kind::Film] {
+      let Ok(said) = kind.says();
+
+      assert!(!said.is_empty());
+      assert_eq!(said, said.to_lowercase(), "said at the top of a sentence");
     }
-
-    #[test]
-    fn a_type_nothing_here_names_is_still_placed_by_its_prefix() {
-        assert_eq!(of("image/x-canon-cr2"), Ok(Some(Kind::Picture)));
-        assert_eq!(of("video/x-ms-wmv"), Ok(Some(Kind::Film)));
-    }
-
-    #[test]
-    fn music_and_writing_are_not_this_panels_business() {
-        assert_eq!(of("audio/mpeg"), Ok(None));
-        assert_eq!(of("audio/x-opus+ogg"), Ok(None));
-        assert_eq!(of("text/plain"), Ok(None));
-        assert_eq!(of("inode/directory"), Ok(None));
-        assert_eq!(shows("audio/flac"), Ok(Shows::Not));
-    }
-
-    #[test]
-    fn the_prefix_is_the_front_of_the_type_and_not_a_word_in_it() {
-        assert_eq!(of("application/vnd.image-thing"), Ok(None));
-        assert_eq!(of("text/video-script"), Ok(None));
-        assert_eq!(of(""), Ok(None));
-    }
-
-    #[test]
-    fn each_kind_says_what_it_is_in_a_word() {
-        assert_eq!(Kind::Picture.says(), Ok("picture"));
-        assert_eq!(Kind::Film.says(), Ok("film"));
-
-        for kind in [Kind::Picture, Kind::Film] {
-            let Ok(said) = kind.says();
-
-            assert!(!said.is_empty());
-            assert_eq!(said, said.to_lowercase(), "said at the top of a sentence");
-        }
-    }
+  }
 }

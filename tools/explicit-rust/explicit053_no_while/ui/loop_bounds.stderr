@@ -1,0 +1,90 @@
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/loop_bounds.rs:15:5
+   |
+LL | /     while pos < data.len() {
+LL | |         data[pos] = 0;
+LL | |         pos += 1;
+LL | |     }
+   | |_____^
+   |
+   = note: `#[deny(explicit053_no_while)]` on by default
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL ~     for _ in (::core::ops::Range { start: pos, end: data.len() }) {
+LL |         data[pos] = 0;
+LL ~         pos = (::core::num::Wrapping(pos) + ::core::num::Wrapping(1)).0;
+   |
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/loop_bounds.rs:23:5
+   |
+LL | /     while pos < data.len() {
+LL | |         pos = pos.wrapping_add(1);
+LL | |     }
+   | |_____^
+   |
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL -     while pos < data.len() {
+LL +     for _ in (::core::ops::Range { start: pos, end: data.len() }) {
+   |
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/loop_bounds.rs:31:5
+   |
+LL | /     while position < bounds.end {
+LL | |         position = position.wrapping_add(1);
+LL | |     }
+   | |_____^
+   |
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL -     while position < bounds.end {
+LL +     for _ in (::core::ops::Range { start: position, end: bounds.end }) {
+   |
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/loop_bounds.rs:39:5
+   |
+LL | /     'positions: while position < (match index(width) {
+LL | |         Ok(converted) => converted,
+LL | |     }) {
+LL | |         if position == stop {
+...  |
+LL | |         position += 1;
+LL | |     }
+   | |_____^
+   |
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL ~     'positions: for _ in (::core::ops::Range { start: position, end: (match index(width) {
+LL +         Ok(converted) => converted,
+LL ~     }) }) {
+LL |         if position == stop {
+LL |             break 'positions;
+LL |         }
+LL ~         position = (::core::num::Wrapping(position) + ::core::num::Wrapping(1)).0;
+   |
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/loop_bounds.rs:52:5
+   |
+LL | /     while position < {
+LL | |         let Ok(converted) = index(width);
+LL | |         converted
+LL | |     } {
+LL | |         position += 1;
+LL | |     }
+   | |_____^
+   |
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL ~     for _ in (::core::ops::Range { start: position, end: {
+LL +         let Ok(converted) = index(width);
+LL +         converted
+LL ~     } }) {
+LL ~         position = (::core::num::Wrapping(position) + ::core::num::Wrapping(1)).0;
+   |
+
+error: aborting due to 5 previous errors
+

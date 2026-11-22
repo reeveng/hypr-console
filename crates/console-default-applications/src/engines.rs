@@ -10,292 +10,342 @@
 use console_core_never::Never;
 
 pub struct Known {
-    pub called: &'static str,
-    pub given: bool,
+  pub called: &'static str,
+  pub given: bool,
 }
 
 pub struct Engine {
-    pub key: &'static str,
-    pub says: &'static str,
-    pub asks: &'static str,
-    pub firefox: Known,
-    pub librewolf: Known,
+  pub key: &'static str,
+  pub says: &'static str,
+  pub asks: &'static str,
+  pub firefox: Known,
+  pub librewolf: Known,
 }
 
 pub const EVERY: [Engine; 3] = [
-    Engine {
-        key: "duckduckgo",
-        says: "DuckDuckGo",
-        asks: "https://duckduckgo.com/?q={}",
-        firefox: Known { called: "DuckDuckGo", given: false },
-        librewolf: Known { called: "DuckDuckGo No-AI", given: false },
+  Engine {
+    key: "duckduckgo",
+    says: "DuckDuckGo",
+    asks: "https://duckduckgo.com/?q={}",
+    firefox: Known {
+      called: "DuckDuckGo",
+      given: false,
     },
-    Engine {
-        key: "startpage",
-        says: "Startpage",
-        asks: "https://www.startpage.com/sp/search?query={}",
-        firefox: Known { called: "Startpage", given: true },
-        librewolf: Known { called: "Startpage", given: false },
+    librewolf: Known {
+      called: "DuckDuckGo No-AI",
+      given: false,
     },
-    Engine {
-        key: "wikipedia",
-        says: "Wikipedia",
-        asks: "https://en.wikipedia.org/w/index.php?search={}",
-        firefox: Known { called: "Wikipedia (en)", given: false },
-        librewolf: Known { called: "Wikipedia (en)", given: false },
+  },
+  Engine {
+    key: "startpage",
+    says: "Startpage",
+    asks: "https://www.startpage.com/sp/search?query={}",
+    firefox: Known {
+      called: "Startpage",
+      given: true,
     },
+    librewolf: Known {
+      called: "Startpage",
+      given: false,
+    },
+  },
+  Engine {
+    key: "wikipedia",
+    says: "Wikipedia",
+    asks: "https://en.wikipedia.org/w/index.php?search={}",
+    firefox: Known {
+      called: "Wikipedia (en)",
+      given: false,
+    },
+    librewolf: Known {
+      called: "Wikipedia (en)",
+      given: false,
+    },
+  },
 ];
 
 impl Engine {
-    pub fn search_url(&self, question: &str) -> Result<String, Never> {
-        Ok(self.asks.replace("{}", question))
-    }
+  pub fn search_url(&self, question: &str) -> Result<String, Never> {
+    Ok(self.asks.replace("{}", question))
+  }
 }
 
 pub const UNLESS_TOLD: &str = "duckduckgo";
 
 pub fn current() -> Result<String, Never> {
-    console_defaults::current_value(console_defaults::Choice { setting: "search", unless_told: UNLESS_TOLD, known: one })
+  console_defaults::current_value(console_defaults::Choice {
+    setting: "search",
+    unless_told: UNLESS_TOLD,
+    known: one,
+  })
 }
 
 pub fn one(key: &str) -> Result<Option<&'static Engine>, Never> {
-    Ok(EVERY.iter().find(|engine| engine.key == key))
+  Ok(EVERY.iter().find(|engine| engine.key == key))
 }
 
 pub fn choose(key: &str) -> Result<(), Never> {
-    console_defaults::set(console_defaults::Setting { key: "search", value: key })
+  console_defaults::set(console_defaults::Setting {
+    key: "search",
+    value: key,
+  })
 }
 
 pub fn address(said: &str, engine: &Engine) -> Result<Option<String>, Never> {
-    let said = said.trim();
+  let said_2 = said.trim();
 
-    match said.is_empty() {
-        true => return Ok(None),
-        false => {}
+  match ::core::primitive::bool::then_some(said_2.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return Ok(None),
+    ::core::option::Option::None => {}
+  }
+
+  let typed = a_site(said_2)?;
+
+  Ok(Some(match typed {
+    Typed::ASite => with_a_scheme(said_2)?,
+    Typed::AQuestion => {
+      let question = encoded(said_2)?;
+
+      engine.search_url(&question)?
     }
-
-    let typed = a_site(said)?;
-
-    Ok(Some(match typed {
-        Typed::ASite => with_a_scheme(said)?,
-        Typed::AQuestion => {
-            let question = encoded(said)?;
-
-            engine.search_url(&question)?
-        }
-    }))
+  }))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Typed {
-    ASite,
-    AQuestion,
+  ASite,
+  AQuestion,
 }
 
 fn a_site(said: &str) -> Result<Typed, Never> {
-    let mut words = said.split_whitespace();
+  let mut words = said.split_whitespace();
 
-    match (words.next(), words.next()) {
-        (Some(_), None) => {}
-        (Some(_), Some(_)) | (None, None) | (None, Some(_)) => return Ok(Typed::AQuestion),
-    }
+  match (words.next(), words.next()) {
+    (Some(_), None) => {}
+    (Some(_), Some(_)) | (None, None) | (None, Some(_)) => return Ok(Typed::AQuestion),
+  }
 
-    let before = match said.split(['/', '?', '#']).next() {
-        Some(before) => before,
-        None => said,
-    };
+  let before = match said.split(['/', '?', '#']).next() {
+    Some(before) => before,
+    None => said,
+  };
 
-    let host = a_host(before)?;
+  let host = a_host(before)?;
 
-    Ok(match said.contains("://") || host == Typed::ASite {
-        true => Typed::ASite,
-        false => Typed::AQuestion,
-    })
+  Ok(match ::core::primitive::bool::then_some(said.contains("://") || host == Typed::ASite, ()) {
+    ::core::option::Option::Some(()) => Typed::ASite,
+    ::core::option::Option::None => Typed::AQuestion,
+  })
 }
 
 fn a_host(said: &str) -> Result<Typed, Never> {
-    let labels: Vec<&str> = said.split('.').collect();
+  let labels: Vec<&str> = said.split('.').collect();
 
-    let last = match labels.last() {
-        Some(last) => last,
-        None => return Ok(Typed::AQuestion),
-    };
+  let last = match labels.last() {
+    Some(last) => last,
+    None => return Ok(Typed::AQuestion),
+  };
 
-    let named = labels.len() > 1
-        && labels.iter().all(|label| !label.is_empty())
-        && last.len() > 1
-        && last.chars().all(char::is_alphabetic);
+  let named = labels.len() > 1
+    && labels.iter().all(|label| !label.is_empty())
+    && last.len() > 1
+    && last.chars().all(char::is_alphabetic);
 
-    Ok(match named {
-        true => Typed::ASite,
-        false => Typed::AQuestion,
-    })
+  Ok(match ::core::primitive::bool::then_some(named, ()) {
+    ::core::option::Option::Some(()) => Typed::ASite,
+    ::core::option::Option::None => Typed::AQuestion,
+  })
 }
 
 fn with_a_scheme(said: &str) -> Result<String, Never> {
-    Ok(match said.contains("://") {
-        true => said.to_string(),
-        false => format!("https://{said}"),
-    })
+  Ok(match ::core::primitive::bool::then_some(said.contains("://"), ()) {
+    ::core::option::Option::Some(()) => said.to_string(),
+    ::core::option::Option::None => format!("https://{said}"),
+  })
 }
 
 fn encoded(said: &str) -> Result<String, Never> {
-    Ok(said
-        .bytes()
-        .map(|byte| match byte {
-            b'-' | b'.' | b'0'..=b'9' | b'A'..=b'Z' | b'_' | b'a'..=b'z' | b'~' => {
-                char::from(byte).to_string()
-            }
-            _ => format!("%{byte:02X}"),
-        })
-        .collect())
+  Ok(
+    said
+      .bytes()
+      .map(|byte| match byte {
+        b'-' | b'.' | b'0'..=b'9' | b'A'..=b'Z' | b'_' | b'a'..=b'z' | b'~' => {
+          char::from(byte).to_string()
+        }
+        _ => format!("%{byte:02X}"),
+      })
+      .collect(),
+  )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    fn duck() -> Result<&'static Engine, Box<dyn Error>> {
-        let Ok(one) = one(UNLESS_TOLD);
-        let engine = one.ok_or("the one used when nothing has been chosen")?;
+  fn duck() -> Result<&'static Engine, Box<dyn Error>> {
+    let Ok(one) = one(UNLESS_TOLD);
+    let engine = one.ok_or("the one used when nothing has been chosen")?;
 
-        Ok(engine)
+    Ok(engine)
+  }
+
+  #[test]
+  fn a_question_is_searched_for() -> Result<(), Box<dyn Error>> {
+    let duck = duck()?;
+
+    assert_eq!(
+      address("how tall is a giraffe", duck),
+      Ok(Some(
+        "https://duckduckgo.com/?q=how%20tall%20is%20a%20giraffe".to_string()
+      ))
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_question_that_is_not_letters_is_still_a_question() -> Result<(), Box<dyn Error>> {
+    let duck = duck()?;
+
+    assert_eq!(
+      address("100% & up", duck),
+      Ok(Some(
+        "https://duckduckgo.com/?q=100%25%20%26%20up".to_string()
+      ))
+    );
+
+    let Ok(asked) = address("caffè", duck);
+    let caffe = asked.ok_or("something")?;
+
+    assert!(
+      caffe.ends_with("caff%C3%A8"),
+      "its bytes, not its letters: {caffe}"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_engine_chosen_is_the_one_asked() -> Result<(), Box<dyn Error>> {
+    for (key, starts) in [
+      ("startpage", "https://www.startpage.com/"),
+      ("wikipedia", "https://en.wikipedia.org/"),
+    ] {
+      let Ok(known) = one(key);
+      let engine = known.ok_or(key)?;
+      let Ok(resolved) = address("beans", engine);
+      let asked = resolved.ok_or("something")?;
+
+      assert!(asked.starts_with(starts), "{key} asked {asked}");
     }
 
-    #[test]
-    fn a_question_is_searched_for() -> Result<(), Box<dyn Error>> {
-        let duck = duck()?;
+    Ok(())
+  }
 
-        assert_eq!(
-            address("how tall is a giraffe", duck),
-            Ok(Some("https://duckduckgo.com/?q=how%20tall%20is%20a%20giraffe".to_string()))
-        );
+  #[test]
+  fn an_address_is_opened_rather_than_searched_for() -> Result<(), Box<dyn Error>> {
+    let duck = duck()?;
 
-        Ok(())
+    assert_eq!(
+      address("codincod.com", duck),
+      Ok(Some("https://codincod.com".to_string()))
+    );
+    assert_eq!(
+      address("codincod.com/puzzles?page=2", duck),
+      Ok(Some("https://codincod.com/puzzles?page=2".to_string()))
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn an_address_that_says_its_own_scheme_keeps_it() -> Result<(), Box<dyn Error>> {
+    let duck = duck()?;
+
+    assert_eq!(
+      address("http://192.168.1.1", duck),
+      Ok(Some("http://192.168.1.1".to_string()))
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn what_is_not_quite_an_address_is_a_question() -> Result<(), Box<dyn Error>> {
+    let duck = duck()?;
+
+    for said in [
+      "3.14",
+      "st. peter",
+      "hello world",
+      "wofi",
+      "a.b",
+      "one..com",
+    ] {
+      let Ok(answered) = address(said, duck);
+      let asked = answered.ok_or("something")?;
+      let Ok(question) = encoded(said);
+      let Ok(expected) = duck.search_url(&question);
+
+      assert_eq!(asked, expected, "{said:?} was opened as a site: {asked}");
     }
 
-    #[test]
-    fn a_question_that_is_not_letters_is_still_a_question() -> Result<(), Box<dyn Error>> {
-        let duck = duck()?;
+    Ok(())
+  }
 
-        assert_eq!(
-            address("100% & up", duck),
-            Ok(Some("https://duckduckgo.com/?q=100%25%20%26%20up".to_string()))
-        );
+  #[test]
+  fn nothing_typed_means_nothing() -> Result<(), Box<dyn Error>> {
+    let duck = duck()?;
 
-        let Ok(asked) = address("caffè", duck);
-        let caffe = asked.ok_or("something")?;
+    assert_eq!(address("", duck), Ok(None));
+    assert_eq!(address("   ", duck), Ok(None));
 
-        assert!(caffe.ends_with("caff%C3%A8"), "its bytes, not its letters: {caffe}");
+    Ok(())
+  }
 
-        Ok(())
+  #[test]
+  fn the_one_used_when_nothing_has_been_chosen_is_one_of_them() {
+    assert_eq!(one(UNLESS_TOLD).map(|found| found.is_some()), Ok(true));
+    assert_eq!(one("askjeeves").map(|found| found.is_none()), Ok(true));
+  }
+
+  #[test]
+  fn every_engine_has_somewhere_to_put_the_question() {
+    for engine in &EVERY {
+      let Ok(asked) = engine.search_url("beans");
+
+      assert!(
+        engine.asks.contains("{}"),
+        "{} has nowhere to put it",
+        engine.says
+      );
+      assert!(!asked.contains("{}"), "{} kept it", engine.says);
     }
+  }
 
-    #[test]
-    fn the_engine_chosen_is_the_one_asked() -> Result<(), Box<dyn Error>> {
-        for (key, starts) in [("startpage", "https://www.startpage.com/"), ("wikipedia", "https://en.wikipedia.org/")] {
-            let Ok(known) = one(key);
-            let engine = known.ok_or(key)?;
-            let Ok(asked) = address("beans", engine);
-            let asked = asked.ok_or("something")?;
+  #[test]
+  fn an_engine_a_browser_already_has_is_not_handed_to_it() -> Result<(), Box<dyn Error>> {
+    let Ok(found) = one("duckduckgo");
+    let duckduckgo = found.ok_or("duckduckgo")?;
 
-            assert!(asked.starts_with(starts), "{key} asked {asked}");
-        }
+    assert!(!duckduckgo.librewolf.given, "librewolf ships it");
+    assert_eq!(duckduckgo.librewolf.called, "DuckDuckGo No-AI");
 
-        Ok(())
-    }
+    let Ok(found_2) = one("startpage");
+    let startpage = found_2.ok_or("startpage")?;
 
-    #[test]
-    fn an_address_is_opened_rather_than_searched_for() -> Result<(), Box<dyn Error>> {
-        let duck = duck()?;
+    assert!(startpage.firefox.given, "firefox does not ship it");
 
-        assert_eq!(address("codincod.com", duck), Ok(Some("https://codincod.com".to_string())));
-        assert_eq!(
-            address("codincod.com/puzzles?page=2", duck),
-            Ok(Some("https://codincod.com/puzzles?page=2".to_string()))
-        );
+    Ok(())
+  }
 
-        Ok(())
-    }
-
-    #[test]
-    fn an_address_that_says_its_own_scheme_keeps_it() -> Result<(), Box<dyn Error>> {
-        let duck = duck()?;
-
-        assert_eq!(
-            address("http://192.168.1.1", duck),
-            Ok(Some("http://192.168.1.1".to_string()))
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn what_is_not_quite_an_address_is_a_question() -> Result<(), Box<dyn Error>> {
-        let duck = duck()?;
-
-        for said in ["3.14", "st. peter", "hello world", "wofi", "a.b", "one..com"] {
-            let Ok(answered) = address(said, duck);
-            let asked = answered.ok_or("something")?;
-
-            assert!(
-                asked.starts_with("https://duckduckgo.com/?q="),
-                "{said:?} was opened as a site: {asked}"
-            );
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn nothing_typed_means_nothing() -> Result<(), Box<dyn Error>> {
-        let duck = duck()?;
-
-        assert_eq!(address("", duck), Ok(None));
-        assert_eq!(address("   ", duck), Ok(None));
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_one_used_when_nothing_has_been_chosen_is_one_of_them() {
-        assert_eq!(one(UNLESS_TOLD).map(|found| found.is_some()), Ok(true));
-        assert_eq!(one("askjeeves").map(|found| found.is_none()), Ok(true));
-    }
-
-    #[test]
-    fn every_engine_has_somewhere_to_put_the_question() {
-        for engine in &EVERY {
-            let Ok(asked) = engine.search_url("beans");
-
-            assert!(engine.asks.contains("{}"), "{} has nowhere to put it", engine.says);
-            assert!(!asked.contains("{}"), "{} kept it", engine.says);
-        }
-    }
-
-    #[test]
-    fn an_engine_a_browser_already_has_is_not_handed_to_it() -> Result<(), Box<dyn Error>> {
-        let Ok(found) = one("duckduckgo");
-        let duckduckgo = found.ok_or("duckduckgo")?;
-
-        assert!(!duckduckgo.librewolf.given, "librewolf ships it");
-        assert_eq!(duckduckgo.librewolf.called, "DuckDuckGo No-AI");
-
-        let Ok(found) = one("startpage");
-        let startpage = found.ok_or("startpage")?;
-
-        assert!(startpage.firefox.given, "firefox does not ship it");
-
-        Ok(())
-    }
-
-    #[test]
-    fn every_engine_is_named_once_and_in_order() {
-        let keys: Vec<&str> = EVERY.iter().map(|engine| engine.key).collect();
-        let mut sorted = keys.clone();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(keys, sorted, "the engines are out of order or named twice");
-    }
+  #[test]
+  fn every_engine_is_named_once_and_in_order() {
+    let keys: Vec<&str> = EVERY.iter().map(|engine| engine.key).collect();
+    let mut sorted = keys.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(keys, sorted, "the engines are out of order or named twice");
+  }
 }

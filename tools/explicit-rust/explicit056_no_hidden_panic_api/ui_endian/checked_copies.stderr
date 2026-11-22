@@ -1,0 +1,48 @@
+warning: `copy_from_slice` answers two lengths that do not agree with a panic
+  --> $DIR/checked_copies.rs:14:5
+   |
+LL | /     (*<[u8]>::get_mut(&mut *dst, start..(std::num::Wrapping(start) + std::num::Wrapping(2)).0)
+LL | |         .ok_or(CopyError::Bounds)?)
+LL | |         .copy_from_slice(&{
+LL | |             *counter += 1;
+LL | |             0x1234_u16
+LL | |         }.to_le_bytes());
+   | |________________________^
+   |
+   = note: `#[warn(explicit056_no_hidden_panic_api)]` on by default
+help: check the destination as a fixed byte array before copying
+   |
+LL ~     {
+LL +       let explicit_byte_copy_destination = <[u8]>::get_mut(&mut *dst, start..)
+LL +         .and_then(<[_]>::first_chunk_mut::<2>)
+LL +         .ok_or(CopyError::Bounds)?;
+LL +       *explicit_byte_copy_destination = {
+LL +             *counter += 1;
+LL +             0x1234_u16
+LL +         }.to_le_bytes();
+LL ~     };
+   |
+
+warning: `copy_from_slice` answers two lengths that do not agree with a panic
+  --> $DIR/checked_copies.rs:24:5
+   |
+LL | /     (*{
+LL | |         let checked_value = <[_]>::get_mut(&mut *dst, start..start.wrapping_add(4))
+LL | |             .ok_or(CopyError::Bounds)?;
+LL | |         checked_value
+LL | |     })
+LL | |     .copy_from_slice(&value.to_be_bytes());
+   | |__________________________________________^
+   |
+help: check the destination as a fixed byte array before copying
+   |
+LL ~     {
+LL +       let explicit_byte_copy_destination = <[_]>::get_mut(&mut *dst, start..)
+LL +         .and_then(<[_]>::first_chunk_mut::<4>)
+LL +         .ok_or(CopyError::Bounds)?;
+LL +       *explicit_byte_copy_destination = value.to_be_bytes();
+LL ~     };
+   |
+
+warning: 2 warnings emitted
+

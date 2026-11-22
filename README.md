@@ -21,13 +21,18 @@ can be tried on a laptop in a second rather than over ssh.
 The recipes that decide something are Rust rather than shell: `cargo x` lists
 them, and `just` is a line apiece in front of them.
 
+## Legion Go releases
+
+The [release guide](docs/legion-go-releases.md) covers publishing a tagged build,
+installing it on a first-generation Legion Go, and enabling automatic updates.
+
 ## The tree
 
     desktop.conf    the whole inventory
     machines.conf   what is true on one machine and nothing else
     files/          the content of every file it names, at the same path
     crates/         every program on the device, in one workspace
-    docs/           why each thing is the way it is
+    docs/           the map of the crates, the pictures, and the forks
     migrations/     what a machine is told when the manifest stops naming something
     scenarios/      presses a person would make, replayed
     theme/          palette.toml, the one place a color is chosen
@@ -35,8 +40,8 @@ them, and `just` is a line apiece in front of them.
 
 `ls crates/` is the tour. Every crate is named for what it does, the ones that
 share a subject share the word after `console-`, and each one's head says the
-rest. [`docs/`](docs) is the argument behind them, one file to a subject, and
-[`docs/forks.md`](docs/forks.md) names the programs that are not here.
+rest. The argument behind them is kept as notes in Orbit, outside this copy,
+and [`docs/forks.md`](docs/forks.md) names the programs that are not here.
 [`tools/explicit-rust`](tools/explicit-rust) is the dylint suite the workspace
 is written to, and its README says what each rule is for.
 

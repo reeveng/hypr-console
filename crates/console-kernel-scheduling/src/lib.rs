@@ -56,7 +56,7 @@ mod replay;
 mod round_robin;
 
 pub use lavd::Lavd;
-pub use replay::{replay, JobBudget, Latency, Outcome, Task, Wake, Workload};
+pub use replay::{JobBudget, Latency, Outcome, Task, Wake, Workload, replay};
 pub use round_robin::RoundRobin;
 
 use core::fmt;
@@ -74,115 +74,126 @@ pub struct JobId(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Instant {
-    pub since_boot: Duration,
+  pub since_boot: Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Frequency {
-    pub per_second: u32,
+  pub per_second: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Utilization {
-    pub millicores: u32,
+  pub millicores: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Cores {
-    pub count: u32,
+  pub count: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Power {
-    pub milliwatts: u64,
+  pub milliwatts: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Energy {
-    pub microjoules: u64,
+  pub microjoules: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Statistics {
-    pub average_runtime: Duration,
-    pub wakes_others: Frequency,
-    pub waits: Frequency,
+  pub average_runtime: Duration,
+  pub wakes_others: Frequency,
+  pub waits: Frequency,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Runnable {
-    pub task: TaskId,
-    pub job: JobId,
-    pub statistics: Statistics,
-    pub queued_at: Instant,
+  pub task: TaskId,
+  pub job: JobId,
+  pub statistics: Statistics,
+  pub queued_at: Instant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Spending {
-    pub energy: Energy,
-    pub over: Duration,
+  pub energy: Energy,
+  pub over: Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Choice {
-    Run { task: TaskId, slice: Duration },
-    Idle,
+  Run { task: TaskId, slice: Duration },
+  Idle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnergyMode {
-    LowPower,
-    Automatic,
-    HighPower,
+  LowPower,
+  Automatic,
+  HighPower,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Throttle {
-    Running,
-    Throttled,
+  Running,
+  Throttled,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulingError {
-    UnknownTask(TaskId),
+  UnknownTask(TaskId),
 }
 
 pub trait Scheduler {
-    #[must_use]
-    fn pick_next(&self, queue: &[Runnable]) -> Result<Choice, Never>;
+  #[must_use]
+  fn pick_next(&self, queue: &[Runnable]) -> Result<Choice, Never>;
 
-    #[must_use]
-    fn cores_awake(&self, demand: Utilization, mode: EnergyMode, present: Cores) -> Result<Cores, Never>;
+  #[must_use]
+  fn cores_awake(
+    &self,
+    demand: Utilization,
+    mode: EnergyMode,
+    present: Cores,
+  ) -> Result<Cores, Never>;
 
-    #[must_use]
-    fn throttle(&self, spending: Spending, cap: Power) -> Result<Throttle, Never>;
+  #[must_use]
+  fn throttle(&self, spending: Spending, cap: Power) -> Result<Throttle, Never>;
 }
 
 impl Instant {
-    #[must_use]
-    pub fn after(self, elapsed: Duration) -> Result<Instant, Never> {
-        Ok(Instant { since_boot: self.since_boot.saturating_add(elapsed) })
-    }
+  #[must_use]
+  pub fn after(self, elapsed: Duration) -> Result<Instant, Never> {
+    Ok(Instant {
+      since_boot: self.since_boot.saturating_add(elapsed),
+    })
+  }
 }
 
 impl Energy {
-    #[must_use]
-    pub fn spent(at: Power, over: Duration) -> Result<Energy, Never> {
-        let product = u128::from(at.milliwatts).saturating_mul(over.as_micros()).saturating_div(1000);
+  #[must_use]
+  pub fn spent(at: Power, over: Duration) -> Result<Energy, Never> {
+    let product = u128::from(at.milliwatts)
+      .saturating_mul(over.as_micros())
+      .saturating_div(1000);
 
-        let microjoules = match u64::try_from(product) {
-            Ok(microjoules) => microjoules,
-            Err(_too_large) => u64::MAX,
-        };
+    let microjoules = match u64::try_from(product) {
+      Ok(microjoules) => microjoules,
+      Err(_too_large) => u64::MAX,
+    };
 
-        Ok(Energy { microjoules })
-    }
+    Ok(Energy { microjoules })
+  }
 }
 
 impl fmt::Display for SchedulingError {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SchedulingError::UnknownTask(TaskId(id)) => write!(to, "the workload wakes task {id}, which it never declared"),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      SchedulingError::UnknownTask(TaskId(id)) => {
+        write!(to, "the workload wakes task {id}, which it never declared")
+      }
     }
+  }
 }

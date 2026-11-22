@@ -33,15 +33,20 @@ use console_test_stages::checking::{Body, Check, CheckResult, empty, failed};
 use console_test_stages::device::{Device, comm};
 
 pub const OWNED: Check = Check {
-    name: "320-only-the-controller-is-reading-the-buttons",
-    about: "Nothing but the pieces that must have an input device open has one.",
-    feature: "input",
-    since: "2026-09-05",
-    bodies: &[Body::Device(owned)],
+  name: "320-only-the-controller-is-reading-the-buttons",
+  about: "Nothing but the pieces that must have an input device open has one.",
+  feature: "input",
+  since: "2026-09-05",
+  bodies: &[Body::Device(owned)],
 };
 
-const ALLOWED: [&str; 5] =
-    ["systemd", "systemd-logind", "Hyprland", "inputplumber", "controller-desktop"];
+const ALLOWED: [&str; 5] = [
+  "systemd",
+  "systemd-logind",
+  "Hyprland",
+  "inputplumber",
+  "controller-desktop",
+];
 
 const APPLICATION: &str = "controller-desktop";
 
@@ -54,43 +59,46 @@ const ASKING: &str = "for fd in /proc/[0-9]*/fd/*; do \
    done | sort -u";
 
 fn owned(stage: &mut Device) -> CheckResult {
-    let Ok(()) = stage.fresh();
-    let Ok(said) = stage.ssh(ASKING);
+  let Ok(()) = stage.fresh();
+  let Ok(said) = stage.ssh(ASKING);
 
-    let holding: Vec<&str> =
-        said.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+  let holding: Vec<&str> = said
+    .lines()
+    .map(str::trim)
+    .filter(|line| !line.is_empty())
+    .collect();
 
-    let Ok(ours_is) = comm(APPLICATION);
+  let Ok(ours_is) = comm(APPLICATION);
 
-    let ours = holding
-        .iter()
-        .filter_map(|line| line.split_whitespace().next())
-        .any(|name| name == ours_is);
+  let ours = holding
+    .iter()
+    .filter_map(|line| line.split_whitespace().next())
+    .any(|name| name == ours_is);
 
-    match ours {
-        true => {},
-        false => {
-            return failed(format!(
-                "nothing is reading the buttons: {APPLICATION} has no input device open -- \
+  match ::core::primitive::bool::then_some(ours, ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      return failed(format!(
+        "nothing is reading the buttons: {APPLICATION} has no input device open -- \
                  the kernel would call it {ours_is} -- and what does is {holding:?}"
-            ));
-        }
+      ));
     }
+  }
 
-    let strangers: Vec<&str> = holding
-        .iter()
-        .copied()
-        .filter(|line| match line.split_whitespace().next() {
-            Some(name) => !ALLOWED.iter().any(|allowed| {
-                let Ok(allowed) = comm(allowed);
+  let strangers: Vec<&str> = holding
+    .iter()
+    .copied()
+    .filter(|line| match line.split_whitespace().next() {
+      Some(name) => !ALLOWED.iter().any(|allowed| {
+        let Ok(allowed_2) = comm(allowed);
 
-                allowed == name
-            }),
-            None => false,
-        })
-        .collect();
-
-    empty(&strangers, || {
-        format!("something no one declared is reading the buttons: {strangers:?}")
+        allowed_2 == name
+      }),
+      None => false,
     })
+    .collect();
+
+  empty(&strangers, || {
+    format!("something no one declared is reading the buttons: {strangers:?}")
+  })
 }

@@ -1,13 +1,12 @@
-//! The two kinds of thing this fetches, and where a search is kept.
+//! What this fetches, and where the last accepted search is kept.
 //!
-//! The panel holds no results. `downloads-find` runs off it, writes what came
-//! back here, and the panel draws again when that ends and reads whatever is
-//! there. So the slow half is a program with a name rather than a thread inside
-//! a card, and a search survives the tab being walked away from.
+//! The panel can draw from this cache when it opens. A search it starts sends
+//! its result back to the owning card, which keeps it here after accepting it.
 
 use console_core_arguments::{Flag, Takes};
 use console_core_never::Never;
 use console_core_words::Words;
+use console_repository::RelativePath;
 use std::path::{Path, PathBuf};
 
 const SOUND_TAB: &str = "Audio";
@@ -16,130 +15,216 @@ const BOOK_TAB: &str = "Books";
 
 pub const TABS: [&str; 3] = [SOUND_TAB, FILM_TAB, BOOK_TAB];
 
+pub const REPORT: Flag = Flag {
+  spelling: "--report",
+  takes: Takes::Value("SCRATCH"),
+  about: "print the result as JSON, staging cover downloads in SCRATCH",
+};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Kind {
-    #[words(word = "audio", flag = "--audio", about = "sound, which this keeps as opus")]
-    Sound,
-    #[words(word = "video", flag = "--video", about = "a film, which this keeps as mkv")]
-    Film,
-    #[words(word = "book", flag = "--book", about = "a book")]
-    Book,
+  #[words(
+    word = "audio",
+    flag = "--audio",
+    about = "sound, which this keeps as opus"
+  )]
+  Sound,
+  #[words(
+    word = "video",
+    flag = "--video",
+    about = "a film, which this keeps as mkv"
+  )]
+  Film,
+  #[words(word = "book", flag = "--book", about = "a book")]
+  Book,
 }
 
 impl Kind {
-    pub const BOTH: [Kind; 2] = [Kind::Sound, Kind::Film];
+  pub const BOTH: [Kind; 2] = [Kind::Sound, Kind::Film];
 
-    pub const ALL: [Kind; 3] = [Kind::Sound, Kind::Film, Kind::Book];
+  pub const ALL: [Kind; 3] = [Kind::Sound, Kind::Film, Kind::Book];
 
-    pub const FLAGS: [Flag; 3] = {
-        let (Ok(sound), Ok(film), Ok(book)) = (Kind::Sound.as_flag(), Kind::Film.as_flag(), Kind::Book.as_flag());
+  pub const FLAGS: [Flag; 3] = {
+    let (Ok(sound), Ok(film), Ok(book)) = (
+      Kind::Sound.as_flag(),
+      Kind::Film.as_flag(),
+      Kind::Book.as_flag(),
+    );
 
-        [sound, film, book]
-    };
+    [sound, film, book]
+  };
 
-    pub const fn as_flag(self) -> Result<Flag, Never> {
-        let (Ok(spelling), Ok(about)) = (self.flag(), self.about());
+  pub const fn as_flag(self) -> Result<Flag, Never> {
+    let (Ok(spelling), Ok(about)) = (self.flag(), self.about());
 
-        Ok(Flag { spelling, takes: Takes::None, about })
-    }
+    Ok(Flag {
+      spelling,
+      takes: Takes::None,
+      about,
+    })
+  }
 
-    pub fn tab(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Kind::Sound => SOUND_TAB,
-            Kind::Film => FILM_TAB,
-            Kind::Book => BOOK_TAB,
-        })
-    }
+  pub fn tab(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Kind::Sound => SOUND_TAB,
+      Kind::Film => FILM_TAB,
+      Kind::Book => BOOK_TAB,
+    })
+  }
 
-    pub fn other(self) -> Result<Option<Kind>, Never> {
-        Ok(match self {
-            Kind::Sound => Some(Kind::Film),
-            Kind::Film => Some(Kind::Sound),
-            Kind::Book => None,
-        })
-    }
+  pub fn other(self) -> Result<Option<Kind>, Never> {
+    Ok(match self {
+      Kind::Sound => Some(Kind::Film),
+      Kind::Film => Some(Kind::Sound),
+      Kind::Book => None,
+    })
+  }
 
-    pub fn read(said: &str) -> Result<Option<Kind>, Never> {
-        let said = said.trim().trim_start_matches('-');
-        Ok(Kind::ALL.into_iter().find(|kind| kind.word() == Ok(said)))
-    }
+  pub fn read(said: &str) -> Result<Option<Kind>, Never> {
+    let said_2 = said.trim().trim_start_matches('-');
+    Ok(Kind::ALL.into_iter().find(|kind| kind.word() == Ok(said_2)))
+  }
 }
 
 pub fn cache() -> Result<Option<PathBuf>, Never> {
-    console_core_places::Base::Cache.user()
+  console_core_places::Base::Cache.user()
+}
+
+pub struct Scratch(PathBuf);
+
+impl Scratch {
+  pub fn make(label: &str) -> std::io::Result<Self> {
+    console_core_temporary_directories::private(label)
+      .map(Scratch)
+      .map_err(std::io::Error::other)
+  }
+
+  pub fn beside(root: &Path, label: &str) -> std::io::Result<Self> {
+    console_core_temporary_directories::private_under(root, label)
+      .map(Scratch)
+      .map_err(std::io::Error::other)
+  }
+
+  pub fn path(&self) -> Result<&Path, Never> {
+    Ok(&self.0)
+  }
+}
+
+impl Drop for Scratch {
+  fn drop(&mut self) {
+    match std::fs::remove_dir_all(&self.0) {
+      Ok(()) => {}
+      Err(fault) => console_core_logging::warn!("downloads: clearing {}: {fault}", self.0.display()),
+    }
+  }
+}
+
+pub fn remove_if_present(at: &Path) -> std::io::Result<()> {
+  std::fs::remove_file(at).or_else(|fault| {
+    match (fault.kind() == std::io::ErrorKind::NotFound).then_some(()) {
+      Some(()) => Ok(()),
+      None => Err(fault),
+    }
+  })
 }
 
 pub fn folder(cache: &Path) -> Result<PathBuf, Never> {
-    Ok(cache.join("console").join("download"))
+  Ok(cache.join("console").join("download"))
 }
 
 pub fn found_at(cache: &Path, kind: Kind) -> Result<PathBuf, Never> {
-    let Ok(folder) = folder(cache);
-    let Ok(word) = kind.word();
+  let Ok(folder) = folder(cache);
 
-    Ok(folder.join(format!("{word}.json")))
+  Ok(match kind {
+    Kind::Sound => folder.join("audio.json"),
+    Kind::Film => folder.join("video.json"),
+    Kind::Book => folder.join("book.json"),
+  })
+}
+
+pub fn keep(cache: &Path, kind: Kind, looked: &crate::looking::Looked) -> std::io::Result<()> {
+  let Ok(at) = found_at(cache, kind);
+  let said = crate::looking::serialize(looked).map_err(std::io::Error::other)?;
+
+  console_core_atomic_writes::whole_with_folders(&at, said.as_bytes())
+    .map_err(std::io::Error::other)
 }
 
 pub fn pictures(cache: &Path) -> Result<PathBuf, Never> {
-    let Ok(folder) = folder(cache);
+  let Ok(folder) = folder(cache);
 
-    Ok(folder.join("pictures"))
+  Ok(folder.join("pictures"))
 }
 
-
 pub fn picture_of(cache: &Path, id: &str) -> Result<Option<PathBuf>, Never> {
-    let Ok(named) = valid_id(id);
-    let Ok(pictures) = pictures(cache);
+  let Ok(named) = valid_id(id);
+  let Ok(pictures) = pictures(cache);
 
-    Ok(named.map(|id| pictures.join(format!("{id}.jpg"))))
+  let name = match named {
+    Some(identifier) => format!("{identifier}.jpg"),
+    None => return Ok(None),
+  };
+
+  Ok(match RelativePath::new(Path::new(&name)) {
+    Ok(child) => Some(pictures.join(child)),
+    Err(fault) => {
+      console_core_logging::warn!("downloads: invalid cover name: {fault}");
+
+      None
+    }
+  })
 }
 
 pub fn valid_id(id: &str) -> Result<Option<String>, Never> {
-    let plain = |letter: char| letter.is_ascii_alphanumeric() || letter == '-' || letter == '_';
+  let plain = |letter: char| letter.is_ascii_alphanumeric() || letter == '-' || letter == '_';
 
-    Ok(match !id.is_empty() && id.chars().all(plain) {
-        true => Some(id.to_string()),
-        false => None,
-    })
+  Ok(match ::core::primitive::bool::then_some(!id.is_empty() && id.chars().all(plain), ()) {
+    ::core::option::Option::Some(()) => Some(id.to_string()),
+    ::core::option::Option::None => None,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn cache() -> Result<PathBuf, Never> {
-        Ok(Path::new("/home/ada/.cache").to_path_buf())
-    }
+  fn cache() -> Result<PathBuf, Never> {
+    Ok(Path::new("/home/ada/.cache").to_path_buf())
+  }
 
-    #[test]
-    fn a_kind_is_read_from_the_word_one_program_hands_the_next() {
-        assert_eq!(Kind::read("--audio"), Ok(Some(Kind::Sound)));
-        assert_eq!(Kind::read("video"), Ok(Some(Kind::Film)));
-        assert_eq!(Kind::read("--book"), Ok(Some(Kind::Book)));
-        assert_eq!(Kind::read("--pictures"), Ok(None));
-    }
+  #[test]
+  fn a_kind_is_read_from_the_word_one_program_hands_the_next() {
+    assert_eq!(Kind::read("--audio"), Ok(Some(Kind::Sound)));
+    assert_eq!(Kind::read("video"), Ok(Some(Kind::Film)));
+    assert_eq!(Kind::read("--book"), Ok(Some(Kind::Book)));
+    assert_eq!(Kind::read("--pictures"), Ok(None));
+  }
 
-    #[test]
-    fn each_tab_keeps_what_it_found_apart_from_the_other() {
-        let Ok(cache) = cache();
-        let Ok(sound) = found_at(&cache, Kind::Sound);
-        let Ok(film) = found_at(&cache, Kind::Film);
-        let Ok(folder) = folder(&cache);
+  #[test]
+  fn each_tab_keeps_what_it_found_apart_from_the_other() {
+    let Ok(cache) = cache();
+    let Ok(sound) = found_at(&cache, Kind::Sound);
+    let Ok(film) = found_at(&cache, Kind::Film);
+    let Ok(folder) = folder(&cache);
 
-        assert_ne!(sound, film);
-        assert!(sound.starts_with(folder));
-        assert_eq!(Kind::Sound.other(), Ok(Some(Kind::Film)));
-        assert_eq!(Kind::Book.other(), Ok(None), "a book has no other way to be had");
-    }
+    assert_ne!(sound, film);
+    assert!(sound.starts_with(folder));
+    assert_eq!(Kind::Sound.other(), Ok(Some(Kind::Film)));
+    assert_eq!(
+      Kind::Book.other(),
+      Ok(None),
+      "a book has no other way to be had"
+    );
+  }
 
-    #[test]
-    fn an_id_that_could_leave_the_folder_is_no_id_at_all() {
-        assert_eq!(valid_id("qU9mHegkTc4"), Ok(Some("qU9mHegkTc4".to_string())));
-        assert_eq!(valid_id("../../.bashrc"), Ok(None));
-        assert_eq!(valid_id("a/b"), Ok(None));
-        assert_eq!(valid_id(""), Ok(None));
-        let Ok(cache) = cache();
+  #[test]
+  fn an_id_that_could_leave_the_folder_is_no_id_at_all() {
+    assert_eq!(valid_id("qU9mHegkTc4"), Ok(Some("qU9mHegkTc4".to_string())));
+    assert_eq!(valid_id("../../.bashrc"), Ok(None));
+    assert_eq!(valid_id("a/b"), Ok(None));
+    assert_eq!(valid_id(""), Ok(None));
+    let Ok(cache) = cache();
 
-        assert_eq!(picture_of(&cache, "../evil"), Ok(None));
-    }
+    assert_eq!(picture_of(&cache, "../evil"), Ok(None));
+  }
 }

@@ -19,74 +19,77 @@ use console_core_never::Never;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Message<'a> {
-    pub interface: &'a str,
-    pub member: &'a str,
+  pub interface: &'a str,
+  pub member: &'a str,
 }
 
 pub fn message(line: &str) -> Result<Option<Message<'_>>, Never> {
-    let Ok(interface) = after(line, Key("Interface="));
-    let Ok(member) = after(line, Key("Member="));
+  let Ok(interface) = after(line, Key("Interface="));
+  let Ok(member) = after(line, Key("Member="));
 
-    Ok(match (interface, member) {
-        (Some(interface), Some(member)) => Some(Message { interface, member }),
-        (Some(_), None) | (None, Some(_)) | (None, None) => None,
-    })
+  Ok(match (interface, member) {
+    (Some(interface_2), Some(member_2)) => Some(Message {
+      interface: interface_2,
+      member: member_2,
+    }),
+    (Some(_), None) | (None, Some(_)) | (None, None) => None,
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Key<'a>(&'a str);
 
 fn after<'a>(line: &'a str, key: Key<'_>) -> Result<Option<&'a str>, Never> {
-    let said = match line.split_once(key.0) {
-        Some((_before, said)) => said,
-        None => return Ok(None),
-    };
+  let said = match line.split_once(key.0) {
+    Some((_before, said)) => said,
+    None => return Ok(None),
+  };
 
-    Ok(said.split_whitespace().next())
+  Ok(said.split_whitespace().next())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_message_is_the_interface_it_is_on_and_the_member_it_names() {
-        let line = concat!(
-            "  Sender=:1.92 Destination=org.freedesktop.Notifications ",
-            "Path=/org/freedesktop/Notifications ",
-            "Interface=org.freedesktop.Notifications  Member=Notify"
-        );
-        let Ok(said) = message(line);
+  #[test]
+  fn a_message_is_the_interface_it_is_on_and_the_member_it_names() {
+    let line = concat!(
+      "  Sender=:1.92 Destination=org.freedesktop.Notifications ",
+      "Path=/org/freedesktop/Notifications ",
+      "Interface=org.freedesktop.Notifications  Member=Notify"
+    );
+    let Ok(said) = message(line);
 
-        assert_eq!(
-            said,
-            Some(Message {
-                interface: "org.freedesktop.Notifications",
-                member: "Notify",
-            })
-        );
+    assert_eq!(
+      said,
+      Some(Message {
+        interface: "org.freedesktop.Notifications",
+        member: "Notify",
+      })
+    );
+  }
+
+  #[test]
+  fn what_the_monitor_prints_around_a_message_is_not_one() {
+    for line in [
+      "‣ Type=method_call  Endian=l  Flags=0  Version=1 Cookie=2",
+      "  MESSAGE \"ss\" {",
+      "          STRING \"org.mpris.MediaPlayer2.Player\";",
+      "  };",
+      "",
+    ] {
+      let Ok(said) = message(line);
+
+      assert_eq!(said, None, "{line}");
     }
+  }
 
-    #[test]
-    fn what_the_monitor_prints_around_a_message_is_not_one() {
-        for line in [
-            "‣ Type=method_call  Endian=l  Flags=0  Version=1 Cookie=2",
-            "  MESSAGE \"ss\" {",
-            "          STRING \"org.mpris.MediaPlayer2.Player\";",
-            "  };",
-            "",
-        ] {
-            let Ok(said) = message(line);
+  #[test]
+  fn a_reply_names_no_interface_and_is_not_a_message_being_announced() {
+    let line = "  Sender=:1.65 Destination=:1.92 Member=Something";
+    let Ok(said) = message(line);
 
-            assert_eq!(said, None, "{line}");
-        }
-    }
-
-    #[test]
-    fn a_reply_names_no_interface_and_is_not_a_message_being_announced() {
-        let line = "  Sender=:1.65 Destination=:1.92 Member=Something";
-        let Ok(said) = message(line);
-
-        assert_eq!(said, None);
-    }
+    assert_eq!(said, None);
+  }
 }

@@ -15,6 +15,7 @@
 //! covers it made, and the library reads that one file. A book the catalog has
 //! not reached yet is in the library under its file's name until it has.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -23,186 +24,303 @@ use console_core_places::Base;
 
 pub const CATALOG: &str = "catalog";
 
+pub struct FileName<'a>(Cow<'a, str>);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidFileName;
+
+impl std::fmt::Display for InvalidFileName {
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    to.write_str("a book or cache name must be a single file name")
+  }
+}
+
+impl std::error::Error for InvalidFileName {}
+
+impl<'a> FileName<'a> {
+  pub fn new(name: &'a str) -> Result<Self, InvalidFileName> {
+    match (name, name.find(['/', '\0'])) {
+      ("" | "." | "..", _) | (_, Some(_)) => Err(InvalidFileName),
+      (_, None) => Ok(Self(Cow::Borrowed(name))),
+    }
+  }
+
+  pub(crate) fn note(title: &str) -> Result<FileName<'static>, Never> {
+    let named = title.replace(['/', '\0'], "-");
+
+    Ok(FileName(Cow::Owned(format!("{named}.md"))))
+  }
+}
+
+impl AsRef<Path> for FileName<'_> {
+  fn as_ref(&self) -> &Path {
+    Path::new(&*self.0)
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
-    Publication,
-    PortableDocument,
-    Comic,
+  Publication,
+  PortableDocument,
+  Comic,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Book {
-    pub path: PathBuf,
-    pub name: String,
-    pub format: Format,
-    pub title: String,
-    pub cover: Option<PathBuf>,
+  pub path: PathBuf,
+  pub name: String,
+  pub format: Format,
+  pub title: String,
+  pub cover: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CatalogEntry {
-    pub title: String,
-    pub cover: Option<PathBuf>,
+  pub title: String,
+  pub cover: Option<PathBuf>,
 }
 
 pub fn books_folder(home: &Path) -> Result<PathBuf, Never> {
-    console_core_places::books_under(home)
+  console_core_places::books_under(home)
 }
 
 pub fn names(folder: &Path) -> Result<Vec<String>, Never> {
-    let mut found: Vec<String> = Vec::new();
-
-    for entry in std::fs::read_dir(folder).into_iter().flatten().flatten() {
-        match entry.file_name().into_string() {
-            Ok(name) => found.push(name),
-            Err(_not_text) => {},
-        }
-    }
-
-    Ok(found)
+  Ok(
+    std::fs::read_dir(folder)
+      .into_iter()
+      .flatten()
+      .flatten()
+      .filter_map(|entry| match entry.file_name().into_string() {
+        Ok(name) => Some(name),
+        Err(_the_filename_is_not_text) => None,
+      })
+      .collect(),
+  )
 }
 
 pub fn cache_folder(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = Base::Cache.application_under(home);
+  let Ok(ours) = Base::Cache.application_under(home);
 
-    Ok(ours.join("books"))
+  Ok(ours.join("books"))
 }
 
 pub fn format_of(name: &str) -> Result<Option<Format>, Never> {
-    let ending = match name.rsplit_once('.') {
-        Some((_, ending)) => ending.to_ascii_lowercase(),
-        None => return Ok(None),
-    };
+  let ending = match name.rsplit_once('.') {
+    Some((_, ending)) => ending.to_ascii_lowercase(),
+    None => return Ok(None),
+  };
 
-    Ok(match ending.as_str() {
-        "epub" => Some(Format::Publication),
-        "pdf" => Some(Format::PortableDocument),
-        "cbz" => Some(Format::Comic),
-        _ => None,
-    })
+  Ok(match ending.as_str() {
+    "epub" => Some(Format::Publication),
+    "pdf" => Some(Format::PortableDocument),
+    "cbz" => Some(Format::Comic),
+    _ => None,
+  })
 }
 
 pub fn read_catalog(text: &str) -> Result<BTreeMap<String, CatalogEntry>, Never> {
-    let mut found = BTreeMap::new();
+  let mut found = BTreeMap::new();
 
-    for line in text.lines() {
-        let mut parts = line.split('\t');
+  for line in text.lines() {
+    let mut parts = line.split('\t');
 
-        match (parts.next(), parts.next(), parts.next()) {
-            (Some(name), Some(title), cover) => {
-                let cover = cover.filter(|cover| !cover.is_empty()).map(PathBuf::from);
+    match (parts.next(), parts.next(), parts.next()) {
+      (Some(name), Some(title), cover) => {
+        let cover_3 = cover
+          .filter(|cover_2| !cover_2.is_empty())
+          .map(PathBuf::from);
 
-                found.insert(name.to_string(), CatalogEntry { title: title.to_string(), cover });
-            },
-            (None, _, _) | (_, None, _) => {},
-        }
+        found.insert(
+          name.to_string(),
+          CatalogEntry {
+            title: title.to_string(),
+            cover: cover_3,
+          },
+        );
+      }
+      (None, _, _) | (_, None, _) => {}
     }
+  }
 
-    Ok(found)
+  Ok(found)
 }
 
 pub fn written_catalog(entries: &BTreeMap<String, CatalogEntry>) -> Result<String, Never> {
-    let mut text = String::new();
+  let mut text = String::new();
 
-    for (name, cataloged) in entries {
-        let cover = match &cataloged.cover {
-            Some(cover) => cover.display().to_string(),
-            None => String::new(),
-        };
+  for (name, cataloged) in entries {
+    let cover = match &cataloged.cover {
+      Some(cover) => cover.display().to_string(),
+      None => String::new(),
+    };
 
-        text.push_str(&format!("{name}\t{}\t{cover}\n", cataloged.title.replace(['\t', '\n'], " ")));
-    }
+    text.push_str(&format!(
+      "{name}\t{}\t{cover}\n",
+      cataloged.title.replace(['\t', '\n'], " ")
+    ));
+  }
 
-    Ok(text)
+  Ok(text)
 }
 
-pub fn books(folder: &Path, names: &[String], catalog: &BTreeMap<String, CatalogEntry>) -> Result<Vec<Book>, Never> {
-    let mut books = Vec::new();
+pub fn books(
+  folder: &Path,
+  names: &[String],
+  catalog: &BTreeMap<String, CatalogEntry>,
+) -> Result<Vec<Book>, Never> {
+  let mut books = Vec::new();
 
-    for name in names {
-        let Ok(format) = format_of(name);
+  for name in names {
+    let file_name = match FileName::new(name) {
+      Ok(file_name) => file_name,
+      Err(InvalidFileName) => continue,
+    };
+    let Ok(format) = format_of(name);
 
-        let format = match format {
-            Some(format) => format,
-            None => continue,
-        };
+    let format_3 = match format {
+      Some(format_2) => format_2,
+      None => continue,
+    };
 
-        let (title, cover) = match catalog.get(name) {
-            Some(cataloged) => (cataloged.title.clone(), cataloged.cover.clone()),
-            None => {
-                let Ok(title) = console_core_file_names::title(name);
+    let (title, cover) = match catalog.get(name) {
+      Some(cataloged) => (cataloged.title.clone(), cataloged.cover.clone()),
+      None => {
+        let Ok(title) = console_core_file_names::title(name);
 
-                (title, None)
-            },
-        };
+        (title, None)
+      }
+    };
 
-        books.push(Book { path: folder.join(name), name: name.clone(), format, title, cover });
-    }
+    books.push(Book {
+      path: folder.join(file_name),
+      name: name.clone(),
+      format: format_3,
+      title,
+      cover,
+    });
+  }
 
-    books.sort_by_key(|book| book.title.to_lowercase());
+  books.sort_by_key(|book| book.title.to_lowercase());
 
-    Ok(books)
+  Ok(books)
 }
 
 pub fn search<'a>(books: &'a [Book], search: &str) -> Result<Vec<&'a Book>, Never> {
-    let wanted = search.trim().to_lowercase();
+  let wanted = search.trim().to_lowercase();
 
-    Ok(books.iter().filter(|book| book.title.to_lowercase().contains(&wanted)).collect())
+  Ok(
+    books
+      .iter()
+      .filter(|book| book.title.to_lowercase().contains(&wanted))
+      .collect(),
+  )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn names(text: &[&str]) -> Result<Vec<String>, Never> {
-        Ok(text.iter().map(|name| (*name).to_string()).collect())
-    }
+  fn names(text: &[&str]) -> Result<Vec<String>, Never> {
+    Ok(text.iter().map(|name| (*name).to_string()).collect())
+  }
 
-    #[test]
-    fn the_library_is_the_books_in_the_folder_by_title_and_nothing_else() {
-        let mut catalog = BTreeMap::new();
-        catalog.insert(
-            "pg2701.epub".to_string(),
-            CatalogEntry { title: "Moby Dick".to_string(), cover: Some(PathBuf::from("/c/moby.jpg")) },
-        );
+  #[test]
+  fn the_library_can_only_list_children_of_the_books_folder() {
+    let Ok(names) = names(&[
+      "/manual.pdf",
+      "../outside.pdf",
+      "nested/edition.epub",
+      " manual.pdf",
+    ]);
+    let Ok(found) = books(Path::new("/b"), &names, &BTreeMap::new());
+    let paths: Vec<&Path> = found.iter().map(|book| book.path.as_path()).collect();
 
-        let Ok(names) = names(&["pg2701.epub", "notes.txt", "Akira_01.cbz", "manual.PDF"]);
-        let Ok(books) = books(Path::new("/b"), &names, &catalog);
-        let titles: Vec<(&str, Format)> = books.iter().map(|book| (book.title.as_str(), book.format)).collect();
+    assert_eq!(paths, vec![Path::new("/b/ manual.pdf")]);
+  }
 
-        assert_eq!(titles, vec![("Akira 01", Format::Comic), ("manual", Format::PortableDocument), ("Moby Dick", Format::Publication)]);
-        assert_eq!(books.last().and_then(|book| book.cover.clone()), Some(PathBuf::from("/c/moby.jpg")));
-    }
+  #[test]
+  fn the_library_is_the_books_in_the_folder_by_title_and_nothing_else() {
+    let mut catalog = BTreeMap::new();
+    catalog.insert(
+      "pg2701.epub".to_string(),
+      CatalogEntry {
+        title: "Moby Dick".to_string(),
+        cover: Some(PathBuf::from("/c/moby.jpg")),
+      },
+    );
 
-    #[test]
-    fn a_book_downloads_kept_is_on_the_shelf_under_the_title_downloads_showed() {
-        let Ok(names) = names(&["Meditations [2680].epub"]);
-        let Ok(books) = books(Path::new("/b"), &names, &BTreeMap::new());
-        let titles: Vec<&str> = books.iter().map(|book| book.title.as_str()).collect();
+    let Ok(names) = names(&["pg2701.epub", "notes.txt", "Akira_01.cbz", "manual.PDF"]);
+    let Ok(books) = books(Path::new("/b"), &names, &catalog);
+    let titles: Vec<(&str, Format)> = books
+      .iter()
+      .map(|book| (book.title.as_str(), book.format))
+      .collect();
 
-        assert_eq!(titles, vec!["Meditations"]);
-    }
+    assert_eq!(
+      titles,
+      vec![
+        ("Akira 01", Format::Comic),
+        ("manual", Format::PortableDocument),
+        ("Moby Dick", Format::Publication)
+      ]
+    );
+    assert_eq!(
+      books.last().and_then(|book| book.cover.clone()),
+      Some(PathBuf::from("/c/moby.jpg"))
+    );
+  }
 
-    #[test]
-    fn a_search_is_any_part_of_a_title_in_any_case() {
-        let Ok(names) = names(&["The Martian.epub", "Moby Dick.epub", "Martian Chronicles.pdf"]);
-        let Ok(books) = books(Path::new("/b"), &names, &BTreeMap::new());
-        let Ok(found) = search(&books, " marTIAN ");
-        let titles: Vec<&str> = found.iter().map(|book| book.title.as_str()).collect();
+  #[test]
+  fn a_book_downloads_kept_is_on_the_shelf_under_the_title_downloads_showed() {
+    let Ok(names) = names(&["Meditations [2680].epub"]);
+    let Ok(books) = books(Path::new("/b"), &names, &BTreeMap::new());
+    let titles: Vec<&str> = books.iter().map(|book| book.title.as_str()).collect();
 
-        assert_eq!(titles, vec!["Martian Chronicles", "The Martian"]);
-    }
+    assert_eq!(titles, vec!["Meditations"]);
+  }
 
-    #[test]
-    fn the_catalog_is_read_back_as_it_was_written() {
-        let mut entries = BTreeMap::new();
-        entries.insert("a.epub".to_string(), CatalogEntry { title: "A\ttitle".to_string(), cover: None });
-        entries.insert("b.pdf".to_string(), CatalogEntry { title: "B".to_string(), cover: Some(PathBuf::from("/c/b.png")) });
+  #[test]
+  fn a_search_is_any_part_of_a_title_in_any_case() {
+    let Ok(names) = names(&[
+      "The Martian.epub",
+      "Moby Dick.epub",
+      "Martian Chronicles.pdf",
+    ]);
+    let Ok(books) = books(Path::new("/b"), &names, &BTreeMap::new());
+    let Ok(found) = search(&books, " marTIAN ");
+    let titles: Vec<&str> = found.iter().map(|book| book.title.as_str()).collect();
 
-        let Ok(text) = written_catalog(&entries);
-        let Ok(read) = read_catalog(&text);
+    assert_eq!(titles, vec!["Martian Chronicles", "The Martian"]);
+  }
 
-        assert_eq!(read.get("a.epub").map(|entry| entry.title.as_str()), Some("A title"));
-        assert_eq!(read.get("b.pdf").and_then(|entry| entry.cover.clone()), Some(PathBuf::from("/c/b.png")));
-    }
+  #[test]
+  fn the_catalog_is_read_back_as_it_was_written() {
+    let mut entries = BTreeMap::new();
+    entries.insert(
+      "a.epub".to_string(),
+      CatalogEntry {
+        title: "A\ttitle".to_string(),
+        cover: None,
+      },
+    );
+    entries.insert(
+      "b.pdf".to_string(),
+      CatalogEntry {
+        title: "B".to_string(),
+        cover: Some(PathBuf::from("/c/b.png")),
+      },
+    );
+
+    let Ok(text) = written_catalog(&entries);
+    let Ok(read) = read_catalog(&text);
+
+    assert_eq!(
+      read.get("a.epub").map(|entry| entry.title.as_str()),
+      Some("A title")
+    );
+    assert_eq!(
+      read.get("b.pdf").and_then(|entry| entry.cover.clone()),
+      Some(PathBuf::from("/c/b.png"))
+    );
+  }
 }

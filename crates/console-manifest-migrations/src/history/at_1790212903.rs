@@ -14,9 +14,7 @@
 use crate::sweeping::{Migration, Moment, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1790212903),
-    says: "sweeping the profile the pad wore while a card was asking",
-    steps: &[
-        Step::Attic("/etc/inputplumber/profiles/asking.yaml"),
-    ],
+  moment: Moment(1790212903),
+  says: "sweeping the profile the pad wore while a card was asking",
+  steps: &[Step::Attic("/etc/inputplumber/profiles/asking.yaml")],
 };

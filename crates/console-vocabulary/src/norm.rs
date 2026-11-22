@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use console_core_finite_numbers::FiniteF64;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 
@@ -27,58 +28,56 @@ const BETWEEN: char = '\t';
 
 #[derive(Debug)]
 pub enum Unread {
-    Reading(PathBuf, std::io::Error),
-    Rate(PathBuf, String),
+  Reading(PathBuf, std::io::Error),
+  Rate(PathBuf, String),
 }
 
 impl fmt::Display for Unread {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Unread::Reading(at, fault) => write!(to, "{}: {fault}", at.display()),
-            Unread::Rate(at, line) => write!(to, "{}: no rate on {line}", at.display()),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Unread::Reading(at, fault) => write!(to, "{}: {fault}", at.display()),
+      Unread::Rate(at, line) => write!(to, "{}: no rate on {line}", at.display()),
     }
+  }
 }
 
 impl std::error::Error for Unread {}
 
 #[derive(Debug, Clone, Default)]
 pub struct Norm {
-    said: BTreeMap<String, PerMillion>,
+  said: BTreeMap<String, PerMillion>,
 }
 
 impl Norm {
-    pub fn read(at: &Path) -> Result<Norm, Unread> {
-        let said = std::fs::read_to_string(at)
-            .map_err(|fault| Unread::Reading(at.to_path_buf(), fault))?;
-        let mut held = BTreeMap::new();
+  pub fn read(at: &Path) -> Result<Norm, Unread> {
+    let said =
+      std::fs::read_to_string(at).map_err(|fault| Unread::Reading(at.to_path_buf(), fault))?;
+    let mut held = BTreeMap::new();
 
-        for line in said.lines().filter(|line| !line.starts_with(COMMENT)) {
-            let (word, rate) = line
-                .split_once(BETWEEN)
-                .ok_or_else(|| Unread::Rate(at.to_path_buf(), line.to_string()))?;
-            let rate = rate
-                .trim()
-                .parse::<f64>()
-                .map_err(|_a_line_that_is_not_a_rate| {
-                    Unread::Rate(at.to_path_buf(), line.to_string())
-                })?;
+    for line in said.lines().filter(|line| !line.starts_with(COMMENT)) {
+      let (word, rate) = line
+        .split_once(BETWEEN)
+        .ok_or_else(|| Unread::Rate(at.to_path_buf(), line.to_string()))?;
+      let rate_2 = rate
+        .trim()
+        .parse::<FiniteF64>()
+        .map_err(|_a_line_that_is_not_a_rate| Unread::Rate(at.to_path_buf(), line.to_string()))?;
 
-            let _ = held.insert(word.trim().to_string(), PerMillion(rate));
-        }
-
-        Ok(Norm { said: held })
+      let _ = held.insert(word.trim().to_string(), PerMillion(f64::from(rate_2)));
     }
 
-    pub fn of(&self, word: &str) -> Result<Option<PerMillion>, Never> {
-        Ok(self.said.get(word).copied())
-    }
+    Ok(Norm { said: held })
+  }
 
-    pub fn words(&self) -> Result<u32, Never> {
-        fitted(self.said.len())
-    }
+  pub fn of(&self, word: &str) -> Result<Option<PerMillion>, Never> {
+    Ok(self.said.get(word).copied())
+  }
+
+  pub fn words(&self) -> Result<u32, Never> {
+    fitted(self.said.len())
+  }
 }
 
 pub fn beside() -> Result<PathBuf, Never> {
-    Ok(Path::new(env!("CARGO_MANIFEST_DIR")).join(ENGLISH))
+  Ok(Path::new(env!("CARGO_MANIFEST_DIR")).join(ENGLISH))
 }

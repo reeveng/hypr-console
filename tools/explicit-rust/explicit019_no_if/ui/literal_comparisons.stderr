@@ -1,0 +1,62 @@
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/literal_comparisons.rs:5:5
+   |
+LL |     if count == 0 { 4 } else { count }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit019_no_if)]` on by default
+help: name both outcomes in a match
+   |
+LL ~     match count {
+LL +         0 => { 4 },
+LL +         _ => { count },
+LL +     }
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/literal_comparisons.rs:9:5
+   |
+LL |     if ':' != character { "text" } else { "separator" }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match character {
+LL +         ':' => { "separator" },
+LL +         _ => { "text" },
+LL +     }
+   |
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/literal_comparisons.rs:13:5
+   |
+LL | /     match byte == b'!' {
+LL | |         true => "bang",
+LL | |         false => "other",
+LL | |     }
+   | |_____^
+   |
+help: match the outcomes directly
+   |
+LL ~     match byte {
+LL ~         b'!' => "bang",
+LL ~         _ => "other",
+   |
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/literal_comparisons.rs:20:5
+   |
+LL | /     match code != 0 {
+LL | |         false => "stop",
+LL | |         _ => "continue",
+LL | |     }
+   | |_____^
+   |
+help: match the outcomes directly
+   |
+LL ~     match code {
+LL ~         0 => "stop",
+   |
+
+error: aborting due to 4 previous errors
+

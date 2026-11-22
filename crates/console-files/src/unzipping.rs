@@ -24,180 +24,190 @@ use crate::places::Is;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Packed {
-    AnArchive,
-    NotOne,
+  AnArchive,
+  NotOne,
 }
 
 pub const KINDS: &[&str] = &[
-    "application/zip",
-    "application/x-zip-compressed",
-    "application/x-7z-compressed",
-    "application/vnd.rar",
-    "application/x-rar",
-    "application/x-rar-compressed",
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/x-7z-compressed",
+  "application/vnd.rar",
+  "application/x-rar",
+  "application/x-rar-compressed",
 ];
 
 pub const TRIES: u32 = 64;
 
 pub fn packed(kind: &str) -> Result<Packed, Never> {
-    Ok(match KINDS.contains(&kind) {
-        true => Packed::AnArchive,
-        false => Packed::NotOne,
-    })
+  Ok(
+    match ::core::primitive::bool::then_some(KINDS.contains(&kind), ()) {
+      ::core::option::Option::Some(()) => Packed::AnArchive,
+      ::core::option::Option::None => Packed::NotOne,
+    },
+  )
 }
 
 pub fn named_for(archive: &str) -> Result<String, Never> {
-    let stem = match archive.rsplit_once('.') {
-        Some((stem, _)) => stem,
-        None => archive,
-    };
-    let named = stem.trim();
+  let stem = match archive.rsplit_once('.') {
+    Some((stem, _)) => stem,
+    None => archive,
+  };
+  let named = stem.trim();
 
-    Ok(match named.is_empty() {
-        true => archive.trim().to_string(),
-        false => named.to_string(),
-    })
+  Ok(
+    match ::core::primitive::bool::then_some(named.is_empty(), ()) {
+      ::core::option::Option::Some(()) => archive.trim().to_string(),
+      ::core::option::Option::None => named.to_string(),
+    },
+  )
+}
+
+pub fn candidates(name: &str) -> Result<impl Iterator<Item = String> + '_, Never> {
+  Ok(
+    std::iter::once(name.to_string())
+      .chain((2..=TRIES).map(move |number| format!("{name} {number}"))),
+  )
 }
 
 pub fn beside(name: &str, taken: impl Fn(&str) -> bool) -> Result<Option<String>, Never> {
-    match taken(name) {
-        false => return Ok(Some(name.to_string())),
-        true => {},
-    }
+  let Ok(mut possible) = candidates(name);
 
-    for number in 2..=TRIES {
-        let tried = format!("{name} {number}");
-
-        match taken(&tried) {
-            false => return Ok(Some(tried)),
-            true => {},
-        }
-    }
-
-    Ok(None)
+  Ok(possible.find(|tried| !taken(tried)))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Lift {
-    TheFolderInside(String),
-    None,
+pub enum Lift<Name = String> {
+  TheFolderInside(Name),
+  None,
 }
 
-pub fn lifting(inside: &[(String, Is)]) -> Result<Lift, Never> {
-    let alone = inside.len() == 1;
+pub fn lifting<Name: Clone>(inside: &[(Name, Is)]) -> Result<Lift<Name>, Never> {
+  let alone = inside.len() == 1;
 
-    let (name, is) = match inside.first() {
-        Some((name, is)) => (name, is),
-        None => return Ok(Lift::None),
-    };
+  let (name, is) = match inside.first() {
+    Some((name, is)) => (name, is),
+    None => return Ok(Lift::None),
+  };
 
-    Ok(match (alone, is) {
-        (true, Is::AFolder) => Lift::TheFolderInside(name.clone()),
-        (true, Is::AFile) | (false, Is::AFolder) | (false, Is::AFile) => Lift::None,
-    })
+  Ok(match (alone, is) {
+    (true, Is::AFolder) => Lift::TheFolderInside(name.clone()),
+    (true, Is::AFile) | (false, Is::AFolder) | (false, Is::AFile) => Lift::None,
+  })
 }
 
 pub fn while_unpacking(archive: &str) -> Result<String, Never> {
-    Ok(format!(".unzipping {archive}"))
+  Ok(format!(".unzipping {archive}"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn kind(said: &str) -> Result<Packed, Never> {
-        let Ok(packed) = packed(said);
+  fn kind(said: &str) -> Result<Packed, Never> {
+    let Ok(packed) = packed(said);
 
-        Ok(packed)
-    }
+    Ok(packed)
+  }
 
-    fn free(name: &str, taken: &[&str]) -> Result<Option<String>, Never> {
-        let taken: Vec<String> = taken.iter().map(|name| name.to_string()).collect();
-        let Ok(beside) = beside(name, |tried| taken.iter().any(|held| held == tried));
+  fn free(name: &str, taken: &[&str]) -> Result<Option<String>, Never> {
+    let taken_2: Vec<String> = taken.iter().map(|name_2| name_2.to_string()).collect();
+    let Ok(beside) = beside(name, |tried| taken_2.iter().any(|held| held == tried));
 
-        Ok(beside)
-    }
+    Ok(beside)
+  }
 
-    fn inside(names: &[(&str, Is)]) -> Result<Lift, Never> {
-        let names: Vec<(String, Is)> =
-            names.iter().map(|(name, is)| (name.to_string(), *is)).collect();
+  fn inside(names: &[(&str, Is)]) -> Result<Lift, Never> {
+    let names_2: Vec<(String, Is)> = names
+      .iter()
+      .map(|(name, is)| (name.to_string(), *is))
+      .collect();
 
-        let Ok(lift) = lifting(&names);
+    let Ok(lift) = lifting(&names_2);
 
-        Ok(lift)
-    }
+    Ok(lift)
+  }
 
-    #[test]
-    fn the_kinds_a_mod_site_ships_are_unzipped_and_a_photograph_is_not() {
-        assert_eq!(kind("application/zip"), Ok(Packed::AnArchive));
-        assert_eq!(kind("application/vnd.rar"), Ok(Packed::AnArchive));
-        assert_eq!(kind("application/x-7z-compressed"), Ok(Packed::AnArchive));
-        assert_eq!(kind("image/jpeg"), Ok(Packed::NotOne));
-        assert_eq!(kind("inode/directory"), Ok(Packed::NotOne));
-        assert_eq!(kind(""), Ok(Packed::NotOne));
-    }
+  #[test]
+  fn the_kinds_a_mod_site_ships_are_unzipped_and_a_photograph_is_not() {
+    assert_eq!(kind("application/zip"), Ok(Packed::AnArchive));
+    assert_eq!(kind("application/vnd.rar"), Ok(Packed::AnArchive));
+    assert_eq!(kind("application/x-7z-compressed"), Ok(Packed::AnArchive));
+    assert_eq!(kind("image/jpeg"), Ok(Packed::NotOne));
+    assert_eq!(kind("inode/directory"), Ok(Packed::NotOne));
+    assert_eq!(kind(""), Ok(Packed::NotOne));
+  }
 
-    #[test]
-    fn a_thing_that_would_come_out_of_this_as_another_archive_is_not_offered() {
-        assert_eq!(kind("application/x-compressed-tar"), Ok(Packed::NotOne));
-        assert_eq!(kind("application/gzip"), Ok(Packed::NotOne));
-    }
+  #[test]
+  fn a_thing_that_would_come_out_of_this_as_another_archive_is_not_offered() {
+    assert_eq!(kind("application/x-compressed-tar"), Ok(Packed::NotOne));
+    assert_eq!(kind("application/gzip"), Ok(Packed::NotOne));
+  }
 
-    #[test]
-    fn the_folder_is_named_for_the_archive_without_what_it_is() {
-        assert_eq!(named_for("WickedWhims.zip"), Ok("WickedWhims".to_string()));
-        assert_eq!(named_for("MC Command Center v3.rar"), Ok("MC Command Center v3".to_string()));
-        assert_eq!(named_for("hair.7z"), Ok("hair".to_string()));
-    }
+  #[test]
+  fn the_folder_is_named_for_the_archive_without_what_it_is() {
+    assert_eq!(named_for("WickedWhims.zip"), Ok("WickedWhims".to_string()));
+    assert_eq!(
+      named_for("MC Command Center v3.rar"),
+      Ok("MC Command Center v3".to_string())
+    );
+    assert_eq!(named_for("hair.7z"), Ok("hair".to_string()));
+  }
 
-    #[test]
-    fn a_name_that_is_all_extension_keeps_itself() {
-        assert_eq!(named_for(".zip"), Ok(".zip".to_string()));
-        assert_eq!(named_for("nodots"), Ok("nodots".to_string()));
-    }
+  #[test]
+  fn a_name_that_is_all_extension_keeps_itself() {
+    assert_eq!(named_for(".zip"), Ok(".zip".to_string()));
+    assert_eq!(named_for("nodots"), Ok("nodots".to_string()));
+  }
 
-    #[test]
-    fn the_second_unzip_of_one_archive_stands_beside_the_first() {
-        assert_eq!(free("hair", &[]), Ok(Some("hair".to_string())));
-        assert_eq!(free("hair", &["hair"]), Ok(Some("hair 2".to_string())));
-        assert_eq!(free("hair", &["hair", "hair 2"]), Ok(Some("hair 3".to_string())));
-    }
+  #[test]
+  fn the_second_unzip_of_one_archive_stands_beside_the_first() {
+    assert_eq!(free("hair", &[]), Ok(Some("hair".to_string())));
+    assert_eq!(free("hair", &["hair"]), Ok(Some("hair 2".to_string())));
+    assert_eq!(
+      free("hair", &["hair", "hair 2"]),
+      Ok(Some("hair 3".to_string()))
+    );
+  }
 
-    #[test]
-    fn a_folder_that_has_been_unzipped_too_many_times_is_answered_with_nothing() {
-        let taken: Vec<String> = std::iter::once("hair".to_string())
-            .chain((2..=TRIES).map(|number| format!("hair {number}")))
-            .collect();
+  #[test]
+  fn a_folder_that_has_been_unzipped_too_many_times_is_answered_with_nothing() {
+    let taken: Vec<String> = std::iter::once("hair".to_string())
+      .chain((2..=TRIES).map(|number| format!("hair {number}")))
+      .collect();
 
-        let Ok(beside) = beside("hair", |tried| taken.iter().any(|held| held == tried));
+    let Ok(beside) = beside("hair", |tried| taken.iter().any(|held| held == tried));
 
-        assert_eq!(beside, None);
-    }
+    assert_eq!(beside, None);
+  }
 
-    #[test]
-    fn one_folder_alone_inside_is_the_wrapper_and_is_lifted_away() {
-        assert_eq!(
-            inside(&[("WickedWhims", Is::AFolder)]),
-            Ok(Lift::TheFolderInside("WickedWhims".to_string()))
-        );
-    }
+  #[test]
+  fn one_folder_alone_inside_is_the_wrapper_and_is_lifted_away() {
+    assert_eq!(
+      inside(&[("WickedWhims", Is::AFolder)]),
+      Ok(Lift::TheFolderInside("WickedWhims".to_string()))
+    );
+  }
 
-    #[test]
-    fn anything_else_inside_is_what_the_archive_meant_to_hold() {
-        assert_eq!(inside(&[("mod.package", Is::AFile)]), Ok(Lift::None));
-        assert_eq!(
-            inside(&[("mod.package", Is::AFile), ("mod.ts4script", Is::AFile)]),
-            Ok(Lift::None)
-        );
-        assert_eq!(inside(&[("hair", Is::AFolder), ("eyes", Is::AFolder)]), Ok(Lift::None));
-        assert_eq!(inside(&[]), Ok(Lift::None));
-    }
+  #[test]
+  fn anything_else_inside_is_what_the_archive_meant_to_hold() {
+    assert_eq!(inside(&[("mod.package", Is::AFile)]), Ok(Lift::None));
+    assert_eq!(
+      inside(&[("mod.package", Is::AFile), ("mod.ts4script", Is::AFile)]),
+      Ok(Lift::None)
+    );
+    assert_eq!(
+      inside(&[("hair", Is::AFolder), ("eyes", Is::AFolder)]),
+      Ok(Lift::None)
+    );
+    assert_eq!(inside(&[]), Ok(Lift::None));
+  }
 
-    #[test]
-    fn what_is_being_unpacked_into_is_hidden_while_it_is_being_unpacked_into() {
-        let Ok(while_) = while_unpacking("hair.zip");
+  #[test]
+  fn what_is_being_unpacked_into_is_hidden_while_it_is_being_unpacked_into() {
+    let Ok(while_) = while_unpacking("hair.zip");
 
-        assert!(while_.starts_with('.'));
-        assert!(while_.contains("hair.zip"));
-    }
+    assert!(while_.starts_with('.'));
+    assert!(while_.contains("hair.zip"));
+  }
 }

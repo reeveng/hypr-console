@@ -1,0 +1,27 @@
+warning: `std::path::Path::exists` answers for now, and whatever it decides happens later
+  --> $DIR/main.rs:7:11
+   |
+LL |     match at.exists() {
+   |           ^^^^^^^^^^^
+   |
+   = help: do the thing and meet its answer: open the file and read `fault.kind() == NotFound` as the absence, or make it with `create_new`, which refuses a file that is already there. Where the answer is the whole of what is wanted and nothing acts on it afterwards, allow this rule here and let the reason say so
+   = note: `#[warn(explicit084_no_asking_a_path)]` on by default
+
+warning: `std::path::Path::is_dir` answers for now, and whatever it decides happens later
+  --> $DIR/main.rs:15:11
+   |
+LL |     match at.is_dir() {
+   |           ^^^^^^^^^^^
+   |
+   = help: do the thing and meet its answer: open the file and read `fault.kind() == NotFound` as the absence, or make it with `create_new`, which refuses a file that is already there. Where the answer is the whole of what is wanted and nothing acts on it afterwards, allow this rule here and let the reason say so
+
+warning: `std::fs::exists` answers for now, and whatever it decides happens later
+  --> $DIR/main.rs:23:5
+   |
+LL |     std::fs::exists(at)
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+   = help: do the thing and meet its answer: open the file and read `fault.kind() == NotFound` as the absence, or make it with `create_new`, which refuses a file that is already there. Where the answer is the whole of what is wanted and nothing acts on it afterwards, allow this rule here and let the reason say so
+
+warning: 3 warnings emitted
+

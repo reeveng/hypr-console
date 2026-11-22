@@ -1,9 +1,10 @@
 //! What the kernel does once it is up, log a line at a time.
 //!
 //! Today that is the handle model walked end to end: a root process, a
-//! browser spawned from it, a page and a piece of memory sent down the
-//! channel, the browser refused the right to run what it was given, the root
-//! allowed it, and the browser ended with everything it held going with it.
+//! browser spawned from it, and a site renderer drawing a plain-text data URL
+//! into a memory object. The browser receives the frame through its site
+//! channel. The kernel enforces execution policy, channel bounds and memory
+//! budgets, revokes a permission and reclaims the job when its last tab closes.
 //!
 //! It is here rather than beside the firmware because nothing in it touches a
 //! machine. The same steps run in QEMU under `just kernel`, and here as a test
@@ -15,167 +16,166 @@
 
 extern crate alloc;
 
+pub mod compute;
+pub mod events;
+pub mod frame_mappings;
+pub mod interrupts;
+pub mod locking;
 pub mod memory;
+pub mod scheduling;
+pub mod screen;
+pub mod usb_keyboard;
+pub mod user_buffers;
 
-use alloc::format;
-use alloc::string::String;
-use alloc::vec::Vec;
+#[cfg(any(test, kani))]
+#[path = "../proofs/revocation_budget.rs"]
+mod revocation_budget;
 
+#[cfg(kani)]
+#[path = "../proofs/file_recovery.rs"]
+mod file_recovery;
+
+#[cfg(kani)]
+#[path = "../proofs/fusion.rs"]
+mod fusion;
+
+#[cfg(kani)]
+#[path = "../proofs/protocols.rs"]
+mod protocols;
+
+#[cfg(not(target_os = "uefi"))]
+use alloc::{string::String, vec::Vec};
+use core::fmt;
+
+use console_core_geometry::Size;
 use console_core_never::Never;
-use console_kernel_handles::{Boot, Condition, HandleError, HandleValue, Kernel, ProcessId, Right, Rights};
+pub use console_kernel_handles::Bytes;
+use console_kernel_handles::HandleError;
+
+mod browser;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Exit {
-    Success,
-    Failure(HandleError),
+  Success,
+  Failure(HandleError),
 }
 
+#[cfg(not(target_os = "uefi"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Run {
-    pub log: Vec<String>,
-    pub exit: Exit,
+  pub log: Vec<String>,
+  pub exit: Exit,
 }
 
-struct Browser {
-    job: HandleValue,
-    process: ProcessId,
-    bootstrap: HandleValue,
-    channel: HandleValue,
+pub const BROWSER_SHARE: Bytes = Bytes(1_048_576);
+
+pub const HOSTED_MEMORY: Bytes = Bytes(268_435_456);
+
+#[cfg(not(target_os = "uefi"))]
+#[cfg_attr(
+  dylint_lib = "explicit066_no_heap_after_init",
+  expect(
+    explicit066_no_heap_after_init,
+    reason = "the hosted transcript adapter runs in userspace and stores the lines for tests; firmware streams them directly"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit047_no_captured_permission",
+  expect(
+    explicit047_no_captured_permission,
+    reason = "the hosted transcript callback borrows only a local buffer synchronously for the duration of run_logging"
+  )
+)]
+pub fn run(memory: Bytes) -> Result<Run, Never> {
+  let mut log = Vec::new();
+  let Ok(exit) = run_logging(memory, |line| log.push(alloc::fmt::format(line)));
+  Ok(Run { log, exit })
 }
 
-struct Lent {
-    memory: HandleValue,
-    resource: HandleValue,
-    job: HandleValue,
+pub fn run_logging(memory: Bytes, log: impl FnMut(fmt::Arguments<'_>)) -> Result<Exit, Never> {
+  run_with_frame(memory, log, |_, _| {})
 }
 
-pub fn run() -> Result<Run, Never> {
-    let mut log = Vec::new();
-
-    let exit = match steps(&mut log) {
-        Ok(()) => Exit::Success,
-        Err(error) => Exit::Failure(error),
-    };
-
-    Ok(Run { log, exit })
-}
-
-fn steps(log: &mut Vec<String>) -> Result<(), HandleError> {
-    let Boot { mut kernel, root, root_job, executable_resource } = Kernel::boot()?;
-    let browser = spawn_browser(&mut kernel, root, root_job, log)?;
-    let lent = lend(&mut kernel, root, &browser, executable_resource, log)?;
-    let renderer = start_renderer(&mut kernel, &browser, &lent, log)?;
-
-    expect_refused(&mut kernel, &browser, &lent, log)?;
-    kernel.revoke(root, executable_resource)?;
-
-    match kernel.handle_rights(browser.process, lent.resource) {
-        Err(HandleError::BadHandle) => log.push(String::from("the root took back the resource it lent, and the browser no longer holds it")),
-        Err(error) => return Err(error),
-        Ok(_) => return Err(HandleError::BadState),
-    }
-
-    kernel.kill(root, browser.job)?;
-
-    match (kernel.handles(browser.process), kernel.handles(renderer)) {
-        (Err(HandleError::ProcessNotFound), Err(HandleError::ProcessNotFound)) => {
-            log.push(String::from("the root ended the browser's job, and the browser and its renderer went with it"));
-        },
-        (Err(error), _) | (_, Err(error)) => return Err(error),
-        (Ok(_), Ok(_)) => return Err(HandleError::BadState),
-    }
-
-    Ok(())
-}
-
-fn spawn_browser(kernel: &mut Kernel, root: ProcessId, root_job: HandleValue, log: &mut Vec<String>) -> Result<Browser, HandleError> {
-    let job = kernel.create_job(root, root_job)?;
-
-    kernel.set_policy(root, job, &[Condition::ReplaceAsExecutable])?;
-    log.push(String::from("a job for the browser, which refuses to make memory executable"));
-
-    let created = kernel.create_process(root, job)?;
-    let held = kernel.handles(created.id)?;
-
-    log.push(format!("a browser is born in it holding {} handle", held.len()));
-
-    let bootstrap = match held.first() {
-        Some(bootstrap) => *bootstrap,
-        None => return Err(HandleError::BadHandle),
-    };
-
-    Ok(Browser { job, process: created.id, bootstrap, channel: created.channel })
-}
-
-fn lend(
-    kernel: &mut Kernel,
-    root: ProcessId,
-    browser: &Browser,
-    executable_resource: HandleValue,
-    log: &mut Vec<String>,
-) -> Result<Lent, HandleError> {
-    let Ok(managing) = Rights::from_rights(&[Right::ManageJob, Right::Transfer]);
-    let job = kernel.duplicate(root, browser.job, managing)?;
-    let Ok(lendable) = Rights::from_rights(&[Right::Transfer]);
-    let resource = kernel.duplicate(root, executable_resource, lendable)?;
-    let memory = kernel.create_memory(root)?;
-
-    kernel.write(root, browser.channel, b"a page", &[memory, resource, job])?;
-
-    let message = kernel.read(browser.process, browser.bootstrap)?;
-
-    let page = match core::str::from_utf8(&message.bytes) {
-        Ok(page) => page,
-        Err(_not_text) => "something that is not text",
-    };
-
-    log.push(format!("the browser read \"{page}\" and {} handles: memory, the executable resource and its own job", message.handles.len()));
-
-    match message.handles.as_slice() {
-        [memory, resource, job] => Ok(Lent { memory: *memory, resource: *resource, job: *job }),
-        _ => Err(HandleError::BadHandle),
-    }
-}
-
-fn start_renderer(kernel: &mut Kernel, browser: &Browser, lent: &Lent, log: &mut Vec<String>) -> Result<ProcessId, HandleError> {
-    let renderer = kernel.create_process(browser.process, lent.job)?;
-
-    log.push(String::from("the browser started a renderer inside its own job"));
-
-    Ok(renderer.id)
-}
-
-fn expect_refused(kernel: &mut Kernel, browser: &Browser, lent: &Lent, log: &mut Vec<String>) -> Result<(), HandleError> {
-    match kernel.replace_as_executable(browser.process, lent.memory, lent.resource) {
-        Err(error) => log.push(format!("the browser holds the executable resource and was still refused: {error}")),
-        Ok(_) => return Err(HandleError::DeniedByPolicy(Condition::ReplaceAsExecutable)),
-    }
-
-    Ok(())
+pub fn run_with_frame(
+  memory: Bytes,
+  mut log: impl FnMut(fmt::Arguments<'_>),
+  mut present: impl FnMut(Size<u32>, &[[u8; 4]]),
+) -> Result<Exit, Never> {
+  Ok(match browser::run(memory, &mut log, &mut present) {
+    Ok(()) => Exit::Success,
+    Err(error) => Exit::Failure(error),
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn every_step_holds_and_says_so_in_order() -> Result<(), Never> {
-        let Ok(run) = run();
+  #[test]
+  fn every_step_holds_and_says_so_in_order() -> Result<(), Never> {
+    let Ok(run) = run(HOSTED_MEMORY);
 
-        assert_eq!(run.exit, Exit::Success);
+    assert_eq!(run.exit, Exit::Success);
+    assert_eq!(
+      run.log,
+      [
+        "the browser opened a site in a job with 983040 bytes",
+        "a 640 by 360 plain-text page reached the browser as read-only memory",
+        "the site's job refused to make memory executable even with the resource",
+        "the renderer read nothing, and the browser was stopped after 64 messages: the channel holds no more",
+        "the browser asked for as much memory as its whole job was given, and was refused",
+        "the root took back the executable resource from the renderer",
+        "the replacement renderer reopened the page in the same tab",
+        "closing the last tab ended the renderer and returned the site's share",
+      ]
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  #[cfg_attr(
+    dylint_lib = "explicit051_no_machine_width",
+    expect(
+      explicit051_no_machine_width,
+      reason = "the test compares a fixed run using the slice API and the expected array length"
+    )
+  )]
+  fn the_walkthrough_displays_the_decoded_text() -> Result<(), Never> {
+    let frames = core::cell::Cell::new(0_u32);
+    let Ok(exit) = run_with_frame(
+      HOSTED_MEMORY,
+      |_| {},
+      |size, pixels| {
+        frames.set(frames.get().saturating_add(1));
         assert_eq!(
-            run.log,
-            [
-                "a job for the browser, which refuses to make memory executable",
-                "a browser is born in it holding 1 handle",
-                "the browser read \"a page\" and 3 handles: memory, the executable resource and its own job",
-                "the browser started a renderer inside its own job",
-                "the browser holds the executable resource and was still refused: its job does not let it make memory executable",
-                "the root took back the resource it lent, and the browser no longer holds it",
-                "the root ended the browser's job, and the browser and its renderer went with it",
-            ]
+          size,
+          Size {
+            width: 640,
+            height: 360
+          }
         );
+        let paper = [255; 4];
+        let ink = [0, 0, 0, 255];
+        assert_eq!(pixels.first(), Some(&paper));
 
-        Ok(())
-    }
+        let start = 10_256_usize;
+        let scanline = [
+          paper, paper, paper, paper, ink, ink, ink, ink, ink, ink, ink, ink,
+        ];
+        assert_eq!(
+          pixels.get(start..start.saturating_add(scanline.len())),
+          Some(scanline.as_slice())
+        );
+        let blank = pixels.get(20_480..30_720);
+        assert!(blank.is_some_and(|rows| rows.iter().all(|pixel| *pixel == paper)));
+        assert_eq!(pixels.last(), Some(&paper));
+      },
+    );
+
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(frames.get(), 2);
+
+    Ok(())
+  }
 }

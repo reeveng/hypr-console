@@ -24,9 +24,9 @@
 //! An alias resolves and the rule fires anyway, which is why the middle
 //! signature is read rather than the written one: `type Pixels = u32` is a
 //! nickname and not a type, and a rule that took a nickname for a type would
-//! be satisfied by the very thing it exists to refuse. References peel before
-//! two types are compared -- `&str` beside `&str` is the same pair of hands
-//! taking the same two words in either order.
+//! be satisfied by the very thing it exists to refuse. Borrowing a bare type
+//! still leaves it in scope. Compare the parameter types with their borrow
+//! depth and mutability intact, and ignore lifetime differences.
 //!
 //! Written the way EXPLICIT007 and EXPLICIT008 are, and skipping what they
 //! skip. A closure has no call site to protect. A method that implements
@@ -55,11 +55,22 @@
 #![feature(rustc_private)]
 #![warn(unused_extern_crates)]
 
+extern crate rustc_errors;
 extern crate rustc_hir;
+extern crate rustc_abi;
+extern crate rustc_lexer;
 extern crate rustc_middle;
 extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+mod fixes;
+mod scope;
+mod public_interfaces;
+#[path = "../../shared/macro_input.rs"]
+mod macro_input;
+#[path = "../../shared/authored_function.rs"]
+mod authored_function;
+
+use clippy_utils::diagnostics::span_lint_and_then;
 use rustc_hir::def_id::LocalDefId;
 use rustc_hir::intravisit::FnKind;
 use rustc_hir::{Body, FnDecl, ImplicitSelfKind};
@@ -67,7 +78,7 @@ use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::{self, Ty};
 use rustc_span::Span;
 
-dylint_linting::declare_late_lint! {
+dylint_linting::impl_late_lint! {
     /// EXPLICIT024: two parameters of the same bare representation can be
     /// passed in either order, and the compiler will not say which was meant.
     /// `fn draw(width: u32, height: u32)` accepts a height where a width
@@ -76,7 +87,17 @@ dylint_linting::declare_late_lint! {
     /// picture.
     pub EXPLICIT024_NO_SWAPPABLE_PARAMS,
     Deny,
-    "two parameters of one bare representation can be passed in either order; give each quantity its own type"
+    "two parameters of one bare representation can be passed in either order; give each quantity its own type",
+    Explicit024NoSwappableParams {
+        fixes: fixes::Fixes::default(),
+        typed_coordinates: dylint_linting::config_or_default("explicit024_typed_coordinates"),
+    }
+}
+
+#[derive(Default)]
+pub struct Explicit024NoSwappableParams {
+    fixes: fixes::Fixes,
+    typed_coordinates: bool,
 }
 
 // A method that implements a trait did not choose its own signature. The place
@@ -102,7 +123,43 @@ fn is_bare_representation<'tcx>(cx: &LateContext<'tcx>, ty: Ty<'tcx>) -> bool {
     }
 }
 
+fn same_parameter_type<'tcx>(mut left: Ty<'tcx>, mut right: Ty<'tcx>) -> bool {
+    loop {
+        match (left.kind(), right.kind()) {
+            (ty::Ref(_, lhs, lhs_mutability), ty::Ref(_, rhs, rhs_mutability))
+                if lhs_mutability == rhs_mutability =>
+            {
+                left = *lhs;
+                right = *rhs;
+            }
+            _ => return left == right,
+        }
+    }
+}
+
 impl<'tcx> LateLintPass<'tcx> for Explicit024NoSwappableParams {
+    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx rustc_hir::Expr<'tcx>) {
+        if self.typed_coordinates
+            && let Some(replacement) = public_interfaces::drawing_call(cx, expr)
+        {
+            span_lint_and_then(cx, EXPLICIT024_NO_SWAPPABLE_PARAMS, expr.span,
+                "this drawing call passes positional coordinates through the compatibility API",
+                |diagnostic| {
+                    diagnostic.span_suggestion(expr.span, "pass points to the typed drawing method", replacement, rustc_errors::Applicability::MachineApplicable);
+                });
+        }
+
+        if self.typed_coordinates
+            && let Some(replacement) = public_interfaces::transform_call(cx, expr)
+        {
+            span_lint_and_then(cx, EXPLICIT024_NO_SWAPPABLE_PARAMS, expr.span,
+                "this transform call passes positional values through the compatibility API",
+                |diagnostic| {
+                    diagnostic.span_suggestion(expr.span, "name the values for both axes", replacement, rustc_errors::Applicability::MachineApplicable);
+                });
+        }
+    }
+
     fn check_fn(
         &mut self,
         cx: &LateContext<'tcx>,
@@ -141,15 +198,20 @@ impl<'tcx> LateLintPass<'tcx> for Explicit024NoSwappableParams {
             .inputs()
             .iter()
             .skip(first)
-            .map(|ty| ty.peel_refs())
+            .copied()
             .collect();
 
+        let mut grouped = None;
         for (later, ty) in written.iter().enumerate() {
-            if !is_bare_representation(cx, *ty) {
+            let representation = ty.peel_refs();
+            if !is_bare_representation(cx, representation) {
                 continue;
             }
 
-            let earlier = written.iter().take(later).any(|before| before == ty);
+            let earlier = written
+                .iter()
+                .take(later)
+                .any(|before| same_parameter_type(*before, *ty));
 
             if !earlier {
                 continue;
@@ -160,25 +222,37 @@ impl<'tcx> LateLintPass<'tcx> for Explicit024NoSwappableParams {
                 None => span,
             };
 
-            span_lint_and_help(
+            let suggestion = grouped.get_or_insert_with(|| self.fixes.for_function(cx, def_id, decl, body));
+            span_lint_and_then(
                 cx,
                 EXPLICIT024_NO_SWAPPABLE_PARAMS,
                 at,
                 format!(
-                    "a second parameter of type `{ty}`: the compiler takes these two in either order and says nothing"
+                    "a second parameter of type `{representation}`: the compiler takes these two in either order and says nothing"
                 ),
-                None,
-                "give each quantity a type of its own -- a newtype, not an alias, since an alias resolves \
+                |diagnostic| {
+                    if let Some((_, edits)) = suggestion.take_if(|(pivot, _)| *pivot == later + first) {
+                        diagnostic.multipart_suggestion("name the arguments at every call to this private function", edits, rustc_errors::Applicability::MachineApplicable);
+                    } else {
+                        diagnostic.help("give each quantity a type of its own -- a newtype, not an alias, since an alias resolves \
                  to the same type and is taken in either order as well. Then the wrong order is a compile \
-                 error rather than a wrong answer somewhere else",
+                 error rather than a wrong answer somewhere else");
+                    }
+                },
             );
         }
 
-        let _ = body;
     }
 }
 
 #[test]
 fn ui() {
     dylint_testing::ui_test(env!("CARGO_PKG_NAME"), "ui");
+}
+
+#[test]
+fn coordinate_calls() {
+    dylint_testing::ui::Test::src_base(env!("CARGO_PKG_NAME"), "ui_coordinates")
+        .dylint_toml("explicit024_typed_coordinates = true")
+        .run();
 }

@@ -1,0 +1,112 @@
+warning: `Vec::new` opens a length the machine will decide
+  --> $DIR/console_kernel_vectors.rs:13:11
+   |
+LL |     read(&Vec::new());
+   |           ^^^^^^^^^^ help: use a fixed-size array here: `[]`
+   |
+   = note: `#[warn(explicit066_no_heap_after_init)]` on by default
+
+warning: `Vec::new` opens a length the machine will decide
+  --> $DIR/console_kernel_vectors.rs:14:14
+   |
+LL |     generic(&Vec::<u16>::new());
+   |              ^^^^^^^^^^^^^^^^^ help: use a fixed-size array here: `::core::convert::identity::<[u16; 0]>([])`
+
+warning: `Vec::new` opens a length the machine will decide
+  --> $DIR/console_kernel_vectors.rs:15:11
+   |
+LL |     read(&vec![]);
+   |           ^^^^^^ help: use a fixed-size array here: `[]`
+
+warning: `vec!` spends the heap on a list whose size could have been written
+  --> $DIR/console_kernel_vectors.rs:16:11
+   |
+LL |     read(&std::vec![1, 2]);
+   |           ^^^^^^^^^^^^^^^ help: use a fixed-size array here: `[1, 2]`
+
+warning: `vec!` spends the heap on a list whose size could have been written
+  --> $DIR/console_kernel_vectors.rs:17:16
+   |
+LL |     write(&mut vec![4; 3]);
+   |                ^^^^^^^^^^ help: use a fixed-size array here: `[4; 3]`
+
+warning: `vec!` spends the heap on a list whose size could have been written
+  --> $DIR/console_kernel_vectors.rs:18:11
+   |
+LL |     read(&vec![0; COUNT]);
+   |           ^^^^^^^^^^^^^^ help: use a fixed-size array here: `[0; COUNT]`
+
+warning: `vec!` spends the heap on a list whose size could have been written
+  --> $DIR/console_kernel_vectors.rs:20:16
+   |
+LL |     let list = vec!(5, 6,);
+   |                ^^^^^^^^^^^ help: use a fixed-size array here: `[5, 6,]`
+
+warning: `Vec::new` opens a length the machine will decide
+  --> $DIR/console_kernel_vectors.rs:23:21
+   |
+LL |     let mut empty = Vec::new();
+   |                     ^^^^^^^^^^ help: use a fixed-size array here: `[]`
+
+warning: `vec!` spends the heap on a list whose size could have been written
+  --> $DIR/console_kernel_vectors.rs:26:18
+   |
+LL |     for value in vec![1_u8, 2] {
+   |                  ^^^^^^^^^^^^^ help: use a fixed-size array here: `[1_u8, 2]`
+
+warning: `Vec::new` opens a length the machine will decide
+  --> $DIR/console_kernel_vectors.rs:29:18
+   |
+LL |     for value in Vec::<u8>::new() {
+   |                  ^^^^^^^^^^^^^^^^ help: use a fixed-size array here: `::core::convert::identity::<[u8; 0]>([])`
+
+warning: `Vec::new` opens a length the machine will decide
+  --> $DIR/console_kernel_vectors.rs:33:20
+   |
+LL |     let mut grow = Vec::new();
+   |                    ^^^^^^^^^^
+   |
+   = help: allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision made before the machine booted. Where a flight crate genuinely must grow one, allow this rule here and let the reason say what budgets it
+
+warning: `vec!` spends the heap on a list whose size could have been written
+  --> $DIR/console_kernel_vectors.rs:36:11
+   |
+LL |     owned(vec![2, 3]);
+   |           ^^^^^^^^^^
+   |
+   = help: allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision made before the machine booted. Where a flight crate genuinely must grow one, allow this rule here and let the reason say what budgets it
+
+warning: `vec!` spends the heap on a list whose size could have been written
+  --> $DIR/console_kernel_vectors.rs:38:11
+   |
+LL |     read(&vec![1; n]);
+   |           ^^^^^^^^^^
+   |
+   = help: allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision made before the machine booted. Where a flight crate genuinely must grow one, allow this rule here and let the reason say what budgets it
+
+warning: `vec!` spends the heap on a list whose size could have been written
+  --> $DIR/console_kernel_vectors.rs:39:11
+   |
+LL |     read(&vec![1; 4096]);
+   |           ^^^^^^^^^^^^^
+   |
+   = help: allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision made before the machine booted. Where a flight crate genuinely must grow one, allow this rule here and let the reason say what budgets it
+
+warning: `vec!` spends the heap on a list whose size could have been written
+  --> $DIR/console_kernel_vectors.rs:47:11
+   |
+LL |     both!(vec![1]);
+   |           ^^^^^^^
+   |
+   = help: allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision made before the machine booted. Where a flight crate genuinely must grow one, allow this rule here and let the reason say what budgets it
+
+warning: `Vec::new` opens a length the machine will decide
+  --> $DIR/console_kernel_vectors.rs:48:11
+   |
+LL |     both!(Vec::new());
+   |           ^^^^^^^^^^
+   |
+   = help: allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision made before the machine booted. Where a flight crate genuinely must grow one, allow this rule here and let the reason say what budgets it
+
+warning: 16 warnings emitted
+

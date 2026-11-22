@@ -64,169 +64,207 @@ use console_core_never::Never;
 pub const WHERE: &str = "CONSOLE_UPDATING_PATH";
 
 pub fn under(told: Option<&str>) -> Result<PathBuf, Never> {
-    Ok(match told.map(str::trim).filter(|said| !said.is_empty()) {
-        Some(said) => PathBuf::from(said),
-        None => Path::new("/run/console").join("updating"),
-    })
+  Ok(match told.map(str::trim).filter(|said| !said.is_empty()) {
+    Some(said) => PathBuf::from(said),
+    None => Path::new("/run/console").join("updating"),
+  })
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit026_env_read_once",
-    allow(
-        explicit026_env_read_once,
-        reason = "CONSOLE_UPDATING_PATH belongs to this crate, and the const beside it is the only spelling of the name"
-    )
+  dylint_lib = "explicit026_env_read_once",
+  allow(
+    explicit026_env_read_once,
+    reason = "CONSOLE_UPDATING_PATH belongs to this crate, and the const beside it is the only spelling of the name"
+  )
 )]
 pub fn at() -> Result<PathBuf, Never> {
-    let told = match std::env::var(WHERE) {
-        Ok(said) => Some(said),
-        Err(std::env::VarError::NotPresent) => None,
-        Err(fault) => {
-            eprintln!("console: {WHERE}: {fault}");
+  let told = match std::env::var(WHERE) {
+    Ok(said) => Some(said),
+    Err(std::env::VarError::NotPresent) => None,
+    Err(fault) => {
+      eprintln!("console: {WHERE}: {fault}");
 
-            None
-        }
-    };
+      None
+    }
+  };
 
-    under(told.as_deref())
+  under(told.as_deref())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Progress {
-    pub permille: u16,
-    pub label: String,
+  pub permille: u16,
+  pub label: String,
 }
 
 pub const WHOLE: u16 = 1000;
 
 pub fn serialize(progress: &Progress) -> Result<String, Never> {
-    Ok(format!("{} {}\n", progress.permille, progress.label))
+  Ok(format!("{} {}\n", progress.permille, progress.label))
 }
 
 pub fn parse(held: &str) -> Result<Option<Progress>, Never> {
-    let first = match held.lines().next() {
-        Some(first) => first,
-        None => return Ok(None),
-    };
+  let first = match held.lines().next() {
+    Some(first) => first,
+    None => return Ok(None),
+  };
 
-    let line = first.trim();
+  let line = first.trim();
 
-    let (permille, label) = match line.split_once(' ') {
-        Some((permille, label)) => (permille, label),
-        None => return Ok(None),
-    };
+  let (permille, label) = match line.split_once(' ') {
+    Some((permille, label)) => (permille, label),
+    None => return Ok(None),
+  };
 
-    let permille = match permille.parse::<u16>() {
-        Ok(permille) => permille,
-        Err(_not_a_number) => return Ok(None),
-    };
+  let permille_3 = match permille.parse::<u16>() {
+    Ok(permille_2) => permille_2,
+    Err(_not_a_number) => return Ok(None),
+  };
 
-    Ok(match permille <= WHOLE && !label.trim().is_empty() {
-        true => Some(Progress { permille, label: label.trim().to_string() }),
-        false => None,
-    })
+  Ok(match ::core::primitive::bool::then_some(permille_3 <= WHOLE && !label.trim().is_empty(), ()) {
+    ::core::option::Option::Some(()) => Some(Progress {
+      permille: permille_3,
+      label: label.trim().to_string(),
+    }),
+    ::core::option::Option::None => None,
+  })
 }
 
 pub fn wrote(progress: &Progress) -> Result<(), Never> {
-    let Ok(at) = at();
+  let Ok(at) = at();
 
-    let holding = match at.parent() {
-        Some(holding) => holding,
-        None => return Ok(()),
-    };
+  let holding = match at.parent() {
+    Some(holding) => holding,
+    None => return Ok(()),
+  };
 
-    match std::fs::create_dir_all(holding) {
-        Ok(()) => {}
-        Err(fault) => {
-            eprintln!("console: {}: keeping how progress along an apply is: {fault}", holding.display());
+  match std::fs::create_dir_all(holding) {
+    Ok(()) => {}
+    Err(fault) => {
+      eprintln!(
+        "console: {}: keeping how progress along an apply is: {fault}",
+        holding.display()
+      );
 
-            return Ok(());
-        }
+      return Ok(());
     }
+  }
 
-    let Ok(written) = serialize(progress);
+  let Ok(written) = serialize(progress);
 
-    match console_core_atomic_writes::whole(&at, written.as_bytes()) {
-        Ok(()) => {}
-        Err(fault) => {
-            eprintln!("console: {}: writing how progress along an apply is: {fault}", at.display());
+  match console_core_atomic_writes::whole(&at, written.as_bytes()) {
+    Ok(()) => {}
+    Err(fault) => {
+      eprintln!(
+        "console: {}: writing how progress along an apply is: {fault}",
+        at.display()
+      );
 
-            return Ok(());
-        }
+      return Ok(());
     }
+  }
 
-    Ok(())
+  Ok(())
 }
 
 pub fn clear() -> Result<(), Never> {
-    let Ok(at) = at();
+  let Ok(at) = at();
 
-    let _ = std::fs::remove_file(at);
+  match console_core_atomic_writes::gone(&at) {
+    Ok(()) => {}
+    Err(fault) => console_core_logging::warn!("console: clearing update progress: {fault}"),
+  }
 
-    Ok(())
+  Ok(())
 }
 
 pub fn progress() -> Result<Option<Progress>, Never> {
-    let Ok(at) = at();
+  let Ok(at) = at();
 
-    let said = match std::fs::read_to_string(at) {
-        Ok(said) => said,
-        Err(_unreadable) => return Ok(None),
-    };
+  let said = match std::fs::read_to_string(at) {
+    Ok(said) => said,
+    Err(_unreadable) => return Ok(None),
+  };
 
-    parse(&said)
+  parse(&said)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn what_the_engine_writes_is_what_the_bar_reads() {
-        for progress in [
-            Progress { permille: 0, label: "reading packages".to_string() },
-            Progress { permille: 620, label: "building".to_string() },
-            Progress { permille: WHOLE, label: "done".to_string() },
-        ] {
-            let Ok(written) = serialize(&progress);
+  #[test]
+  fn what_the_engine_writes_is_what_the_bar_reads() {
+    for progress in [
+      Progress {
+        permille: 0,
+        label: "reading packages".to_string(),
+      },
+      Progress {
+        permille: 620,
+        label: "building".to_string(),
+      },
+      Progress {
+        permille: WHOLE,
+        label: "done".to_string(),
+      },
+    ] {
+      let Ok(written) = serialize(&progress);
 
-            assert_eq!(parse(&written), Ok(Some(progress)));
-        }
+      assert_eq!(parse(&written), Ok(Some(progress)));
     }
+  }
 
-    #[test]
-    fn a_name_with_spaces_in_it_survives_the_round_trip() {
-        let progress = Progress { permille: 8, label: "writing files".to_string() };
-        let Ok(written) = serialize(&progress);
+  #[test]
+  fn a_name_with_spaces_in_it_survives_the_round_trip() {
+    let progress = Progress {
+      permille: 8,
+      label: "writing files".to_string(),
+    };
+    let Ok(written) = serialize(&progress);
 
-        assert_eq!(parse(&written), Ok(Some(progress)));
+    assert_eq!(parse(&written), Ok(Some(progress)));
+  }
+
+  #[test]
+  fn nothing_is_read_out_of_something_we_did_not_write() {
+    for held in [
+      "",
+      "\n",
+      "building",
+      "62",
+      "62 ",
+      "  ",
+      "-1 building",
+      "x building",
+    ] {
+      assert_eq!(parse(held), Ok(None), "{held:?} was read as a number");
     }
+  }
 
-    #[test]
-    fn nothing_is_read_out_of_something_we_did_not_write() {
-        for held in ["", "\n", "building", "62", "62 ", "  ", "-1 building", "x building"] {
-            assert_eq!(parse(held), Ok(None), "{held:?} was read as a number");
-        }
-    }
+  #[test]
+  fn a_number_past_the_end_is_not_ours() {
+    assert_eq!(parse("1001 building"), Ok(None));
+    assert_eq!(parse("999999 building"), Ok(None));
+  }
 
-    #[test]
-    fn a_number_past_the_end_is_not_ours() {
-        assert_eq!(parse("1001 building"), Ok(None));
-        assert_eq!(parse("999999 building"), Ok(None));
-    }
+  #[test]
+  fn it_is_under_run_when_nothing_says_otherwise() {
+    assert_eq!(under(None), Ok(PathBuf::from("/run/console/updating")));
+    assert_eq!(under(Some("")), Ok(PathBuf::from("/run/console/updating")));
+    assert_eq!(
+      under(Some("   ")),
+      Ok(PathBuf::from("/run/console/updating"))
+    );
+  }
 
-    #[test]
-    fn it_is_under_run_when_nothing_says_otherwise() {
-        assert_eq!(under(None), Ok(PathBuf::from("/run/console/updating")));
-        assert_eq!(under(Some("")), Ok(PathBuf::from("/run/console/updating")));
-        assert_eq!(under(Some("   ")), Ok(PathBuf::from("/run/console/updating")));
-    }
-
-    #[test]
-    fn a_staged_session_is_read_where_it_says_rather_than_under_run() {
-        assert_eq!(
-            under(Some("/somewhere/.stage/session-1/run/console/updating")),
-            Ok(PathBuf::from("/somewhere/.stage/session-1/run/console/updating"))
-        );
-    }
+  #[test]
+  fn a_staged_session_is_read_where_it_says_rather_than_under_run() {
+    assert_eq!(
+      under(Some("/somewhere/.stage/session-1/run/console/updating")),
+      Ok(PathBuf::from(
+        "/somewhere/.stage/session-1/run/console/updating"
+      ))
+    );
+  }
 }

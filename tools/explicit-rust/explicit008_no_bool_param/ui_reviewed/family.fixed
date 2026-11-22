@@ -1,0 +1,26 @@
+// run-rustfix
+// edition:2024
+
+#[derive(Clone, Copy)]
+enum Scaling {
+    Apply,
+    Skip,
+}
+
+fn scale(value: i32, apply_scale: crate::Scaling) -> i32 {
+    match apply_scale {
+        crate::Scaling::Apply => value * 2,
+        crate::Scaling::Skip => value,
+    }
+}
+
+fn forward(value: i32, apply_scale: crate::Scaling) -> i32 {
+    scale(value, apply_scale)
+}
+
+fn main() {
+    assert_eq!(forward(4, crate::Scaling::Apply), 8);
+    let depends_on_input = std::env::args().len() > 1;
+    let _ = forward(4, match ::core::primitive::bool::then_some(depends_on_input, ()) { ::core::option::Option::Some(()) => crate::Scaling::Apply, ::core::option::Option::None => crate::Scaling::Skip });
+    assert_eq!(scale(4, crate::Scaling::Skip), 4);
+}

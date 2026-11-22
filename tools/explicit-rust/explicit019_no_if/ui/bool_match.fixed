@@ -1,0 +1,163 @@
+// run-rustfix
+// edition:2024
+
+fn choice(wide: bool, request: Option<(u8, u8)>) -> u8 {
+    match ::core::primitive::bool::then_some(wide, ()) {
+        ::core::option::Option::Some(()) => {
+            9
+        },
+        ::core::option::Option::None => match request {
+            Some((left, right)) => {
+                left + right
+            },
+            ::core::option::Option::None => {
+                0
+            },
+        },
+    }
+}
+
+fn unpack(request: Option<u8>) -> u8 {
+    match request.ok_or(()) {
+        Ok(number) => {
+            return number;
+        },
+        ::core::result::Result::Err(_) => {},
+    }
+    0
+}
+
+fn multiline(left: bool, right: bool) -> u8 {
+    match {
+        ::core::primitive::bool::then_some((left
+        && right) || left, ())
+    } {
+        ::core::option::Option::Some(()) => {
+            return 1;
+        },
+        ::core::option::Option::None => {},
+    }
+    0
+}
+
+use std::cell::Cell;
+
+struct Decision<'a>(&'a Cell<bool>);
+
+impl Decision<'_> {
+    fn ask(&self) -> bool { true }
+}
+
+impl Drop for Decision<'_> {
+    fn drop(&mut self) { self.0.set(true); }
+}
+
+fn branch(flag: bool) -> u8 {
+    match ::core::primitive::bool::then_some(flag, ()) {
+        ::core::option::Option::Some(()) => {
+            return 1;
+        },
+        ::core::option::Option::None => {},
+    }
+
+    2
+}
+
+fn has_text(mut value: Option<String>) -> Option<String> {
+    match value {
+        ::core::option::Option::Some(_) => {
+            value.take()
+        },
+        ::core::option::Option::None => {
+            None
+        },
+    }
+}
+
+fn has_no_text(value: Option<String>) -> u8 {
+    match value {
+        None => { 0 },
+        ::core::option::Option::Some(_) => { 1 },
+    }
+}
+
+fn score(count: u8) -> u8 {
+    match ::core::cmp::Ord::cmp(&::core::convert::identity(count), &::core::convert::identity(2)) {
+        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => 0,
+        ::core::cmp::Ordering::Greater => count,
+    }
+}
+
+fn inferred() -> u8 {
+    match {
+        ::core::primitive::bool::then_some(Default::default(), ())
+    } {
+        ::core::option::Option::Some(()) => { 1 },
+        ::core::option::Option::None => { 0 },
+    }
+}
+
+fn is_present(value: Option<String>) -> u8 {
+    match value {
+        ::core::option::Option::Some(_) => 1,
+        ::core::option::Option::None => 0,
+    }
+}
+
+fn recover_failures(mut value: Result<String, String>) -> Result<String, String> {
+    match value {
+        ::core::result::Result::Err(_) => {
+            value = Ok(String::from("recovered"));
+        },
+        ::core::result::Result::Ok(_) => {},
+    }
+    value
+}
+
+const fn has_value(value: Option<u8>) -> u8 {
+    match value {
+        ::core::option::Option::Some(_) => { 1 },
+        ::core::option::Option::None => { 0 },
+    }
+}
+
+fn drops_after_match() {
+    let dropped = Cell::new(false);
+    match ::core::primitive::bool::then_some(Decision(&dropped).ask(), ()) {
+        ::core::option::Option::Some(()) => assert!(!dropped.get()),
+        ::core::option::Option::None => assert!(!dropped.get()),
+    }
+    assert!(dropped.get());
+}
+
+fn main() {
+    let dropped = Cell::new(false);
+    let value = match {
+        ::core::primitive::bool::then_some(Decision(&dropped).ask(), ())
+    } {
+        ::core::option::Option::Some(()) => {
+            assert!(dropped.get());
+            3
+        },
+        ::core::option::Option::None => {
+            0
+        },
+    };
+    assert_eq!(value, 3);
+    assert_eq!(branch(true), 1);
+    assert_eq!(branch(false), 2);
+    assert_eq!(choice(true, Some((1, 2))), 9);
+    assert_eq!(choice(false, Some((1, 2))), 3);
+    assert_eq!(unpack(Some(4)), 4);
+    assert_eq!(unpack(None), 0);
+    assert_eq!(multiline(true, false), 1);
+    assert_eq!(has_text(Some(String::from("text"))).as_deref(), Some("text"));
+    assert_eq!(has_no_text(None), 0);
+    assert_eq!(score(4), 4);
+    assert_eq!(score(0), 0);
+    assert_eq!(inferred(), 0);
+    assert_eq!(is_present(Some(String::from("text"))), 1);
+    assert_eq!(recover_failures(Err(String::from("input"))).as_deref(), Ok("recovered"));
+    assert_eq!(has_value(Some(0)), 1);
+    drops_after_match();
+}

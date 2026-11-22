@@ -1,0 +1,52 @@
+== flac
+-- gapless Disabled
+track 0x67efc298 CodecParameters { codec: CodecType(8192), sample_rate: Some(16000), time_base: Some(TimeBase { numer: 1, denom: 16000 }), n_frames: Some(14400), start_ts: 0, sample_format: None, bits_per_sample: Some(16), bits_per_coded_sample: None, channels: Some(FRONT_LEFT), channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Guaranteed, verification_check: Some(Md5([251, 211, 162, 210, 137, 158, 46, 124, 160, 72, 194, 18, 64, 221, 186, 42])), frames_per_block: None, extra_data: None } extra Some((34, 4011204079))
+ended after 4 packets: end of stream
+packet 0x67efc298 ts 0 dur 4096 trim 0 0 len 1543 crc 0x20792714
+packet 0x67efc298 ts 4096 dur 4096 trim 0 0 len 1543 crc 0x108b1406
+packet 0x67efc298 ts 8192 dur 4096 trim 0 0 len 1543 crc 0x93b4efcd
+packet 0x67efc298 ts 12288 dur 2112 trim 0 0 len 980 crc 0x66d81d16
+seek 0x67efc298 0 -> Ok(SeekedTo { track_id: 1743766168, required_ts: 0, actual_ts: 0 }) then Ok((0, 4096))
+seek 0x67efc298 1 -> Ok(SeekedTo { track_id: 1743766168, required_ts: 1, actual_ts: 0 }) then Ok((0, 4096))
+seek 0x67efc298 700 -> Ok(SeekedTo { track_id: 1743766168, required_ts: 700, actual_ts: 0 }) then Ok((0, 4096))
+seek 0x67efc298 4096 -> Ok(SeekedTo { track_id: 1743766168, required_ts: 4096, actual_ts: 0 }) then Ok((0, 4096))
+seek 0x67efc298 10000 -> Ok(SeekedTo { track_id: 1743766168, required_ts: 10000, actual_ts: 8192 }) then Ok((8192, 4096))
+seek 0x67efc298 22050 -> Err(SeekError(OutOfRange)) then Ok((12288, 2112))
+seek 0x67efc298 100000 -> Err(SeekError(OutOfRange)) then Err(IoError(Custom { kind: UnexpectedEof, error: "end of stream" }))
+seek 0x67efc298 400000 -> Err(SeekError(OutOfRange)) then Err(IoError(Custom { kind: UnexpectedEof, error: "end of stream" }))
+seek 0x67efc298 1000000000 -> Err(SeekError(OutOfRange)) then Err(IoError(Custom { kind: UnexpectedEof, error: "end of stream" }))
+seek 0 s -> Ok(SeekedTo { track_id: 1743766168, required_ts: 0, actual_ts: 0 })
+seek 0.25 s -> Ok(SeekedTo { track_id: 1743766168, required_ts: 4000, actual_ts: 0 })
+seek 0.5 s -> Ok(SeekedTo { track_id: 1743766168, required_ts: 8000, actual_ts: 4096 })
+seek 3.5 s -> Err(SeekError(OutOfRange))
+seek 9 s -> Err(SeekError(OutOfRange))
+seek on no track -> Err(SeekError(InvalidTrack))
+-- gapless Enabled
+track 0x67efc298 CodecParameters { codec: CodecType(8192), sample_rate: Some(16000), time_base: Some(TimeBase { numer: 1, denom: 16000 }), n_frames: Some(14400), start_ts: 0, sample_format: None, bits_per_sample: Some(16), bits_per_coded_sample: None, channels: Some(FRONT_LEFT), channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Guaranteed, verification_check: Some(Md5([251, 211, 162, 210, 137, 158, 46, 124, 160, 72, 194, 18, 64, 221, 186, 42])), frames_per_block: None, extra_data: None } extra Some((34, 4011204079))
+ended after 4 packets: end of stream
+packet 0x67efc298 ts 0 dur 4096 trim 0 0 len 1543 crc 0x20792714
+packet 0x67efc298 ts 4096 dur 4096 trim 0 0 len 1543 crc 0x108b1406
+packet 0x67efc298 ts 8192 dur 4096 trim 0 0 len 1543 crc 0x93b4efcd
+packet 0x67efc298 ts 12288 dur 2112 trim 0 0 len 980 crc 0x66d81d16
+seek 0x67efc298 0 -> Ok(SeekedTo { track_id: 1743766168, required_ts: 0, actual_ts: 0 }) then Ok((0, 4096))
+seek 0x67efc298 1 -> Ok(SeekedTo { track_id: 1743766168, required_ts: 1, actual_ts: 0 }) then Ok((0, 4096))
+seek 0x67efc298 700 -> Ok(SeekedTo { track_id: 1743766168, required_ts: 700, actual_ts: 0 }) then Ok((0, 4096))
+seek 0x67efc298 4096 -> Ok(SeekedTo { track_id: 1743766168, required_ts: 4096, actual_ts: 0 }) then Ok((0, 4096))
+seek 0x67efc298 10000 -> Ok(SeekedTo { track_id: 1743766168, required_ts: 10000, actual_ts: 8192 }) then Ok((8192, 4096))
+seek 0x67efc298 22050 -> Err(SeekError(OutOfRange)) then Ok((12288, 2112))
+seek 0x67efc298 100000 -> Err(SeekError(OutOfRange)) then Err(IoError(Custom { kind: UnexpectedEof, error: "end of stream" }))
+seek 0x67efc298 400000 -> Err(SeekError(OutOfRange)) then Err(IoError(Custom { kind: UnexpectedEof, error: "end of stream" }))
+seek 0x67efc298 1000000000 -> Err(SeekError(OutOfRange)) then Err(IoError(Custom { kind: UnexpectedEof, error: "end of stream" }))
+seek 0 s -> Ok(SeekedTo { track_id: 1743766168, required_ts: 0, actual_ts: 0 })
+seek 0.25 s -> Ok(SeekedTo { track_id: 1743766168, required_ts: 4000, actual_ts: 0 })
+seek 0.5 s -> Ok(SeekedTo { track_id: 1743766168, required_ts: 8000, actual_ts: 4096 })
+seek 3.5 s -> Err(SeekError(OutOfRange))
+seek 9 s -> Err(SeekError(OutOfRange))
+seek on no track -> Err(SeekError(InvalidTrack))
+-- forward only
+track 0x67efc298 CodecParameters { codec: CodecType(8192), sample_rate: Some(16000), time_base: Some(TimeBase { numer: 1, denom: 16000 }), n_frames: Some(14400), start_ts: 0, sample_format: None, bits_per_sample: Some(16), bits_per_coded_sample: None, channels: Some(FRONT_LEFT), channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Guaranteed, verification_check: Some(Md5([251, 211, 162, 210, 137, 158, 46, 124, 160, 72, 194, 18, 64, 221, 186, 42])), frames_per_block: None, extra_data: None } extra Some((34, 4011204079))
+ended after 4 packets: end of stream
+packet 0x67efc298 ts 0 dur 4096 trim 0 0 len 1543 crc 0x20792714
+packet 0x67efc298 ts 4096 dur 4096 trim 0 0 len 1543 crc 0x108b1406
+packet 0x67efc298 ts 8192 dur 4096 trim 0 0 len 1543 crc 0x93b4efcd
+packet 0x67efc298 ts 12288 dur 2112 trim 0 0 len 980 crc 0x66d81d16

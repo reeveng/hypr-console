@@ -1,0 +1,16 @@
+// run-rustfix
+// edition:2024
+// aux-build: body_wrapper.rs
+
+extern crate body_wrapper;
+
+#[body_wrapper::keep_body]
+fn wrapped(input: u8) -> u8 {
+    let value = input + 1;
+    let value_2 = value + 1;
+    value_2
+}
+
+fn main() {
+    assert_eq!(wrapped(4), 6);
+}

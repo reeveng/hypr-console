@@ -1,0 +1,15 @@
+[package]
+name = "console-core-matroska-blocks"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Split Matroska blocks into laced frames independently of their tracks."
+
+[lints]
+workspace = true
+
+[dependencies]
+console-core-extensible-binary-meta-language.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true

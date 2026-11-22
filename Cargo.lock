@@ -3,10 +3,72 @@
 version = 4
 
 [[package]]
+name = "accesskit"
+version = "0.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e883d1d28c5fd5568c79ed2d2bd48d9f2fd3945c8974ed0f53690ceddb051be"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
+name = "accesskit_atspi_common"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24f5baf62e34a4a6c30e3d697e4782f821a7337049c44c3b40576a27dfbb580d"
+dependencies = [
+ "accesskit",
+ "accesskit_consumer",
+ "atspi-common",
+ "phf 0.14.0",
+ "serde",
+ "zvariant",
+]
+
+[[package]]
+name = "accesskit_consumer"
+version = "0.39.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3da8f27636015191b2264ee1df681503170a632cafd832fdc1edfdd4e3a2fd3"
+dependencies = [
+ "accesskit",
+ "hashbrown",
+]
+
+[[package]]
+name = "accesskit_unix"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30d5192871228c54f1b0fb4a85cef000e11a3804f25d2165f14afa0daa67f3f6"
+dependencies = [
+ "accesskit",
+ "accesskit_atspi_common",
+ "async-channel",
+ "async-executor",
+ "async-task",
+ "atspi",
+ "futures-lite",
+ "futures-util",
+ "serde",
+ "zbus",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
+
+[[package]]
+name = "aes"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
+dependencies = [
+ "cfg-if",
+ "cipher",
+ "cpufeatures 0.2.17",
+]
 
 [[package]]
 name = "aho-corasick"
@@ -36,19 +98,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "alloc-no-stdlib"
-version = "2.0.4"
+name = "alloca"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc7bb162ec39d46ab1ca8c77bf72e890535becd1751bb45f64c597edb4c8c6b3"
+checksum = "e5a7d05ea6aea7e9e64d25b9156ba2fee3fdd659e34e41063cd2fc7cd020d7f4"
+dependencies = [
+ "cc",
+]
 
 [[package]]
-name = "alloc-stdlib"
-version = "0.2.4"
+name = "anes"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e76a019e91224d279006ff972f1e984179a6e9feb050adba6ce8274aef23195"
-dependencies = [
- "alloc-no-stdlib",
-]
+checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
+
+[[package]]
+name = "anstyle"
+version = "1.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000"
 
 [[package]]
 name = "approx"
@@ -61,9 +129,9 @@ dependencies = [
 
 [[package]]
 name = "archmage"
-version = "0.9.30"
+version = "0.9.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15785ee3576fbd41276a25f063b1e6b5bf323af9b4924632e25a8de6a3065f06"
+checksum = "a92f0e72adfba3f34ee8726e42cffed7384571e95411265060c638ece0f00ff2"
 dependencies = [
  "archmage-macros",
  "safe_unaligned_simd",
@@ -72,13 +140,13 @@ dependencies = [
 
 [[package]]
 name = "archmage-macros"
-version = "0.9.30"
+version = "0.9.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce7707714970d5cf476caccbae2d282000c6c14ca5aada878e722a10d8e1c153"
+checksum = "3d4e76b4cdc9779ac80e4b04cbc6c15fdb5b714116a7047eea481fb2f45017d2"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -86,18 +154,6 @@ name = "arraydeque"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d902e3d592a523def97af8f317b08ce16b7ab854c1985a0c671e6f15cebc236"
-
-[[package]]
-name = "arrayref"
-version = "0.3.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
-
-[[package]]
-name = "arrayvec"
-version = "0.7.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
 name = "as-slice"
@@ -109,10 +165,141 @@ dependencies = [
 ]
 
 [[package]]
-name = "assert_matches"
-version = "1.5.0"
+name = "async-broadcast"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
+checksum = "435a87a52755b8f27fcf321ac4f04b2802e337c8c4872923137471ec39c37532"
+dependencies = [
+ "event-listener",
+ "event-listener-strategy",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "async-channel"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "924ed96dd52d1b75e9c1a3e6275715fd320f5f9439fb5a4a11fa51f4221158d2"
+dependencies = [
+ "concurrent-queue",
+ "event-listener-strategy",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "async-executor"
+version = "1.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f426a31126c735126297bc5ea7a521263c9faff4f63ca415267ee625651c4f37"
+dependencies = [
+ "async-task",
+ "concurrent-queue",
+ "fastrand",
+ "futures-lite",
+ "pin-project-lite",
+ "slab",
+]
+
+[[package]]
+name = "async-io"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "456b8a8feb6f42d237746d4b3e9a178494627745c3c56c6ea55d92ba50d026fc"
+dependencies = [
+ "autocfg",
+ "cfg-if",
+ "concurrent-queue",
+ "futures-io",
+ "futures-lite",
+ "parking",
+ "polling",
+ "rustix",
+ "slab",
+ "windows-sys",
+]
+
+[[package]]
+name = "async-lock"
+version = "3.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0876700b0d007ad25d5508865a4259c3af9af6d296bf663a0d586d0bc3369f6f"
+dependencies = [
+ "event-listener",
+ "event-listener-strategy",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "async-process"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc50921ec0055cdd8a16de48773bfeec5c972598674347252c0399676be7da75"
+dependencies = [
+ "async-channel",
+ "async-io",
+ "async-lock",
+ "async-signal",
+ "async-task",
+ "blocking",
+ "cfg-if",
+ "event-listener",
+ "futures-lite",
+ "rustix",
+]
+
+[[package]]
+name = "async-recursion"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f8abc12baad266b1c8cec146854c195b5864b4221d4b2ca7296a7ae82d9e451"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+]
+
+[[package]]
+name = "async-signal"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52b5aaafa020cf5053a01f2a60e8ff5dccf550f0f77ec54a4e47285ac2bab485"
+dependencies = [
+ "async-io",
+ "async-lock",
+ "atomic-waker",
+ "cfg-if",
+ "futures-core",
+ "futures-io",
+ "rustix",
+ "signal-hook-registry",
+ "slab",
+ "windows-sys",
+]
+
+[[package]]
+name = "async-task"
+version = "4.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de"
+
+[[package]]
+name = "async-trait"
+version = "0.1.92"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+]
+
+[[package]]
+name = "atomic-waker"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "atomig"
@@ -135,6 +322,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "atspi"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c77886257be21c9cd89a4ae7e64860c6f0eefca799bb79127913052bd0eefb3d"
+dependencies = [
+ "atspi-common",
+ "atspi-proxies",
+]
+
+[[package]]
+name = "atspi-common"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20c5617155740c98003016429ad13fe43ce7a77b007479350a9f8bf95a29f63d"
+dependencies = [
+ "enumflags2",
+ "serde",
+ "static_assertions",
+ "zbus",
+ "zbus-lockstep",
+ "zbus-lockstep-macros",
+ "zbus_names",
+ "zvariant",
+]
+
+[[package]]
+name = "atspi-proxies"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2230e48787ed3eb4088996eab66a32ca20c0b67bbd4fd6cdfe79f04f1f04c9fc"
+dependencies = [
+ "atspi-common",
+ "serde",
+ "zbus",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -145,12 +369,6 @@ name = "base64"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
-
-[[package]]
-name = "bitflags"
-version = "1.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
@@ -168,25 +386,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "brotli"
-version = "8.0.4"
+name = "block-padding"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cc91aac060a7a1e25823bdccbfb6af1875b88f17c6daac97894eed8207166b3"
+checksum = "a8894febbff9f758034a5b8e12d87918f56dfc64a8e1fe757d65e29041538d93"
 dependencies = [
- "alloc-no-stdlib",
- "alloc-stdlib",
- "brotli-decompressor",
+ "generic-array",
 ]
 
 [[package]]
-name = "brotli-decompressor"
-version = "5.0.3"
+name = "blocking"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a32acac15fe1967bc3986b2a6347dffc965602354ea6f450ad07e8bfd253583"
+checksum = "a70e4329df6cb94385eed412ec92375c3cdd8a6e502493d1229b6414e4036dfa"
 dependencies = [
- "alloc-no-stdlib",
- "alloc-stdlib",
+ "async-channel",
+ "async-task",
+ "futures-io",
+ "futures-lite",
+ "piper",
 ]
+
+[[package]]
+name = "bumpalo"
+version = "3.20.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87a0cf66fd1eb2fb7b822cb78370d82303750809bc6ba855f3f58e517d3238db"
 
 [[package]]
 name = "by_address"
@@ -211,14 +436,8 @@ checksum = "6a1f896587b6f2c069c73d2f0913e2d590c3990285cd2f0b6aa02b786b4c679c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn 3.0.10",
 ]
-
-[[package]]
-name = "byteorder"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "byteorder-lite"
@@ -227,46 +446,60 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
 
 [[package]]
-name = "cairo-rs"
-version = "0.22.9"
+name = "camino"
+version = "1.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df683f1d30b457964673a5541a4603208ef95ab6873d2a55871895cf310f3b56"
+checksum = "bbbad30e4b4c14a39e3cc8aed085a12a327257c316619c93581e017bc52be591"
 dependencies = [
- "bitflags 2.13.2",
- "cairo-sys-rs",
- "glib",
- "libc",
+ "serde_core",
 ]
 
 [[package]]
-name = "cairo-sys-rs"
-version = "0.22.9"
+name = "cargo-platform"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee548131103ad8f698c6725669647b9c757b3b66992dd6a026037596417bee21"
+checksum = "8abf5d501fd757c2d2ee78d0cc40f606e92e3a63544420316565556ed28485e2"
 dependencies = [
- "glib-sys",
- "libc",
- "system-deps",
+ "serde",
+]
+
+[[package]]
+name = "cargo_metadata"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef987d17b0a113becdd19d3d0022d04d7ef41f9efe4f3fb63ac44ba61df3ade9"
+dependencies = [
+ "camino",
+ "cargo-platform",
+ "semver",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "cast"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
+
+[[package]]
+name = "cbc"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26b52a9543ae338f279b96b0b9fed9c8093744685043739079ce85cd58f289a6"
+dependencies = [
+ "cipher",
 ]
 
 [[package]]
 name = "cc"
-version = "1.5.1"
+version = "1.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f360145194ee8e21db5ee7f3fcd4fe52210864c75c985dae33218202c8bbe040"
+checksum = "02f0e023adb368345ce0ca6cdfc0f24a06554468d0e8503e14a0841de79bfa69"
 dependencies = [
  "find-msvc-tools",
  "shlex",
-]
-
-[[package]]
-name = "cfg-expr"
-version = "0.20.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe4ece8474b5f766c63426647e7b4b316b67431ade1036a8313cee24a03ae917"
-dependencies = [
- "smallvec",
- "target-lexicon",
 ]
 
 [[package]]
@@ -274,6 +507,68 @@ name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
+
+[[package]]
+name = "ciborium"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42e69ffd6f0917f5c029256a24d0161db17cea3997d185db0d35926308770f0e"
+dependencies = [
+ "ciborium-io",
+ "ciborium-ll",
+ "serde",
+]
+
+[[package]]
+name = "ciborium-io"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05afea1e0a06c9be33d539b876f1ce3692f4afea2cb41f740e7743225ed1c757"
+
+[[package]]
+name = "ciborium-ll"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57663b653d948a338bfb3eeba9bb2fd5fcfaecb9e199e87e1eda4d9e8b240fd9"
+dependencies = [
+ "ciborium-io",
+ "half",
+]
+
+[[package]]
+name = "cipher"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
+dependencies = [
+ "crypto-common 0.1.7",
+ "inout",
+]
+
+[[package]]
+name = "clap"
+version = "4.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "844c5c0b65be192cb68d570cca1b21a6444431d24e39c084dc0336177015337c"
+dependencies = [
+ "clap_builder",
+]
+
+[[package]]
+name = "clap_builder"
+version = "4.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec0797fb7aeb1406c84efac526901f7ec3ead2124f946b494e72879d4b54704d"
+dependencies = [
+ "anstyle",
+ "clap_lex",
+]
+
+[[package]]
+name = "clap_lex"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0921b3876b3a1df8a1c9f912e7f94342458022c2e84288015893d83c4d62a79"
 
 [[package]]
 name = "color"
@@ -285,11 +580,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "concurrent-queue"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "console-actor"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
+ "console-core-logging",
  "console-core-never",
+ "console-core-number-conversion",
  "console-core-state-machine",
  "console-core-temporary-directories",
  "console-program-lifetime",
@@ -304,8 +610,10 @@ dependencies = [
  "console-core-directory-listing",
  "console-core-external-programs",
  "console-core-ini-files",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-picture-sizes",
  "console-core-places",
 ]
 
@@ -313,6 +621,7 @@ dependencies = [
 name = "console-architecture"
 version = "0.1.0"
 dependencies = [
+ "cargo_metadata",
  "console-core-arguments",
  "console-core-atomic-writes",
  "console-core-external-programs",
@@ -332,6 +641,7 @@ dependencies = [
  "console-core-external-programs",
  "console-core-never",
  "console-core-words",
+ "console-operating-system-linux",
  "console-program-lifetime",
  "console-session",
  "console-waiting",
@@ -349,11 +659,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-bluetooth"
+version = "0.1.0"
+dependencies = [
+ "console-bus",
+ "console-core-media-access-control-addresses",
+ "console-core-never",
+ "console-core-words",
+]
+
+[[package]]
+name = "console-bluetooth-agent"
+version = "0.1.0"
+dependencies = [
+ "console-bluetooth",
+ "console-bus",
+ "console-core-arguments",
+ "console-core-internal-programs",
+ "console-core-iteration",
+ "console-core-media-access-control-addresses",
+ "console-core-never",
+ "console-core-state-machine",
+ "console-core-words",
+ "console-notifications",
+ "console-program-contract",
+ "console-waiting",
+ "rustix",
+]
+
+[[package]]
 name = "console-bookmarks"
 version = "0.1.0"
 dependencies = [
  "console-applications",
  "console-core-atomic-writes",
+ "console-core-bounded-reads",
  "console-core-external-programs",
  "console-core-never",
  "console-core-places",
@@ -367,12 +707,16 @@ dependencies = [
  "console-core-arguments",
  "console-core-atomic-writes",
  "console-core-color",
+ "console-core-epub-files",
  "console-core-external-programs",
  "console-core-file-names",
+ "console-core-finite-numbers",
  "console-core-fonts",
  "console-core-geometry",
  "console-core-internal-programs",
  "console-core-iteration",
+ "console-core-line",
+ "console-core-markup-tokens",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -388,6 +732,7 @@ dependencies = [
  "console-draw-painting",
  "console-draw-surface",
  "console-events",
+ "console-operating-system-linux",
  "console-panel",
  "console-pictures",
  "console-program-contract",
@@ -413,7 +758,56 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
- "sha2",
+]
+
+[[package]]
+name = "console-browser-renderer"
+version = "0.1.0"
+dependencies = [
+ "console-core-size",
+ "console-core-web-engine",
+ "rustix",
+]
+
+[[package]]
+name = "console-browser-site-isolation"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-kernel-handles",
+]
+
+[[package]]
+name = "console-browser-window"
+version = "0.1.0"
+dependencies = [
+ "console-browser-renderer",
+ "console-core-arguments",
+ "console-core-color",
+ "console-core-external-programs",
+ "console-core-file-urls",
+ "console-core-fonts",
+ "console-core-geometry",
+ "console-core-highlight",
+ "console-core-ini-files",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-places",
+ "console-core-png-files",
+ "console-core-shapes",
+ "console-core-temporary-directories",
+ "console-core-urls",
+ "console-core-web-engine",
+ "console-default-applications",
+ "console-draw-painting",
+ "console-draw-surface",
+ "console-input-key-symbols",
+ "console-input-text",
+ "console-operating-system-linux",
+ "console-repository",
+ "rustix",
+ "serde_json",
 ]
 
 [[package]]
@@ -424,6 +818,7 @@ dependencies = [
  "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-synchronization",
  "rustix",
 ]
 
@@ -451,9 +846,12 @@ dependencies = [
 name = "console-calculator"
 version = "0.1.0"
 dependencies = [
+ "console-actor",
  "console-core-arguments",
+ "console-core-finite-numbers",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-state-machine",
  "console-core-words",
  "console-panel",
 ]
@@ -462,26 +860,75 @@ dependencies = [
 name = "console-calendar"
 version = "0.1.0"
 dependencies = [
+ "console-actor",
  "console-core-arguments",
  "console-core-external-programs",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-state-machine",
  "console-panel",
  "console-test-stages",
+]
+
+[[package]]
+name = "console-capture"
+version = "0.1.0"
+dependencies = [
+ "console-core-atomic-writes",
+ "console-core-color",
+ "console-core-external-programs",
+ "console-core-fonts",
+ "console-core-geometry",
+ "console-core-internal-programs",
+ "console-core-logging",
+ "console-core-places",
+ "console-core-png-files",
+ "console-core-shapes",
+ "console-core-temporary-directories",
+ "console-draw-painting",
+ "console-draw-surface",
+ "console-operating-system-linux",
+ "console-pictures",
+ "rustix",
+]
+
+[[package]]
+name = "console-clipboard"
+version = "0.1.0"
+dependencies = [
+ "console-compositor",
+ "console-core-arguments",
+ "console-core-bounded-reads",
+ "console-core-controls",
+ "console-core-internal-programs",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-places",
+ "console-panel",
+ "console-waiting",
+ "rustix",
+ "serde",
+ "serde_json",
+ "wayland-client",
+ "wayland-protocols",
 ]
 
 [[package]]
 name = "console-compositor"
 version = "0.1.0"
 dependencies = [
+ "console-core-bounded-reads",
  "console-core-external-programs",
- "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
  "console-core-screen-orientation",
+ "console-core-size",
  "console-core-temporary-directories",
+ "console-core-text-encodings",
  "console-core-words",
+ "rustix",
  "serde_json",
 ]
 
@@ -489,8 +936,10 @@ dependencies = [
 name = "console-concurrency"
 version = "0.1.0"
 dependencies = [
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-parallel-execution",
  "console-core-temporary-directories",
  "console-waiting",
 ]
@@ -508,11 +957,15 @@ dependencies = [
 name = "console-control-center"
 version = "0.1.0"
 dependencies = [
+ "console-capture",
+ "console-compositor",
  "console-core-color",
+ "console-core-external-programs",
  "console-core-fonts",
  "console-core-geometry",
  "console-core-internal-programs",
  "console-core-iteration",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-shapes",
@@ -529,6 +982,10 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
 ]
+
+[[package]]
+name = "console-core-api-compatibility"
+version = "0.1.0"
 
 [[package]]
 name = "console-core-arguments"
@@ -564,7 +1021,7 @@ dependencies = [
  "console-core-audio-decoding-uncompressed",
  "console-core-audio-decoding-vorbis",
  "console-core-audio-decoding-wave-container",
- "lazy_static",
+ "console-core-never",
 ]
 
 [[package]]
@@ -572,8 +1029,12 @@ name = "console-core-audio-decoding-advanced-audio-coding"
 version = "0.5.5"
 dependencies = [
  "console-core-audio-decoding-interfaces",
- "lazy_static",
- "log",
+ "console-core-audio-windows",
+ "console-core-byte-streams",
+ "console-core-checksums",
+ "console-core-frequency-transforms",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -581,7 +1042,10 @@ name = "console-core-audio-decoding-apple-lossless"
 version = "0.5.5"
 dependencies = [
  "console-core-audio-decoding-interfaces",
- "log",
+ "console-core-byte-streams",
+ "console-core-checksums",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -590,8 +1054,11 @@ version = "0.5.5"
 dependencies = [
  "console-core-audio-decoding-flac-and-vorbis-headers",
  "console-core-audio-decoding-interfaces",
- "console-core-audio-decoding-tags",
- "log",
+ "console-core-byte-streams",
+ "console-core-checksums",
+ "console-core-iteration",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -600,17 +1067,22 @@ version = "0.5.5"
 dependencies = [
  "console-core-audio-decoding-interfaces",
  "console-core-audio-decoding-tags",
+ "console-core-byte-streams",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
 name = "console-core-audio-decoding-interfaces"
 version = "0.5.5"
 dependencies = [
- "arrayvec",
- "bitflags 1.3.2",
- "bytemuck",
- "lazy_static",
- "log",
+ "console-core-audio-samples",
+ "console-core-byte-streams",
+ "console-core-checksums",
+ "console-core-iteration",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-size",
 ]
 
 [[package]]
@@ -619,9 +1091,13 @@ version = "0.5.5"
 dependencies = [
  "console-core-audio-decoding-flac-and-vorbis-headers",
  "console-core-audio-decoding-interfaces",
- "console-core-audio-decoding-tags",
- "lazy_static",
- "log",
+ "console-core-byte-streams",
+ "console-core-extensible-binary-meta-language",
+ "console-core-iteration",
+ "console-core-matroska-blocks",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-words",
 ]
 
 [[package]]
@@ -629,9 +1105,12 @@ name = "console-core-audio-decoding-mp3"
 version = "0.5.5"
 dependencies = [
  "console-core-audio-decoding-interfaces",
- "console-core-audio-decoding-tags",
- "lazy_static",
- "log",
+ "console-core-byte-streams",
+ "console-core-checksums",
+ "console-core-iteration",
+ "console-core-mpeg-audio-frames",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -641,8 +1120,11 @@ dependencies = [
  "console-core-audio-decoding-flac-and-vorbis-headers",
  "console-core-audio-decoding-interfaces",
  "console-core-audio-decoding-tags",
+ "console-core-byte-streams",
+ "console-core-iso-media-boxes",
+ "console-core-never",
+ "console-core-number-conversion",
  "encoding_rs",
- "log",
 ]
 
 [[package]]
@@ -652,21 +1134,33 @@ dependencies = [
  "console-core-audio-decoding-flac-and-vorbis-headers",
  "console-core-audio-decoding-interfaces",
  "console-core-audio-decoding-tags",
- "log",
+ "console-core-byte-streams",
+ "console-core-checksums",
+ "console-core-iteration",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
 name = "console-core-audio-decoding-opus"
 version = "0.4.0"
+dependencies = [
+ "console-core-audio-windows",
+ "console-core-checksums",
+ "console-core-never",
+ "console-core-number-conversion",
+]
 
 [[package]]
 name = "console-core-audio-decoding-tags"
 version = "0.5.5"
 dependencies = [
  "console-core-audio-decoding-interfaces",
+ "console-core-byte-streams",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
  "encoding_rs",
- "lazy_static",
- "log",
 ]
 
 [[package]]
@@ -674,7 +1168,10 @@ name = "console-core-audio-decoding-uncompressed"
 version = "0.5.5"
 dependencies = [
  "console-core-audio-decoding-interfaces",
- "log",
+ "console-core-audio-samples",
+ "console-core-byte-streams",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -683,7 +1180,14 @@ version = "0.5.5"
 dependencies = [
  "console-core-audio-decoding-flac-and-vorbis-headers",
  "console-core-audio-decoding-interfaces",
- "log",
+ "console-core-audio-decoding-ogg-container",
+ "console-core-audio-windows",
+ "console-core-byte-streams",
+ "console-core-checksums",
+ "console-core-frequency-transforms",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -692,40 +1196,70 @@ version = "0.5.5"
 dependencies = [
  "console-core-audio-decoding-interfaces",
  "console-core-audio-decoding-tags",
+ "console-core-byte-streams",
+ "console-core-never",
+ "console-core-number-conversion",
  "extended",
- "log",
 ]
 
 [[package]]
 name = "console-core-audio-metadata"
 version = "0.25.4"
 dependencies = [
- "byteorder",
- "console-core-audio-metadata-derive",
- "console-core-ogg-container",
+ "console-core-atomic-writes",
+ "console-core-audio-decoding-advanced-audio-coding",
+ "console-core-deflate",
+ "console-core-iso-media-boxes",
+ "console-core-mpeg-audio-frames",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-ogg-pages",
+ "console-core-temporary-directories",
  "data-encoding",
- "flate2",
- "log",
- "paste",
 ]
 
 [[package]]
-name = "console-core-audio-metadata-derive"
-version = "0.13.0"
+name = "console-core-audio-samples"
+version = "0.1.0"
 dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.6",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
+
+[[package]]
+name = "console-core-audio-windows"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-bitmap-font"
+version = "0.3.1"
 
 [[package]]
 name = "console-core-black-and-white-images"
 version = "0.3.0"
 dependencies = [
  "console-core-fax-images",
+ "console-core-geometry",
  "console-core-mq-decoding",
- "fearless_simd",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
+
+[[package]]
+name = "console-core-boolean-decoding"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-bounded-reads"
+version = "0.1.0"
 
 [[package]]
 name = "console-core-byte-sources"
@@ -738,17 +1272,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-core-byte-streams"
+version = "0.1.0"
+dependencies = [
+ "console-core-checksums",
+ "console-core-iteration",
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
 name = "console-core-cascading-style-sheets"
 version = "0.2.2"
 dependencies = [
- "log",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
 name = "console-core-character-maps"
 version = "0.1.0"
 dependencies = [
- "brotli",
+ "console-core-checksums",
+ "console-core-deflate",
+ "console-core-never",
+ "console-core-number-conversion",
  "console-core-postscript-tokens",
 ]
 
@@ -758,19 +1307,57 @@ version = "0.1.0"
 dependencies = [
  "console-core-never",
  "console-core-number-conversion",
+ "sha2",
 ]
 
 [[package]]
 name = "console-core-color"
 version = "0.1.0"
 dependencies = [
+ "console-core-finite-numbers",
  "console-core-never",
  "console-core-number-conversion",
 ]
 
 [[package]]
-name = "console-core-data-urls"
-version = "0.3.2"
+name = "console-core-controls"
+version = "0.1.0"
+dependencies = [
+ "console-core-color",
+ "console-core-fonts",
+ "console-core-geometry",
+ "console-core-highlight",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-shapes",
+]
+
+[[package]]
+name = "console-core-curve-geometry"
+version = "0.13.1"
+dependencies = [
+ "console-core-fixed-capacity-vectors",
+ "console-core-line",
+ "console-core-point",
+ "console-core-polynomial-roots",
+ "console-core-rectangle",
+ "console-core-size",
+ "console-core-transform",
+ "euclid",
+ "libm",
+ "smallvec",
+]
+
+[[package]]
+name = "console-core-deflate"
+version = "0.1.0"
+dependencies = [
+ "console-core-checksums",
+ "console-core-iteration",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-prefix-codes",
+]
 
 [[package]]
 name = "console-core-directory-listing"
@@ -779,18 +1366,43 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-never",
  "console-core-temporary-directories",
+ "rustix",
+]
+
+[[package]]
+name = "console-core-epub-files"
+version = "0.1.0"
+dependencies = [
+ "console-core-markup-tokens",
+ "console-core-never",
+ "console-core-percent-decoding",
+ "console-core-zip-files",
+]
+
+[[package]]
+name = "console-core-extensible-binary-meta-language"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
 name = "console-core-extensible-markup"
 version = "0.21.1"
 dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
  "memchr",
 ]
 
 [[package]]
 name = "console-core-extensible-markup-writer"
 version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
 
 [[package]]
 name = "console-core-external-programs"
@@ -803,7 +1415,11 @@ dependencies = [
 
 [[package]]
 name = "console-core-fax-images"
-version = "0.3.0"
+version = "0.4.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
 
 [[package]]
 name = "console-core-file-names"
@@ -817,30 +1433,121 @@ name = "console-core-file-urls"
 version = "0.1.0"
 dependencies = [
  "console-core-never",
+ "console-core-percent-decoding",
 ]
 
 [[package]]
 name = "console-core-finite-numbers"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
- "float-cmp",
+ "console-core-never",
 ]
 
 [[package]]
+name = "console-core-fixed-capacity-vectors"
+version = "0.1.0"
+
+[[package]]
 name = "console-core-font-configuration"
-version = "0.5.8"
+version = "0.1.0"
 dependencies = [
+ "console-core-atomic-writes",
  "console-core-extensible-markup",
+ "console-core-iteration",
+ "console-core-logging",
+ "console-core-never",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
 name = "console-core-font-database"
-version = "0.24.0"
+version = "0.1.0"
 dependencies = [
  "console-core-font-configuration",
- "log",
+ "console-core-iteration",
+ "console-core-logging",
+ "console-core-macintosh-roman",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-places",
+ "memmap2",
  "slotmap",
- "tinyvec",
+]
+
+[[package]]
+name = "console-core-font-encodings"
+version = "0.1.0"
+dependencies = [
+ "console-core-glyph-names",
+ "console-core-never",
+ "console-core-perfect-hash",
+]
+
+[[package]]
+name = "console-core-font-fixtures"
+version = "0.7.0"
+dependencies = [
+ "console-core-font-types",
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-font-hinting"
+version = "0.1.0"
+dependencies = [
+ "console-core-font-fixtures",
+ "console-core-font-reading",
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-font-metrics"
+version = "0.44.0"
+dependencies = [
+ "bytemuck",
+ "console-core-curve-geometry",
+ "console-core-font-fixtures",
+ "console-core-font-hinting",
+ "console-core-font-reading",
+ "console-core-number-conversion",
+ "libm",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "console-core-font-reading"
+version = "0.41.0"
+dependencies = [
+ "bytemuck",
+ "console-core-api-compatibility",
+ "console-core-checksums",
+ "console-core-font-fixtures",
+ "console-core-font-reading",
+ "console-core-font-types",
+ "console-core-integer-sets",
+ "console-core-never",
+ "console-core-number-conversion",
+ "criterion",
+ "libm",
+ "once_cell",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "console-core-font-types"
+version = "0.12.6"
+dependencies = [
+ "bytemuck",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-point",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -851,10 +1558,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "console-core-geometry"
+name = "console-core-frequency-transforms"
 version = "0.1.0"
 dependencies = [
  "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-geometry"
+version = "0.1.0"
+dependencies = [
+ "console-core-point",
+ "console-core-rectangle",
+ "console-core-size",
 ]
 
 [[package]]
@@ -863,6 +1580,25 @@ version = "0.1.0"
 dependencies = [
  "console-core-geometry",
  "console-core-iteration",
+ "console-core-lzw",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-pixel-buffers",
+]
+
+[[package]]
+name = "console-core-glyph-names"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-perfect-hash",
+]
+
+[[package]]
+name = "console-core-highlight"
+version = "0.1.0"
+dependencies = [
+ "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -875,11 +1611,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-core-integer-sets"
+version = "0.1.0"
+dependencies = [
+ "console-core-font-types",
+ "console-core-never",
+ "console-core-number-conversion",
+ "criterion",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "console-core-internal-programs"
 version = "0.1.0"
 dependencies = [
  "console-core-arguments",
  "console-core-never",
+]
+
+[[package]]
+name = "console-core-iso-media-boxes"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -893,8 +1649,17 @@ dependencies = [
 name = "console-core-jpeg-2000-files"
 version = "0.3.5"
 dependencies = [
+ "console-core-api-compatibility",
+ "console-core-bounded-reads",
+ "console-core-logging",
  "console-core-mq-decoding",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-point",
+ "console-core-size",
  "fearless_simd",
+ "image",
+ "moxcms",
 ]
 
 [[package]]
@@ -903,6 +1668,25 @@ version = "0.1.0"
 dependencies = [
  "console-core-geometry",
  "console-core-iteration",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-picture-scaling",
+ "console-core-pixel-buffers",
+]
+
+[[package]]
+name = "console-core-line"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-point",
+ "console-core-rectangle",
+]
+
+[[package]]
+name = "console-core-line-breaking"
+version = "0.1.5"
+dependencies = [
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -915,28 +1699,79 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-core-logging"
+version = "0.1.0"
+dependencies = [
+ "console-core-atomic-writes",
+ "console-core-checksums",
+ "console-core-never",
+ "console-core-places",
+ "rustix",
+ "serde_json",
+ "url",
+]
+
+[[package]]
+name = "console-core-lzw"
+version = "0.1.0"
+dependencies = [
+ "console-core-iteration",
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-macintosh-roman"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-markdown"
+version = "0.13.6"
+dependencies = [
+ "bitflags",
+ "memchr",
+ "unicase",
+]
+
+[[package]]
+name = "console-core-markup-tokens"
+version = "0.1.0"
+dependencies = [
+ "console-core-iteration",
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-matroska-blocks"
+version = "0.1.0"
+dependencies = [
+ "console-core-extensible-binary-meta-language",
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-media-access-control-addresses"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-words",
+]
+
+[[package]]
 name = "console-core-mermaid"
 version = "0.10.0-alpha.2"
 dependencies = [
- "console-core-mermaid-analysis",
- "console-core-mermaid-editing",
  "console-core-mermaid-markup",
  "console-core-mermaid-model",
  "console-core-mermaid-renderer",
  "console-core-mermaid-syntax",
- "console-core-mermaid-text",
  "console-core-mermaid-theme-contract",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "console-core-mermaid-analysis"
-version = "0.10.0-alpha.2"
-dependencies = [
- "console-core-mermaid-model",
- "console-core-mermaid-syntax",
- "serde",
  "serde_json",
  "thiserror",
 ]
@@ -945,9 +1780,10 @@ dependencies = [
 name = "console-core-mermaid-cytoscape"
 version = "0.10.0-alpha.2"
 dependencies = [
+ "console-core-perfect-hash",
+ "console-core-point",
  "indexmap",
  "libm",
- "rustc-hash",
  "thiserror",
 ]
 
@@ -956,40 +1792,28 @@ name = "console-core-mermaid-dagre"
 version = "0.10.0-alpha.2"
 dependencies = [
  "console-core-mermaid-graph",
- "rustc-hash",
+ "console-core-perfect-hash",
+ "console-core-point",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "console-core-mermaid-editing"
-version = "0.10.0-alpha.2"
-dependencies = [
- "console-core-mermaid-analysis",
- "console-core-mermaid-model",
- "console-core-mermaid-syntax",
- "serde",
 ]
 
 [[package]]
 name = "console-core-mermaid-graph"
 version = "0.10.0-alpha.2"
 dependencies = [
+ "console-core-perfect-hash",
  "hashbrown",
- "rustc-hash",
  "serde",
  "serde_json",
 ]
-
-[[package]]
-name = "console-core-mermaid-line-breaks"
-version = "0.10.0-alpha.2"
 
 [[package]]
 name = "console-core-mermaid-markup"
 version = "0.10.0-alpha.2"
 dependencies = [
  "console-core-mermaid-model",
+ "console-core-percent-decoding",
  "html5ever",
  "htmlize",
  "ryu-js",
@@ -1001,13 +1825,14 @@ dependencies = [
 name = "console-core-mermaid-model"
 version = "0.10.0-alpha.2"
 dependencies = [
+ "console-core-checksums",
+ "console-core-perfect-hash",
+ "console-core-text-boundaries",
  "htmlize",
  "indexmap",
- "rustc-hash",
  "serde",
  "serde_json",
  "thiserror",
- "unicode-segmentation",
  "unicode-width",
 ]
 
@@ -1016,31 +1841,33 @@ name = "console-core-mermaid-renderer"
 version = "0.10.0-alpha.2"
 dependencies = [
  "base64",
- "console-core-data-urls",
+ "console-core-checksums",
+ "console-core-curve-geometry",
+ "console-core-line",
+ "console-core-line-breaking",
+ "console-core-markdown",
  "console-core-mermaid-cytoscape",
  "console-core-mermaid-dagre",
- "console-core-mermaid-line-breaks",
  "console-core-mermaid-markup",
  "console-core-mermaid-model",
  "console-core-mermaid-sketches",
  "console-core-mermaid-theme-contract",
+ "console-core-perfect-hash",
+ "console-core-point",
  "console-core-scalable-vector-graphics-values",
+ "console-core-text-boundaries",
+ "console-core-urls",
  "cssparser",
  "data-encoding",
  "euclid",
  "indexmap",
- "kurbo",
  "libm",
  "memchr",
- "pulldown-cmark",
  "quick-xml 0.42.0",
- "rustc-hash",
  "ryu-js",
  "serde",
  "serde_json",
- "sha2",
  "thiserror",
- "unicode-segmentation",
  "unicode-width",
 ]
 
@@ -1048,6 +1875,7 @@ dependencies = [
 name = "console-core-mermaid-sketches"
 version = "0.12.6"
 dependencies = [
+ "console-core-curve-geometry",
  "console-core-scalable-vector-graphics-values",
  "euclid",
  "num-traits",
@@ -1061,30 +1889,16 @@ version = "0.10.0-alpha.2"
 dependencies = [
  "console-core-mermaid-markup",
  "console-core-mermaid-model",
+ "console-core-perfect-hash",
  "cssparser",
  "granit-parser",
  "indexmap",
  "json5",
  "lalrpop-util",
- "rustc-hash",
  "serde",
  "serde_json",
  "thiserror",
  "unicode-general-category",
-]
-
-[[package]]
-name = "console-core-mermaid-text"
-version = "0.10.0-alpha.2"
-dependencies = [
- "console-core-mermaid-dagre",
- "console-core-mermaid-model",
- "rustc-hash",
- "serde",
- "serde_json",
- "thiserror",
- "unicode-segmentation",
- "unicode-width",
 ]
 
 [[package]]
@@ -1095,6 +1909,17 @@ dependencies = [
  "serde_json",
  "serde_json_canonicalizer",
  "thiserror",
+]
+
+[[package]]
+name = "console-core-mpeg-audio-frames"
+version = "0.1.0"
+dependencies = [
+ "console-core-audio-decoding-interfaces",
+ "console-core-byte-streams",
+ "console-core-checksums",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -1116,32 +1941,70 @@ dependencies = [
 ]
 
 [[package]]
-name = "console-core-ogg-container"
-version = "0.7.2"
+name = "console-core-ogg-pages"
+version = "0.8.0"
 dependencies = [
- "byteorder",
+ "console-core-checksums",
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-parallel-execution"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
 ]
 
 [[package]]
 name = "console-core-path-rasterizer"
 version = "0.12.0"
 dependencies = [
- "arrayref",
- "arrayvec",
  "bytemuck",
  "cfg-if",
+ "console-core-api-compatibility",
+ "console-core-atomic-writes",
+ "console-core-curve-geometry",
+ "console-core-fixed-capacity-vectors",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
  "console-core-paths",
- "log",
- "png",
+ "console-core-png-files",
+ "console-core-point",
+ "console-core-size",
 ]
 
 [[package]]
 name = "console-core-paths"
 version = "0.12.0"
 dependencies = [
- "arrayref",
  "bytemuck",
+ "console-core-api-compatibility",
+ "console-core-curve-geometry",
  "console-core-finite-numbers",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-point",
+ "console-core-rectangle",
+ "console-core-size",
+ "console-core-transform",
+ "libm",
+]
+
+[[package]]
+name = "console-core-percent-decoding"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+]
+
+[[package]]
+name = "console-core-perfect-hash"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -1155,7 +2018,22 @@ dependencies = [
 
 [[package]]
 name = "console-core-picture-sizes"
-version = "0.15.0"
+version = "0.16.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-size",
+]
+
+[[package]]
+name = "console-core-pixel-buffers"
+version = "0.1.0"
+dependencies = [
+ "console-core-api-compatibility",
+ "console-core-geometry",
+ "console-core-never",
+ "console-core-number-conversion",
+]
 
 [[package]]
 name = "console-core-places"
@@ -1165,6 +2043,7 @@ dependencies = [
  "console-core-never",
  "console-core-temporary-directories",
  "console-core-words",
+ "rustix",
 ]
 
 [[package]]
@@ -1172,27 +2051,59 @@ name = "console-core-png-files"
 version = "0.1.0"
 dependencies = [
  "console-core-checksums",
+ "console-core-deflate",
  "console-core-geometry",
  "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
- "console-core-zip-files",
+ "console-core-pixel-buffers",
+]
+
+[[package]]
+name = "console-core-point"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "serde",
+]
+
+[[package]]
+name = "console-core-polynomial-roots"
+version = "0.4.0"
+dependencies = [
+ "console-core-fixed-capacity-vectors",
+ "libm",
+]
+
+[[package]]
+name = "console-core-portable-document-functions"
+version = "0.1.0"
+dependencies = [
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-portable-document-syntax",
 ]
 
 [[package]]
 name = "console-core-portable-document-interpreter"
 version = "0.7.0"
 dependencies = [
- "bitflags 2.13.2",
+ "bitflags",
  "console-core-character-maps",
+ "console-core-curve-geometry",
+ "console-core-font-encodings",
+ "console-core-font-metrics",
+ "console-core-glyph-names",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-perfect-hash",
+ "console-core-portable-document-functions",
  "console-core-portable-document-syntax",
- "kurbo",
+ "console-core-size",
  "moxcms",
- "phf 0.13.1",
- "rustc-hash",
  "siphasher",
- "skrifa 0.47.0",
- "smallvec",
  "yoke",
 ]
 
@@ -1201,10 +2112,12 @@ name = "console-core-portable-document-rasterizer"
 version = "0.7.1"
 dependencies = [
  "bytemuck",
+ "console-core-curve-geometry",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-picture-scaling",
  "console-core-portable-document-interpreter",
- "image",
- "kurbo",
- "pic-scale",
+ "console-core-size",
  "vello_cpu",
 ]
 
@@ -1212,27 +2125,49 @@ dependencies = [
 name = "console-core-portable-document-syntax"
 version = "0.7.2"
 dependencies = [
+ "aes",
+ "cbc",
+ "console-core-api-compatibility",
  "console-core-black-and-white-images",
+ "console-core-checksums",
  "console-core-fax-images",
  "console-core-jpeg-2000-files",
+ "console-core-jpeg-files",
+ "console-core-logging",
+ "console-core-lzw",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-perfect-hash",
+ "console-core-point",
+ "console-core-postscript-tokens",
+ "console-core-rectangle",
+ "console-core-size",
+ "console-core-transform",
  "flate2",
+ "md5",
  "memchr",
- "rustc-hash",
- "smallvec",
- "zune-jpeg",
+ "self_cell",
 ]
 
 [[package]]
 name = "console-core-portable-document-text"
 version = "0.4.0"
 dependencies = [
+ "console-core-curve-geometry",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
  "console-core-portable-document-rasterizer",
- "kurbo",
+ "console-core-size",
 ]
 
 [[package]]
 name = "console-core-postscript-tokens"
-version = "0.1.0"
+version = "0.2.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
 
 [[package]]
 name = "console-core-prefix-codes"
@@ -1260,28 +2195,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-core-rectangle"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-point",
+ "console-core-size",
+]
+
+[[package]]
 name = "console-core-scalable-vector-graphics"
 version = "0.48.1"
 dependencies = [
  "base64",
+ "console-core-api-compatibility",
+ "console-core-bounded-reads",
  "console-core-cascading-style-sheets",
- "console-core-data-urls",
+ "console-core-curve-geometry",
  "console-core-extensible-markup",
  "console-core-extensible-markup-writer",
  "console-core-finite-numbers",
  "console-core-font-database",
+ "console-core-font-metrics",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
  "console-core-paths",
  "console-core-picture-sizes",
  "console-core-scalable-vector-graphics-values",
+ "console-core-text-direction",
+ "console-core-text-shaping",
+ "console-core-urls",
  "console-core-vertical-orientation",
+ "console-core-writing-scripts",
  "flate2",
- "harfrust",
- "kurbo",
- "log",
+ "float-cmp",
  "siphasher",
- "skrifa 0.44.0",
- "unicode-bidi",
- "unicode-script",
 ]
 
 [[package]]
@@ -1289,18 +2238,32 @@ name = "console-core-scalable-vector-graphics-rasterizer"
 version = "0.48.1"
 dependencies = [
  "bytemuck",
+ "console-core-gif-files",
+ "console-core-jpeg-files",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
  "console-core-path-rasterizer",
+ "console-core-paths",
+ "console-core-pixel-buffers",
+ "console-core-point",
  "console-core-scalable-vector-graphics",
  "console-core-scalable-vector-graphics-values",
- "log",
- "rgb",
+ "console-core-size",
+ "console-core-webp-files",
 ]
 
 [[package]]
 name = "console-core-scalable-vector-graphics-values"
 version = "0.16.1"
 dependencies = [
- "kurbo",
+ "console-core-api-compatibility",
+ "console-core-curve-geometry",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-point",
+ "console-core-size",
+ "console-core-transform",
  "siphasher",
 ]
 
@@ -1328,6 +2291,14 @@ dependencies = [
  "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-pixel-buffers",
+]
+
+[[package]]
+name = "console-core-size"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
 ]
 
 [[package]]
@@ -1340,11 +2311,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-core-string-interning"
+version = "0.11.0"
+dependencies = [
+ "new_debug_unreachable",
+ "phf_shared 0.14.0",
+ "precomputed-hash",
+]
+
+[[package]]
 name = "console-core-subtitle-files"
 version = "0.1.0"
 dependencies = [
+ "console-core-finite-numbers",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-text-encodings",
+]
+
+[[package]]
+name = "console-core-synchronization"
+version = "0.1.0"
+dependencies = [
+ "console-core-iteration",
+ "console-core-never",
 ]
 
 [[package]]
@@ -1352,20 +2342,120 @@ name = "console-core-temporary-directories"
 version = "0.1.0"
 dependencies = [
  "console-core-never",
+ "getrandom",
+]
+
+[[package]]
+name = "console-core-text-boundaries"
+version = "1.13.3"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-text-direction"
+version = "0.3.18"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-text-encodings"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+]
+
+[[package]]
+name = "console-core-text-layout"
+version = "0.19.0"
+dependencies = [
+ "console-core-font-database",
+ "console-core-font-metrics",
+ "console-core-geometry",
+ "console-core-line-breaking",
+ "console-core-localization",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-path-rasterizer",
+ "console-core-picture-scaling",
+ "console-core-png-files",
+ "console-core-text-boundaries",
+ "console-core-text-direction",
+ "console-core-text-shaping",
+ "console-core-writing-scripts",
+ "self_cell",
+]
+
+[[package]]
+name = "console-core-text-shaping"
+version = "0.12.0"
+dependencies = [
+ "bitflags",
+ "bytemuck",
+ "console-core-font-reading",
+ "console-core-integer-sets",
+ "console-core-macintosh-roman",
+ "console-core-never",
+ "console-core-number-conversion",
+ "criterion",
+ "libm",
+ "objc2-core-foundation",
+ "objc2-core-text",
+]
+
+[[package]]
+name = "console-core-tile-rows"
+version = "0.1.0"
+dependencies = [
+ "console-core-color",
+ "console-core-geometry",
+ "console-core-highlight",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-shapes",
+]
+
+[[package]]
+name = "console-core-transform"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-point",
+ "console-core-size",
+ "serde",
+]
+
+[[package]]
+name = "console-core-urls"
+version = "0.3.2"
+dependencies = [
+ "console-core-never",
+ "console-core-percent-decoding",
 ]
 
 [[package]]
 name = "console-core-vertical-orientation"
-version = "0.1.0"
+version = "0.2.0"
+dependencies = [
+ "console-core-never",
+]
 
 [[package]]
 name = "console-core-video-decoding-advanced-video-coding"
 version = "0.4.0"
 dependencies = [
+ "console-concurrency",
  "console-core-adaptive-arithmetic-decoding",
+ "console-core-api-compatibility",
+ "console-core-geometry",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-pixel-buffers",
  "console-core-video-decoding-bitstream",
- "rayon",
- "thiserror",
 ]
 
 [[package]]
@@ -1374,18 +2464,24 @@ version = "0.6.0"
 dependencies = [
  "aligned",
  "archmage",
- "assert_matches",
  "atomig",
- "bitflags 2.13.2",
- "cfg-if",
+ "bitflags",
+ "console-concurrency",
+ "console-core-api-compatibility",
+ "console-core-checksums",
+ "console-core-geometry",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-parallel-execution",
+ "console-core-pixel-buffers",
+ "console-core-synchronization",
+ "console-core-video-interpolation",
+ "console-core-video-inverse-transforms",
  "enough",
- "parking_lot",
- "paste",
  "rav1d-disjoint-mut",
- "raw-cpuid",
- "safe_unaligned_simd",
+ "rustix",
  "strum",
- "to_method",
  "whereat",
  "zerocopy",
 ]
@@ -1393,15 +2489,25 @@ dependencies = [
 [[package]]
 name = "console-core-video-decoding-bitstream"
 version = "0.4.0"
+dependencies = [
+ "console-core-iteration",
+ "console-core-never",
+ "console-core-number-conversion",
+]
 
 [[package]]
 name = "console-core-video-decoding-high-efficiency-video-coding"
 version = "0.4.0"
 dependencies = [
+ "console-concurrency",
  "console-core-adaptive-arithmetic-decoding",
+ "console-core-api-compatibility",
+ "console-core-geometry",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-pixel-buffers",
  "console-core-video-decoding-bitstream",
- "rayon",
- "thiserror",
+ "console-core-video-planes",
 ]
 
 [[package]]
@@ -1409,6 +2515,12 @@ name = "console-core-video-decoding-matroska-container"
 version = "0.4.0"
 dependencies = [
  "console-core-byte-sources",
+ "console-core-checksums",
+ "console-core-extensible-binary-meta-language",
+ "console-core-iteration",
+ "console-core-matroska-blocks",
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -1416,17 +2528,53 @@ name = "console-core-video-decoding-mpeg-4-container"
 version = "0.4.0"
 dependencies = [
  "console-core-byte-sources",
+ "console-core-iso-media-boxes",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-size",
  "console-core-video-decoding-bitstream",
- "thiserror",
 ]
 
 [[package]]
 name = "console-core-video-decoding-vp9"
 version = "0.4.0"
 dependencies = [
+ "console-concurrency",
+ "console-core-api-compatibility",
+ "console-core-boolean-decoding",
+ "console-core-geometry",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-pixel-buffers",
+ "console-core-size",
  "console-core-video-decoding-bitstream",
- "rayon",
- "thiserror",
+ "console-core-video-interpolation",
+ "console-core-video-inverse-transforms",
+ "console-core-video-planes",
+]
+
+[[package]]
+name = "console-core-video-interpolation"
+version = "0.1.0"
+dependencies = [
+ "console-core-api-compatibility",
+]
+
+[[package]]
+name = "console-core-video-inverse-transforms"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-video-interpolation",
+]
+
+[[package]]
+name = "console-core-video-planes"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]
@@ -1449,10 +2597,13 @@ dependencies = [
 name = "console-core-webp-files"
 version = "0.1.0"
 dependencies = [
+ "console-core-boolean-decoding",
  "console-core-geometry",
  "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-picture-scaling",
+ "console-core-pixel-buffers",
  "console-core-prefix-codes",
 ]
 
@@ -1462,7 +2613,16 @@ version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn 3.0.10",
+]
+
+[[package]]
+name = "console-core-writing-scripts"
+version = "0.5.8"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-words",
 ]
 
 [[package]]
@@ -1470,10 +2630,9 @@ name = "console-core-zip-files"
 version = "0.1.0"
 dependencies = [
  "console-core-checksums",
- "console-core-iteration",
+ "console-core-deflate",
  "console-core-never",
  "console-core-number-conversion",
- "console-core-prefix-codes",
 ]
 
 [[package]]
@@ -1490,6 +2649,7 @@ dependencies = [
 name = "console-default-applications"
 version = "0.1.0"
 dependencies = [
+ "console-applications",
  "console-core-arguments",
  "console-core-atomic-writes",
  "console-core-external-programs",
@@ -1525,8 +2685,8 @@ dependencies = [
  "console-core-places",
  "console-core-state-machine",
  "console-device-name",
+ "console-operating-system-linux",
  "console-program-contract",
- "console-program-runtime",
  "console-repository",
  "console-session",
 ]
@@ -1540,26 +2700,31 @@ name = "console-downloads"
 version = "0.1.0"
 dependencies = [
  "console-actor",
- "console-books",
  "console-core-arguments",
  "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-file-names",
- "console-core-geometry",
  "console-core-internal-programs",
  "console-core-jpeg-files",
  "console-core-localization",
+ "console-core-logging",
+ "console-core-markup-tokens",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
  "console-core-png-files",
+ "console-core-size",
  "console-core-state-machine",
  "console-core-temporary-directories",
  "console-core-words",
  "console-music-player",
+ "console-operating-system-linux",
  "console-panel",
  "console-pictures",
  "console-program-contract",
+ "console-program-lifetime",
+ "console-program-runtime",
+ "console-repository",
  "serde_json",
 ]
 
@@ -1567,14 +2732,15 @@ dependencies = [
 name = "console-draw-painting"
 version = "0.1.0"
 dependencies = [
- "cairo-rs",
  "console-core-color",
+ "console-core-curve-geometry",
  "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-path-rasterizer",
+ "console-core-paths",
  "console-core-shapes",
- "pango",
- "pangocairo",
+ "console-core-text-layout",
 ]
 
 [[package]]
@@ -1583,30 +2749,37 @@ version = "0.1.0"
 dependencies = [
  "console-core-arguments",
  "console-core-geometry",
+ "console-core-highlight",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
+ "console-input-key-symbols",
+ "console-input-keymaps",
  "console-response-times",
  "console-screen",
  "rustix",
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-wlr",
- "xkbcommon",
 ]
 
 [[package]]
 name = "console-events"
 version = "0.1.0"
 dependencies = [
+ "console-bluetooth",
+ "console-bus",
  "console-core-directory-listing",
  "console-core-external-programs",
  "console-core-iteration",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
- "console-core-places",
  "console-core-reconnect",
  "console-core-temporary-directories",
+ "console-core-text-encodings",
  "console-onscreen",
+ "console-operating-system-linux",
  "console-program-contract",
  "console-program-lifetime",
  "console-waiting",
@@ -1619,6 +2792,7 @@ version = "0.1.0"
 dependencies = [
  "console-actor",
  "console-applications",
+ "console-capture",
  "console-concurrency",
  "console-content-types",
  "console-core-arguments",
@@ -1630,12 +2804,15 @@ dependencies = [
  "console-core-geometry",
  "console-core-internal-programs",
  "console-core-iteration",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
  "console-core-png-files",
  "console-core-state-machine",
+ "console-core-temporary-directories",
  "console-core-words",
+ "console-default-applications",
  "console-films",
  "console-panel",
  "console-pictures",
@@ -1654,6 +2831,7 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-picture-scaling",
+ "console-core-pixel-buffers",
  "console-core-subtitle-files",
  "console-core-video-decoding-advanced-video-coding",
  "console-core-video-decoding-av1",
@@ -1661,6 +2839,7 @@ dependencies = [
  "console-core-video-decoding-matroska-container",
  "console-core-video-decoding-mpeg-4-container",
  "console-core-video-decoding-vp9",
+ "console-core-video-planes",
 ]
 
 [[package]]
@@ -1700,6 +2879,7 @@ dependencies = [
  "console-panel",
  "console-program-contract",
  "console-program-lifetime",
+ "console-repository",
  "console-screen",
  "console-status-bar",
  "rustix",
@@ -1765,9 +2945,9 @@ dependencies = [
  "console-input-gamepad",
  "console-input-language",
  "console-onscreen",
+ "console-operating-system-linux",
  "console-program-contract",
  "console-program-lifetime",
- "console-program-runtime",
  "console-response-times",
  "console-waiting",
  "rustix",
@@ -1788,11 +2968,10 @@ dependencies = [
  "console-core-places",
  "console-core-state-machine",
  "console-defaults",
+ "console-operating-system-linux",
  "console-program-contract",
  "console-program-lifetime",
- "console-program-runtime",
  "console-response-times",
- "console-waiting",
  "rustix",
 ]
 
@@ -1802,8 +2981,10 @@ version = "0.1.0"
 dependencies = [
  "console-core-geometry",
  "console-core-iteration",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
+ "rustix",
 ]
 
 [[package]]
@@ -1821,17 +3002,20 @@ name = "console-input-gamepad"
 version = "0.1.0"
 dependencies = [
  "console-core-arguments",
+ "console-core-bounded-reads",
  "console-core-external-programs",
+ "console-core-finite-numbers",
  "console-core-geometry",
  "console-core-ini-files",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-state-machine",
  "console-core-words",
  "console-input-event-devices",
  "console-input-gamepad",
+ "console-operating-system-linux",
  "console-program-contract",
- "console-program-runtime",
  "console-repository",
  "console-waiting",
  "rustix",
@@ -1841,40 +3025,76 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-input-key-symbols"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-perfect-hash",
+]
+
+[[package]]
 name = "console-input-keyboard"
 version = "0.1.0"
 dependencies = [
- "cairo-rs",
  "console-core-arguments",
  "console-core-color",
  "console-core-external-programs",
+ "console-core-fonts",
  "console-core-geometry",
+ "console-core-highlight",
  "console-core-iteration",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-path-rasterizer",
  "console-core-places",
  "console-core-state-machine",
  "console-core-temporary-directories",
  "console-core-walking",
  "console-core-words",
+ "console-draw-painting",
+ "console-draw-surface",
  "console-input-alphabets",
  "console-input-controller",
  "console-input-event-devices",
  "console-input-focus",
  "console-input-gamepad",
+ "console-input-keymaps",
  "console-manifest-engine",
+ "console-operating-system-linux",
  "console-program-contract",
- "console-program-runtime",
  "console-repository",
  "console-response-times",
  "console-screen",
- "pango",
- "pangocairo",
  "rustix",
  "wayland-client",
  "wayland-protocols-misc",
  "wayland-protocols-wlr",
- "xkbcommon",
+]
+
+[[package]]
+name = "console-input-keymaps"
+version = "0.2.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-perfect-hash",
+ "console-core-words",
+ "console-input-key-symbols",
+ "console-input-keymaps-derive",
+ "hashbrown",
+ "indexmap",
+]
+
+[[package]]
+name = "console-input-keymaps-derive"
+version = "0.3.0"
+dependencies = [
+ "console-core-never",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -1895,6 +3115,7 @@ name = "console-input-mapping"
 version = "0.1.0"
 dependencies = [
  "console-button-guide",
+ "console-compositor",
  "console-core-arguments",
  "console-core-atomic-writes",
  "console-core-color",
@@ -1941,6 +3162,7 @@ version = "0.1.0"
 dependencies = [
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-text-boundaries",
  "console-draw-surface",
 ]
 
@@ -1961,19 +3183,35 @@ dependencies = [
 name = "console-kernel"
 version = "0.1.0"
 dependencies = [
+ "console-browser-site-isolation",
+ "console-core-bitmap-font",
+ "console-core-checksums",
+ "console-core-geometry",
  "console-core-never",
+ "console-core-urls",
+ "console-core-web-engine",
  "console-kernel-handles",
+ "console-kernel-heap",
 ]
 
 [[package]]
 name = "console-kernel-files"
 version = "0.1.0"
 dependencies = [
+ "console-core-checksums",
  "console-core-never",
 ]
 
 [[package]]
 name = "console-kernel-handles"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-kernel-heap"
 version = "0.1.0"
 dependencies = [
  "console-core-never",
@@ -1984,6 +3222,15 @@ name = "console-kernel-scheduling"
 version = "0.1.0"
 dependencies = [
  "console-core-never",
+]
+
+[[package]]
+name = "console-kernel-software"
+version = "0.1.0"
+dependencies = [
+ "console-core-checksums",
+ "console-core-never",
+ "console-kernel-files",
 ]
 
 [[package]]
@@ -2010,11 +3257,11 @@ name = "console-lock-screen"
 version = "0.1.0"
 dependencies = [
  "console-core-color",
- "console-core-geometry",
  "console-core-iteration",
  "console-core-never",
  "console-core-places",
  "console-core-shapes",
+ "console-core-size",
  "console-core-state-machine",
  "console-core-words",
  "console-defaults",
@@ -2048,6 +3295,7 @@ dependencies = [
  "console-program-contract",
  "console-screen",
  "console-status-bar",
+ "rustix",
 ]
 
 [[package]]
@@ -2055,6 +3303,7 @@ name = "console-login-pattern"
 version = "0.1.0"
 dependencies = [
  "console-core-geometry",
+ "console-core-highlight",
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -2084,7 +3333,8 @@ dependencies = [
  "console-core-places",
  "console-core-temporary-directories",
  "console-login-session",
- "console-program-lifetime",
+ "console-operating-system-linux",
+ "rustix",
 ]
 
 [[package]]
@@ -2114,10 +3364,11 @@ dependencies = [
  "console-input-gamepad",
  "console-manifest-migrations",
  "console-notifications",
- "console-program-lifetime",
+ "console-operating-system-linux",
  "console-repository",
  "console-response-times",
  "console-screen",
+ "serde",
  "serde_json",
  "serde_yaml_ng",
  "toml",
@@ -2166,6 +3417,7 @@ dependencies = [
  "console-core-iteration",
  "console-core-jpeg-files",
  "console-core-localization",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -2197,14 +3449,15 @@ dependencies = [
  "console-core-external-programs",
  "console-core-file-names",
  "console-core-file-urls",
- "console-core-geometry",
  "console-core-internal-programs",
  "console-core-iteration",
  "console-core-localization",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
  "console-core-shapes",
+ "console-core-size",
  "console-core-state-machine",
  "console-core-temporary-directories",
  "console-core-walking",
@@ -2215,6 +3468,7 @@ dependencies = [
  "console-pictures",
  "console-program-contract",
  "console-waiting",
+ "serde",
  "serde_json",
 ]
 
@@ -2234,13 +3488,15 @@ dependencies = [
  "console-core-file-urls",
  "console-core-ini-files",
  "console-core-iteration",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
  "console-core-temporary-directories",
  "console-core-words",
- "console-program-lifetime",
+ "console-operating-system-linux",
  "console-response-times",
+ "console-sound-effects",
 ]
 
 [[package]]
@@ -2257,6 +3513,7 @@ dependencies = [
  "console-core-geometry",
  "console-core-internal-programs",
  "console-core-iteration",
+ "console-core-markdown",
  "console-core-mermaid",
  "console-core-never",
  "console-core-number-conversion",
@@ -2272,7 +3529,6 @@ dependencies = [
  "console-input-text",
  "console-panel",
  "console-program-lifetime",
- "pulldown-cmark",
 ]
 
 [[package]]
@@ -2288,6 +3544,7 @@ dependencies = [
  "console-core-fonts",
  "console-core-geometry",
  "console-core-iteration",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -2303,7 +3560,6 @@ dependencies = [
  "console-program-contract",
  "console-program-lifetime",
  "console-waiting",
- "rustix",
  "serde",
  "serde_json",
 ]
@@ -2319,6 +3575,29 @@ dependencies = [
  "console-core-places",
  "console-core-words",
  "serde_json",
+]
+
+[[package]]
+name = "console-operating-system-linux"
+version = "0.1.0"
+dependencies = [
+ "console-core-atomic-writes",
+ "console-core-external-programs",
+ "console-core-iteration",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-places",
+ "console-core-reconnect",
+ "console-core-state-machine",
+ "console-core-temporary-directories",
+ "console-events",
+ "console-program-contract",
+ "console-program-lifetime",
+ "console-program-runtime",
+ "console-response-times",
+ "console-waiting",
+ "rustix",
 ]
 
 [[package]]
@@ -2370,17 +3649,22 @@ dependencies = [
 name = "console-panel"
 version = "0.1.0"
 dependencies = [
+ "accesskit",
+ "accesskit_unix",
  "console-actor",
  "console-compositor",
  "console-concurrency",
  "console-core-arguments",
  "console-core-atomic-writes",
  "console-core-color",
+ "console-core-controls",
  "console-core-external-programs",
  "console-core-fonts",
  "console-core-geometry",
+ "console-core-highlight",
  "console-core-internal-programs",
  "console-core-iteration",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -2394,9 +3678,11 @@ dependencies = [
  "console-events",
  "console-input-text",
  "console-onscreen",
+ "console-operating-system-linux",
  "console-pictures",
  "console-program-contract",
  "console-program-lifetime",
+ "console-program-runtime",
  "console-repository",
  "console-response-times",
  "console-signals",
@@ -2404,6 +3690,7 @@ dependencies = [
  "console-test-stages",
  "console-waiting",
  "rustix",
+ "serde",
  "serde_json",
 ]
 
@@ -2413,10 +3700,12 @@ version = "0.1.0"
 dependencies = [
  "console-calculator",
  "console-calendar",
+ "console-clipboard",
  "console-core-arguments",
  "console-core-external-programs",
  "console-core-internal-programs",
  "console-core-iteration",
+ "console-core-logging",
  "console-core-never",
  "console-core-temporary-directories",
  "console-downloads",
@@ -2427,9 +3716,12 @@ dependencies = [
  "console-media-viewer",
  "console-music",
  "console-notifications",
+ "console-operating-system-linux",
  "console-panel",
  "console-response-times",
  "console-settings",
+ "console-task-manager",
+ "console-waiting",
  "rustix",
 ]
 
@@ -2447,10 +3739,12 @@ dependencies = [
  "console-core-number-conversion",
  "console-core-path-rasterizer",
  "console-core-picture-scaling",
+ "console-core-pixel-buffers",
  "console-core-png-files",
  "console-core-scalable-vector-graphics",
  "console-core-scalable-vector-graphics-rasterizer",
  "console-core-shapes",
+ "console-core-temporary-directories",
  "console-core-webp-files",
  "console-core-words",
  "console-films",
@@ -2469,18 +3763,6 @@ dependencies = [
 name = "console-program-lifetime"
 version = "0.1.0"
 dependencies = [
- "console-core-external-programs",
- "console-core-never",
- "console-program-lifetime-linux",
- "console-program-scopes-systemd",
- "console-waiting",
- "rustix",
-]
-
-[[package]]
-name = "console-program-lifetime-linux"
-version = "0.1.0"
-dependencies = [
  "console-core-never",
 ]
 
@@ -2488,24 +3770,13 @@ dependencies = [
 name = "console-program-runtime"
 version = "0.1.0"
 dependencies = [
- "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-internal-programs",
  "console-core-iteration",
  "console-core-never",
  "console-core-state-machine",
- "console-core-temporary-directories",
- "console-events",
  "console-program-contract",
  "console-program-lifetime",
- "console-waiting",
-]
-
-[[package]]
-name = "console-program-scopes-systemd"
-version = "0.1.0"
-dependencies = [
- "console-core-external-programs",
- "console-core-never",
 ]
 
 [[package]]
@@ -2525,9 +3796,9 @@ dependencies = [
  "console-core-walking",
  "console-core-words",
  "console-input-event-devices",
+ "console-operating-system-linux",
  "console-program-contract",
  "console-program-lifetime",
- "console-program-runtime",
  "console-readiness",
 ]
 
@@ -2558,7 +3829,7 @@ dependencies = [
  "console-core-temporary-directories",
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -2569,11 +3840,14 @@ dependencies = [
  "console-core-arguments",
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-finite-numbers",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
  "console-core-words",
  "console-response-times",
+ "serde",
  "serde_json",
 ]
 
@@ -2591,6 +3865,7 @@ dependencies = [
  "console-defaults",
  "console-signals",
  "rustix",
+ "serde",
  "serde_json",
 ]
 
@@ -2636,6 +3911,8 @@ dependencies = [
 name = "console-session"
 version = "0.1.0"
 dependencies = [
+ "console-bluetooth",
+ "console-bus",
  "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-internal-programs",
@@ -2651,19 +3928,24 @@ name = "console-settings"
 version = "0.1.0"
 dependencies = [
  "console-actor",
- "console-applications",
  "console-battery",
+ "console-bluetooth",
+ "console-bluetooth-agent",
  "console-books",
+ "console-bus",
  "console-compositor",
  "console-core-arguments",
  "console-core-atomic-writes",
  "console-core-color",
+ "console-core-controls",
  "console-core-external-programs",
  "console-core-geometry",
  "console-core-ini-files",
  "console-core-internal-programs",
  "console-core-iteration",
  "console-core-localization",
+ "console-core-logging",
+ "console-core-media-access-control-addresses",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -2694,6 +3976,7 @@ dependencies = [
  "console-response-times",
  "console-screen",
  "console-sound-effects",
+ "console-status-bar",
  "console-waiting",
  "console-wallpaper",
  "serde",
@@ -2704,6 +3987,7 @@ dependencies = [
 name = "console-signals"
 version = "0.1.0"
 dependencies = [
+ "console-core-never",
  "rustix",
 ]
 
@@ -2715,6 +3999,7 @@ dependencies = [
  "console-core-external-programs",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-places",
  "console-core-words",
  "console-defaults",
  "console-program-lifetime",
@@ -2725,19 +4010,26 @@ name = "console-status-bar"
 version = "0.1.0"
 dependencies = [
  "console-battery",
+ "console-bluetooth",
+ "console-bus",
  "console-compositor",
  "console-core-atomic-writes",
+ "console-core-bounded-reads",
  "console-core-color",
  "console-core-external-programs",
  "console-core-fonts",
  "console-core-geometry",
  "console-core-internal-programs",
  "console-core-iteration",
+ "console-core-localization",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-places",
  "console-core-reconnect",
  "console-core-shapes",
  "console-core-state-machine",
+ "console-core-temporary-directories",
  "console-core-walking",
  "console-core-words",
  "console-default-applications",
@@ -2756,21 +4048,48 @@ dependencies = [
  "console-settings",
  "console-waiting",
  "rustix",
+ "serde",
  "serde_json",
+]
+
+[[package]]
+name = "console-syncthing"
+version = "0.1.0"
+dependencies = [
+ "console-core-external-programs",
+]
+
+[[package]]
+name = "console-task-manager"
+version = "0.1.0"
+dependencies = [
+ "console-actor",
+ "console-applications",
+ "console-compositor",
+ "console-core-arguments",
+ "console-core-never",
+ "console-core-places",
+ "console-core-state-machine",
+ "console-events",
+ "console-panel",
+ "console-program-contract",
 ]
 
 [[package]]
 name = "console-tasks"
 version = "0.1.0"
 dependencies = [
+ "cargo_metadata",
  "console-core-arguments",
  "console-core-atomic-writes",
  "console-core-directory-listing",
  "console-core-external-programs",
+ "console-core-ini-files",
  "console-core-iteration",
  "console-core-never",
+ "console-core-temporary-directories",
  "console-core-words",
- "console-program-lifetime",
+ "console-operating-system-linux",
  "console-repository",
  "serde_json",
 ]
@@ -2805,6 +4124,7 @@ dependencies = [
  "console-music-player",
  "console-notifications",
  "console-onscreen",
+ "console-operating-system-linux",
  "console-overview",
  "console-panel",
  "console-program-lifetime",
@@ -2816,6 +4136,7 @@ dependencies = [
  "console-status-bar",
  "console-test-stages",
  "console-waiting",
+ "console-wallpaper",
  "serde",
  "serde_json",
  "toml",
@@ -2830,8 +4151,10 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-directory-listing",
  "console-core-external-programs",
+ "console-core-finite-numbers",
  "console-core-geometry",
  "console-core-ini-files",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -2840,6 +4163,7 @@ dependencies = [
  "console-manifest-engine",
  "console-manifest-migrations",
  "console-onscreen",
+ "console-operating-system-linux",
  "console-panel",
  "console-program-lifetime",
  "console-repository",
@@ -2869,7 +4193,6 @@ dependencies = [
 name = "console-test-stages"
 version = "0.1.0"
 dependencies = [
- "cairo-rs",
  "console-compositor",
  "console-core-atomic-writes",
  "console-core-color",
@@ -2878,9 +4201,11 @@ dependencies = [
  "console-core-geometry",
  "console-core-ini-files",
  "console-core-internal-programs",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-png-files",
  "console-core-temporary-directories",
  "console-core-walking",
  "console-core-words",
@@ -2893,8 +4218,9 @@ dependencies = [
  "console-manifest-migrations",
  "console-notifications",
  "console-onscreen",
+ "console-operating-system-linux",
  "console-panel",
- "console-program-lifetime",
+ "console-repository",
  "console-response-times",
  "console-screen",
  "console-signals",
@@ -2909,6 +4235,7 @@ version = "0.1.0"
 dependencies = [
  "console-core-directory-listing",
  "console-core-external-programs",
+ "console-core-finite-numbers",
  "console-core-ini-files",
  "console-core-never",
  "console-core-number-conversion",
@@ -2932,27 +4259,28 @@ dependencies = [
  "console-compositor",
  "console-core-arguments",
  "console-core-atomic-writes",
+ "console-core-checksums",
  "console-core-color",
  "console-core-external-programs",
- "console-core-geometry",
  "console-core-internal-programs",
  "console-core-iteration",
+ "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-size",
  "console-core-state-machine",
  "console-core-temporary-directories",
  "console-core-words",
- "console-events",
  "console-onscreen",
+ "console-operating-system-linux",
  "console-program-contract",
- "console-program-lifetime",
+ "console-program-runtime",
  "console-repository",
  "console-screen",
  "console-weather",
  "serde",
  "serde_json",
- "sha2",
  "toml",
 ]
 
@@ -2962,25 +4290,30 @@ version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-finite-numbers",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-temporary-directories",
  "console-core-words",
  "console-defaults",
+ "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "const-oid"
-version = "0.10.2"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
+checksum = "be95d4a884358a21a199689323c29e9256b4a1b315e22f183d155422041d3a9a"
 
 [[package]]
-name = "core_detect"
-version = "1.0.0"
+name = "cpufeatures"
+version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
+checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "cpufeatures"
@@ -2993,30 +4326,45 @@ dependencies = [
 
 [[package]]
 name = "crc32fast"
-version = "1.5.2"
+version = "1.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
+checksum = "2b929dd2a135771f40afabd1073f85eed59c800b7c61901e5c254270497dad64"
 dependencies = [
  "cfg-if",
 ]
 
 [[package]]
-name = "crossbeam-deque"
-version = "0.8.8"
+name = "criterion"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "622f3fc73690be383c7214310406f28a90e6edeadc3cea882f9d71e495b9711a"
+checksum = "950046b2aa2492f9a536f5f4f9a3de7b9e2476e575e05bd6c333371add4d98f3"
 dependencies = [
- "crossbeam-epoch",
- "crossbeam-utils",
+ "alloca",
+ "anes",
+ "cast",
+ "ciborium",
+ "clap",
+ "criterion-plot",
+ "itertools",
+ "num-traits",
+ "oorandom",
+ "page_size",
+ "plotters",
+ "regex",
+ "serde",
+ "serde_json",
+ "tinytemplate",
+ "walkdir",
 ]
 
 [[package]]
-name = "crossbeam-epoch"
-version = "0.9.21"
+name = "criterion-plot"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc74980687109a3b14c72fd458107bf0baa1da1a1a805e178d15501ba9b86d9d"
+checksum = "d8d80a2f4f5b554395e47b5d8305bc3d27813bacb73493eb1001e8f76dae29ea"
 dependencies = [
- "crossbeam-utils",
+ "cast",
+ "itertools",
 ]
 
 [[package]]
@@ -3024,6 +4372,22 @@ name = "crossbeam-utils"
 version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
+
+[[package]]
+name = "crunchy"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
+
+[[package]]
+name = "crypto-common"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
+dependencies = [
+ "generic-array",
+ "typenum",
+]
 
 [[package]]
 name = "crypto-common"
@@ -3054,7 +4418,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
 dependencies = [
  "quote",
- "syn 3.0.6",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -3071,7 +4435,7 @@ checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "block-buffer",
  "const-oid",
- "crypto-common",
+ "crypto-common 0.2.2",
 ]
 
 [[package]]
@@ -3082,7 +4446,7 @@ checksum = "c6232dd377dcc64799954cbd3a9bb882e9cdc1308ccd87b1c098f1fb2eaf82a8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -3114,23 +4478,45 @@ checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 
 [[package]]
 name = "encoding_rs"
-version = "0.8.42"
+version = "0.8.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e985e0451871ad22fb8d2b6b076e2028a502a0d3950998c2c5c0a4f9b5d9679"
+checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
 dependencies = [
  "cfg-if",
- "core_detect",
- "multiversion_no_op",
- "rustversion",
- "scopeguard",
- "simdutf8",
 ]
+
+[[package]]
+name = "endi"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
 name = "enough"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877362cb7b70d1c617f0cd3c67708bd58d894a86af5104018e2c10ebaee3c02f"
+
+[[package]]
+name = "enumflags2"
+version = "0.7.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1027f7680c853e056ebcec683615fb6fbbc07dbaa13b4d5d9442b146ded4ecef"
+dependencies = [
+ "enumflags2_derive",
+ "serde",
+]
+
+[[package]]
+name = "enumflags2_derive"
+version = "0.7.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67c78a4d8fdf9953a5c9d458f9efe940fd97a0cab0941c075a813ac594733827"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "equator"
@@ -3154,15 +4540,15 @@ dependencies = [
 
 [[package]]
 name = "equivalent"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "errno"
-version = "0.3.14"
+version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
+checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
 dependencies = [
  "libc",
  "windows-sys",
@@ -3175,6 +4561,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "event-listener"
+version = "5.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a23add41df1562121a9393cb065eab5146a1242410f23a644851e90cfd669d2"
+dependencies = [
+ "parking",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "event-listener-strategy"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
+dependencies = [
+ "event-listener",
+ "pin-project-lite",
 ]
 
 [[package]]
@@ -3206,15 +4612,15 @@ checksum = "b97b65636e5b9ef369943878ac74335ba1c55c1cb6adbf1e2c293c624248d693"
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.14"
+version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
+checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "flate2"
-version = "1.1.10"
+version = "1.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e634e2e0ebac1ee034020da1ca582e17ffe4e0f5e985823721e168928136dcb"
+checksum = "626d4928326b646e70f65ed36fc7cf9f206bdb68a0019ee7c6b4709da4e084c4"
 dependencies = [
  "crc32fast",
  "miniz_oxide 0.9.1",
@@ -3243,30 +4649,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "font-types"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c92d9081c7ab3bd83ef1eecdfad090f3d966e3ce74106779664114cfe1a6274"
-dependencies = [
- "bytemuck",
-]
-
-[[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
-]
-
-[[package]]
-name = "futures-channel"
-version = "0.3.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f9e3d69d39e4862ffed03ed071a76f9a13ba1d9109d355b0f0aa6b15e393c4"
-dependencies = [
- "futures-core",
 ]
 
 [[package]]
@@ -3276,21 +4664,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92d699e522242e69e3003b94ecc1f960f3a5e015aa7c5d7486e65ad01dd94f5e"
 
 [[package]]
-name = "futures-executor"
-version = "0.3.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "031b47cf1a3c6cc8bc2fc76cd437f521619387907d469316e7c0bc278f1f5432"
-dependencies = [
- "futures-core",
- "futures-task",
- "futures-util",
-]
-
-[[package]]
 name = "futures-io"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "53c0fa8157de1303bfffdaa1cc2a673bfffb60102f76b0ef4441659124373fed"
+
+[[package]]
+name = "futures-lite"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f78e10609fe0e0b3f4157ffab1876319b5b0db102a2c60dc4626306dc46b44ad"
+dependencies = [
+ "fastrand",
+ "futures-core",
+ "futures-io",
+ "parking",
+ "pin-project-lite",
+]
 
 [[package]]
 name = "futures-macro"
@@ -3300,7 +4690,7 @@ checksum = "9fb9654ba8355388abeb8dcb4fc62f511300867002afc858860463bdd9fe0c44"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -3324,9 +4714,9 @@ dependencies = [
 
 [[package]]
 name = "generator"
-version = "0.8.10"
+version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54ade96dc9003043bce7c035c85a9df5a858bfb2039c5a2e6fdf00f324f6c551"
+checksum = "1be81b31c9ce4caf7f3178eeb90662bb1864d3ad363ec6bdada3201adff19c37"
 dependencies = [
  "cc",
  "cfg-if",
@@ -3338,75 +4728,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "gio"
-version = "0.22.10"
+name = "generic-array"
+version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4620fbafdf19dba814473e19f18e75290cb3338662f6ae35f0402affd3b2b699"
+checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
 dependencies = [
- "futures-channel",
- "futures-core",
- "futures-io",
- "futures-util",
- "gio-sys",
- "glib",
- "libc",
- "pin-project-lite",
- "smallvec",
+ "typenum",
+ "version_check",
 ]
 
 [[package]]
-name = "gio-sys"
-version = "0.22.9"
+name = "getrandom"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c28739f914c15b87a9856000bed9cbd5b3a8afbca5e982d9a299e1601422cb5"
+checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
 dependencies = [
- "glib-sys",
- "gobject-sys",
+ "cfg-if",
  "libc",
- "system-deps",
- "windows-sys",
-]
-
-[[package]]
-name = "glib"
-version = "0.22.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4cf9e5bd8713f1990a92c422998826e0fb34824277b46bc59757373483c6694"
-dependencies = [
- "bitflags 2.13.2",
- "futures-channel",
- "futures-core",
- "futures-executor",
- "futures-task",
- "futures-util",
- "glib-macros",
- "glib-sys",
- "gobject-sys",
- "libc",
- "memchr",
- "smallvec",
-]
-
-[[package]]
-name = "glib-macros"
-version = "0.22.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9597c68fa7bdf4154a3079642cd21c4dccac0b0bdd2897d82861523bf91e7b9"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn 3.0.6",
-]
-
-[[package]]
-name = "glib-sys"
-version = "0.22.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99b38907e67e40dec9b60f858bcada952598719cb512a13eb13d6cdcd16f8295"
-dependencies = [
- "libc",
- "system-deps",
+ "r-efi",
 ]
 
 [[package]]
@@ -3421,27 +4760,16 @@ dependencies = [
  "log",
  "peniko",
  "png",
- "skrifa 0.42.1",
+ "skrifa",
  "smallvec",
  "vello_common 0.0.9",
 ]
 
 [[package]]
-name = "gobject-sys"
-version = "0.22.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07595c9ba696bd9819cb6a8df39f08078f3dd679508fe052dd558492c2053834"
-dependencies = [
- "glib-sys",
- "libc",
- "system-deps",
-]
-
-[[package]]
 name = "granit-parser"
-version = "2.1.0"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05f05586d4d4df3d47123207826c40b252728b438a1a07bad3c01ee6bea401df"
+checksum = "9bd04d0d9c7079b416b458d2317aea4aa964c81938cb7c20f559758c4f422dc8"
 dependencies = [
  "arraydeque",
  "smallvec",
@@ -3457,15 +4785,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "harfrust"
-version = "0.12.0"
+name = "half"
+version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c03d949a14aa089bbb282f7dd76a498a7f684428e4257202efc119ec010376f9"
+checksum = "6ea2d84b969582b4b1864a92dc5d27cd2b77b622a8d79306834f1be5ba20d84b"
 dependencies = [
- "bitflags 2.13.2",
- "bytemuck",
- "read-fonts 0.41.0",
- "smallvec",
+ "cfg-if",
+ "crunchy",
+ "zerocopy",
 ]
 
 [[package]]
@@ -3483,6 +4810,18 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
+name = "hermit-abi"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e17592d60ebacc7d5e169f4663c5f84f9161cc90328abcfe8456f41e4dfcb284"
+
+[[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "html5ever"
@@ -3519,13 +4858,12 @@ dependencies = [
 
 [[package]]
 name = "icu_collections"
-version = "2.3.0"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa68d21081c4a05d5a901a1c62add574c77048b6a1c67be3b50ce0b60d4ca513"
+checksum = "4c6b649701667bbe825c3b7e6388cb521c23d88644678e83c0c4d0a621a34b43"
 dependencies = [
  "displaydoc",
  "potential_utf",
- "utf8_iter",
  "yoke",
  "zerofrom",
  "zerovec",
@@ -3533,9 +4871,9 @@ dependencies = [
 
 [[package]]
 name = "icu_locale_core"
-version = "2.3.0"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d56e28588da92eee5c3201a6eff33fabdd49b62269c8938d4ff050ce4d900deb"
+checksum = "edba7861004dd3714265b4db54a3c390e880ab658fec5f7db895fae2046b5bb6"
 dependencies = [
  "displaydoc",
  "litemap",
@@ -3546,9 +4884,9 @@ dependencies = [
 
 [[package]]
 name = "icu_normalizer"
-version = "2.3.0"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12f9cf5f235641ed274641dd81c3f28d870e276763d0797aeeab72317b1c646f"
+checksum = "5f6c8828b67bf8908d82127b2054ea1b4427ff0230ee9141c54251934ab1b599"
 dependencies = [
  "icu_collections",
  "icu_normalizer_data",
@@ -3560,17 +4898,16 @@ dependencies = [
 
 [[package]]
 name = "icu_normalizer_data"
-version = "2.3.0"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1563da1ed3e0b3bf3d74c9b85917ac9c56464d2f57242270c09c9e752f8021a0"
+checksum = "7aedcccd01fc5fe81e6b489c15b247b8b0690feb23304303a9e560f37efc560a"
 
 [[package]]
 name = "icu_properties"
-version = "2.3.0"
+version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e7ca276ad3145661a65914e6daf131ca5120cd3dcee8f8f3214b8875184a148"
+checksum = "020bfc02fe870ec3a66d93e677ccca0562506e5872c650f893269e08615d74ec"
 dependencies = [
- "displaydoc",
  "icu_collections",
  "icu_locale_core",
  "icu_properties_data",
@@ -3581,15 +4918,15 @@ dependencies = [
 
 [[package]]
 name = "icu_properties_data"
-version = "2.3.0"
+version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e590f038c1464a96894fd6d10127e90a8be4509f56ff7ecef851b15cee0b7caa"
+checksum = "616c294cf8d725c6afcd8f55abc17c56464ef6211f9ed59cccffe534129c77af"
 
 [[package]]
 name = "icu_provider"
-version = "2.3.1"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d27bbb9d3abbefac45d55f647c9de1d44aafcd1186eb91879afef17c396c3e73"
+checksum = "85962cf0ce02e1e0a629cc34e7ca3e373ce20dda4c4d7294bbd0bf1fdb59e614"
 dependencies = [
  "displaydoc",
  "icu_locale_core",
@@ -3613,9 +4950,9 @@ dependencies = [
 
 [[package]]
 name = "idna_adapter"
-version = "1.2.2"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
+checksum = "3acae9609540aa318d1bc588455225fb2085b9ed0c4f6bd0d9d5bcd86f1a0344"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
@@ -3631,7 +4968,6 @@ dependencies = [
  "byteorder-lite",
  "moxcms",
  "num-traits",
- "png",
 ]
 
 [[package]]
@@ -3647,16 +4983,46 @@ dependencies = [
 ]
 
 [[package]]
-name = "itoa"
-version = "1.0.18"
+name = "inout"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
+dependencies = [
+ "block-padding",
+ "generic-array",
+]
+
+[[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itoa"
+version = "1.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
+
+[[package]]
+name = "js-sys"
+version = "0.3.107"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8dc09d2154098bbf4ef54eab6b117a3c24cbbffe94046b16ee6d6d4510584d3a"
+dependencies = [
+ "cfg-if",
+ "futures-util",
+ "wasm-bindgen",
+]
 
 [[package]]
 name = "json5"
-version = "1.3.7"
+version = "1.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0348cde6df2b507ba3c3753beba226baba8567af588d6568cdb9877f02c75b60"
+checksum = "6c1d229cedc4e210dd2e2a6cdc59e36ce28e7338fb69367d0d2566e26de7d599"
 dependencies = [
  "serde",
  "ucd-trie",
@@ -3665,13 +5031,8 @@ dependencies = [
 [[package]]
 name = "kurbo"
 version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b60dfc32f652b926df6192e55525b16d186c69d47876c3ead4da5cc9f8450e2"
 dependencies = [
- "arrayvec",
- "euclid",
- "polycool",
- "smallvec",
+ "console-core-curve-geometry",
 ]
 
 [[package]]
@@ -3688,9 +5049,9 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "libc"
-version = "0.2.189"
+version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
 name = "libm"
@@ -3717,25 +5078,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
-name = "lock_api"
-version = "0.4.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
-dependencies = [
- "scopeguard",
-]
-
-[[package]]
 name = "log"
-version = "0.4.34"
+version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "loom"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "419e0dc8046cb947daa77eb95ae174acfbddb7673b4151f56d1eed8e93fbfaca"
+checksum = "f1611ddbf89dc6ae42cfbd51fc207836140130257646eab8d6d2fb16577db2d2"
 dependencies = [
  "cfg-if",
  "generator",
@@ -3765,6 +5117,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "md5"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ebb8d8732c6a6df3d8f032a82911cfc747e00efb95cc46e8d0acd5b5b88570c"
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3772,11 +5130,20 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "memmap2"
-version = "0.9.11"
+version = "0.9.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
+checksum = "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "memoffset"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
+dependencies = [
+ "autocfg",
 ]
 
 [[package]]
@@ -3810,12 +5177,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "multiversion_no_op"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
-
-[[package]]
 name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3837,6 +5198,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+ "libm",
+]
+
+[[package]]
+name = "objc2-core-foundation"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
+name = "objc2-core-text"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cde0dfb48d25d2b4862161a4d5fcc0e3c24367869ad306b0c9ec0073bfed92d"
+dependencies = [
+ "bitflags",
+ "objc2-core-foundation",
 ]
 
 [[package]]
@@ -3844,6 +5225,32 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "oorandom"
+version = "11.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
+
+[[package]]
+name = "ordered-stream"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "page_size"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30d5b2194ed13191c1999ae0704b7839fb18384fa22e49b57eeaa97d79ce40da"
+dependencies = [
+ "libc",
+ "winapi",
+]
 
 [[package]]
 name = "palette"
@@ -3875,81 +5282,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e6eb142958d64335fb0e345c5b9ead2ecd6fc438c307e9d7d3c4fd428dbaf12"
 
 [[package]]
-name = "pango"
-version = "0.22.9"
+name = "parking"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b2022dbbd82e1c42bd950a6f1df9b98c796e725dce5ec275e03cbf9772e4efa"
-dependencies = [
- "gio",
- "glib",
- "pango-sys",
-]
-
-[[package]]
-name = "pango-sys"
-version = "0.22.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca02d64761b74d56cdd4b437db6d73dc95e6c0d40f27e1c707952c0f09052948"
-dependencies = [
- "glib-sys",
- "gobject-sys",
- "libc",
- "system-deps",
-]
-
-[[package]]
-name = "pangocairo"
-version = "0.22.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd199a0fef965b3ebda91a929a1ab5e7729538882c68e8de38e1904d2e094757"
-dependencies = [
- "cairo-rs",
- "glib",
- "pango",
- "pangocairo-sys",
-]
-
-[[package]]
-name = "pangocairo-sys"
-version = "0.22.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a649a616d67ae68539bc85f00fb45d36fba742ed20fc20e6712a15d8ee52bd3f"
-dependencies = [
- "cairo-sys-rs",
- "glib-sys",
- "libc",
- "pango-sys",
- "system-deps",
-]
-
-[[package]]
-name = "parking_lot"
-version = "0.12.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
-dependencies = [
- "lock_api",
- "parking_lot_core",
-]
-
-[[package]]
-name = "parking_lot_core"
-version = "0.9.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
-dependencies = [
- "cfg-if",
- "libc",
- "redox_syscall",
- "smallvec",
- "windows-link",
-]
-
-[[package]]
-name = "paste"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
 
 [[package]]
 name = "pastey"
@@ -3982,7 +5318,6 @@ version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1562dc717473dbaa4c1f85a36410e03c047b2e7df7f45ee938fbef64ae7fadf"
 dependencies = [
- "phf_macros 0.13.1",
  "phf_shared 0.13.1",
 ]
 
@@ -3992,7 +5327,7 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "010378780309880b08997fae13be7834dba947d36393bd372f2b1556deb2a2f6"
 dependencies = [
- "phf_macros 0.14.0",
+ "phf_macros",
  "phf_shared 0.14.0",
  "serde",
 ]
@@ -4039,19 +5374,6 @@ dependencies = [
 
 [[package]]
 name = "phf_macros"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "812f032b54b1e759ccd5f8b6677695d5268c588701effba24601f6932f8269ef"
-dependencies = [
- "phf_generator 0.13.1",
- "phf_shared 0.13.1",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "phf_macros"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5fa8d0ca26d424d27630da600c6624696e7dec8bf7b3b492b383c5dc49e5e085"
@@ -4082,20 +5404,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "pic-scale"
-version = "0.7.12"
+name = "pin-project-lite"
+version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6edb0ff645d35accaec252de081d55984a0d6c952cb1e5dc2b9afa7c78f07288"
-dependencies = [
- "num-traits",
- "pxfm",
-]
+checksum = "c938015719552d665fd0553b90d96cd7ff58e83e4c061ca99e6bb78865a72752"
 
 [[package]]
-name = "pin-project-lite"
-version = "0.2.17"
+name = "piper"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+checksum = "c835479a4443ded371d6c535cbfd8d31ad92c5d23ae9770a61bc155e4992a3c1"
+dependencies = [
+ "atomic-waker",
+ "fastrand",
+ "futures-io",
+]
 
 [[package]]
 name = "pkg-config"
@@ -4104,12 +5427,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
+name = "plotters"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5aeb6f403d7a4911efb1e33402027fc44f29b5bf6def3effcc22d7bb75f2b747"
+dependencies = [
+ "num-traits",
+ "plotters-backend",
+ "plotters-svg",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "plotters-backend"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df42e13c12958a16b3f7f4386b9ab1f3e7933914ecea48da7139435263a4172a"
+
+[[package]]
+name = "plotters-svg"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51bae2ac328883f7acdfea3d66a7c35751187f870bc81f94563733a154d7a670"
+dependencies = [
+ "plotters-backend",
+]
+
+[[package]]
 name = "png"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60769b8b31b2a9f263dae2776c37b1b28ae246943cf719eb6946a1db05128a61"
 dependencies = [
- "bitflags 2.13.2",
+ "bitflags",
  "crc32fast",
  "fdeflate",
  "flate2",
@@ -4117,12 +5468,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "polycool"
-version = "0.4.0"
+name = "polling"
+version = "3.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50596ddc09eb5ad5f75cacd40209568e66df71baf86e1499a0e99c4cff12a5a6"
+checksum = "5d0e4f59085d47d8241c88ead0f274e8a0cb551f3625263c05eb8dd897c34218"
 dependencies = [
- "arrayvec",
+ "cfg-if",
+ "concurrent-queue",
+ "hermit-abi",
+ "pin-project-lite",
+ "rustix",
+ "windows-sys",
 ]
 
 [[package]]
@@ -4141,23 +5497,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
 
 [[package]]
+name = "proc-macro-crate"
+version = "3.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
+dependencies = [
+ "toml_edit",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "pulldown-cmark"
-version = "0.13.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3db2be46835f013dd3f4fa7f5f7402c537787b54ebb6fe2b94bbdd7e2669bb7b"
-dependencies = [
- "bitflags 2.13.2",
- "memchr",
- "unicase",
 ]
 
 [[package]]
@@ -4194,6 +5548,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "r-efi"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
 name = "rav1d-disjoint-mut"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4207,80 +5567,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "raw-cpuid"
-version = "11.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "498cd0dc59d73224351ee52a95fee0f1a617a2eae0e7d9d720cc622c73a54186"
-dependencies = [
- "bitflags 2.13.2",
-]
-
-[[package]]
-name = "rayon"
-version = "1.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb39b166781f92d482534ef4b4b1b2568f42613b53e5b6c160e24cfbfa30926d"
-dependencies = [
- "either",
- "rayon-core",
-]
-
-[[package]]
-name = "rayon-core"
-version = "1.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
-dependencies = [
- "crossbeam-deque",
- "crossbeam-utils",
-]
-
-[[package]]
 name = "read-fonts"
 version = "0.39.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4ed38b89c2c77ff968c524145ad65fb010f38af5c7a224b53b81d47ac2daa81"
 dependencies = [
  "bytemuck",
- "font-types 0.11.3",
+ "font-types",
 ]
 
 [[package]]
-name = "read-fonts"
-version = "0.41.0"
+name = "regex"
+version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "046a7d674daf459825b32f5062056d6882db0d2f5a479fbd76ccfc870ac18709"
+checksum = "9807af0e638c12e753aa1b4e601791bf2a8f71274023c8bbeec12fc149950857"
 dependencies = [
- "bytemuck",
- "font-types 0.12.6",
- "once_cell",
-]
-
-[[package]]
-name = "read-fonts"
-version = "0.44.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5a0cf4bb6cbce4c29756270d189a5e400ac05e91192161d83a0bcb6e68492e8"
-dependencies = [
- "bytemuck",
- "font-types 0.12.6",
- "once_cell",
-]
-
-[[package]]
-name = "redox_syscall"
-version = "0.5.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
-dependencies = [
- "bitflags 2.13.2",
+ "aho-corasick",
+ "memchr",
+ "regex-automata",
+ "regex-syntax",
 ]
 
 [[package]]
 name = "regex-automata"
-version = "0.4.18"
+version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
+checksum = "41d60ef07df457506a0a1a2073112eb4aae5733dbd2813c3da77d1b0fd441158"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -4289,32 +5601,17 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.8.11"
+version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
-
-[[package]]
-name = "rgb"
-version = "0.8.53"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
-dependencies = [
- "bytemuck",
-]
-
-[[package]]
-name = "rustc-hash"
-version = "2.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
+checksum = "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
 
 [[package]]
 name = "rustix"
-version = "1.1.5"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
- "bitflags 2.13.2",
+ "bitflags",
  "errno",
  "libc",
  "linux-raw-sys",
@@ -4346,16 +5643,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9c874fb993656d484725d58fbfddb39dfcf98ebcadc1a1d09568aa6b39bafba"
 
 [[package]]
+name = "same-file"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
+dependencies = [
+ "winapi-util",
+]
+
+[[package]]
 name = "scoped-tls"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 
 [[package]]
-name = "scopeguard"
-version = "1.2.0"
+name = "self_cell"
+version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+checksum = "2ab42ca02749e120097e328d91d415325bdf43b1c72c4c8badf37375fe40a813"
+
+[[package]]
+name = "semver"
+version = "1.0.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
+dependencies = [
+ "serde",
+ "serde_core",
+]
 
 [[package]]
 name = "serde"
@@ -4384,7 +5700,7 @@ checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -4414,10 +5730,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_spanned"
-version = "1.1.1"
+name = "serde_repr"
+version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
+checksum = "8d3b1629de253c70a0508c3899572da79ca359fdab27c7920ff00406df418906"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+]
+
+[[package]]
+name = "serde_spanned"
+version = "1.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c187e0a369471c550af028cba56d4f4fa2a489ad28151ae95a4d340a2a8b782"
 dependencies = [
  "serde_core",
 ]
@@ -4442,7 +5769,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.3.1",
  "digest",
 ]
 
@@ -4462,16 +5789,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "signal-hook-registry"
+version = "1.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+dependencies = [
+ "errno",
+ "libc",
+]
+
+[[package]]
 name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
-
-[[package]]
-name = "simdutf8"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "siphasher"
@@ -4486,27 +5817,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c34617370ae968efb7161bb2beb517d9084659aae19e24b89e3db25b46e4564"
 dependencies = [
  "bytemuck",
- "read-fonts 0.39.2",
-]
-
-[[package]]
-name = "skrifa"
-version = "0.44.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "819ab7d62b1d3e72d9d9dea5650bac30424f9111364bb94928dbf5ecad1baa68"
-dependencies = [
- "bytemuck",
- "read-fonts 0.41.0",
-]
-
-[[package]]
-name = "skrifa"
-version = "0.47.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "526e654b303ff4ad73a5a40b25de2b3ce3d039c5e3b6da5f89ae6e57004cb40f"
-dependencies = [
- "bytemuck",
- "read-fonts 0.44.0",
+ "read-fonts",
 ]
 
 [[package]]
@@ -4526,9 +5837,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.16.2"
+version = "1.16.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e"
+checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 
 [[package]]
 name = "spin"
@@ -4543,15 +5854,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
 name = "string_cache"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffa8a5dbe8b3f0bbe29d4c3225daafaeead63afdc1b65fc4c01a1384166038e6"
 dependencies = [
- "new_debug_unreachable",
- "parking_lot",
- "phf_shared 0.14.0",
- "precomputed-hash",
+ "console-core-string-interning",
 ]
 
 [[package]]
@@ -4600,9 +5912,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "3.0.6"
+version = "3.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee"
+checksum = "4ae9ccbea3a7b0b09443036490c8f34a8b1b760fd345e5c0dae0aac718faea79"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4617,27 +5929,21 @@ checksum = "901704edd0dfe137f1987838ee4f259e4e063c31371bdb423f7ae38ec6f77f02"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn 3.0.10",
 ]
 
 [[package]]
-name = "system-deps"
-version = "9.0.0"
+name = "tempfile"
+version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a0dae2cbca1f0ff93795713cfe0a4c02f760e3c0b8ae2ab4ec4045808ff429f"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
- "cfg-expr",
- "heck",
- "pkg-config",
- "toml",
- "version-compare",
+ "fastrand",
+ "getrandom",
+ "once_cell",
+ "rustix",
+ "windows-sys",
 ]
-
-[[package]]
-name = "target-lexicon"
-version = "0.13.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
 name = "tendril"
@@ -4665,7 +5971,7 @@ checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -4679,31 +5985,29 @@ dependencies = [
 
 [[package]]
 name = "tinystr"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1e27c91459209c2986af3dcf603a5a74a4368754ce37414f59acc971167f643"
+checksum = "abc840c238154d58f9e86b2792261edfde565a17696e1cda1a449de27979801a"
 dependencies = [
  "displaydoc",
  "zerovec",
 ]
 
 [[package]]
-name = "tinyvec"
-version = "1.13.3"
+name = "tinytemplate"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
-
-[[package]]
-name = "to_method"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7c4ceeeca15c8384bbc3e011dbd8fccb7f068a440b752b7d9b32ceb0ca0e2e8"
+checksum = "be4d6b5f19ff7664e8c98d03e2139cb510db9b0a60b55f8e8709b689d939b6bc"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "toml"
-version = "1.1.6+spec-1.1.0"
+version = "1.2.2+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "920602543f0911ab71da12c50d59701da54c196d1a2bf5cb4b75667f137a406a"
+checksum = "5426cb1b964690d913f6c5c1a1ae0b42f428ec506bb4d452876d7a209c9bca3b"
 dependencies = [
  "indexmap",
  "serde_core",
@@ -4716,27 +6020,39 @@ dependencies = [
 
 [[package]]
 name = "toml_datetime"
-version = "1.1.1+spec-1.1.0"
+version = "1.1.3+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3165f65f62e28e0115a00b2ebdd37eb6f3b641855f9d636d3cd4103767159ad7"
+checksum = "173f25c883cd2176a2d8212155638c0a60d484a9d84546d270866f40f56b6e49"
 dependencies = [
  "serde_core",
 ]
 
 [[package]]
-name = "toml_parser"
-version = "1.1.3+spec-1.1.0"
+name = "toml_edit"
+version = "0.25.20+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
+checksum = "e76360e201d6dbd6583e17795ba71a88f47365a9139c8450a7979c32303b8e73"
+dependencies = [
+ "indexmap",
+ "toml_datetime",
+ "toml_parser",
+ "winnow",
+]
+
+[[package]]
+name = "toml_parser"
+version = "1.1.6+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6769c452d71ba30696c6b37770c439a9cc9110f47f7d5cdbeda79840ef5ea31"
 dependencies = [
  "winnow",
 ]
 
 [[package]]
 name = "toml_writer"
-version = "1.1.2+spec-1.1.0"
+version = "1.2.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
+checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
 
 [[package]]
 name = "tracing"
@@ -4745,7 +6061,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
 dependencies = [
  "pin-project-lite",
+ "tracing-attributes",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-attributes"
+version = "0.1.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -4795,21 +6123,26 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ucd-trie"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2896d95c02a80c6d6a5d6e953d479f5ddf2dfdb6a244441010e373ac0fb88971"
+checksum = "8f20bdbfc9915686faa18fb5bbe8b4552778505defbf9f12289beefbc44092a6"
+
+[[package]]
+name = "uds_windows"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
+dependencies = [
+ "memoffset",
+ "tempfile",
+ "windows-sys",
+]
 
 [[package]]
 name = "unicase"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
-
-[[package]]
-name = "unicode-bidi"
-version = "0.3.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c1cb5db39152898a79168971543b1cb5020dff7fe43c8dc468b0885f5e29df5"
 
 [[package]]
 name = "unicode-general-category"
@@ -4819,21 +6152,9 @@ checksum = "0b993bddc193ae5bd0d623b49ec06ac3e9312875fdae725a975c51db1cc1677f"
 
 [[package]]
 name = "unicode-ident"
-version = "1.0.26"
+version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
-
-[[package]]
-name = "unicode-script"
-version = "0.5.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "383ad40bb927465ec0ce7720e033cb4ca06912855fc35db31b5755d0de75b1ee"
-
-[[package]]
-name = "unicode-segmentation"
-version = "1.13.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
+checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "unicode-width"
@@ -4849,9 +6170,9 @@ checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",
@@ -4861,9 +6182,29 @@ dependencies = [
 
 [[package]]
 name = "utf8_iter"
-version = "1.0.4"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
+checksum = "af3bd9d3e571c26fcce9d033b87ea5ab061b8d2ffe9b7a5675d810d68f03edf0"
+dependencies = [
+ "utf_types",
+]
+
+[[package]]
+name = "utf_types"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a3b425286980a367278453f3b6d28cdcb134b574e5a35824a6ff5eebad50bb6"
+
+[[package]]
+name = "uuid"
+version = "1.26.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ef6dac1e96601b4fb3acccccff2139741fcb757cb9a36089bf5be91cfb285ce"
+dependencies = [
+ "js-sys",
+ "serde_core",
+ "wasm-bindgen",
+]
 
 [[package]]
 name = "valuable"
@@ -4919,16 +6260,64 @@ dependencies = [
 ]
 
 [[package]]
-name = "version-compare"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03c2856837ef78f57382f06b2b8563a2f512f7185d732608fd9176cb3b8edf0e"
-
-[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "walkdir"
+version = "2.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b42e295b7452c4604982280d8586001fcad9b8b201cac67bca9771e7a7475403"
+dependencies = [
+ "same-file",
+ "winapi-util",
+]
+
+[[package]]
+name = "wasm-bindgen"
+version = "0.2.130"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0181c14ddd6c7b8b0b0132a5f1ea2f32be0d893cd3ea97b6e3b28886b8a3d1c"
+dependencies = [
+ "cfg-if",
+ "rustversion",
+ "wasm-bindgen-macro",
+ "wasm-bindgen-shared",
+]
+
+[[package]]
+name = "wasm-bindgen-macro"
+version = "0.2.130"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e931a02a39abdbf66966fc35902b5ed58344750a70885bed4ebb3d8eaf28ed9"
+dependencies = [
+ "quote",
+ "wasm-bindgen-macro-support",
+]
+
+[[package]]
+name = "wasm-bindgen-macro-support"
+version = "0.2.130"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ca4b54280e455bd831e33a6b8e734baf432fe63fbc35c42ac14ce67a043a53a"
+dependencies = [
+ "bumpalo",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+ "wasm-bindgen-shared",
+]
+
+[[package]]
+name = "wasm-bindgen-shared"
+version = "0.2.130"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b1f9c3798725016c6ee5f2f57869ec0831e8bbc0ab0310a86e787e97f41389e"
+dependencies = [
+ "unicode-ident",
+]
 
 [[package]]
 name = "wayland-backend"
@@ -4949,7 +6338,7 @@ version = "0.31.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3c36a0f861ad76d0901f2800b46321410d9f73f2ea88aac0650d86c32688073"
 dependencies = [
- "bitflags 2.13.2",
+ "bitflags",
  "rustix",
  "wayland-backend",
  "wayland-scanner",
@@ -4957,11 +6346,11 @@ dependencies = [
 
 [[package]]
 name = "wayland-protocols"
-version = "0.32.13"
+version = "0.32.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23d0c813de3daa2ed6520af85a3bd49b0e722a3078506899aa9686fea58dc4b6"
+checksum = "563a85523cade2429938e790815fd7319062103b9f4a2dc806e9b53b95982d8f"
 dependencies = [
- "bitflags 2.13.2",
+ "bitflags",
  "wayland-backend",
  "wayland-client",
  "wayland-scanner",
@@ -4973,7 +6362,7 @@ version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e9567599ef23e09b8dad6e429e5738d4509dfc46b3b21f32841a304d16b29c8"
 dependencies = [
- "bitflags 2.13.2",
+ "bitflags",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
@@ -4986,7 +6375,7 @@ version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb04e52f7836d7c7976c78ca0250d61e33873c34156a2a1fc9474828ec268234"
 dependencies = [
- "bitflags 2.13.2",
+ "bitflags",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
@@ -5014,6 +6403,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "web-sys"
+version = "0.3.107"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7d179596ff5ec0f6de4db64d54011bde6289cc49603d3a6e4ce3f329207ab88"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "web_atoms"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5030,6 +6429,37 @@ name = "whereat"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab90f361db038ba3135da12c938c328fb43a012992101879e3d6ebccb4d7eba8"
+
+[[package]]
+name = "winapi"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
+dependencies = [
+ "winapi-i686-pc-windows-gnu",
+ "winapi-x86_64-pc-windows-gnu",
+]
+
+[[package]]
+name = "winapi-i686-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
+
+[[package]]
+name = "winapi-util"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
+dependencies = [
+ "windows-sys",
+]
+
+[[package]]
+name = "winapi-x86_64-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "winarm-cpufeatures"
@@ -5054,82 +6484,21 @@ dependencies = [
 
 [[package]]
 name = "windows-sys"
-version = "0.59.0"
+version = "0.61.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
+checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
 dependencies = [
- "windows-targets",
+ "windows-link",
 ]
-
-[[package]]
-name = "windows-targets"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973"
-dependencies = [
- "windows_aarch64_gnullvm",
- "windows_aarch64_msvc",
- "windows_i686_gnu",
- "windows_i686_gnullvm",
- "windows_i686_msvc",
- "windows_x86_64_gnu",
- "windows_x86_64_gnullvm",
- "windows_x86_64_msvc",
-]
-
-[[package]]
-name = "windows_aarch64_gnullvm"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3"
-
-[[package]]
-name = "windows_aarch64_msvc"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09ec2a7bb152e2252b53fa7803150007879548bc709c039df7627cabbd05d469"
-
-[[package]]
-name = "windows_i686_gnu"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e9b5ad5ab802e97eb8e295ac6720e509ee4c243f69d781394014ebfe8bbfa0b"
-
-[[package]]
-name = "windows_i686_gnullvm"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0eee52d38c090b3caa76c563b86c3a4bd71ef1a819287c19d586d7334ae8ed66"
-
-[[package]]
-name = "windows_i686_msvc"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66"
-
-[[package]]
-name = "windows_x86_64_gnu"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "147a5c80aabfbf0c7d901cb5895d1de30ef2907eb21fbbab29ca94c5b08b1a78"
-
-[[package]]
-name = "windows_x86_64_gnullvm"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24d5b23dc417412679681396f2b49f3de8c1473deb516bd34410872eff51ed0d"
-
-[[package]]
-name = "windows_x86_64_msvc"
-version = "0.52.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "winnow"
-version = "1.0.4"
+version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
+checksum = "8c3b93199df0ab874cdf0c6a94f0a0dc3423fe41f1cafb62b8bd7b1deb277aef"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "writeable"
@@ -5138,27 +6507,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
-name = "xkbcommon"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7a974f48060a14e95705c01f24ad9c3345022f4d97441b8a36beb7ed5c4a02d"
-dependencies = [
- "libc",
- "memmap2",
- "xkeysym",
-]
-
-[[package]]
-name = "xkeysym"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
-
-[[package]]
 name = "yoke"
-version = "0.8.3"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "709fe23a0424b6a435d82152b1bd3fdfb0833487d5fa90d05d42762a9891fef5"
+checksum = "417ef3fcf6c300b7dbd25c85531a746931c02ad536f3cf4786ed1e88223340b3"
 dependencies = [
  "stable_deref_trait",
  "yoke-derive",
@@ -5173,24 +6525,130 @@ checksum = "ec8ebde2db3681e8c9980cc27822030e68752690ddfa9473e739aeb4dbde6d71"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn 3.0.10",
  "synstructure",
 ]
 
 [[package]]
-name = "zerocopy"
-version = "0.8.62"
+name = "zbus"
+version = "5.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86502bf56ac7c77571a32e2647bb2a15894565e981fb2a48d7bde2d91c965a9d"
+checksum = "5db4be7c075cb421e4b7ee645541604239bd243ba7c357511f4ff3a74b555907"
+dependencies = [
+ "async-broadcast",
+ "async-executor",
+ "async-io",
+ "async-lock",
+ "async-process",
+ "async-recursion",
+ "async-task",
+ "async-trait",
+ "blocking",
+ "enumflags2",
+ "event-listener",
+ "futures-core",
+ "futures-lite",
+ "hex",
+ "libc",
+ "ordered-stream",
+ "rustix",
+ "serde",
+ "serde_repr",
+ "tracing",
+ "uds_windows",
+ "uuid",
+ "windows-sys",
+ "winnow",
+ "zbus_macros",
+ "zbus_names",
+ "zvariant",
+]
+
+[[package]]
+name = "zbus-lockstep"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6998de05217a084b7578728a9443d04ea4cd80f2a0839b8d78770b76ccd45863"
+dependencies = [
+ "zbus_xml",
+ "zvariant",
+]
+
+[[package]]
+name = "zbus-lockstep-macros"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10da05367f3a7b7553c8cdf8fa91aee6b64afebe32b51c95177957efc47ca3a0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+ "zbus-lockstep",
+ "zbus_xml",
+ "zvariant",
+]
+
+[[package]]
+name = "zbus_macros"
+version = "5.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2990635d09ade6df1868f72f8cac69a876a90981e8bd3c40b1be413f8dc88f40"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+ "zbus_names",
+ "zvariant",
+ "zvariant_utils",
+]
+
+[[package]]
+name = "zbus_names"
+version = "4.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "812a12be4ead7a59e18ea8f047d08add0066b73bc62fc1467066a2472ae088dd"
+dependencies = [
+ "serde",
+ "winnow",
+ "zvariant",
+]
+
+[[package]]
+name = "zbus_xml"
+version = "5.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1586c021a01ca0a9216dcd874e546382e156a5cbab5fab6cb5f10087e22682a"
+dependencies = [
+ "serde",
+ "winnow",
+ "zbus_names",
+ "zvariant",
+]
+
+[[package]]
+name = "zcheapstr"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2da34e7164b75d803c3197b86e6cf61b874106fbd472c5082575a8bc5fbd0907"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "zerocopy"
+version = "0.8.64"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed43f3060383c64b000f3c630550aebdfa9d3b76d48de32390483dd2cc7e0865"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.62"
+version = "0.8.64"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5457206954b06561e2608c7e19cf58b1926586d999c246eebe4502f7e2039d1a"
+checksum = "a5cbd820fe3e35fb38c83b6dc7e6b1618bc46e0cd10073ae94e8d52dc468d8b9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5214,7 +6672,7 @@ checksum = "f75b4683f6c7f45248d4d64056a24298c6281e0993356d7d1b4a1a962ef10d4a"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn 3.0.10",
  "synstructure",
 ]
 
@@ -5231,9 +6689,9 @@ dependencies = [
 
 [[package]]
 name = "zerovec"
-version = "0.11.8"
+version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb0464e17806c1d976d5cba29399c7f08e516e279e2ba493f63123b5fca67dd8"
+checksum = "f58a2799cfe9a1670c7ea8edbd52ef8edb93cb37a7f83bf31ba9e35d9dae6a40"
 dependencies = [
  "yoke",
  "zerofrom",
@@ -5248,7 +6706,7 @@ checksum = "c3743ddbf47738d929cd1ae2e199d40d0162979dfe31aef8ae646d2bf00bf97a"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -5264,16 +6722,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[package]]
-name = "zune-core"
-version = "0.5.3"
+name = "zvariant"
+version = "5.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d56377fd46368984a170bc5aac5567e52ca5da874caa60bea39fcbca78fb658b"
+checksum = "80bf6d6cd6a4b601acb64cfb8284cdc643fcfa75ef26ae3c46ec8aa4e8a1fbb7"
+dependencies = [
+ "endi",
+ "enumflags2",
+ "serde",
+ "winnow",
+ "zcheapstr",
+ "zvariant_derive",
+ "zvariant_utils",
+]
 
 [[package]]
-name = "zune-jpeg"
-version = "0.5.15"
+name = "zvariant_derive"
+version = "5.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
+checksum = "ef2672456ba1cb54b5eaec136e63135b3c7495fb938e53b28a62e633496d486d"
 dependencies = [
- "zune-core",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+ "zvariant_utils",
+]
+
+[[package]]
+name = "zvariant_utils"
+version = "4.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bad0294361a320b694a328460dc73add56c306150f5cb6bfafc44446120008a3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde",
+ "syn 3.0.10",
+ "winnow",
 ]

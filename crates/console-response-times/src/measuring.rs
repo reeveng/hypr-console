@@ -18,68 +18,74 @@ pub const SETTING: &str = "measuring";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Measuring {
-    #[words(key = "on")]
-    On,
-    #[words(key = "off")]
-    Off,
+  #[words(key = "on")]
+  On,
+  #[words(key = "off")]
+  Off,
 }
 
 impl Measuring {
-    pub fn flipped(self) -> Result<Measuring, Never> {
-        match self {
-            Measuring::On => Ok(Measuring::Off),
-            Measuring::Off => Ok(Measuring::On),
-        }
+  pub fn flipped(self) -> Result<Measuring, Never> {
+    match self {
+      Measuring::On => Ok(Measuring::Off),
+      Measuring::Off => Ok(Measuring::On),
     }
+  }
 }
 
 pub fn read(said: Option<&str>) -> Result<Measuring, Never> {
-    let said = match said {
-        Some(said) => said,
-        None => return Ok(Measuring::On),
-    };
+  let said_3 = match said {
+    Some(said_2) => said_2,
+    None => return Ok(Measuring::On),
+  };
 
-    let Ok(found) = Measuring::from_key(said);
+  let Ok(found) = Measuring::from_key(said_3);
 
-    match found {
-        Some(chosen) => Ok(chosen),
-        None => {
-            eprintln!("console-response-times: {SETTING}={said} is neither on nor off; measuring stays on");
+  match found {
+    Some(chosen) => Ok(chosen),
+    None => {
+      eprintln!(
+        "console-response-times: {SETTING}={said} is neither on nor off; measuring stays on",
+        said = said_3
+      );
 
-            Ok(Measuring::On)
-        }
+      Ok(Measuring::On)
     }
+  }
 }
 
 pub fn current() -> Result<Measuring, Never> {
-    let told = console_defaults::setting(SETTING)?;
+  let told = console_defaults::setting(SETTING)?;
 
-    read(told.as_deref())
+  read(told.as_deref())
 }
 
 pub fn choose(chosen: Measuring) -> Result<(), Never> {
-    let Ok(key) = chosen.key();
+  let Ok(key) = chosen.key();
 
-    console_defaults::set(console_defaults::Setting { key: SETTING, value: key })
+  console_defaults::set(console_defaults::Setting {
+    key: SETTING,
+    value: key,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn nothing_chosen_measures_as_the_device_always_has() {
-        assert_eq!(read(None), Ok(Measuring::On));
-    }
+  #[test]
+  fn nothing_chosen_measures_as_the_device_always_has() {
+    assert_eq!(read(None), Ok(Measuring::On));
+  }
 
-    #[test]
-    fn off_is_off_and_on_is_on() {
-        assert_eq!(read(Some("off")), Ok(Measuring::Off));
-        assert_eq!(read(Some("on")), Ok(Measuring::On));
-    }
+  #[test]
+  fn off_is_off_and_on_is_on() {
+    assert_eq!(read(Some("off")), Ok(Measuring::Off));
+    assert_eq!(read(Some("on")), Ok(Measuring::On));
+  }
 
-    #[test]
-    fn a_word_that_is_neither_keeps_measuring() {
-        assert_eq!(read(Some("no")), Ok(Measuring::On));
-    }
+  #[test]
+  fn a_word_that_is_neither_keeps_measuring() {
+    assert_eq!(read(Some("no")), Ok(Measuring::On));
+  }
 }

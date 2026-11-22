@@ -1,19 +1,27 @@
 error: this answer can be dropped in the middle of a block and read as a thing being done
-  --> $DIR/main.rs:9:28
+  --> $DIR/main.rs:10:28
    |
 LL | fn named(of: &[String]) -> String {
    |                            ^^^^^^
    |
-   = help: a function that hands back a value and changes nothing is a question. Say `#[must_use]`, so that a caller who throws the answer away writes `let _ = ...` and EXPLICIT009 can see it
    = note: `#[deny(explicit034_no_unclaimed_answer)]` on by default
+help: add #[must_use] to this function
+   |
+LL + #[must_use]
+LL | fn named(of: &[String]) -> String {
+   |
 
 error: this answer can be dropped in the middle of a block and read as a thing being done
-  --> $DIR/main.rs:15:21
+  --> $DIR/main.rs:16:21
    |
 LL | fn wide(of: u32) -> u32 {
    |                     ^^^
    |
-   = help: a function that hands back a value and changes nothing is a question. Say `#[must_use]`, so that a caller who throws the answer away writes `let _ = ...` and EXPLICIT009 can see it
+help: add #[must_use] to this function
+   |
+LL + #[must_use]
+LL | fn wide(of: u32) -> u32 {
+   |
 
 error: aborting due to 2 previous errors
 

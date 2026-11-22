@@ -1,0 +1,23 @@
+[package]
+name = "console-core-mermaid-graph"
+version = "0.10.0-alpha.2"
+edition = "2024"
+authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
+license = "AGPL-3.0-or-later"
+homepage = "https://github.com/Latias94/merman"
+repository = "https://github.com/Latias94/merman"
+rust-version = "1.95"
+description = "Graph data structure APIs used by dugong (port of dagrejs/graphlib)."
+documentation = "https://docs.rs/dugong-graphlib"
+readme = "README.md"
+keywords = ["graph", "dagre", "graphlib"]
+categories = ["data-structures"]
+
+[dependencies]
+hashbrown = { version = "0.17.1", default-features = false, features = ["equivalent"] }
+console-core-perfect-hash = { path = "../../crates/console-core-perfect-hash", features = ["std"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+[lib]
+name = "dugong_graphlib"

@@ -1,0 +1,2 @@
+source = "https://raw.githubusercontent.com/imazen/rav1d-safe/main/tests/crash_vectors/tile_threading_cdef_lpf_race.obu"
+sha256 = "176c78827d13b95eee32eb6bf65dfb7b613c70759a677fd4e2800399bf9d25c0"

@@ -37,6 +37,8 @@
 //! menu that reads it back has to tell an apply's snapshot from the installer's
 //! or pacman's by the same words the apply wrote.
 
+use std::collections::BTreeMap;
+
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 
@@ -44,49 +46,55 @@ pub const CONFIG: &str = "/boot/limine.conf";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
-    pub levels: Vec<Level>,
-    pub identifier: String,
+  pub levels: Vec<Level>,
+  pub identifier: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Level {
-    pub title: String,
-    pub comments: Vec<String>,
+  pub title: String,
+  pub comments: Vec<String>,
 }
 
 pub fn entries(config: &str) -> Result<Vec<Entry>, Never> {
-    let Ok(headings) = headings(config);
-    let after = headings.iter().skip(1).map(|heading| Some(heading.depth)).chain(std::iter::once(None));
+  let Ok(headings) = headings(config);
+  let after = headings
+    .iter()
+    .skip(1)
+    .map(|heading| Some(heading.depth))
+    .chain(std::iter::once(None));
 
-    Ok(headings
-        .iter()
-        .zip(after)
-        .fold(Walk::default(), |walk, (heading, next)| {
-            let Ok(walked) = walk.met(heading, next);
+  Ok(
+    headings
+      .iter()
+      .zip(after)
+      .fold(Walk::default(), |walk, (heading, next)| {
+        let Ok(walked) = walk.met(heading, next);
 
-            walked
-        })
-        .entries)
+        walked
+      })
+      .entries,
+  )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Heading {
-    depth: u32,
-    title: String,
-    protocol: Option<String>,
-    comments: Vec<String>,
+  depth: u32,
+  title: String,
+  protocol: Option<String>,
+  comments: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shape {
-    Folder,
-    Bootable,
+  Folder,
+  Bootable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Firmware {
-    Offered,
-    Skipped,
+  Offered,
+  Skipped,
 }
 
 const LEVEL: char = '/';
@@ -94,259 +102,290 @@ const OPENED: char = '+';
 const LONGEST: u32 = 232;
 
 fn headings(config: &str) -> Result<Vec<Heading>, Never> {
-    Ok(config.lines().map(str::trim).fold(Vec::new(), |mut found: Vec<Heading>, line| {
-        let Ok(depth): Result<u32, Never> = fitted(line.chars().take_while(|at| *at == LEVEL).count());
+  Ok(
+    config
+      .lines()
+      .map(str::trim)
+      .fold(Vec::new(), |mut found: Vec<Heading>, line| {
+        let Ok(depth): Result<u32, Never> =
+          fitted(line.chars().take_while(|at| *at == LEVEL).count());
 
         match (depth, found.last_mut()) {
-            (0, Some(heading)) => {
-                let Ok(()) = heading.read(line);
-            }
-            (0, None) => {}
-            (_, _) => {
-                let Ok(heading) = Heading::new(depth, line);
+          (0, Some(heading)) => {
+            let Ok(()) = heading.read(line);
+          }
+          (0, None) => {}
+          (_, _) => {
+            let Ok(heading) = Heading::new(depth, line);
 
-                found.push(heading);
-            }
+            found.push(heading);
+          }
         }
 
         found
-    }))
+      }),
+  )
 }
 
 impl Heading {
-    fn new(depth: u32, line: &str) -> Result<Heading, Never> {
-        let named = line.trim_start_matches(LEVEL);
-        let title = match named.strip_prefix(OPENED) {
-            Some(opened) => opened,
-            None => named,
-        };
+  fn new(depth: u32, line: &str) -> Result<Heading, Never> {
+    let named = line.trim_start_matches(LEVEL);
+    let title = match named.strip_prefix(OPENED) {
+      Some(opened) => opened,
+      None => named,
+    };
 
-        Ok(Heading { depth, title: title.trim().to_string(), protocol: None, comments: Vec::new() })
+    Ok(Heading {
+      depth,
+      title: title.trim().to_string(),
+      protocol: None,
+      comments: Vec::new(),
+    })
+  }
+
+  fn read(&mut self, line: &str) -> Result<(), Never> {
+    match line.split_once(':') {
+      Some((key, value)) => match key.trim().to_ascii_lowercase().as_str() {
+        "protocol" => self.protocol = Some(value.trim().to_string()),
+        "comment" => self.comments.push(value.trim().to_string()),
+        _ => {}
+      },
+      None => {}
     }
 
-    fn read(&mut self, line: &str) -> Result<(), Never> {
-        match line.split_once(':') {
-            Some((key, value)) => match key.trim().to_ascii_lowercase().as_str() {
-                "protocol" => self.protocol = Some(value.trim().to_string()),
-                "comment" => self.comments.push(value.trim().to_string()),
-                _ => {}
-            },
-            None => {}
-        }
+    Ok(())
+  }
 
-        Ok(())
-    }
-
-    fn firmware(&self, shape: Shape) -> Result<Firmware, Never> {
-        Ok(match (shape, self.protocol.as_deref()) {
-            (Shape::Bootable, Some("bios" | "bios_chainload")) => Firmware::Skipped,
-            (Shape::Bootable, Some(_) | None) => Firmware::Offered,
-            (Shape::Folder, Some(_) | None) => Firmware::Offered,
-        })
-    }
+  fn firmware(&self, shape: Shape) -> Result<Firmware, Never> {
+    Ok(match (shape, self.protocol.as_deref()) {
+      (Shape::Bootable, Some("bios" | "bios_chainload")) => Firmware::Skipped,
+      (Shape::Bootable, Some(_) | None) => Firmware::Offered,
+      (Shape::Folder, Some(_) | None) => Firmware::Offered,
+    })
+  }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Walk {
-    above: Vec<Above>,
-    siblings: Vec<Vec<String>>,
-    given: Vec<String>,
-    entries: Vec<Entry>,
+  above: Vec<Above>,
+  siblings: BTreeMap<u32, Vec<String>>,
+  given: Vec<String>,
+  entries: Vec<Entry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Above {
-    level: Level,
-    segment: String,
+  level: Level,
+  segment: String,
 }
 
 impl Walk {
-    fn met(mut self, heading: &Heading, next: Option<u32>) -> Result<Walk, Never> {
-        let level = heading.depth.saturating_sub(1);
-        let Ok(held) = index(level);
-        let shape = match next.map(|depth| depth > heading.depth) {
-            Some(true) => Shape::Folder,
-            Some(false) | None => Shape::Bootable,
-        };
+  fn met(mut self, heading: &Heading, next: Option<u32>) -> Result<Walk, Never> {
+    let level = heading.depth.saturating_sub(1);
+    let Ok(held) = index(level);
+    let shape = match next.map(|depth| depth.cmp(&heading.depth)) {
+      Some(core::cmp::Ordering::Greater) => Shape::Folder,
+      Some(core::cmp::Ordering::Less | core::cmp::Ordering::Equal) | None => Shape::Bootable,
+    };
 
-        self.above.truncate(held);
-        self.siblings.resize(held.saturating_add(1), Vec::new());
+    self.above.truncate(held);
+    drop(self.siblings.split_off(&heading.depth));
 
-        let Ok(firmware) = heading.firmware(shape);
+    let Ok(firmware) = heading.firmware(shape);
 
-        Ok(match firmware {
-            Firmware::Skipped => self,
-            Firmware::Offered => {
-                let Ok(walked) = self.visit(heading, shape, level);
+    Ok(match firmware {
+      Firmware::Skipped => self,
+      Firmware::Offered => {
+        let Ok(walked) = self.visit(heading, shape, level);
 
-                walked
-            }
-        })
+        walked
+      }
+    })
+  }
+
+  fn visit(mut self, heading: &Heading, shape: Shape, level: u32) -> Result<Walk, Never> {
+    let Ok(segment) = self.segment(&heading.title, level);
+    let above = Above {
+      level: Level {
+        title: heading.title.clone(),
+        comments: heading.comments.clone(),
+      },
+      segment,
+    };
+
+    self
+      .siblings
+      .entry(level)
+      .or_default()
+      .push(heading.title.clone());
+
+    match shape {
+      Shape::Folder => self.above.push(above),
+      Shape::Bootable => {
+        let Ok(entry) = self.entry(above);
+
+        self.entries.push(entry);
+      }
     }
 
-    fn visit(mut self, heading: &Heading, shape: Shape, level: u32) -> Result<Walk, Never> {
-        let Ok(segment) = self.segment(&heading.title, level);
-        let Ok(held) = index(level);
-        let above = Above { level: Level { title: heading.title.clone(), comments: heading.comments.clone() }, segment };
+    Ok(self)
+  }
 
-        match self.siblings.get_mut(held) {
-            Some(siblings) => siblings.push(heading.title.clone()),
-            None => {}
-        }
+  fn segment(&self, title: &str, level: u32) -> Result<String, Never> {
+    let Ok(before): Result<u32, Never> = fitted(match self.siblings.get(&level) {
+      Some(siblings) => siblings.iter().filter(|sibling| *sibling == title).count(),
+      None => 0,
+    });
+    let Ok(escaped) = escaped(title);
 
-        match shape {
-            Shape::Folder => self.above.push(above),
-            Shape::Bootable => {
-                let Ok(entry) = self.entry(above);
+    Ok(match before {
+      0 => escaped,
+      _ => format!("{escaped}#{before}"),
+    })
+  }
 
-                self.entries.push(entry);
-            }
-        }
+  fn entry(&mut self, this: Above) -> Result<Entry, Never> {
+    let path = self
+      .above
+      .iter()
+      .chain(std::iter::once(&this))
+      .map(|above| above.segment.as_str())
+      .collect::<Vec<_>>()
+      .join("/");
+    let Ok(base) = identifier(&path);
+    let Ok(before): Result<u32, Never> =
+      fitted(self.given.iter().filter(|given| **given == base).count());
 
-        Ok(self)
-    }
+    self.given.push(base.clone());
 
-    fn segment(&self, title: &str, level: u32) -> Result<String, Never> {
-        let Ok(held) = index(level);
-        let Ok(before): Result<u32, Never> = fitted(match self.siblings.get(held) {
-            Some(siblings) => siblings.iter().filter(|sibling| *sibling == title).count(),
-            None => 0,
-        });
-        let Ok(escaped) = escaped(title);
-
-        Ok(match before {
-            0 => escaped,
-            _ => format!("{escaped}#{before}"),
-        })
-    }
-
-    fn entry(&mut self, this: Above) -> Result<Entry, Never> {
-        let path = self.above.iter().chain(std::iter::once(&this)).map(|above| above.segment.as_str()).collect::<Vec<_>>().join("/");
-        let Ok(base) = identifier(&path);
-        let Ok(before): Result<u32, Never> = fitted(self.given.iter().filter(|given| **given == base).count());
-
-        self.given.push(base.clone());
-
-        Ok(Entry {
-            levels: self.above.iter().map(|above| above.level.clone()).chain(std::iter::once(this.level)).collect(),
-            identifier: match before {
-                0 => base,
-                _ => format!("{base}-{}", before.saturating_add(1)),
-            },
-        })
-    }
+    Ok(Entry {
+      levels: self
+        .above
+        .iter()
+        .map(|above| above.level.clone())
+        .chain(std::iter::once(this.level))
+        .collect(),
+      identifier: match before {
+        0 => base,
+        _ => format!("{base}-{}", before.saturating_add(1)),
+      },
+    })
+  }
 }
 
 fn escaped(title: &str) -> Result<String, Never> {
-    Ok(title.chars().fold(String::new(), |mut escaped, at| {
-        match at {
-            '\\' | '/' | '#' => escaped.push('\\'),
-            _ => {}
-        }
+  Ok(title.chars().fold(String::new(), |mut escaped, at| {
+    match at {
+      '\\' | '/' | '#' => escaped.push('\\'),
+      _ => {}
+    }
 
-        escaped.push(at);
+    escaped.push(at);
 
-        escaped
-    }))
+    escaped
+  }))
 }
 
 fn identifier(path: &str) -> Result<String, Never> {
-    let Ok(longest) = index(LONGEST);
-    let mapped = path
-        .bytes()
-        .take(longest)
-        .map(|byte| match byte {
-            b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'+' | b'_' | b'.' | b'@' | b'-' => char::from(byte),
-            b'/' => '.',
-            _ => '-',
-        })
-        .collect::<String>();
-
-    Ok(match mapped.as_str() {
-        "" | "." | ".." => format!("{mapped}-"),
-        _ => mapped,
+  let Ok(longest) = index(LONGEST);
+  let mapped = path
+    .bytes()
+    .take(longest)
+    .map(|byte| match byte {
+      b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'+' | b'_' | b'.' | b'@' | b'-' => {
+        char::from(byte)
+      }
+      b'/' => '.',
+      _ => '-',
     })
+    .collect::<String>();
+
+  Ok(match mapped.as_str() {
+    "" | "." | ".." => format!("{mapped}-"),
+    _ => mapped,
+  })
 }
 
 const BESIDE: char = '\u{2502}';
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Snapshot {
-    pub number: u32,
-    pub taken: String,
-    pub comments: Vec<String>,
-    pub identifier: String,
+  pub number: u32,
+  pub taken: String,
+  pub comments: Vec<String>,
+  pub identifier: String,
 }
 
 pub const APPLY: &str = "console apply";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TakenBy {
-    Apply,
-    SomethingElse,
+  Apply,
+  SomethingElse,
 }
 
 impl Snapshot {
-    pub fn taken_by(&self) -> Result<TakenBy, Never> {
-        let applied = self.comments.iter().find(|comment| match comment.strip_prefix(APPLY) {
-            Some(after) => matches!(after.chars().next(), None | Some(' ')),
-            None => false,
-        });
+  pub fn taken_by(&self) -> Result<TakenBy, Never> {
+    let applied = self
+      .comments
+      .iter()
+      .filter_map(|comment| comment.strip_prefix(APPLY))
+      .find(|after| matches!(after.chars().next(), None | Some(' ')));
 
-        Ok(match applied {
-            Some(_) => TakenBy::Apply,
-            None => TakenBy::SomethingElse,
-        })
-    }
+    Ok(match applied {
+      Some(_) => TakenBy::Apply,
+      None => TakenBy::SomethingElse,
+    })
+  }
 }
 
 pub fn snapshots(entries: &[Entry]) -> Result<Vec<Snapshot>, Never> {
-    let mut found: Vec<Snapshot> = entries
-        .iter()
-        .filter_map(|entry| {
-            let Ok(read) = snapshot_of(entry);
+  let mut found: Vec<Snapshot> = entries
+    .iter()
+    .filter_map(|entry| {
+      let Ok(read) = snapshot_of(entry);
 
-            read
-        })
-        .collect();
+      read
+    })
+    .collect();
 
-    found.dedup_by_key(|snapshot| snapshot.number);
+  found.dedup_by_key(|snapshot| snapshot.number);
 
-    Ok(found)
+  Ok(found)
 }
 
 pub fn snapshot(entries: &[Entry], number: u32) -> Result<Option<Snapshot>, Never> {
-    let Ok(every) = snapshots(entries);
+  let Ok(every) = snapshots(entries);
 
-    Ok(every.into_iter().find(|snapshot| snapshot.number == number))
+  Ok(every.into_iter().find(|snapshot| snapshot.number == number))
 }
 
 fn snapshot_of(entry: &Entry) -> Result<Option<Snapshot>, Never> {
-    let above = match entry.levels.iter().rev().nth(1) {
-        Some(above) => above,
-        None => return Ok(None),
-    };
-    let (front, taken) = match above.title.split_once(BESIDE) {
-        Some(split) => split,
-        None => return Ok(None),
-    };
+  let above = match entry.levels.iter().rev().nth(1) {
+    Some(above) => above,
+    None => return Ok(None),
+  };
+  let (front, taken) = match above.title.split_once(BESIDE) {
+    Some(split) => split,
+    None => return Ok(None),
+  };
 
-    Ok(match front.trim().parse::<u32>() {
-        Ok(number) => Some(Snapshot {
-            number,
-            taken: taken.trim().to_string(),
-            comments: above.comments.clone(),
-            identifier: entry.identifier.clone(),
-        }),
-        Err(_not_a_snapshot) => None,
-    })
+  Ok(match front.trim().parse::<u32>() {
+    Ok(number) => Some(Snapshot {
+      number,
+      taken: taken.trim().to_string(),
+      comments: above.comments.clone(),
+      identifier: entry.identifier.clone(),
+    }),
+    Err(_not_a_snapshot) => None,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const DEVICE: &str = "timeout: 10
+  const DEVICE: &str = "timeout: 10
 default_entry: 2
 remember_last_entry: yes
 
@@ -379,155 +418,172 @@ protocol: efi
 path: boot():/EFI/BOOT/BOOTX64.EFI
 ";
 
-    fn identifiers(config: &str) -> Result<Vec<String>, Never> {
-        let Ok(found) = entries(config);
+  fn identifiers(config: &str) -> Result<Vec<String>, Never> {
+    let Ok(found) = entries(config);
 
-        Ok(found.into_iter().map(|entry| entry.identifier).collect())
-    }
+    Ok(found.into_iter().map(|entry| entry.identifier).collect())
+  }
 
-    #[test]
-    fn the_device_menu_is_named_the_way_limine_published_it() {
-        let Ok(found) = identifiers(DEVICE);
+  #[test]
+  fn the_device_menu_is_named_the_way_limine_published_it() {
+    let Ok(found) = identifiers(DEVICE);
 
-        assert_eq!(
-            found,
-            vec![
-                "CachyOS.linux-cachyos-deckify",
-                "CachyOS.Snapshots.184-----2026-09-23-06-54-01.linux-cachyos-deckify",
-                "CachyOS.Snapshots.6-------2026-08-27-14-47-13.linux-cachyos-deckify",
-                "Other-systems-and-bootloaders",
-                "EFI-fallback",
-            ]
-        );
-    }
+    assert_eq!(
+      found,
+      vec![
+        "CachyOS.linux-cachyos-deckify",
+        "CachyOS.Snapshots.184-----2026-09-23-06-54-01.linux-cachyos-deckify",
+        "CachyOS.Snapshots.6-------2026-08-27-14-47-13.linux-cachyos-deckify",
+        "Other-systems-and-bootloaders",
+        "EFI-fallback",
+      ]
+    );
+  }
 
-    #[test]
-    fn a_snapshot_keeps_the_apply_it_stands_before() {
-        let Ok(found) = entries(DEVICE);
+  #[test]
+  fn a_snapshot_keeps_the_apply_it_stands_before() {
+    let Ok(found) = entries(DEVICE);
 
-        assert_eq!(
-            found.get(1).and_then(|entry| entry.levels.get(2)),
-            Some(&Level {
-                title: "184 │ 2026-09-23 06:54:01".to_string(),
-                comments: vec!["console apply e79c18f5".to_string()],
-            })
-        );
-    }
+    assert_eq!(
+      found.get(1).and_then(|entry| entry.levels.get(2)),
+      Some(&Level {
+        title: "184 │ 2026-09-23 06:54:01".to_string(),
+        comments: vec!["console apply e79c18f5".to_string()],
+      })
+    );
+  }
 
-    #[test]
-    fn a_snapshot_is_found_by_the_number_at_the_front_of_its_title() {
-        let Ok(found) = entries(DEVICE);
-        let Ok(six) = snapshot(&found, 6);
-        let Ok(missing) = snapshot(&found, 18);
+  #[test]
+  fn a_snapshot_is_found_by_the_number_at_the_front_of_its_title() {
+    let Ok(found) = entries(DEVICE);
+    let Ok(six) = snapshot(&found, 6);
+    let Ok(missing) = snapshot(&found, 18);
 
-        assert_eq!(six.as_ref().map(|entry| entry.identifier.as_str()), Some("CachyOS.Snapshots.6-------2026-08-27-14-47-13.linux-cachyos-deckify"));
-        assert_eq!(missing, None);
-    }
+    assert_eq!(
+      six.as_ref().map(|entry| entry.identifier.as_str()),
+      Some("CachyOS.Snapshots.6-------2026-08-27-14-47-13.linux-cachyos-deckify")
+    );
+    assert_eq!(missing, None);
+  }
 
-    #[test]
-    fn every_snapshot_is_listed_newest_first_with_the_apply_it_stands_before() {
-        let Ok(found) = entries(DEVICE);
-        let Ok(listed) = snapshots(&found);
+  #[test]
+  fn every_snapshot_is_listed_newest_first_with_the_apply_it_stands_before() {
+    let Ok(found) = entries(DEVICE);
+    let Ok(listed) = snapshots(&found);
 
-        assert_eq!(
-            listed,
-            vec![
-                Snapshot {
-                    number: 184,
-                    taken: "2026-09-23 06:54:01".to_string(),
-                    comments: vec!["console apply e79c18f5".to_string()],
-                    identifier: "CachyOS.Snapshots.184-----2026-09-23-06-54-01.linux-cachyos-deckify".to_string(),
-                },
-                Snapshot {
-                    number: 6,
-                    taken: "2026-08-27 14:47:13".to_string(),
-                    comments: vec!["Fresh CachyOS Installation".to_string()],
-                    identifier: "CachyOS.Snapshots.6-------2026-08-27-14-47-13.linux-cachyos-deckify".to_string(),
-                },
-            ]
-        );
-    }
+    assert_eq!(
+      listed,
+      vec![
+        Snapshot {
+          number: 184,
+          taken: "2026-09-23 06:54:01".to_string(),
+          comments: vec!["console apply e79c18f5".to_string()],
+          identifier: "CachyOS.Snapshots.184-----2026-09-23-06-54-01.linux-cachyos-deckify"
+            .to_string(),
+        },
+        Snapshot {
+          number: 6,
+          taken: "2026-08-27 14:47:13".to_string(),
+          comments: vec!["Fresh CachyOS Installation".to_string()],
+          identifier: "CachyOS.Snapshots.6-------2026-08-27-14-47-13.linux-cachyos-deckify"
+            .to_string(),
+        },
+      ]
+    );
+  }
 
-    #[test]
-    fn a_snapshot_an_apply_took_is_told_from_the_installers() {
-        let Ok(found) = entries(DEVICE);
-        let Ok(listed) = snapshots(&found);
-        let Ok(said) = listed.iter().map(Snapshot::taken_by).collect::<Result<Vec<_>, Never>>();
+  #[test]
+  fn a_snapshot_an_apply_took_is_told_from_the_installers() {
+    let Ok(found) = entries(DEVICE);
+    let Ok(listed) = snapshots(&found);
+    let Ok(said) = listed
+      .iter()
+      .map(Snapshot::taken_by)
+      .collect::<Result<Vec<_>, Never>>();
 
-        assert_eq!(said, vec![TakenBy::Apply, TakenBy::SomethingElse]);
-    }
+    assert_eq!(said, vec![TakenBy::Apply, TakenBy::SomethingElse]);
+  }
 
-    #[test]
-    fn a_comment_that_only_begins_with_the_words_is_not_an_apply() {
-        let config = "/Snapshots\n//9 │ 2026-09-01 10:00:00\ncomment: console applying\n///linux\nprotocol: linux\n//8 │ 2026-09-01 09:00:00\ncomment: console apply\n///linux\nprotocol: linux\n";
-        let Ok(found) = entries(config);
-        let Ok(listed) = snapshots(&found);
-        let Ok(said) = listed.iter().map(Snapshot::taken_by).collect::<Result<Vec<_>, Never>>();
+  #[test]
+  fn a_comment_that_only_begins_with_the_words_is_not_an_apply() {
+    let config = "/Snapshots\n//9 │ 2026-09-01 10:00:00\ncomment: console applying\n///linux\nprotocol: linux\n//8 │ 2026-09-01 09:00:00\ncomment: console apply\n///linux\nprotocol: linux\n";
+    let Ok(found) = entries(config);
+    let Ok(listed) = snapshots(&found);
+    let Ok(said) = listed
+      .iter()
+      .map(Snapshot::taken_by)
+      .collect::<Result<Vec<_>, Never>>();
 
-        assert_eq!(said, vec![TakenBy::SomethingElse, TakenBy::Apply]);
-    }
+    assert_eq!(said, vec![TakenBy::SomethingElse, TakenBy::Apply]);
+  }
 
-    #[test]
-    fn a_snapshot_with_two_kernels_is_listed_once_by_the_first() {
-        let config = "/Snapshots\n//9 │ 2026-09-01 10:00:00\n///linux\nprotocol: linux\n///linux-lts\nprotocol: linux\n";
-        let Ok(found) = entries(config);
-        let Ok(listed) = snapshots(&found);
+  #[test]
+  fn a_snapshot_with_two_kernels_is_listed_once_by_the_first() {
+    let config = "/Snapshots\n//9 │ 2026-09-01 10:00:00\n///linux\nprotocol: linux\n///linux-lts\nprotocol: linux\n";
+    let Ok(found) = entries(config);
+    let Ok(listed) = snapshots(&found);
 
-        assert_eq!(listed.iter().map(|one| one.identifier.as_str()).collect::<Vec<_>>(), vec!["Snapshots.9-----2026-09-01-10-00-00.linux"]);
-    }
+    assert_eq!(
+      listed
+        .iter()
+        .map(|one| one.identifier.as_str())
+        .collect::<Vec<_>>(),
+      vec!["Snapshots.9-----2026-09-01-10-00-00.linux"]
+    );
+  }
 
-    #[test]
-    fn a_kernel_whose_name_is_a_number_is_not_a_snapshot() {
-        let config = "/Linux\n//6\nprotocol: linux\n";
-        let Ok(found) = entries(config);
-        let Ok(six) = snapshot(&found, 6);
+  #[test]
+  fn a_kernel_whose_name_is_a_number_is_not_a_snapshot() {
+    let config = "/Linux\n//6\nprotocol: linux\n";
+    let Ok(found) = entries(config);
+    let Ok(six) = snapshot(&found, 6);
 
-        assert_eq!(six, None);
-    }
+    assert_eq!(six, None);
+  }
 
-    #[test]
-    fn a_second_sibling_of_one_title_is_marked_in_the_path() {
-        let config = "/Linux\nprotocol: linux\n/Linux\nprotocol: linux\n";
+  #[test]
+  fn a_second_sibling_of_one_title_is_marked_in_the_path() {
+    let config = "/Linux\nprotocol: linux\n/Linux\nprotocol: linux\n";
 
-        let Ok(found) = identifiers(config);
+    let Ok(found) = identifiers(config);
 
-        assert_eq!(found, vec!["Linux", "Linux-1"]);
-    }
+    assert_eq!(found, vec!["Linux", "Linux-1"]);
+  }
 
-    #[test]
-    fn two_paths_that_map_to_one_identifier_are_numbered_from_two() {
-        let config = "/a b\nprotocol: linux\n/a:b\nprotocol: linux\n/a?b\nprotocol: linux\n";
+  #[test]
+  fn two_paths_that_map_to_one_identifier_are_numbered_from_two() {
+    let config = "/a b\nprotocol: linux\n/a:b\nprotocol: linux\n/a?b\nprotocol: linux\n";
 
-        let Ok(found) = identifiers(config);
+    let Ok(found) = identifiers(config);
 
-        assert_eq!(found, vec!["a-b", "a-b-2", "a-b-3"]);
-    }
+    assert_eq!(found, vec!["a-b", "a-b-2", "a-b-3"]);
+  }
 
-    #[test]
-    fn a_bios_entry_is_not_offered_and_does_not_count_as_a_sibling() {
-        let config = "/Linux\nprotocol: bios\n/Linux\nprotocol: linux\n";
+  #[test]
+  fn a_bios_entry_is_not_offered_and_does_not_count_as_a_sibling() {
+    let config = "/Linux\nprotocol: bios\n/Linux\nprotocol: linux\n";
 
-        let Ok(found) = identifiers(config);
+    let Ok(found) = identifiers(config);
 
-        assert_eq!(found, vec!["Linux"]);
-    }
+    assert_eq!(found, vec!["Linux"]);
+  }
 
-    #[test]
-    fn a_slash_in_a_title_is_escaped_rather_than_read_as_a_level() {
-        let config = "/A/B\nprotocol: linux\n";
+  #[test]
+  fn a_slash_in_a_title_is_escaped_rather_than_read_as_a_level() {
+    let config = "/A/B\nprotocol: linux\n";
 
-        let Ok(found) = identifiers(config);
+    let Ok(found) = identifiers(config);
 
-        assert_eq!(found, vec!["A-.B"]);
-    }
+    assert_eq!(found, vec!["A-.B"]);
+  }
 
-    #[test]
-    fn a_long_path_is_cut_where_limine_cuts_it() {
-        let title = "x".repeat(300);
-        let config = format!("/{title}\nprotocol: linux\n");
+  #[test]
+  fn a_long_path_is_cut_where_limine_cuts_it() {
+    let title = "x".repeat(300);
+    let config = format!("/{title}\nprotocol: linux\n");
 
-        let Ok(found) = identifiers(&config);
+    let Ok(found) = identifiers(&config);
 
-        assert_eq!(found, vec!["x".repeat(232)]);
-    }
+    assert_eq!(found, vec!["x".repeat(232)]);
+  }
 }

@@ -1,0 +1,59 @@
+error: `unwrap_or_default` answers a `None` without saying what it meant
+  --> $DIR/owned_and_enum.rs:15:5
+   |
+LL |     input.unwrap_or_default()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit033_no_unnamed_absence)]` on by default
+help: write both outcomes with the same fallback value
+   |
+LL ~     match *(input) {
+LL +         ::core::option::Option::Some(present) => present,
+LL +         ::core::option::Option::None => crate::Mode::Standard,
+LL +     }
+   |
+
+error: `unwrap_or_default` answers a `None` without saying what it meant
+  --> $DIR/owned_and_enum.rs:39:5
+   |
+LL |     input.unwrap_or_default()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~     match input {
+LL +         ::core::option::Option::Some(present) => present,
+LL +         ::core::option::Option::None => crate::Order::Forward,
+LL +     }
+   |
+
+error: `unwrap_or` answers a `None` without saying what it meant
+  --> $DIR/owned_and_enum.rs:54:5
+   |
+LL |     input.unwrap_or(fallback)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~     match (input, fallback) {
+LL +         (::core::option::Option::Some(present), fallback_value) => { ::core::mem::drop(fallback_value); present },
+LL +         (::core::option::Option::None, fallback_value) => fallback_value,
+LL +     }
+   |
+
+error: `unwrap_or` answers a `None` without saying what it meant
+  --> $DIR/owned_and_enum.rs:83:9
+   |
+LL |         populated(&events).unwrap_or(alternate(&events)),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~         match (populated(&events), alternate(&events)) {
+LL +             (::core::option::Option::Some(present), fallback_value) => { ::core::mem::drop(fallback_value); present },
+LL +             (::core::option::Option::None, fallback_value) => fallback_value,
+LL ~         },
+   |
+
+error: aborting due to 4 previous errors
+

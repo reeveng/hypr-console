@@ -1,0 +1,31 @@
+[package]
+name = "console-clipboard"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "console-clipboard"
+path = "src/main.rs"
+
+[dependencies]
+console-compositor.workspace = true
+console-core-arguments.workspace = true
+console-core-bounded-reads.workspace = true
+console-core-controls.workspace = true
+console-core-internal-programs.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-places.workspace = true
+console-panel.workspace = true
+console-waiting.workspace = true
+rustix.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+
+[lints]
+workspace = true

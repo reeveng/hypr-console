@@ -1,0 +1,27 @@
+warning: this is the line a shell will parse, and it was put together at run time
+  --> $DIR/main.rs:9:46
+   |
+LL |     vec!["sh".to_string(), "-c".to_string(), line.to_string()]
+   |                                              ^^^^^^^^^^^^^^^^
+   |
+   = help: write the script as a literal and hand what varies over as an argument after it: `["-c", "command -v /"$1/"", "sh", named]` binds it to `$1`, which the shell never parses. Where `-c` is not a script at all for this program, allow this rule here and let the reason say what it is
+   = note: `#[warn(explicit082_no_built_shell_line)]` on by default
+
+warning: this is the line a shell will parse, and it was put together at run time
+  --> $DIR/main.rs:14:58
+   |
+LL |     let arguments = ["su", owner, "-s", "/bin/sh", "-c", &line];
+   |                                                          ^^^^^
+   |
+   = help: write the script as a literal and hand what varies over as an argument after it: `["-c", "command -v /"$1/"", "sh", named]` binds it to `$1`, which the shell never parses. Where `-c` is not a script at all for this program, allow this rule here and let the reason say what it is
+
+warning: this is the line a shell will parse, and it was put together at run time
+  --> $DIR/main.rs:23:26
+   |
+LL |     asking.arg("-c").arg(format!("command -v {named}"));
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: write the script as a literal and hand what varies over as an argument after it: `["-c", "command -v /"$1/"", "sh", named]` binds it to `$1`, which the shell never parses. Where `-c` is not a script at all for this program, allow this rule here and let the reason say what it is
+
+warning: 3 warnings emitted
+

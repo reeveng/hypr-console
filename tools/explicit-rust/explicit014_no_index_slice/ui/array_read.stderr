@@ -1,0 +1,51 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/array_read.rs:4:45
+   |
+LL | fn convert(x: &[u16; 2]) -> u32 { u32::from(x[1]) }
+   |                                             ^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: access the array with an irrefutable pattern
+   |
+LL - fn convert(x: &[u16; 2]) -> u32 { u32::from(x[1]) }
+LL + fn convert(x: &[u16; 2]) -> u32 { u32::from(match x { &[_, _explicit_element, ..] => _explicit_element }) }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/array_read.rs:7:15
+   |
+LL |     let red = p.channels[0];
+   |               ^^^^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     let red = p.channels[0];
+LL +     let [red, ..] = p.channels;
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/array_read.rs:10:16
+   |
+LL |     assert_eq!(p.channels[2] + p.channels[3], 7);
+   |                ^^^^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     assert_eq!(p.channels[2] + p.channels[3], 7);
+LL +     assert_eq!((match p.channels { [_, _, _explicit_element, ..] => _explicit_element }) + p.channels[3], 7);
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/array_read.rs:10:32
+   |
+LL |     assert_eq!(p.channels[2] + p.channels[3], 7);
+   |                                ^^^^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     assert_eq!(p.channels[2] + p.channels[3], 7);
+LL +     assert_eq!(p.channels[2] + (match p.channels { [_, _, _, _explicit_element, ..] => _explicit_element }), 7);
+   |
+
+error: aborting due to 4 previous errors
+

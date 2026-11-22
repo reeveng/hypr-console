@@ -1,0 +1,18 @@
+[package]
+name = "console-core-transform"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+serde = ["dep:serde"]
+
+[dependencies]
+console-core-never.workspace = true
+console-core-point.workspace = true
+console-core-size.workspace = true
+serde = { version = "1.0", features = ["derive"], optional = true, default-features = false }
+
+[lints]
+workspace = true

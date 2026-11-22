@@ -1,0 +1,31 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_number_conversion.rs
+extern crate console_core_number_conversion;
+
+fn rows(buf: &[u8; 16]) -> u32 {
+    let mut sum = 0;
+    for j in match ::console_core_number_conversion::indices::<::core::primitive::u16>(0..4) { ::core::result::Result::Ok(j) => j } {
+        sum += u32::from(buf[j.wrapping_mul(4)]);
+        sum += u32::from(buf[j.wrapping_mul(4).wrapping_add(3)]);
+    }
+    sum
+}
+
+fn inclusive() -> [bool; 2] {
+    let mut reversed = true;
+    for i in match ::console_core_number_conversion::indices_inclusive::<::core::primitive::u16>(4..=3) { ::core::result::Result::Ok(i) => i } {
+        reversed &= i.wrapping_add(1) == 0;
+        reversed &= i.wrapping_mul(2) == 0;
+    }
+    let mut visited = false;
+    for i in match ::console_core_number_conversion::indices_inclusive::<::core::primitive::u16>(65535..=65535) { ::core::result::Result::Ok(i) => i } {
+        visited = i.wrapping_sub(65535) == 0 && i.wrapping_mul(0) == 0;
+    }
+    [reversed, visited]
+}
+
+fn main() {
+    assert_eq!(rows(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]), 60);
+    assert_eq!(inclusive(), [true, true]);
+}

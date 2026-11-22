@@ -1,0 +1,46 @@
+//! A test's expectation that a value was there, said as the test's own fault rather than as a panic.
+
+use alloc::boxed::Box;
+use core::fmt::{self, Debug};
+
+pub(crate) enum TestFailure {
+  MissingValue,
+  Fault(Box<dyn Debug>),
+}
+
+impl Debug for TestFailure {
+  fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::MissingValue => output.write_str("an expected value was absent"),
+      Self::Fault(fault) => output.debug_tuple("unexpected fault").field(fault).finish(),
+    }
+  }
+}
+
+pub(crate) trait Required {
+  type Value;
+
+  fn required(self) -> Result<Self::Value, TestFailure>;
+}
+
+impl<T> Required for Option<T> {
+  type Value = T;
+
+  fn required(self) -> Result<T, TestFailure> {
+    match self {
+      Some(value) => Ok(value),
+      None => Err(TestFailure::MissingValue),
+    }
+  }
+}
+
+impl<T, E: Debug + 'static> Required for Result<T, E> {
+  type Value = T;
+
+  fn required(self) -> Result<T, TestFailure> {
+    match self {
+      Ok(value) => Ok(value),
+      Err(fault) => Err(TestFailure::Fault(Box::new(fault))),
+    }
+  }
+}

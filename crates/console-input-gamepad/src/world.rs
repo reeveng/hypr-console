@@ -20,217 +20,251 @@ use crate::devices::{Has, Sink};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Device {
-    pub path: String,
-    pub waiting: Vec<InputEvent>,
-    pub plugged: bool,
+  pub path: String,
+  pub waiting: Vec<InputEvent>,
+  pub plugged: bool,
 }
 
 impl Device {
-    pub fn unplug(&mut self) -> Result<(), Never> {
-        self.plugged = false;
-        self.waiting.clear();
+  pub fn unplug(&mut self) -> Result<(), Never> {
+    self.plugged = false;
+    self.waiting.clear();
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    pub fn plug(&mut self) -> Result<(), Never> {
-        self.plugged = true;
+  pub fn plug(&mut self) -> Result<(), Never> {
+    self.plugged = true;
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    pub fn drain(&mut self) -> Result<Vec<InputEvent>, Never> {
-        Ok(std::mem::take(&mut self.waiting))
-    }
+  pub fn drain(&mut self) -> Result<Vec<InputEvent>, Never> {
+    Ok(std::mem::take(&mut self.waiting))
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Written {
-    pub kind: EventType,
-    pub code: u16,
-    pub value: i32,
+  pub kind: EventType,
+  pub code: u16,
+  pub value: i32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct World {
-    pub devices: BTreeMap<String, Device>,
-    pub log: Vec<(String, Written)>,
+  pub devices: BTreeMap<String, Device>,
+  pub log: Vec<(String, Written)>,
 }
 
 impl World {
-    pub fn of(descriptors: BTreeMap<String, Descriptor>) -> Result<Self, Never> {
-        Ok(World {
-            devices: descriptors
-                .keys()
-                .enumerate()
-                .map(|(number, role)| {
-                    let device = Device {
-                        path: format!("/dev/input/event{number}"),
-                        waiting: Vec::new(),
-                        plugged: true,
-                    };
-                    (role.clone(), device)
-                })
-                .collect(),
-            log: Vec::new(),
+  pub fn of(descriptors: BTreeMap<String, Descriptor>) -> Result<Self, Never> {
+    Ok(World {
+      devices: descriptors
+        .keys()
+        .enumerate()
+        .map(|(number, role)| {
+          let device = Device {
+            path: format!("/dev/input/event{number}"),
+            waiting: Vec::new(),
+            plugged: true,
+          };
+          (role.clone(), device)
         })
-    }
+        .collect(),
+      log: Vec::new(),
+    })
+  }
 
-    pub fn plugged(&self) -> Result<Vec<String>, Never> {
-        Ok(self.devices.values().filter(|device| device.plugged).map(|device| device.path.clone()).collect())
-    }
+  pub fn plugged(&self) -> Result<Vec<String>, Never> {
+    Ok(
+      self
+        .devices
+        .values()
+        .filter(|device| device.plugged)
+        .map(|device| device.path.clone())
+        .collect(),
+    )
+  }
 
-    pub fn role_at(&self, path: &str) -> Result<Option<&str>, Never> {
-        Ok(self
-            .devices
-            .iter()
-            .find(|(_, device)| device.path == path && device.plugged)
-            .map(|(role, _)| role.as_str()))
-    }
+  pub fn role_at(&self, path: &str) -> Result<Option<&str>, Never> {
+    Ok(
+      self
+        .devices
+        .iter()
+        .find(|(_, device)| device.path == path && device.plugged)
+        .map(|(role, _)| role.as_str()),
+    )
+  }
 
-    pub fn writes_by(&self, role: &str) -> Result<Vec<Written>, Never> {
-        Ok(self.log.iter().filter(|(said, _)| said == role).map(|(_, what)| *what).collect())
-    }
+  pub fn writes_by(&self, role: &str) -> Result<Vec<Written>, Never> {
+    Ok(
+      self
+        .log
+        .iter()
+        .filter(|(said, _)| said == role)
+        .map(|(_, what)| *what)
+        .collect(),
+    )
+  }
 
-    pub fn of_kind(
-        &self,
-        role: &str,
-        kind: EventType,
-        code: Option<u16>,
-    ) -> Result<Vec<Written>, Never> {
-        let written = self.writes_by(role)?;
+  pub fn of_kind(
+    &self,
+    role: &str,
+    kind: EventType,
+    code: Option<u16>,
+  ) -> Result<Vec<Written>, Never> {
+    let written = self.writes_by(role)?;
 
-        Ok(written
-            .into_iter()
-            .filter(|what| what.kind == kind && code.is_none_or(|wanted| what.code == wanted))
-            .collect())
-    }
+    Ok(
+      written
+        .into_iter()
+        .filter(|what| what.kind == kind && code.is_none_or(|wanted| what.code == wanted))
+        .collect(),
+    )
+  }
 
-    pub fn total(&self, role: &str, kind: EventType, code: u16) -> Result<i32, Never> {
-        let of_kind = self.of_kind(role, kind, Some(code))?;
+  pub fn total(&self, role: &str, kind: EventType, code: u16) -> Result<i32, Never> {
+    let of_kind = self.of_kind(role, kind, Some(code))?;
 
-        Ok(of_kind.iter().map(|what| what.value).sum())
-    }
+    Ok(of_kind.iter().map(|what| what.value).sum())
+  }
 }
 
 impl Sink for World {
-    fn path(&self, role: &str) -> Option<String> {
-        self.devices.get(role).map(|device| device.path.clone())
-    }
+  fn path(&self, role: &str) -> Option<String> {
+    self.devices.get(role).map(|device| device.path.clone())
+  }
 
-    fn has(&self, role: &str) -> Has {
-        match self.devices.contains_key(role) {
-            true => Has::Yes,
-            false => Has::No,
-        }
+  fn has(&self, role: &str) -> Has {
+    match ::core::primitive::bool::then_some(self.devices.contains_key(role), ()) {
+      ::core::option::Option::Some(()) => Has::Yes,
+      ::core::option::Option::None => Has::No,
     }
+  }
 
-    fn write(&mut self, role: &str, kind: EventType, code: u16, value: i32) {
-        match self.devices.get_mut(role) {
-            Some(device) => {
-                device.waiting.push(InputEvent { kind, code, value });
-                self.log.push((role.to_string(), Written { kind, code, value }));
-            }
-            None => {},
-        }
+  fn write(&mut self, role: &str, kind: EventType, code: u16, value: i32) {
+    match self.devices.get_mut(role) {
+      Some(device) => {
+        device.waiting.push(InputEvent { kind, code, value });
+        self
+          .log
+          .push((role.to_string(), Written { kind, code, value }));
+      }
+      None => {}
     }
+  }
 
-    fn syn(&mut self, role: &str) {
-        match self.devices.get_mut(role) {
-            Some(device) => {
-                device.waiting.push(InputEvent::REPORT);
-            }
-            None => {},
-        }
+  fn syn(&mut self, role: &str) {
+    match self.devices.get_mut(role) {
+      Some(device) => {
+        device.waiting.push(InputEvent::REPORT);
+      }
+      None => {}
     }
+  }
 
-    fn close(&mut self) {
-        for device in self.devices.values_mut() {
-            let Ok(()) = device.unplug();
-        }
+  fn close(&mut self) {
+    for device in self.devices.values_mut() {
+      let Ok(()) = device.unplug();
     }
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::GamepadError;
-    use crate::capture::load_capture;
+  use super::*;
+  use crate::GamepadError;
+  use crate::capture::load_capture;
 
-    fn world() -> Result<World, GamepadError> {
-        let seen = load_capture()?;
-        let Ok(world) = World::of(seen);
+  fn world() -> Result<World, GamepadError> {
+    let seen = load_capture()?;
+    let Ok(world) = World::of(seen);
 
-        Ok(world)
+    Ok(world)
+  }
+
+  #[test]
+  fn every_device_gets_a_path_of_its_own() -> Result<(), GamepadError> {
+    let world = world()?;
+    let mut paths: Vec<String> = world.devices.values().map(|d| d.path.clone()).collect();
+
+    paths.sort();
+    paths.dedup();
+
+    assert_eq!(paths.len(), world.devices.len());
+
+    Ok(())
+  }
+
+  #[test]
+  fn what_is_written_is_waiting_and_is_remembered() -> Result<(), GamepadError> {
+    let mut world = world()?;
+
+    world.write("pad", EventType::KEY, 304, 1);
+    world.syn("pad");
+
+    assert_eq!(
+      world.writes_by("pad"),
+      Ok(vec![Written {
+        kind: EventType::KEY,
+        code: 304,
+        value: 1
+      }])
+    );
+    assert_eq!(
+      world.devices.get("pad").map(|pad| pad.waiting.len()),
+      Some(2),
+      "the event and its report"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_device_that_has_gone_is_not_there_to_be_found() -> Result<(), GamepadError> {
+    let mut world = world()?;
+    let path = world.path("pad").ok_or(GamepadError::NotFound("pad"))?;
+
+    assert_eq!(world.role_at(&path), Ok(Some("pad")));
+
+    let pad = world
+      .devices
+      .get_mut("pad")
+      .ok_or(GamepadError::NotFound("pad"))?;
+    let Ok(()) = pad.unplug();
+    let Ok(plugged) = world.plugged();
+
+    assert_eq!(world.role_at(&path), Ok(None));
+    assert!(!plugged.contains(&path));
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_wheel_is_how_far_it_turned_rather_than_how_often() -> Result<(), GamepadError> {
+    let mut world = world()?;
+
+    for notch in [1, 1, -1] {
+      world.write("mouse", EventType::RELATIVE, 8, notch);
     }
 
-    #[test]
-    fn every_device_gets_a_path_of_its_own() -> Result<(), GamepadError> {
-        let world = world()?;
-        let mut paths: Vec<String> = world.devices.values().map(|d| d.path.clone()).collect();
+    let Ok(turned) = world.of_kind("mouse", EventType::RELATIVE, Some(8));
 
-        paths.sort();
-        paths.dedup();
+    assert_eq!(world.total("mouse", EventType::RELATIVE, 8), Ok(1));
+    assert_eq!(turned.len(), 3);
 
-        assert_eq!(paths.len(), world.devices.len());
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn writing_to_a_device_that_is_not_there_writes_nothing() -> Result<(), GamepadError> {
+    let mut world = world()?;
 
-    #[test]
-    fn what_is_written_is_waiting_and_is_remembered() -> Result<(), GamepadError> {
-        let mut world = world()?;
+    world.write("trackball", EventType::KEY, 1, 1);
 
-        world.write("pad", EventType::KEY, 304, 1);
-        world.syn("pad");
+    assert!(world.log.is_empty());
 
-        assert_eq!(world.writes_by("pad"), Ok(vec![Written { kind: EventType::KEY, code: 304, value: 1 }]));
-        assert_eq!(world.devices.get("pad").map(|pad| pad.waiting.len()), Some(2), "the event and its report");
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_device_that_has_gone_is_not_there_to_be_found() -> Result<(), GamepadError> {
-        let mut world = world()?;
-        let path = world.path("pad").ok_or(GamepadError::NotFound("pad"))?;
-
-        assert_eq!(world.role_at(&path), Ok(Some("pad")));
-
-        let pad = world.devices.get_mut("pad").ok_or(GamepadError::NotFound("pad"))?;
-        let Ok(()) = pad.unplug();
-        let Ok(plugged) = world.plugged();
-
-        assert_eq!(world.role_at(&path), Ok(None));
-        assert!(!plugged.contains(&path));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_wheel_is_how_far_it_turned_rather_than_how_often() -> Result<(), GamepadError> {
-        let mut world = world()?;
-
-        for notch in [1, 1, -1] {
-            world.write("mouse", EventType::RELATIVE, 8, notch);
-        }
-
-        let Ok(turned) = world.of_kind("mouse", EventType::RELATIVE, Some(8));
-
-        assert_eq!(world.total("mouse", EventType::RELATIVE, 8), Ok(1));
-        assert_eq!(turned.len(), 3);
-
-        Ok(())
-    }
-
-    #[test]
-    fn writing_to_a_device_that_is_not_there_writes_nothing() -> Result<(), GamepadError> {
-        let mut world = world()?;
-
-        world.write("trackball", EventType::KEY, 1, 1);
-
-        assert!(world.log.is_empty());
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

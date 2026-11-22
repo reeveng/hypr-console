@@ -129,144 +129,160 @@ use console_core_never::Never;
 use console_how_far::Progress;
 
 use crate::checking::Check;
-use crate::device::{Device, shell_quote};
+use crate::device::{Device, DryRun, shell_quote};
 
 pub const NAMED: &str = "checked";
 
 pub fn at(home: &str) -> Result<String, Never> {
-    let Ok(ours) = console_core_places::Base::State.application_under(std::path::Path::new(home));
+  let Ok(ours) = console_core_places::Base::State.application_under(std::path::Path::new(home));
 
-    Ok(ours.join(NAMED).display().to_string())
+  Ok(ours.join(NAMED).display().to_string())
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Lengths {
-    took: BTreeMap<String, Duration>,
+  took: BTreeMap<String, Duration>,
 }
 
 impl Lengths {
-    pub fn of(&self, name: &str) -> Result<Option<Duration>, Never> {
-        Ok(self.took.get(name).copied())
-    }
+  pub fn of(&self, name: &str) -> Result<Option<Duration>, Never> {
+    Ok(self.took.get(name).copied())
+  }
 
-    pub fn learned(&mut self, name: &str, took: Duration) -> Result<(), Never> {
-        let _ = self.took.insert(name.to_string(), took);
+  pub fn learned(&mut self, name: &str, took: Duration) -> Result<(), Never> {
+    let _ = self.took.insert(name.to_string(), took);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    pub fn known(&self) -> Result<u32, Never> {
-        fitted(self.took.len())
-    }
+  pub fn known(&self) -> Result<u32, Never> {
+    fitted(self.took.len())
+  }
 
-    pub fn names(&self) -> Result<Vec<String>, Never> {
-        Ok(self.took.keys().cloned().collect())
-    }
+  pub fn names(&self) -> Result<Vec<String>, Never> {
+    Ok(self.took.keys().cloned().collect())
+  }
 
-    pub fn middle(&self) -> Result<Duration, Never> {
-        let mut every: Vec<Duration> = self.took.values().copied().collect();
+  pub fn middle(&self) -> Result<Duration, Never> {
+    let mut every: Vec<Duration> = self.took.values().copied().collect();
 
-        every.sort_unstable();
+    every.sort_unstable();
 
-        let Ok(many) = fitted::<_, u32>(every.len());
-        let Ok(at) = console_core_number_conversion::index(many / HALVED);
+    let Ok(many) = fitted::<_, u32>(every.len());
+    let Ok(at) = console_core_number_conversion::index(many / HALVED);
 
-        Ok(match every.get(at).copied() {
-            Some(took) => took,
-            None => Duration::ZERO,
-        })
-    }
+    Ok(match every.get(at).copied() {
+      Some(took) => took,
+      None => Duration::ZERO,
+    })
+  }
 
-    pub fn longest_first<'a>(&self, checks: &[&'a Check]) -> Result<Vec<&'a Check>, Never> {
-        let Ok(middle) = self.middle();
-        let mut ordered = checks.to_vec();
+  pub fn longest_first<'a>(&self, checks: &[&'a Check]) -> Result<Vec<&'a Check>, Never> {
+    let Ok(middle) = self.middle();
+    let mut ordered = checks.to_vec();
 
-        ordered.sort_by_key(|check| {
-            let Ok(took) = self.of(check.name);
+    ordered.sort_by_key(|check| {
+      let Ok(took) = self.of(check.name);
 
-            Reverse(match took {
-                Some(took) => took,
-                None => middle,
-            })
-        });
+      Reverse(match took {
+        Some(took_2) => took_2,
+        None => middle,
+      })
+    });
 
-        Ok(ordered)
-    }
+    Ok(ordered)
+  }
 }
 
 pub fn serialize(lengths: &Lengths) -> Result<String, Never> {
-    Ok(lengths
-        .took
-        .iter()
-        .map(|(name, took)| format!("{name} {}\n", took.as_millis()))
-        .collect())
+  Ok(
+    lengths
+      .took
+      .iter()
+      .map(|(name, took)| format!("{name} {}\n", took.as_millis()))
+      .collect(),
+  )
 }
 
 pub fn reading(held: &str) -> Result<Lengths, Never> {
-    let took = held
-        .lines()
-        .filter_map(|line| line.trim().split_once(' '))
-        .filter(|(name, _)| !name.is_empty())
-        .filter_map(|(name, said)| match said.trim().parse::<u64>() {
-            Ok(milliseconds) => Some((name.to_string(), Duration::from_millis(milliseconds))),
-            Err(_not_ours) => None,
-        })
-        .collect();
+  let took = held
+    .lines()
+    .filter_map(|line| line.trim().split_once(' '))
+    .filter(|(name, _)| !name.is_empty())
+    .filter_map(|(name, said)| match said.trim().parse::<u64>() {
+      Ok(milliseconds) => Some((name.to_string(), Duration::from_millis(milliseconds))),
+      Err(_not_ours) => None,
+    })
+    .collect();
 
-    Ok(Lengths { took })
+  Ok(Lengths { took })
 }
 
 pub fn pace_of(measured: &Lengths, carried: &Lengths) -> Result<f64, Never> {
-    let both: Vec<(Duration, Duration)> = measured
-        .took
-        .iter()
-        .filter_map(|(name, here)| {
-            let Ok(there) = carried.of(name);
+  let both: Vec<(Duration, Duration)> = measured
+    .took
+    .iter()
+    .filter_map(|(name, here)| {
+      let Ok(there) = carried.of(name);
 
-            there.map(|there| (*here, there))
-        })
-        .filter(|(_, there)| !there.is_zero())
-        .collect();
-    let here = both.iter().fold(Duration::ZERO, |so_far, (here, _)| so_far.saturating_add(*here));
-    let there = both.iter().fold(Duration::ZERO, |so_far, (_, there)| so_far.saturating_add(*there));
-
-    Ok(match there.is_zero() {
-        true => 1.0,
-        false => (here.as_secs_f64() / there.as_secs_f64()).clamp(QUICKEST, SLOWEST),
+      there.map(|there_2| (*here, there_2))
     })
+    .filter(|(_, there)| !there.is_zero())
+    .collect();
+  let here = both.iter().fold(Duration::ZERO, |so_far, (here, _)| {
+    so_far.saturating_add(*here)
+  });
+  let there = both.iter().fold(Duration::ZERO, |so_far, (_, there)| {
+    so_far.saturating_add(*there)
+  });
+
+  Ok(match ::core::primitive::bool::then_some(there.is_zero(), ()) {
+    ::core::option::Option::Some(()) => 1.0,
+    ::core::option::Option::None => (here.as_secs_f64() / there.as_secs_f64()).clamp(QUICKEST, SLOWEST),
+  })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the inner value is the ratio of measured to baseline run times"
+  )
+)]
+pub struct Pace(pub f64);
+
 pub fn expecting(
-    measured: &Lengths,
-    carried: &Lengths,
-    pace: f64,
-    name: &str,
+  measured: &Lengths,
+  carried: &Lengths,
+  Pace(pace): Pace,
+  name: &str,
 ) -> Result<Duration, Never> {
-    let Ok(here) = measured.of(name);
+  let Ok(here) = measured.of(name);
 
-    match here {
-        Some(here) => return Ok(here),
-        None => {},
+  match here {
+    Some(here_2) => return Ok(here_2),
+    None => {}
+  }
+
+  let Ok(there) = carried.of(name);
+
+  match there {
+    Some(there_2) => return Ok(there_2.mul_f64(pace)),
+    None => {}
+  }
+
+  let Ok(middle) = measured.middle();
+
+  match ::core::primitive::bool::then_some(middle.is_zero(), ()) {
+    ::core::option::Option::None => Ok(middle),
+
+    ::core::option::Option::Some(()) => {
+      let Ok(middle_2) = carried.middle();
+
+      Ok(middle_2.mul_f64(pace))
     }
-
-    let Ok(there) = carried.of(name);
-
-    match there {
-        Some(there) => return Ok(there.mul_f64(pace)),
-        None => {},
-    }
-
-    let Ok(middle) = measured.middle();
-
-    match middle.is_zero() {
-        false => Ok(middle),
-
-        true => {
-            let Ok(middle) = carried.middle();
-
-            Ok(middle.mul_f64(pace))
-        }
-    }
+  }
 }
 
 pub const SLOWEST: f64 = 8.0;
@@ -275,548 +291,634 @@ pub const QUICKEST: f64 = 0.125;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ahead {
-    expecting: Vec<Duration>,
-    passed: Duration,
-    whole: Duration,
-    took: Duration,
-    done: u32,
-    many: u32,
+  expecting: Vec<Duration>,
+  passed: Duration,
+  whole: Duration,
+  took: Duration,
+  done: u32,
+  many: u32,
 }
 
 impl Ahead {
-    pub fn of(lengths: &Lengths, running: &[&Check]) -> Result<Self, Never> {
-        let Ok(carried) = crate::baseline::lengths();
+  pub fn of(lengths: &Lengths, running: &[&Check]) -> Result<Self, Never> {
+    let Ok(carried) = crate::baseline::lengths();
 
-        Ahead::from(lengths, &carried, running)
+    Ahead::from(lengths, &carried, running)
+  }
+
+  pub fn from(measured: &Lengths, carried: &Lengths, running: &[&Check]) -> Result<Self, Never> {
+    let Ok(pace) = pace_of(measured, carried);
+    let mut expecting: Vec<Duration> = running
+      .iter()
+      .map(|check| {
+        let Ok(one) = expecting(measured, carried, Pace(pace), check.name);
+
+        one
+      })
+      .collect();
+    let whole = expecting
+      .iter()
+      .fold(Duration::ZERO, |so_far, one| so_far.saturating_add(*one));
+
+    expecting.reverse();
+
+    let Ok(many) = fitted(running.len());
+
+    Ok(Ahead {
+      expecting,
+      passed: Duration::ZERO,
+      whole,
+      took: Duration::ZERO,
+      done: 0,
+      many,
+    })
+  }
+
+  pub fn pace(&self) -> Result<f64, Never> {
+    match ::core::primitive::bool::then_some(self.passed.is_zero(), ()) {
+      ::core::option::Option::Some(()) => Ok(1.0),
+      ::core::option::Option::None => {
+        let pace = self.took.as_secs_f64() / self.passed.as_secs_f64();
+
+        Ok(pace.clamp(QUICKEST, SLOWEST))
+      }
     }
+  }
 
-    pub fn from(
-        measured: &Lengths,
-        carried: &Lengths,
-        running: &[&Check],
-    ) -> Result<Self, Never> {
-        let Ok(pace) = pace_of(measured, carried);
-        let mut expecting: Vec<Duration> = running
-            .iter()
-            .map(|check| {
-                let Ok(one) = expecting(measured, carried, pace, check.name);
+  pub fn far(&self) -> Result<u16, Never> {
+    match ::core::primitive::bool::then_some(self.whole.is_zero(), ()) {
+      ::core::option::Option::Some(()) => counted(Progress {
+        done: self.done,
+        many: self.many,
+      }),
+      ::core::option::Option::None => {
+        let Ok(leaning) =
+          leaning(ProgressFraction(self.passed.as_secs_f64() / self.whole.as_secs_f64()));
+        let Ok(along) = toward_zero_u16(leaning * f64::from(WHOLE));
 
-                one
-            })
-            .collect();
-        let whole = expecting.iter().fold(Duration::ZERO, |so_far, one| so_far.saturating_add(*one));
-
-        expecting.reverse();
-
-        let Ok(many) = fitted(running.len());
-
-        Ok(Ahead {
-            expecting,
-            passed: Duration::ZERO,
-            whole,
-            took: Duration::ZERO,
-            done: 0,
-            many,
-        })
+        Ok(along.min(WHOLE))
+      }
     }
+  }
 
-    pub fn pace(&self) -> Result<f64, Never> {
-        match self.passed.is_zero() {
-            true => Ok(1.0),
-            false => {
-                let pace = self.took.as_secs_f64() / self.passed.as_secs_f64();
+  pub fn along(&self, elapsed: Duration) -> Result<u16, Never> {
+    match ::core::primitive::bool::then_some(self.whole.is_zero(), ()) {
+      ::core::option::Option::Some(()) => counted(Progress {
+        done: self.done,
+        many: self.many,
+      }),
+      ::core::option::Option::None => {
+        let Ok(inside) = self.inside(elapsed);
+        let at = self.passed.saturating_add(inside);
+        let Ok(leaning) = leaning(ProgressFraction(at.as_secs_f64() / self.whole.as_secs_f64()));
+        let Ok(along) = toward_zero_u16(leaning * f64::from(WHOLE));
 
-                Ok(pace.clamp(QUICKEST, SLOWEST))
-            }
-        }
+        Ok(along.min(WHOLE))
+      }
     }
+  }
 
-    pub fn far(&self) -> Result<u16, Never> {
-        match self.whole.is_zero() {
-            true => {
-                counted(Progress { done: self.done, many: self.many })
-            }
-            false => {
-                let Ok(leaning) =
-                    leaning(self.passed.as_secs_f64() / self.whole.as_secs_f64());
-                let Ok(along) = toward_zero_u16(leaning * f64::from(WHOLE));
+  fn part(&self, elapsed: Duration) -> Result<f64, Never> {
+    let Ok(pace) = self.pace();
+    let Ok(one) = self.expecting();
 
-                Ok(along.min(WHOLE))
-            }
-        }
-    }
+    crept(elapsed.div_f64(pace), one)
+  }
 
-    pub fn along(&self, elapsed: Duration) -> Result<u16, Never> {
-        match self.whole.is_zero() {
-            true => {
-                counted(Progress { done: self.done, many: self.many })
-            }
-            false => {
-                let Ok(inside) = self.inside(elapsed);
-                let at = self.passed.saturating_add(inside);
-                let Ok(leaning) = leaning(at.as_secs_f64() / self.whole.as_secs_f64());
-                let Ok(along) = toward_zero_u16(leaning * f64::from(WHOLE));
+  fn inside(&self, elapsed: Duration) -> Result<Duration, Never> {
+    let Ok(part) = self.part(elapsed);
+    let Ok(one) = self.expecting();
 
-                Ok(along.min(WHOLE))
-            }
-        }
-    }
+    Ok(one.mul_f64(part))
+  }
 
-    fn part(&self, elapsed: Duration) -> Result<f64, Never> {
+  pub fn remaining(&self, elapsed: Duration) -> Result<Option<Duration>, Never> {
+    match ::core::primitive::bool::then_some(self.whole.is_zero(), ()) {
+      ::core::option::Option::Some(()) => Ok(None),
+      ::core::option::Option::None => {
         let Ok(pace) = self.pace();
+        let Ok(inside) = self.inside(elapsed);
+        let at = self.passed.saturating_add(inside);
+
+        Ok(Some(self.whole.saturating_sub(at).mul_f64(pace)))
+      }
+    }
+  }
+
+  pub fn whole(&self) -> Result<Option<Duration>, Never> {
+    Ok(match ::core::primitive::bool::then_some(self.whole.is_zero(), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(self.whole),
+    })
+  }
+
+  pub fn expecting(&self) -> Result<Duration, Never> {
+    Ok(match self.expecting.last().copied() {
+      Some(expecting) => expecting,
+      None => Duration::ZERO,
+    })
+  }
+
+  pub fn span(&self) -> Result<u16, Never> {
+    match ::core::primitive::bool::then_some(self.whole.is_zero(), ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(one) = counted(Progress {
+          done: 1,
+          many: self.many,
+        });
+
+        Ok(one)
+      }
+
+      ::core::option::Option::None => {
         let Ok(one) = self.expecting();
+        let Ok(span) =
+          toward_zero_u16(one.as_secs_f64() / self.whole.as_secs_f64() * f64::from(WHOLE));
 
-        crept(elapsed.div_f64(pace), one)
+        Ok(span.min(WHOLE))
+      }
     }
+  }
 
-    fn inside(&self, elapsed: Duration) -> Result<Duration, Never> {
-        let Ok(part) = self.part(elapsed);
-        let Ok(one) = self.expecting();
+  pub fn finished(&mut self, took: Duration) -> Result<(), Never> {
+    let one = match self.expecting.pop() {
+      Some(one) => one,
+      None => Duration::ZERO,
+    };
 
-        Ok(one.mul_f64(part))
-    }
+    self.passed = self.passed.saturating_add(one);
+    self.took = self.took.saturating_add(took);
+    self.done = self.done.saturating_add(1);
 
-    pub fn remaining(&self, elapsed: Duration) -> Result<Option<Duration>, Never> {
-        match self.whole.is_zero() {
-            true => Ok(None),
-            false => {
-                let Ok(pace) = self.pace();
-                let Ok(inside) = self.inside(elapsed);
-                let at = self.passed.saturating_add(inside);
-
-                Ok(Some(self.whole.saturating_sub(at).mul_f64(pace)))
-            }
-        }
-    }
-
-    pub fn whole(&self) -> Result<Option<Duration>, Never> {
-        Ok(match self.whole.is_zero() {
-            true => None,
-            false => Some(self.whole),
-        })
-    }
-
-    pub fn expecting(&self) -> Result<Duration, Never> {
-        Ok(match self.expecting.last().copied() {
-            Some(expecting) => expecting,
-            None => Duration::ZERO,
-        })
-    }
-
-    pub fn span(&self) -> Result<u16, Never> {
-        match self.whole.is_zero() {
-            true => {
-                let Ok(one) = counted(Progress { done: 1, many: self.many });
-
-                Ok(one)
-            }
-
-            false => {
-                let Ok(one) = self.expecting();
-                let Ok(span) = toward_zero_u16(
-                    one.as_secs_f64() / self.whole.as_secs_f64() * f64::from(WHOLE),
-                );
-
-                Ok(span.min(WHOLE))
-            }
-        }
-    }
-
-    pub fn finished(&mut self, took: Duration) -> Result<(), Never> {
-        let one = match self.expecting.pop() {
-            Some(one) => one,
-            None => Duration::ZERO,
-        };
-
-        self.passed = self.passed.saturating_add(one);
-        self.took = self.took.saturating_add(took);
-        self.done = self.done.saturating_add(1);
-
-        Ok(())
-    }
+    Ok(())
+  }
 }
 
 pub const WHOLE: u16 = console_notifications::updating::WHOLE;
 
 pub const LEANING: f64 = 1.3;
 
-pub fn leaning(part: f64) -> Result<f64, Never> {
-    Ok(part.clamp(0.0, 1.0).powf(LEANING))
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the inner value is the completed share of the projected run"
+  )
+)]
+pub struct ProgressFraction(pub f64);
+
+pub fn leaning(ProgressFraction(part): ProgressFraction) -> Result<f64, Never> {
+  Ok(part.clamp(0.0, 1.0).powf(LEANING))
 }
 
 pub const BY_THE_CLOCK: f64 = 0.9;
 
 pub fn over(elapsed: Duration, expecting: Duration) -> Result<Option<Duration>, Never> {
-    Ok(match expecting.is_zero() || elapsed <= expecting {
-        true => None,
-        false => Some(elapsed),
-    })
+  Ok(match ::core::primitive::bool::then_some(expecting.is_zero() || elapsed <= expecting, ()) {
+    ::core::option::Option::Some(()) => None,
+    ::core::option::Option::None => Some(elapsed),
+  })
 }
 
 pub fn crept(elapsed: Duration, expecting: Duration) -> Result<f64, Never> {
-    match expecting.is_zero() {
-        true => Ok(0.0),
-        false => {
-            let along = elapsed.as_secs_f64() / expecting.as_secs_f64();
+  match ::core::primitive::bool::then_some(expecting.is_zero(), ()) {
+    ::core::option::Option::Some(()) => Ok(0.0),
+    ::core::option::Option::None => {
+      let along = elapsed.as_secs_f64() / expecting.as_secs_f64();
 
-            Ok(match along < 1.0 {
-                true => along * BY_THE_CLOCK,
-                false => {
-                    let over = along - 1.0;
+      Ok(match ::core::primitive::bool::then_some(along < 1.0, ()) {
+        ::core::option::Option::Some(()) => along * BY_THE_CLOCK,
+        ::core::option::Option::None => {
+          let over = along - 1.0;
 
-                    BY_THE_CLOCK + (1.0 - BY_THE_CLOCK) * (over / (over + 1.0))
-                }
-            })
+          BY_THE_CLOCK + (1.0 - BY_THE_CLOCK) * (over / (over + 1.0))
         }
+      })
     }
+  }
 }
 
 fn counted(far: Progress) -> Result<u16, Never> {
-    let Progress { done, many } = far;
+  let Progress { done, many } = far;
 
-    Ok(match many {
-        0 => 0,
-        many => {
-            let Ok(along) = toward_zero_u16(f64::from(done) / f64::from(many) * f64::from(WHOLE));
+  Ok(match many {
+    0 => 0,
+    many_2 => {
+      let Ok(along) = toward_zero_u16(f64::from(done) / f64::from(many_2) * f64::from(WHOLE));
 
-            along.min(WHOLE)
-        }
-    })
+      along.min(WHOLE)
+    }
+  })
 }
 
 const A_MINUTE: std::num::NonZeroU64 = match std::num::NonZeroU64::new(60) {
-    Some(minute) => minute,
-    None => std::num::NonZeroU64::MIN,
+  Some(minute) => minute,
+  None => std::num::NonZeroU64::MIN,
 };
 
 const HALVED: std::num::NonZeroU32 = match std::num::NonZeroU32::new(2) {
-    Some(half) => half,
-    None => std::num::NonZeroU32::MIN,
+  Some(half) => half,
+  None => std::num::NonZeroU32::MIN,
 };
 
 pub fn about(long: Duration) -> Result<String, Never> {
-    let seconds = long.as_secs();
-    let minutes = seconds / A_MINUTE;
+  let seconds = long.as_secs();
+  let minutes = seconds / A_MINUTE;
 
-    Ok(match minutes {
-        0 => format!("{seconds} seconds"),
-        1 => "a minute".to_string(),
-        minutes => format!("{minutes} minutes"),
-    })
+  Ok(match minutes {
+    0 => format!("{seconds} seconds"),
+    1 => "a minute".to_string(),
+    minutes_2 => format!("{minutes} minutes", minutes = minutes_2),
+  })
 }
 
 pub fn read_from(device: &mut Device) -> Result<Lengths, Never> {
-    let Ok(home) = device.home();
-    let Ok(at) = at(&home);
-    let Ok(quoted) = shell_quote(&at);
-    let Ok(said) = device.user(&format!("cat {quoted} 2>/dev/null"));
+  let Ok(home) = device.home();
+  let Ok(at) = at(&home);
+  let Ok(quoted) = shell_quote(&at);
+  let Ok(said) = device.user(&format!("cat {quoted} 2>/dev/null"));
 
-    reading(&said)
+  reading(&said)
 }
 
 pub fn keep(device: &mut Device, lengths: &Lengths) -> Result<(), Never> {
-    match device.dry_run {
-        true => return Ok(()),
-        false => {}
-    }
+  let Ok(dry_run) = device.dry_run();
 
-    let Ok(home) = device.home();
-    let Ok(at) = at(&home);
+  match dry_run {
+    DryRun::Pretend => return Ok(()),
+    DryRun::Really => {}
+  }
 
-    let holding = match at.rsplit_once('/') {
-        Some((above, _)) => above.to_string(),
-        None => ".".to_string(),
-    };
+  let Ok(home) = device.home();
+  let Ok(at) = at(&home);
 
-    let Ok(holding) = shell_quote(&holding);
-    let Ok(written) = serialize(lengths);
-    let Ok(written) = shell_quote(&written);
-    let Ok(where_) = shell_quote(&at);
-    let Ok(_) = device.user(&format!("mkdir -p {holding} && printf %s {written} > {where_}"));
+  let holding = match at.rsplit_once('/') {
+    Some((above, _)) => above.to_string(),
+    None => ".".to_string(),
+  };
 
-    Ok(())
+  let Ok(holding_2) = shell_quote(&holding);
+  let Ok(written) = serialize(lengths);
+  let Ok(written_2) = shell_quote(&written);
+  let Ok(where_) = shell_quote(&at);
+  let Ok(_) = device.user(&format!(
+    "mkdir -p {holding} && printf %s {written} > {where_}",
+    written = written_2,
+    holding = holding_2
+  ));
+
+  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::checking::{Body, CheckResult};
+  use super::*;
+  use crate::checking::{Body, CheckResult};
 
-    #[test]
-    fn the_bar_leans_behind_early_rather_than_stalling_late() {
-        assert_eq!(leaning(0.0), Ok(0.0));
-        assert_eq!(leaning(1.0), Ok(1.0));
+  #[test]
+  fn the_bar_leans_behind_early_rather_than_stalling_late() {
+    assert_eq!(leaning(ProgressFraction(0.0)), Ok(0.0));
+    assert_eq!(leaning(ProgressFraction(1.0)), Ok(1.0));
 
-        for part in [0.1, 0.25, 0.5, 0.75, 0.9] {
-            let Ok(leaning) = leaning(part);
+    for part in [0.1, 0.25, 0.5, 0.75, 0.9] {
+      let Ok(leaning) = leaning(ProgressFraction(part));
 
-            assert!(leaning < part, "the bar ran ahead of the run at {part}");
-            assert!(leaning > part * 0.5, "the bar fell so far behind it says nothing: {part}");
-        }
+      assert!(leaning < part, "the bar ran ahead of the run at {part}");
+      assert!(
+        leaning > part * 0.5,
+        "the bar fell so far behind it says nothing: {part}"
+      );
+    }
+  }
+
+  #[test]
+  fn leaning_behind_still_only_ever_moves_forward() {
+    let mut before = 0.0;
+
+    for step in 0..=100 {
+      let Ok(leaning) = leaning(ProgressFraction(f64::from(step) / 100.0));
+
+      assert!(leaning >= before, "the bar went backwards at {step}");
+      before = leaning;
+    }
+  }
+
+  #[test]
+  fn a_check_that_has_been_timed_fills_its_own_share_with_the_clock() {
+    let one = Duration::from_secs(100);
+
+    assert_eq!(crept(Duration::ZERO, one), Ok(0.0));
+    assert_eq!(crept(Duration::from_secs(50), one), Ok(0.45));
+    assert_eq!(crept(one, one), Ok(BY_THE_CLOCK));
+  }
+
+  #[test]
+  fn a_check_running_long_still_moves_and_never_arrives_on_its_own() {
+    let one = Duration::from_secs(100);
+    let Ok(late) = crept(Duration::from_secs(200), one);
+    let Ok(later) = crept(Duration::from_secs(400), one);
+    let Ok(much_later) = crept(Duration::from_secs(100_000), one);
+
+    assert!(
+      late > BY_THE_CLOCK,
+      "a check past its estimate stopped moving"
+    );
+    assert!(later > late, "it stopped moving after that");
+    assert!(
+      much_later < 1.0,
+      "the bar said the check had finished when it had not"
+    );
+  }
+
+  #[test]
+  fn a_check_says_so_once_it_has_run_longer_than_it_usually_does() {
+    let one = Duration::from_secs(100);
+
+    assert_eq!(over(Duration::from_secs(50), one), Ok(None));
+    assert_eq!(
+      over(one, one),
+      Ok(None),
+      "a check bang on its estimate is not yet late"
+    );
+    assert_eq!(
+      over(Duration::from_secs(101), one),
+      Ok(Some(Duration::from_secs(101)))
+    );
+    assert_eq!(
+      over(Duration::from_secs(101), Duration::ZERO),
+      Ok(None),
+      "a check nothing has ever timed cannot be late"
+    );
+  }
+
+  #[test]
+  fn a_check_no_one_has_ever_timed_is_not_pretended_to_be_measured() {
+    assert_eq!(crept(Duration::from_secs(30), Duration::ZERO), Ok(0.0));
+  }
+
+  #[test]
+  fn a_checks_share_of_the_bar_is_its_share_of_the_run() {
+    let mut lengths = Lengths::default();
+    let Ok(()) = lengths.learned(SLOW.name, Duration::from_secs(75));
+    let Ok(()) = lengths.learned(QUICK.name, Duration::from_secs(25));
+    let Ok(ahead) = Ahead::of(&lengths, &[&SLOW, &QUICK]);
+
+    assert_eq!(ahead.span(), Ok(750));
+  }
+
+  #[test]
+  fn a_run_nothing_has_ever_timed_gives_every_check_the_same_share() {
+    let Ok(ahead) = Ahead::of(&Lengths::default(), &[&SLOW, &QUICK]);
+
+    assert_eq!(ahead.span(), Ok(500));
+  }
+
+  fn pass(_device: &mut Device) -> CheckResult {
+    Ok(())
+  }
+
+  const ANY: Check = Check {
+    name: "",
+    about: "A check.",
+    feature: "nothing",
+    since: "2026-09-05",
+    bodies: &[Body::Device(pass)],
+  };
+
+  const SLOW: Check = Check {
+    name: "040-slow",
+    ..ANY
+  };
+  const QUICK: Check = Check {
+    name: "050-quick",
+    ..ANY
+  };
+  const ONE: Check = Check {
+    name: "010-one",
+    ..ANY
+  };
+  const TWO: Check = Check {
+    name: "020-two",
+    ..ANY
+  };
+  const THREE: Check = Check {
+    name: "030-three",
+    ..ANY
+  };
+
+  fn every() -> Result<Vec<&'static Check>, Never> {
+    Ok(vec![&ONE, &TWO, &THREE])
+  }
+
+  fn check_names(checks: &[&Check]) -> Result<Vec<String>, Never> {
+    Ok(checks.iter().map(|check| check.name.to_string()).collect())
+  }
+
+  fn timed(said: &[(&str, u64)]) -> Result<Lengths, Never> {
+    let mut lengths = Lengths::default();
+
+    for (name, seconds) in said {
+      let Ok(()) = lengths.learned(name, Duration::from_secs(*seconds));
     }
 
-    #[test]
-    fn leaning_behind_still_only_ever_moves_forward() {
-        let mut before = 0.0;
+    Ok(lengths)
+  }
 
-        for step in 0..=100 {
-            let Ok(leaning) = leaning(f64::from(step) / 100.0);
+  fn finished(ahead: &mut Ahead) -> Result<(), Never> {
+    let Ok(one) = ahead.expecting();
 
-            assert!(leaning >= before, "the bar went backwards at {step}");
-            before = leaning;
-        }
+    ahead.finished(one)
+  }
+
+  #[test]
+  fn what_a_run_writes_down_is_what_the_next_one_reads() {
+    let Ok(lengths) = timed(&[("010-one", 4), ("020-two", 90)]);
+    let Ok(said) = serialize(&lengths);
+
+    assert_eq!(reading(&said), Ok(lengths));
+  }
+
+  #[test]
+  fn a_line_nothing_here_wrote_is_not_read_as_a_length() {
+    for held in ["", "\n", "010-one", "010-one later", " 12", "010-one 12s"] {
+      let Ok(read) = reading(held);
+
+      assert_eq!(read.known(), Ok(0), "{held:?} was read as a length");
+    }
+  }
+
+  #[test]
+  fn the_longest_goes_first() {
+    let Ok(lengths) = timed(&[("010-one", 4), ("020-two", 90), ("030-three", 20)]);
+    let Ok(every) = every();
+    let Ok(ordered) = lengths.longest_first(&every);
+
+    assert_eq!(
+      check_names(&ordered),
+      Ok(vec![
+        "020-two".to_string(),
+        "030-three".to_string(),
+        "010-one".to_string()
+      ])
+    );
+  }
+
+  #[test]
+  fn a_check_nothing_has_ever_timed_weighs_the_middle_and_keeps_its_place() {
+    let Ok(lengths) = timed(&[("010-one", 4), ("030-three", 90)]);
+    let Ok(every) = every();
+    let Ok(ordered) = lengths.longest_first(&every);
+
+    assert_eq!(lengths.middle(), Ok(Duration::from_secs(90)));
+    assert_eq!(
+      check_names(&ordered),
+      Ok(vec![
+        "020-two".to_string(),
+        "030-three".to_string(),
+        "010-one".to_string()
+      ])
+    );
+  }
+
+  #[test]
+  fn a_machine_no_one_has_timed_is_given_the_table_that_travels() {
+    let Ok(every) = every();
+    let Ok(mut ahead) = Ahead::of(&Lengths::default(), &every);
+
+    assert_eq!(ahead.far(), Ok(0));
+    assert_ne!(
+      ahead.whole(),
+      Ok(None),
+      "a fresh machine was promised nothing"
+    );
+
+    let Ok(()) = finished(&mut ahead);
+    let Ok(far) = ahead.far();
+
+    assert!(far > 0, "a check finished and the bar did not move");
+  }
+
+  #[test]
+  fn a_machine_with_no_table_at_all_still_counts_checks() {
+    let Ok(every) = every();
+    let Ok(mut ahead) = Ahead::from(&Lengths::default(), &Lengths::default(), &every);
+
+    assert_eq!(ahead.far(), Ok(0));
+    assert_eq!(ahead.remaining(Duration::ZERO), Ok(None));
+    assert_eq!(ahead.whole(), Ok(None));
+
+    let Ok(()) = ahead.finished(Duration::ZERO);
+
+    assert_eq!(ahead.far(), Ok(333));
+  }
+
+  #[test]
+  fn what_this_machine_measured_is_never_overruled_by_what_travels() {
+    let Ok(here) = timed(&[("010-one", 4)]);
+    let Ok(there) = timed(&[("010-one", 400), ("020-two", 40)]);
+
+    assert_eq!(
+      expecting(&here, &there, Pace(1.0), "010-one"),
+      Ok(Duration::from_secs(4))
+    );
+  }
+
+  #[test]
+  fn a_check_this_machine_has_not_timed_is_carried_over_at_this_machines_pace() {
+    let Ok(here) = timed(&[("010-one", 4)]);
+    let Ok(there) = timed(&[("010-one", 8), ("020-two", 40)]);
+    let Ok(pace) = pace_of(&here, &there);
+
+    assert_eq!(
+      pace, 0.5,
+      "this machine is twice the speed of the one that was carried"
+    );
+    assert_eq!(
+      expecting(&here, &there, Pace(pace), "020-two"),
+      Ok(Duration::from_secs(20))
+    );
+  }
+
+  #[test]
+  fn a_machine_with_nothing_in_common_with_the_carried_table_takes_it_as_it_stands() {
+    let Ok(here) = timed(&[("040-slow", 4)]);
+    let Ok(there) = timed(&[("010-one", 8)]);
+    let Ok(pace) = pace_of(&here, &there);
+
+    assert_eq!(pace, 1.0);
+    assert_eq!(
+      expecting(&here, &there, Pace(pace), "010-one"),
+      Ok(Duration::from_secs(8))
+    );
+  }
+
+  #[test]
+  fn one_wild_check_cannot_send_the_whole_estimate_wild() {
+    let Ok(here) = timed(&[("010-one", 100_000)]);
+    let Ok(there) = timed(&[("010-one", 1)]);
+    let Ok(pace) = pace_of(&here, &there);
+
+    assert_eq!(pace, SLOWEST, "a single outlier was believed whole");
+  }
+
+  #[test]
+  fn a_check_in_neither_table_is_no_more_surprising_than_the_rest() {
+    let here = Lengths::default();
+    let Ok(there) = timed(&[("010-one", 8), ("020-two", 40)]);
+    let Ok(one) = expecting(&here, &there, Pace(1.0), "999-brand-new");
+
+    assert!(!one.is_zero(), "a new check was given no length at all");
+  }
+
+  #[test]
+  fn the_strip_moves_by_time_rather_than_by_check() {
+    let Ok(lengths) = timed(&[("010-one", 10), ("020-two", 80), ("030-three", 10)]);
+    let Ok(every) = every();
+    let Ok(ordered) = lengths.longest_first(&every);
+    let Ok(mut ahead) = Ahead::of(&lengths, &ordered);
+
+    assert_eq!(ahead.whole(), Ok(Some(Duration::from_secs(100))));
+
+    let Ok(()) = finished(&mut ahead);
+
+    assert_eq!(
+      ahead.far(),
+      Ok(748),
+      "the long one is most of the run and the strip says so, leaning behind"
+    );
+    assert_eq!(
+      ahead.remaining(Duration::ZERO),
+      Ok(Some(Duration::from_secs(20)))
+    );
+  }
+
+  #[test]
+  fn the_strip_ends_full_and_goes_no_further() {
+    let Ok(lengths) = timed(&[("010-one", 10), ("020-two", 80), ("030-three", 10)]);
+    let Ok(every) = every();
+    let Ok(mut ahead) = Ahead::of(&lengths, &every);
+
+    for _each in &every {
+      let Ok(()) = finished(&mut ahead);
     }
 
-    #[test]
-    fn a_check_that_has_been_timed_fills_its_own_share_with_the_clock() {
-        let one = Duration::from_secs(100);
+    assert_eq!(ahead.far(), Ok(WHOLE));
+    assert_eq!(ahead.remaining(Duration::ZERO), Ok(Some(Duration::ZERO)));
 
-        assert_eq!(crept(Duration::ZERO, one), Ok(0.0));
-        assert_eq!(crept(Duration::from_secs(50), one), Ok(0.45));
-        assert_eq!(crept(one, one), Ok(BY_THE_CLOCK));
-    }
+    let Ok(()) = finished(&mut ahead);
 
-    #[test]
-    fn a_check_running_long_still_moves_and_never_arrives_on_its_own() {
-        let one = Duration::from_secs(100);
-        let Ok(late) = crept(Duration::from_secs(200), one);
-        let Ok(later) = crept(Duration::from_secs(400), one);
-        let Ok(much_later) = crept(Duration::from_secs(100_000), one);
+    assert_eq!(
+      ahead.far(),
+      Ok(WHOLE),
+      "a check no one expected pushed the strip off the end"
+    );
+  }
 
-        assert!(late > BY_THE_CLOCK, "a check past its estimate stopped moving");
-        assert!(later > late, "it stopped moving after that");
-        assert!(much_later < 1.0, "the bar said the check had finished when it had not");
-    }
-
-    #[test]
-    fn a_check_says_so_once_it_has_run_longer_than_it_usually_does() {
-        let one = Duration::from_secs(100);
-
-        assert_eq!(over(Duration::from_secs(50), one), Ok(None));
-        assert_eq!(over(one, one), Ok(None), "a check bang on its estimate is not yet late");
-        assert_eq!(over(Duration::from_secs(101), one), Ok(Some(Duration::from_secs(101))));
-        assert_eq!(
-            over(Duration::from_secs(101), Duration::ZERO),
-            Ok(None),
-            "a check nothing has ever timed cannot be late"
-        );
-    }
-
-    #[test]
-    fn a_check_no_one_has_ever_timed_is_not_pretended_to_be_measured() {
-        assert_eq!(crept(Duration::from_secs(30), Duration::ZERO), Ok(0.0));
-    }
-
-    #[test]
-    fn a_checks_share_of_the_bar_is_its_share_of_the_run() {
-        let mut lengths = Lengths::default();
-        let Ok(()) = lengths.learned(SLOW.name, Duration::from_secs(75));
-        let Ok(()) = lengths.learned(QUICK.name, Duration::from_secs(25));
-        let Ok(ahead) = Ahead::of(&lengths, &[&SLOW, &QUICK]);
-
-        assert_eq!(ahead.span(), Ok(750));
-    }
-
-    #[test]
-    fn a_run_nothing_has_ever_timed_gives_every_check_the_same_share() {
-        let Ok(ahead) = Ahead::of(&Lengths::default(), &[&SLOW, &QUICK]);
-
-        assert_eq!(ahead.span(), Ok(500));
-    }
-
-    fn pass(_device: &mut Device) -> CheckResult {
-        Ok(())
-    }
-
-    const ANY: Check = Check {
-        name: "",
-        about: "A check.",
-        feature: "nothing",
-        since: "2026-09-05",
-        bodies: &[Body::Device(pass)],
-    };
-
-    const SLOW: Check = Check { name: "040-slow", ..ANY };
-    const QUICK: Check = Check { name: "050-quick", ..ANY };
-    const ONE: Check = Check { name: "010-one", ..ANY };
-    const TWO: Check = Check { name: "020-two", ..ANY };
-    const THREE: Check = Check { name: "030-three", ..ANY };
-
-    fn every() -> Result<Vec<&'static Check>, Never> {
-        Ok(vec![&ONE, &TWO, &THREE])
-    }
-
-    fn check_names(checks: &[&Check]) -> Result<Vec<String>, Never> {
-        Ok(checks.iter().map(|check| check.name.to_string()).collect())
-    }
-
-    fn timed(said: &[(&str, u64)]) -> Result<Lengths, Never> {
-        let mut lengths = Lengths::default();
-
-        for (name, seconds) in said {
-            let Ok(()) = lengths.learned(name, Duration::from_secs(*seconds));
-        }
-
-        Ok(lengths)
-    }
-
-    fn finished(ahead: &mut Ahead) -> Result<(), Never> {
-        let Ok(one) = ahead.expecting();
-
-        ahead.finished(one)
-    }
-
-    #[test]
-    fn what_a_run_writes_down_is_what_the_next_one_reads() {
-        let Ok(lengths) = timed(&[("010-one", 4), ("020-two", 90)]);
-        let Ok(said) = serialize(&lengths);
-
-        assert_eq!(reading(&said), Ok(lengths));
-    }
-
-    #[test]
-    fn a_line_nothing_here_wrote_is_not_read_as_a_length() {
-        for held in ["", "\n", "010-one", "010-one later", " 12", "010-one 12s"] {
-            let Ok(read) = reading(held);
-
-            assert_eq!(read.known(), Ok(0), "{held:?} was read as a length");
-        }
-    }
-
-    #[test]
-    fn the_longest_goes_first() {
-        let Ok(lengths) = timed(&[("010-one", 4), ("020-two", 90), ("030-three", 20)]);
-        let Ok(every) = every();
-        let Ok(ordered) = lengths.longest_first(&every);
-
-        assert_eq!(check_names(&ordered), Ok(vec!["020-two".to_string(), "030-three".to_string(), "010-one".to_string()]));
-    }
-
-    #[test]
-    fn a_check_nothing_has_ever_timed_weighs_the_middle_and_keeps_its_place() {
-        let Ok(lengths) = timed(&[("010-one", 4), ("030-three", 90)]);
-        let Ok(every) = every();
-        let Ok(ordered) = lengths.longest_first(&every);
-
-        assert_eq!(lengths.middle(), Ok(Duration::from_secs(90)));
-        assert_eq!(check_names(&ordered), Ok(vec!["020-two".to_string(), "030-three".to_string(), "010-one".to_string()]));
-    }
-
-    #[test]
-    fn a_machine_no_one_has_timed_is_given_the_table_that_travels() {
-        let Ok(every) = every();
-        let Ok(mut ahead) = Ahead::of(&Lengths::default(), &every);
-
-        assert_eq!(ahead.far(), Ok(0));
-        assert_ne!(ahead.whole(), Ok(None), "a fresh machine was promised nothing");
-
-        let Ok(()) = finished(&mut ahead);
-        let Ok(far) = ahead.far();
-
-        assert!(far > 0, "a check finished and the bar did not move");
-    }
-
-    #[test]
-    fn a_machine_with_no_table_at_all_still_counts_checks() {
-        let Ok(every) = every();
-        let Ok(mut ahead) = Ahead::from(&Lengths::default(), &Lengths::default(), &every);
-
-        assert_eq!(ahead.far(), Ok(0));
-        assert_eq!(ahead.remaining(Duration::ZERO), Ok(None));
-        assert_eq!(ahead.whole(), Ok(None));
-
-        let Ok(()) = ahead.finished(Duration::ZERO);
-
-        assert_eq!(ahead.far(), Ok(333));
-    }
-
-    #[test]
-    fn what_this_machine_measured_is_never_overruled_by_what_travels() {
-        let Ok(here) = timed(&[("010-one", 4)]);
-        let Ok(there) = timed(&[("010-one", 400), ("020-two", 40)]);
-
-        assert_eq!(expecting(&here, &there, 1.0, "010-one"), Ok(Duration::from_secs(4)));
-    }
-
-    #[test]
-    fn a_check_this_machine_has_not_timed_is_carried_over_at_this_machines_pace() {
-        let Ok(here) = timed(&[("010-one", 4)]);
-        let Ok(there) = timed(&[("010-one", 8), ("020-two", 40)]);
-        let Ok(pace) = pace_of(&here, &there);
-
-        assert_eq!(pace, 0.5, "this machine is twice the speed of the one that was carried");
-        assert_eq!(expecting(&here, &there, pace, "020-two"), Ok(Duration::from_secs(20)));
-    }
-
-    #[test]
-    fn a_machine_with_nothing_in_common_with_the_carried_table_takes_it_as_it_stands() {
-        let Ok(here) = timed(&[("040-slow", 4)]);
-        let Ok(there) = timed(&[("010-one", 8)]);
-        let Ok(pace) = pace_of(&here, &there);
-
-        assert_eq!(pace, 1.0);
-        assert_eq!(expecting(&here, &there, pace, "010-one"), Ok(Duration::from_secs(8)));
-    }
-
-    #[test]
-    fn one_wild_check_cannot_send_the_whole_estimate_wild() {
-        let Ok(here) = timed(&[("010-one", 100_000)]);
-        let Ok(there) = timed(&[("010-one", 1)]);
-        let Ok(pace) = pace_of(&here, &there);
-
-        assert_eq!(pace, SLOWEST, "a single outlier was believed whole");
-    }
-
-    #[test]
-    fn a_check_in_neither_table_is_no_more_surprising_than_the_rest() {
-        let here = Lengths::default();
-        let Ok(there) = timed(&[("010-one", 8), ("020-two", 40)]);
-        let Ok(one) = expecting(&here, &there, 1.0, "999-brand-new");
-
-        assert!(!one.is_zero(), "a new check was given no length at all");
-    }
-
-    #[test]
-    fn the_strip_moves_by_time_rather_than_by_check() {
-        let Ok(lengths) = timed(&[("010-one", 10), ("020-two", 80), ("030-three", 10)]);
-        let Ok(every) = every();
-        let Ok(ordered) = lengths.longest_first(&every);
-        let Ok(mut ahead) = Ahead::of(&lengths, &ordered);
-
-        assert_eq!(ahead.whole(), Ok(Some(Duration::from_secs(100))));
-
-        let Ok(()) = finished(&mut ahead);
-
-        assert_eq!(
-            ahead.far(),
-            Ok(748),
-            "the long one is most of the run and the strip says so, leaning behind"
-        );
-        assert_eq!(ahead.remaining(Duration::ZERO), Ok(Some(Duration::from_secs(20))));
-    }
-
-    #[test]
-    fn the_strip_ends_full_and_goes_no_further() {
-        let Ok(lengths) = timed(&[("010-one", 10), ("020-two", 80), ("030-three", 10)]);
-        let Ok(every) = every();
-        let Ok(mut ahead) = Ahead::of(&lengths, &every);
-
-        for _each in &every {
-            let Ok(()) = finished(&mut ahead);
-        }
-
-        assert_eq!(ahead.far(), Ok(WHOLE));
-        assert_eq!(ahead.remaining(Duration::ZERO), Ok(Some(Duration::ZERO)));
-
-        let Ok(()) = finished(&mut ahead);
-
-        assert_eq!(ahead.far(), Ok(WHOLE), "a check no one expected pushed the strip off the end");
-    }
-
-    #[test]
-    fn a_length_is_said_the_way_someone_waiting_would_say_it() {
-        assert_eq!(about(Duration::from_secs(40)), Ok("40 seconds".to_string()));
-        assert_eq!(about(Duration::from_secs(75)), Ok("a minute".to_string()));
-        assert_eq!(about(Duration::from_secs(400)), Ok("6 minutes".to_string()));
-    }
+  #[test]
+  fn a_length_is_said_the_way_someone_waiting_would_say_it() {
+    assert_eq!(about(Duration::from_secs(40)), Ok("40 seconds".to_string()));
+    assert_eq!(about(Duration::from_secs(75)), Ok("a minute".to_string()));
+    assert_eq!(about(Duration::from_secs(400)), Ok("6 minutes".to_string()));
+  }
 }

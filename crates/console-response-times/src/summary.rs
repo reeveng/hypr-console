@@ -11,325 +11,384 @@
 //! them to take it from, because a tenth of nine is the same lie one place
 //! further along.
 
-
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted, index, toward_zero_u32};
-use std::collections::BTreeMap;
 use std::cmp::Reverse;
+use std::collections::BTreeMap;
 use std::time::Duration;
 
-use crate::line::{Entry, milliseconds};
+use crate::line::{Entry, LoadAverage, milliseconds};
 
 pub const ENOUGH: u32 = 10;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spread {
-    pub many: u32,
-    pub middle: Duration,
-    pub high: Option<Duration>,
-    pub worst: Duration,
+  pub many: u32,
+  pub middle: Duration,
+  pub high: Option<Duration>,
+  pub worst: Duration,
 }
 
 pub const BUSY: f64 = 1.0;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "a quantile is a dimensionless fraction of the ordered samples"
+  )
+)]
+pub struct Quantile(pub f64);
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct About {
-    pub who: String,
-    pub what: String,
-    pub waited: Spread,
-    pub worst_load: f64,
-    pub marks: Vec<(String, Spread)>,
+  pub who: String,
+  pub what: String,
+  pub waited: Spread,
+  pub worst_load: LoadAverage,
+  pub marks: Vec<(String, Spread)>,
 }
 
-pub fn at_share(sorted: &[Duration], share: f64) -> Result<Duration, Never> {
-    match sorted.is_empty() {
-        true => return Ok(Duration::ZERO),
-        false => {}
-    }
+pub fn at_share(sorted: &[Duration], share: Quantile) -> Result<Duration, Never> {
+  match ::core::primitive::bool::then_some(sorted.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return Ok(Duration::ZERO),
+    ::core::option::Option::None => {}
+  }
 
-    let Ok(many) = sorted.len().float();
-    let Ok(rank) = toward_zero_u32((share * many).ceil().max(1.0));
-    let Ok(listed) = fitted::<_, u32>(sorted.len());
-    let Ok(at) = index(rank.min(listed).saturating_sub(1));
+  let Ok(many) = sorted.len().float();
+  let Ok(rank) = toward_zero_u32((share.0 * many).ceil().max(1.0));
+  let Ok(listed) = fitted::<_, u32>(sorted.len());
+  let Ok(at) = index(rank.min(listed).saturating_sub(1));
 
-    Ok(match sorted.get(at).copied() {
-        Some(took) => took,
-        None => Duration::ZERO,
-    })
+  Ok(match sorted.get(at).copied() {
+    Some(took) => took,
+    None => Duration::ZERO,
+  })
 }
 
 pub fn spread(mut took: Vec<Duration>) -> Result<Spread, Never> {
-    took.sort_unstable();
+  took.sort_unstable();
 
-    let Ok(middle) = at_share(&took, 0.5);
-    let Ok(many) = fitted::<_, u32>(took.len());
+  let Ok(middle) = at_share(&took, Quantile(0.5));
+  let Ok(many) = fitted::<_, u32>(took.len());
 
-    let high = match many >= ENOUGH {
-        true => {
-            let Ok(high) = at_share(&took, 0.9);
+  let high = match ::core::primitive::bool::then_some(many >= ENOUGH, ()) {
+    ::core::option::Option::Some(()) => {
+      let Ok(high) = at_share(&took, Quantile(0.9));
 
-            Some(high)
-        }
-        false => None,
-    };
+      Some(high)
+    }
+    ::core::option::Option::None => None,
+  };
 
-    let worst = match took.last().copied() {
-        Some(worst) => worst,
-        None => Duration::ZERO,
-    };
+  let worst = match took.last().copied() {
+    Some(worst) => worst,
+    None => Duration::ZERO,
+  };
 
-    Ok(Spread { many, middle, high, worst })
+  Ok(Spread {
+    many,
+    middle,
+    high,
+    worst,
+  })
 }
 
 pub fn about(entries: &[Entry]) -> Result<Vec<About>, Never> {
-    let mut kinds: BTreeMap<(String, String), Vec<&Entry>> = BTreeMap::new();
+  let mut kinds: BTreeMap<(String, String), Vec<&Entry>> = BTreeMap::new();
 
-    for entry in entries {
-        kinds.entry((entry.who.clone(), entry.what.clone())).or_default().push(entry);
-    }
+  for entry in entries {
+    kinds
+      .entry((entry.who.clone(), entry.what.clone()))
+      .or_default()
+      .push(entry);
+  }
 
-    let mut gathered: Vec<About> = kinds
-        .into_iter()
-        .map(|((who, what), mine)| {
-            let worst = mine.iter().max_by_key(|entry| entry.waited);
+  let mut gathered: Vec<About> = kinds
+    .into_iter()
+    .map(|((who, what), mine)| {
+      let worst = mine.iter().max_by_key(|entry| entry.waited);
 
-            let Ok(waited) = spread(mine.iter().map(|entry| entry.waited).collect());
-            let Ok(marks) = stretches(&mine);
+      let Ok(waited) = spread(mine.iter().map(|entry| entry.waited).collect());
+      let Ok(marks) = stretches(&mine);
 
-            About {
-                who,
-                what,
-                waited,
-                worst_load: worst.map_or(0.0, |entry| entry.load),
-                marks,
-            }
-        })
-        .collect();
-    gathered.sort_by_key(|about| Reverse(about.waited.middle));
+      About {
+        who,
+        what,
+        waited,
+        worst_load: worst.map_or(LoadAverage(0.0), |entry| entry.load),
+        marks,
+      }
+    })
+    .collect();
+  gathered.sort_by_key(|about| Reverse(about.waited.middle));
 
-    Ok(gathered)
+  Ok(gathered)
 }
 
 fn stretches(entries: &[&Entry]) -> Result<Vec<(String, Spread)>, Never> {
-    let mut named: BTreeMap<String, Vec<Duration>> = BTreeMap::new();
+  let mut named: BTreeMap<String, Vec<Duration>> = BTreeMap::new();
 
-    for entry in entries {
-        for (name, took) in &entry.marks {
-            named.entry(name.clone()).or_default().push(*took);
-        }
+  for entry in entries {
+    for (name, took) in &entry.marks {
+      named.entry(name.clone()).or_default().push(*took);
     }
+  }
 
-    let mut all: Vec<(String, Spread)> = named
-        .into_iter()
-        .map(|(name, took)| {
-            let Ok(held) = spread(took);
+  let mut all: Vec<(String, Spread)> = named
+    .into_iter()
+    .map(|(name, took)| {
+      let Ok(held) = spread(took);
 
-            (name, held)
-        })
-        .collect();
-    all.sort_by_key(|(_, spread)| Reverse(spread.middle));
+      (name, held)
+    })
+    .collect();
+  all.sort_by_key(|(_, spread)| Reverse(spread.middle));
 
-    Ok(all)
+  Ok(all)
 }
 
 pub fn summarize(about: &About) -> Result<String, Never> {
-    let Ok(middle) = milliseconds(about.waited.middle);
-    let Ok(worst) = milliseconds(about.waited.worst);
-    let slow = match about.waited.high {
-        Some(high) => {
-            let Ok(high) = milliseconds(high);
+  let Ok(middle) = milliseconds(about.waited.middle);
+  let Ok(worst) = milliseconds(about.waited.worst);
+  let slow = match about.waited.high {
+    Some(high) => {
+      let Ok(high_2) = milliseconds(high);
 
-            format!(", slow tenth {high:.0}ms")
+      format!(", slow tenth {high:.0}ms", high = high_2)
+    }
+    None => String::new(),
+  };
+
+  let mut said = format!(
+    "{} {} \u{2014} {} of them, middle {middle:.0}ms{slow}, worst {worst:.0}ms\n",
+    about.who, about.what, about.waited.many,
+  );
+
+  match ::core::primitive::bool::then_some(about.worst_load.0 >= BUSY, ()) {
+    ::core::option::Option::Some(()) => {
+      said.pop();
+      said.push_str(&format!(", on a machine at {:.1}\n", about.worst_load.0));
+    }
+    ::core::option::Option::None => {}
+  }
+
+  for (name, spread) in &about.marks {
+    let Ok(middle_2) = milliseconds(spread.middle);
+    let over = match spread.worst.checked_sub(spread.middle) {
+      Some(over) => {
+        let Ok(over_2) = milliseconds(over);
+
+        match ::core::primitive::bool::then_some(over_2 >= 1.0, ()) {
+          ::core::option::Option::Some(()) => {
+            let Ok(worst_2) = milliseconds(spread.worst);
+
+            format!("   worst {worst:.0}ms", worst = worst_2)
+          }
+          ::core::option::Option::None => String::new(),
         }
-        None => String::new(),
+      }
+      None => String::new(),
     };
 
-    let mut said = format!(
-        "{} {} \u{2014} {} of them, middle {middle:.0}ms{slow}, worst {worst:.0}ms\n",
-        about.who, about.what, about.waited.many,
-    );
+    said.push_str(&format!(
+      "    {name:16} {middle:>8.1}ms{over}\n",
+      middle = middle_2
+    ));
+  }
 
-    match about.worst_load >= BUSY {
-        true => {
-            said.pop();
-            said.push_str(&format!(", on a machine at {:.1}\n", about.worst_load));
-        }
-        false => {}
-    }
-
-    for (name, spread) in &about.marks {
-        let Ok(middle) = milliseconds(spread.middle);
-        let over = match spread.worst.checked_sub(spread.middle) {
-            Some(over) => {
-                let Ok(over) = milliseconds(over);
-
-                match over >= 1.0 {
-                    true => {
-                        let Ok(worst) = milliseconds(spread.worst);
-
-                        format!("   worst {worst:.0}ms")
-                    }
-                    false => String::new(),
-                }
-            }
-            None => String::new(),
-        };
-
-        said.push_str(&format!("    {name:16} {middle:>8.1}ms{over}\n"));
-    }
-
-    Ok(said)
+  Ok(said)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use crate::line::UptimeSeconds;
+  use std::error::Error;
 
-    type Opening<'a> = (&'a str, u64, &'a [(&'a str, u64)]);
+  type Opening<'a> = (&'a str, u64, &'a [(&'a str, u64)]);
 
-    fn waits(milliseconds: &[u64]) -> Result<Vec<Duration>, Never> {
-        Ok(milliseconds.iter().map(|each| Duration::from_millis(*each)).collect())
-    }
+  fn waits(milliseconds: &[u64]) -> Result<Vec<Duration>, Never> {
+    Ok(
+      milliseconds
+        .iter()
+        .map(|each| Duration::from_millis(*each))
+        .collect(),
+    )
+  }
 
-    fn openings(rows: &[Opening<'_>]) -> Result<Vec<Entry>, Never> {
-        Ok(rows
+  fn openings(rows: &[Opening<'_>]) -> Result<Vec<Entry>, Never> {
+    Ok(
+      rows
+        .iter()
+        .map(|(who, waited, marks)| Entry {
+          at: 0,
+          up: UptimeSeconds(0.0),
+          load: LoadAverage(0.0),
+          who: who.to_string(),
+          what: "opening".to_string(),
+          waited: Duration::from_millis(*waited),
+          marks: marks
             .iter()
-            .map(|(who, waited, marks)| Entry {
-                at: 0,
-                up: 0.0,
-                load: 0.0,
-                who: who.to_string(),
-                what: "opening".to_string(),
-                waited: Duration::from_millis(*waited),
-                marks: marks
-                    .iter()
-                    .map(|(name, took)| ((*name).to_string(), Duration::from_millis(*took)))
-                    .collect(),
-                notes: Vec::new(),
-            })
-            .collect())
+            .map(|(name, took)| ((*name).to_string(), Duration::from_millis(*took)))
+            .collect(),
+          notes: Vec::new(),
+        })
+        .collect(),
+    )
+  }
+
+  #[test]
+  fn the_share_is_one_of_the_waits_and_not_a_number_between_two() {
+    let Ok(sorted) = waits(&[10, 20, 30, 40]);
+
+    assert_eq!(
+      at_share(&sorted, Quantile(0.5)),
+      Ok(Duration::from_millis(20))
+    );
+    assert_eq!(
+      at_share(&sorted, Quantile(0.9)),
+      Ok(Duration::from_millis(40))
+    );
+    assert_eq!(
+      at_share(&sorted, Quantile(0.0)),
+      Ok(Duration::from_millis(10))
+    );
+  }
+
+  #[test]
+  fn nothing_waited_for_is_no_time_at_all() {
+    assert_eq!(at_share(&[], Quantile(0.5)), Ok(Duration::ZERO));
+
+    let Ok(nothing) = spread(Vec::new());
+
+    assert_eq!(nothing.many, 0);
+  }
+
+  #[test]
+  fn the_slow_tenth_is_withheld_until_there_are_ten_to_take_it_from() {
+    let Ok(nine_waits) = waits(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    let Ok(ten_waits) = waits(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 100]);
+    let Ok(nine) = spread(nine_waits);
+    let Ok(ten) = spread(ten_waits);
+
+    assert_eq!(nine.high, None);
+    assert_eq!(ten.high, Some(Duration::from_millis(9)));
+    assert_eq!(ten.middle, Duration::from_millis(5));
+    assert_eq!(ten.worst, Duration::from_millis(100));
+  }
+
+  #[test]
+  fn the_surfaces_are_ordered_by_the_middle_and_not_by_the_worst() {
+    let Ok(entries) = openings(&[
+      ("launcher", 400, &[]),
+      ("launcher", 420, &[]),
+      ("notifications-panel", 90, &[]),
+      ("notifications-panel", 3000, &[]),
+    ]);
+    let Ok(gathered) = about(&entries);
+    let named: Vec<&str> = gathered
+      .iter()
+      .map(|surface| surface.who.as_str())
+      .collect();
+
+    assert_eq!(named, ["launcher", "notifications-panel"]);
+  }
+
+  #[test]
+  fn the_stretches_are_ordered_by_which_of_them_is_the_slow_one() -> Result<(), Box<dyn Error>> {
+    let Ok(entries) = openings(&[
+      (
+        "launcher",
+        400,
+        &[("press", 10), ("gtk", 130), ("placed", 240)],
+      ),
+      (
+        "launcher",
+        380,
+        &[("press", 12), ("gtk", 120), ("placed", 230)],
+      ),
+    ]);
+    let Ok(gathered) = about(&entries);
+    let launcher = gathered.first().ok_or("nothing was gathered")?;
+    let named: Vec<&str> = launcher
+      .marks
+      .iter()
+      .map(|(name, _)| name.as_str())
+      .collect();
+
+    assert_eq!(named, ["placed", "gtk", "press"]);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_stretch_that_only_some_openings_had_is_counted_over_those() -> Result<(), Box<dyn Error>> {
+    let Ok(entries) = openings(&[
+      ("launcher", 400, &[("gtk", 100)]),
+      ("launcher", 700, &[("gtk", 100), ("screen", 300)]),
+    ]);
+    let Ok(gathered) = about(&entries);
+    let launcher = gathered.first().ok_or("nothing was gathered")?;
+    let screen = launcher
+      .marks
+      .iter()
+      .find(|(name, _)| name == "screen")
+      .ok_or("no wait for the screen")?;
+
+    assert_eq!(screen.1.many, 1);
+    assert_eq!(screen.1.middle, Duration::from_millis(300));
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_worst_that_happened_while_the_machine_was_busy_says_so() -> Result<(), Box<dyn Error>> {
+    let Ok(mut entries) = openings(&[("launcher", 148, &[]), ("launcher", 1007, &[])]);
+
+    for busy in entries
+      .iter_mut()
+      .filter(|entry| entry.waited == Duration::from_millis(1007))
+    {
+      busy.load = LoadAverage(5.2);
     }
 
-    #[test]
-    fn the_share_is_one_of_the_waits_and_not_a_number_between_two() {
-        let Ok(sorted) = waits(&[10, 20, 30, 40]);
+    let Ok(gathered) = about(&entries);
+    let launcher = gathered.first().ok_or("nothing was gathered")?;
+    let Ok(said) = summarize(launcher);
 
-        assert_eq!(at_share(&sorted, 0.5), Ok(Duration::from_millis(20)));
-        assert_eq!(at_share(&sorted, 0.9), Ok(Duration::from_millis(40)));
-        assert_eq!(at_share(&sorted, 0.0), Ok(Duration::from_millis(10)));
+    assert!(said.contains("worst 1007ms, on a machine at 5.2"), "{said}");
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_worst_on_a_quiet_machine_is_told_without_a_word_about_the_machine()
+  -> Result<(), Box<dyn Error>> {
+    let Ok(entries) = openings(&[("launcher", 148, &[])]);
+    let Ok(gathered) = about(&entries);
+    let launcher = gathered.first().ok_or("nothing was gathered")?;
+    let Ok(said) = summarize(launcher);
+
+    assert!(!said.contains("on a machine"), "{said}");
+
+    Ok(())
+  }
+
+  #[test]
+  fn who_waited_for_what_is_what_makes_two_lines_the_same_kind() {
+    let Ok(mut entries) = openings(&[("launcher", 400, &[]), ("launcher", 900, &[])]);
+
+    for list in entries
+      .iter_mut()
+      .filter(|entry| entry.waited == Duration::from_millis(900))
+    {
+      list.what = "list".to_string();
     }
 
-    #[test]
-    fn nothing_waited_for_is_no_time_at_all() {
-        assert_eq!(at_share(&[], 0.5), Ok(Duration::ZERO));
+    let Ok(gathered) = about(&entries);
 
-        let Ok(nothing) = spread(Vec::new());
-
-        assert_eq!(nothing.many, 0);
-    }
-
-    #[test]
-    fn the_slow_tenth_is_withheld_until_there_are_ten_to_take_it_from() {
-        let Ok(nine_waits) = waits(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
-        let Ok(ten_waits) = waits(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 100]);
-        let Ok(nine) = spread(nine_waits);
-        let Ok(ten) = spread(ten_waits);
-
-        assert_eq!(nine.high, None);
-        assert_eq!(ten.high, Some(Duration::from_millis(9)));
-        assert_eq!(ten.middle, Duration::from_millis(5));
-        assert_eq!(ten.worst, Duration::from_millis(100));
-    }
-
-    #[test]
-    fn the_surfaces_are_ordered_by_the_middle_and_not_by_the_worst() {
-        let Ok(entries) = openings(&[
-            ("launcher", 400, &[]),
-            ("launcher", 420, &[]),
-            ("notifications-panel", 90, &[]),
-            ("notifications-panel", 3000, &[]),
-        ]);
-        let Ok(gathered) = about(&entries);
-        let named: Vec<&str> = gathered.iter().map(|surface| surface.who.as_str()).collect();
-
-        assert_eq!(named, ["launcher", "notifications-panel"]);
-    }
-
-    #[test]
-    fn the_stretches_are_ordered_by_which_of_them_is_the_slow_one() -> Result<(), Box<dyn Error>> {
-        let Ok(entries) = openings(&[
-            ("launcher", 400, &[("press", 10), ("gtk", 130), ("placed", 240)]),
-            ("launcher", 380, &[("press", 12), ("gtk", 120), ("placed", 230)]),
-        ]);
-        let Ok(gathered) = about(&entries);
-        let launcher = gathered.first().ok_or("nothing was gathered")?;
-        let named: Vec<&str> = launcher.marks.iter().map(|(name, _)| name.as_str()).collect();
-
-        assert_eq!(named, ["placed", "gtk", "press"]);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_stretch_that_only_some_openings_had_is_counted_over_those() -> Result<(), Box<dyn Error>> {
-        let Ok(entries) = openings(&[
-            ("launcher", 400, &[("gtk", 100)]),
-            ("launcher", 700, &[("gtk", 100), ("screen", 300)]),
-        ]);
-        let Ok(gathered) = about(&entries);
-        let launcher = gathered.first().ok_or("nothing was gathered")?;
-        let screen = launcher
-            .marks
-            .iter()
-            .find(|(name, _)| name == "screen")
-            .ok_or("no wait for the screen")?;
-
-        assert_eq!(screen.1.many, 1);
-        assert_eq!(screen.1.middle, Duration::from_millis(300));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_worst_that_happened_while_the_machine_was_busy_says_so() -> Result<(), Box<dyn Error>> {
-        let Ok(mut entries) = openings(&[("launcher", 148, &[]), ("launcher", 1007, &[])]);
-
-        for busy in entries.iter_mut().filter(|entry| entry.waited == Duration::from_millis(1007)) {
-            busy.load = 5.2;
-        }
-
-        let Ok(gathered) = about(&entries);
-        let launcher = gathered.first().ok_or("nothing was gathered")?;
-        let Ok(said) = summarize(launcher);
-
-        assert!(said.contains("worst 1007ms, on a machine at 5.2"), "{said}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_worst_on_a_quiet_machine_is_told_without_a_word_about_the_machine() -> Result<(), Box<dyn Error>> {
-        let Ok(entries) = openings(&[("launcher", 148, &[])]);
-        let Ok(gathered) = about(&entries);
-        let launcher = gathered.first().ok_or("nothing was gathered")?;
-        let Ok(said) = summarize(launcher);
-
-        assert!(!said.contains("on a machine"), "{said}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn who_waited_for_what_is_what_makes_two_lines_the_same_kind() {
-        let Ok(mut entries) = openings(&[("launcher", 400, &[]), ("launcher", 900, &[])]);
-
-        for list in entries.iter_mut().filter(|entry| entry.waited == Duration::from_millis(900)) {
-            list.what = "list".to_string();
-        }
-
-        let Ok(gathered) = about(&entries);
-
-        assert_eq!(gathered.len(), 2);
-    }
+    assert_eq!(gathered.len(), 2);
+  }
 }

@@ -110,11 +110,15 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use console_battery::{BATTERY, Charge, SUPPLIES, charge};
 use console_core_atomic_writes::read;
 use console_core_external_programs::Program;
+use console_core_finite_numbers::FiniteF64;
 use console_core_never::Never;
-use console_core_number_conversion::{Float, index};
-use console_battery::{BATTERY, Charge, SUPPLIES, charge};
+use console_core_number_conversion::{Float, fitted, index};
+
+mod record;
+pub use record::{of, read_moments};
 
 const UPTIME: &str = "/proc/uptime";
 
@@ -165,809 +169,948 @@ const PAGE: f64 = 4_096.0;
 const MEGABYTE: f64 = 1_048_576.0;
 
 struct Spent {
-    named: String,
-    seconds: f64,
-    megabytes: Option<f64>,
+  named: String,
+  seconds: Seconds,
+  megabytes: Option<f64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "this is the scalar representation of the Seconds unit for wall and CPU time"
+  )
+)]
+pub struct Seconds(pub f64);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "partial hours are the time denominator when turning battery energy into watts"
+  )
+)]
+pub struct Hours(pub f64);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "this is the scalar representation of battery energy in watt-hours"
+  )
+)]
+pub struct WattHours(pub f64);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Moment {
-    pub at: u64,
-    pub up: Option<f64>,
-    pub slept: f64,
-    pub energy: Option<f64>,
-    pub draw: Option<f64>,
-    pub gpu: Option<f64>,
-    pub percent: Option<i32>,
-    pub busy: Vec<(String, f64)>,
-    pub held: Vec<(String, f64)>,
-    pub restarts: Vec<(String, f64)>,
-    pub crashes: Vec<(String, f64)>,
+  pub at: u64,
+  pub up: Option<Seconds>,
+  pub slept: Seconds,
+  pub energy: Option<WattHours>,
+  pub draw: Option<f64>,
+  pub gpu: Option<f64>,
+  pub percent: Option<i32>,
+  pub busy: Vec<(String, f64)>,
+  pub held: Vec<(String, f64)>,
+  pub restarts: Vec<(String, f64)>,
+  pub crashes: Vec<(String, f64)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Used {
-    pub awake: f64,
-    pub asleep: f64,
-    pub watthours: f64,
-    pub flat: f64,
-    pub gpu: Option<f64>,
-    pub busy: Vec<(String, f64)>,
-    pub grew: Vec<(String, f64)>,
-    pub restarted: Vec<(String, f64)>,
-    pub crashed: Vec<(String, f64)>,
-    pub worst_sleep: Option<Sleep>,
+  pub awake: Seconds,
+  pub asleep: Seconds,
+  pub watthours: WattHours,
+  pub flat: Hours,
+  pub gpu: Option<f64>,
+  pub busy: Vec<(String, f64)>,
+  pub grew: Vec<(String, f64)>,
+  pub restarted: Vec<(String, f64)>,
+  pub crashed: Vec<(String, f64)>,
+  pub worst_sleep: Option<Sleep>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sleep {
-    pub woke: u64,
-    pub asleep: f64,
-    pub watthours: f64,
+  pub woke: u64,
+  pub asleep: Seconds,
+  pub watthours: WattHours,
 }
 
 impl Sleep {
-    pub fn at_most(self) -> Result<f64, Never> {
-        Ok(self.watthours / (self.asleep / HOUR))
-    }
+  pub fn at_most(self) -> Result<f64, Never> {
+    Ok(self.watthours.0 / (self.asleep.0 / HOUR))
+  }
 }
 
 #[derive(Debug)]
 pub enum Unsaid {
-    Nowhere,
-    Making(PathBuf, std::io::Error),
-    Opening(PathBuf, std::io::Error),
-    Writing(PathBuf, std::io::Error),
+  Nowhere,
+  Oversized { bytes: u64 },
+  Making(PathBuf, std::io::Error),
+  Opening(PathBuf, std::io::Error),
+  Writing(PathBuf, std::io::Error),
 }
 
 impl fmt::Display for Unsaid {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Unsaid::Nowhere => write!(to, "nothing says where a reading would be written"),
-            Unsaid::Making(at, fault) => {
-                write!(to, "{}: making the directory for it: {fault}", at.display())
-            }
-            Unsaid::Opening(at, fault) => write!(to, "{}: opening it: {fault}", at.display()),
-            Unsaid::Writing(at, fault) => write!(to, "{}: appending to it: {fault}", at.display()),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Unsaid::Nowhere => write!(to, "nothing says where a reading would be written"),
+      Unsaid::Oversized { bytes } => {
+        write!(
+          to,
+          "the {bytes}-byte reading exceeds the {}-byte log line limit",
+          record::MAX_RECORD_BYTES
+        )
+      }
+      Unsaid::Making(at, fault) => {
+        write!(to, "{}: making the directory for it: {fault}", at.display())
+      }
+      Unsaid::Opening(at, fault) => write!(to, "{}: opening it: {fault}", at.display()),
+      Unsaid::Writing(at, fault) => write!(to, "{}: appending to it: {fault}", at.display()),
     }
+  }
 }
 
 impl std::error::Error for Unsaid {}
 
 pub fn where_() -> Result<Option<PathBuf>, Never> {
-    let Ok(ours) = console_core_places::Base::State.ours();
+  let Ok(ours) = console_core_places::Base::State.ours();
 
-    Ok(ours.map(|ours| ours.join(STORE)))
+  Ok(ours.map(|ours_2| ours_2.join(STORE)))
 }
 
 fn parse_number(text: &str) -> Result<Option<f64>, Never> {
-    Ok(match text.trim().parse::<f64>() {
-        Ok(number) => Some(number),
-        Err(_not_a_number) => None,
-    })
+  Ok(match text.trim().parse::<FiniteF64>() {
+    Ok(number) => Some(f64::from(number)),
+    Err(_not_a_finite_number) => None,
+  })
 }
 
 fn number(at: &Path) -> Result<Option<f64>, Never> {
-    let Ok(held) = read(at);
-    let Ok(text) = held.text();
+  let Ok(held) = read(at);
+  let Ok(text) = held.text();
 
-    match text {
-        Some(text) => parse_number(&text),
-        None => Ok(None),
-    }
+  match text {
+    Some(text_2) => parse_number(&text_2),
+    None => Ok(None),
+  }
 }
 
 fn up() -> Result<Option<f64>, Never> {
-    let Ok(held) = read(Path::new(UPTIME));
-    let Ok(text) = held.text();
+  let Ok(held) = read(Path::new(UPTIME));
+  let Ok(text) = held.text();
 
-    let first = text.as_deref().map(str::split_whitespace).and_then(|mut words| words.next());
+  let first = text
+    .as_deref()
+    .map(str::split_whitespace)
+    .and_then(|mut words| words.next());
 
-    match first {
-        Some(first) => parse_number(first),
-        None => Ok(None),
-    }
+  match first {
+    Some(first_2) => parse_number(first_2),
+    None => Ok(None),
+  }
 }
 
 fn slept() -> Result<f64, Never> {
-    let Ok(microseconds) = number(Path::new(SLEPT));
+  let Ok(microseconds) = number(Path::new(SLEPT));
 
-    Ok(match microseconds {
-        Some(microseconds) => microseconds / MILLION,
-        None => NONE,
-    })
+  Ok(match microseconds {
+    Some(microseconds_2) => microseconds_2 / MILLION,
+    None => NONE,
+  })
 }
 
 fn gpu() -> Result<Option<f64>, Never> {
-    let sensors = match std::fs::read_dir(SENSORS) {
-        Ok(sensors) => sensors,
-        Err(_nothing_to_ask) => return Ok(None),
-    };
+  let sensors = match std::fs::read_dir(SENSORS) {
+    Ok(sensors) => sensors,
+    Err(_nothing_to_ask) => return Ok(None),
+  };
 
-    for sensor in sensors.flatten().map(|sensor| sensor.path()) {
-        let Ok(held) = read(&sensor.join("name"));
-        let Ok(named) = held.text();
+  for sensor in sensors.flatten().map(|sensor| sensor.path()) {
+    let Ok(held) = read(&sensor.join("name"));
+    let Ok(named) = held.text();
 
-        match named.as_deref().map(str::trim) {
-            Some(AMDGPU) => {}
-            Some(_) | None => continue,
-        }
-
-        let Ok(microwatts) = number(&sensor.join(DRAWN));
-
-        match microwatts {
-            Some(microwatts) => return Ok(Some(microwatts / MILLION)),
-            None => continue,
-        }
+    match named.as_deref().map(str::trim) {
+      Some(AMDGPU) => {}
+      Some(_) | None => continue,
     }
 
-    Ok(None)
+    let Ok(microwatts) = number(&sensor.join(DRAWN));
+
+    match microwatts {
+      Some(microwatts_2) => return Ok(Some(microwatts_2 / MILLION)),
+      None => continue,
+    }
+  }
+
+  Ok(None)
 }
 
 fn parse_spent(text: &str) -> Result<Option<Spent>, Never> {
-    let (through_name, rest) = match text.rsplit_once(')') {
-        Some(split) => split,
-        None => return Ok(None),
-    };
+  let (through_name, rest) = match text.rsplit_once(')') {
+    Some(split) => split,
+    None => return Ok(None),
+  };
 
-    let named = match through_name.split_once('(') {
-        Some((_, named)) => named.to_string(),
-        None => return Ok(None),
-    };
+  let named = match through_name.split_once('(') {
+    Some((_, named)) => named.to_string(),
+    None => return Ok(None),
+  };
 
-    let Ok(before) = index(FIELDS_BEFORE_UTIME);
-    let mut fields = rest.split_whitespace().skip(before);
-    let mine = fields.next().map(str::parse::<u64>);
-    let system = fields.next().map(str::parse::<u64>);
-    let Ok(between) = index(FIELDS_BETWEEN_STIME_AND_RSS);
-    let resident = fields.nth(between).map(str::parse::<u64>);
+  let Ok(before) = index(FIELDS_BEFORE_UTIME);
+  let mut fields = rest.split_whitespace().skip(before);
+  let mine = fields.next().map(str::parse::<u64>);
+  let system = fields.next().map(str::parse::<u64>);
+  let Ok(between) = index(FIELDS_BETWEEN_STIME_AND_RSS);
+  let resident = fields.nth(between).map(str::parse::<u64>);
 
-    let megabytes = match resident {
-        Some(Ok(pages)) => {
-            let Ok(pages) = pages.float();
+  let megabytes = match resident {
+    Some(Ok(pages)) => {
+      let Ok(pages_2) = pages.float();
 
-            Some(pages * PAGE / MEGABYTE)
-        }
-        Some(Err(_not_a_number)) => None,
-        None => None,
-    };
+      Some(pages_2 * PAGE / MEGABYTE)
+    }
+    Some(Err(_not_a_number)) => None,
+    None => None,
+  };
 
-    Ok(match (mine, system) {
-        (Some(Ok(mine)), Some(Ok(system))) => {
-            let Ok(ticks) = mine.saturating_add(system).float();
+  Ok(match (mine, system) {
+    (Some(Ok(mine_2)), Some(Ok(system_2))) => {
+      let Ok(ticks) = mine_2.saturating_add(system_2).float();
 
-            Some(Spent { named, seconds: ticks / TICK, megabytes })
-        }
-        (None, _) | (_, None) => None,
-        (Some(Err(_not_a_number)), _) | (_, Some(Err(_not_a_number))) => None,
-    })
+      Some(Spent {
+        named,
+        seconds: Seconds(ticks / TICK),
+        megabytes,
+      })
+    }
+    (None, _) | (_, None) => None,
+    (Some(Err(_not_a_number)), _) | (_, Some(Err(_not_a_number))) => None,
+  })
 }
 
 fn largest(summed: BTreeMap<String, f64>) -> Result<Vec<(String, f64)>, Never> {
-    let mut gathered: Vec<(String, f64)> = summed.into_iter().collect();
+  let mut gathered: Vec<(String, f64)> = summed.into_iter().collect();
 
-    let Ok(named) = index(NAMED);
+  let Ok(named) = index(NAMED);
 
-    gathered.sort_by(|one, another| another.1.total_cmp(&one.1));
-    gathered.truncate(named);
+  gathered.sort_by(|one, another| another.1.total_cmp(&one.1));
+  gathered.truncate(named);
 
-    Ok(gathered)
+  Ok(gathered)
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct Running {
-    busy: Vec<(String, f64)>,
-    held: Vec<(String, f64)>,
+  busy: Vec<(String, f64)>,
+  held: Vec<(String, f64)>,
 }
 
 fn running_processes() -> Result<Running, Never> {
-    let running = match std::fs::read_dir(RUNNING) {
-        Ok(running) => running,
-        Err(_nothing_to_ask) => return Ok(Running { busy: Vec::new(), held: Vec::new() }),
-    };
-    let mut spent: BTreeMap<String, f64> = BTreeMap::new();
-    let mut resident: BTreeMap<String, f64> = BTreeMap::new();
+  let running = match std::fs::read_dir(RUNNING) {
+    Ok(running) => running,
+    Err(_nothing_to_ask) => {
+      return Ok(Running {
+        busy: Vec::new(),
+        held: Vec::new(),
+      });
+    }
+  };
+  let mut spent: BTreeMap<String, f64> = BTreeMap::new();
+  let mut resident: BTreeMap<String, f64> = BTreeMap::new();
 
-    for process in running.flatten().map(|process| process.path()) {
-        let numbered = process
-            .file_name()
-            .and_then(|named| named.to_str())
-            .map(|named| named.parse::<u32>());
+  for process in running.flatten().map(|process| process.path()) {
+    let numbered = process
+      .file_name()
+      .and_then(|named| named.to_str())
+      .map(|named| named.parse::<u32>());
 
-        match numbered {
-            Some(Ok(_a_process)) => {}
-            None => continue,
-            Some(Err(_not_a_number)) => continue,
-        }
-
-        let Ok(held) = read(&process.join("stat"));
-        let Ok(text) = held.text();
-
-        let text = match text {
-            Some(text) => text,
-            None => continue,
-        };
-        let Ok(spending) = parse_spent(&text);
-
-        let Spent { named, seconds, megabytes } = match spending {
-            Some(spending) => spending,
-            None => continue,
-        };
-
-        match megabytes {
-            Some(megabytes) => *resident.entry(named.clone()).or_insert(NONE) += megabytes,
-            None => {}
-        }
-
-        *spent.entry(named).or_insert(NONE) += seconds;
+    match numbered {
+      Some(Ok(_a_process)) => {}
+      None => continue,
+      Some(Err(_not_a_number)) => continue,
     }
 
-    let Ok(busy) = largest(spent);
-    let Ok(held) = largest(resident);
+    let Ok(held) = read(&process.join("stat"));
+    let Ok(text) = held.text();
 
-    Ok(Running { busy, held })
+    let text_3 = match text {
+      Some(text_2) => text_2,
+      None => continue,
+    };
+    let Ok(spending) = parse_spent(&text_3);
+
+    let Spent {
+      named,
+      seconds,
+      megabytes,
+    } = match spending {
+      Some(spending_2) => spending_2,
+      None => continue,
+    };
+
+    match megabytes {
+      Some(megabytes_2) => *resident.entry(named.clone()).or_insert(NONE) += megabytes_2,
+      None => {}
+    }
+
+    *spent.entry(named).or_insert(NONE) += seconds.0;
+  }
+
+  let Ok(busy) = largest(spent);
+  let Ok(held) = largest(resident);
+
+  Ok(Running { busy, held })
 }
 
 pub fn restarts_in(said: &str) -> Result<Vec<(String, f64)>, Never> {
-    let mut counted = Vec::new();
+  let mut counted = Vec::new();
 
-    for block in said.split("\n\n") {
-        let unit = block.lines().find_map(|line| line.strip_prefix(UNIT));
-        let restarts = block.lines().find_map(|line| line.strip_prefix(RESTARTS)).map(str::parse::<u32>);
+  for block in said.split("\n\n") {
+    let unit = block.lines().find_map(|line| line.strip_prefix(UNIT));
+    let restarts = block
+      .lines()
+      .find_map(|line| line.strip_prefix(RESTARTS))
+      .map(str::parse::<u32>);
 
-        match (unit, restarts) {
-            (Some(unit), Some(Ok(restarts))) => match restarts > 0 {
-                true => counted.push((unit.to_string(), f64::from(restarts))),
-                false => {}
-            },
-            (Some(_), Some(Err(_not_a_number))) => {}
-            (None, _) | (_, None) => {}
+    match (unit, restarts) {
+      (Some(unit_2), Some(Ok(restarts_2))) => {
+        match ::core::primitive::bool::then_some(restarts_2 > 0, ()) {
+          ::core::option::Option::Some(()) => {
+            counted.push((unit_2.to_string(), f64::from(restarts_2)))
+          }
+          ::core::option::Option::None => {}
         }
+      }
+      (Some(_), Some(Err(_not_a_number))) => {}
+      (None, _) | (_, None) => {}
     }
+  }
 
-    Ok(counted)
+  Ok(counted)
 }
 
 fn restarts() -> Result<Vec<(String, f64)>, Never> {
-    let mut counted = Vec::new();
+  let mut counted = Vec::new();
 
-    for manager in [None, Some("--user")] {
-        let Ok(mut asking) = Program::Systemctl.command();
+  for manager in [None, Some("--user")] {
+    let Ok(mut asking) = Program::Systemctl.command();
 
-        asking.args(manager).args(["show", "--property=Id,NRestarts", "*"]);
+    asking
+      .args(manager)
+      .args(["show", "--property=Id,NRestarts", "*"]);
 
-        match asking.output() {
-            Ok(said) => match said.status.success() {
-                true => {
-                    let Ok(these) = restarts_in(&String::from_utf8_lossy(&said.stdout));
+    let said = match asking.output() {
+      Ok(said) => said,
+      Err(fault) => {
+        let Ok(()) = warn_restarts(format_args!(
+          "systemctl would not say what restarted: {fault}"
+        ));
+        continue;
+      }
+    };
 
-                    counted.extend(these);
-                }
-                false => eprintln!(
-                    "console-resource-usage: systemctl would not say what restarted: {}",
-                    String::from_utf8_lossy(&said.stderr).trim()
-                ),
-            },
-            Err(fault) => eprintln!("console-resource-usage: systemctl would not say what restarted: {fault}"),
+    match bool::then_some(said.status.success(), ()) {
+      Some(()) => {}
+      None => {
+        match std::str::from_utf8(&said.stderr) {
+          Ok(message) => {
+            let Ok(()) = warn_restarts(format_args!(
+              "systemctl would not say what restarted: {}",
+              message.trim()
+            ));
+          }
+          Err(fault) => {
+            let Ok(()) = warn_restarts(format_args!(
+              "systemctl would not say what restarted ({}) and its diagnostic was not UTF-8: {fault}",
+              said.status
+            ));
+          }
         }
+
+        continue;
+      }
     }
 
-    Ok(counted)
+    let listed = match std::str::from_utf8(&said.stdout) {
+      Ok(listed) => listed,
+      Err(fault) => {
+        let Ok(()) = warn_restarts(format_args!(
+          "systemctl's restart list was not UTF-8: {fault}"
+        ));
+        continue;
+      }
+    };
+    let Ok(these) = restarts_in(listed);
+
+    counted.extend(these);
+  }
+
+  Ok(counted)
+}
+
+fn warn_restarts(message: fmt::Arguments<'_>) -> Result<(), Never> {
+  use console_core_logging::{Record, Severity, emit, sink_for};
+
+  let severity = Severity::Warning;
+  let Ok(destination) = sink_for(severity);
+
+  match destination {
+    Some(sink) => emit(
+      sink,
+      Record {
+        severity,
+        module: env!("CARGO_PKG_NAME"),
+        message,
+      },
+    ),
+    None => Ok(()),
+  }
 }
 
 pub fn dump_program(file: &str) -> Result<Option<String>, Never> {
-    let mut fields = file.split('.');
+  let mut fields = file.split('.');
 
-    match fields.next() {
-        Some(DUMPED) => {}
-        Some(_) | None => return Ok(None),
-    }
+  match fields.next() {
+    Some(DUMPED) => {}
+    Some(_) | None => return Ok(None),
+  }
 
-    let named = fields.next();
-    let (_whose, _boot, _process, time) = (fields.next(), fields.next(), fields.next(), fields.next());
+  let named = fields.next();
+  let (_whose, _boot, _process, time) =
+    (fields.next(), fields.next(), fields.next(), fields.next());
 
-    Ok(match (named, time) {
-        (Some(named), Some(time)) => match (named.is_empty(), time.bytes().all(|digit| digit.is_ascii_digit())) {
-            (false, true) => Some(named.replace(ESCAPED_DOT, ".")),
-            (true, _) | (_, false) => None,
-        },
-        (None, _) | (_, None) => None,
-    })
+  Ok(match (named, time) {
+    (Some(named_2), Some(time_2)) => match (
+      named_2.is_empty(),
+      time_2.bytes().all(|digit| digit.is_ascii_digit()),
+    ) {
+      (false, true) => Some(named_2.replace(ESCAPED_DOT, ".")),
+      (true, _) | (_, false) => None,
+    },
+    (None, _) | (_, None) => None,
+  })
 }
 
 fn crashes() -> Result<Vec<(String, f64)>, Never> {
-    let dumps = match std::fs::read_dir(COREDUMPS) {
-        Ok(dumps) => dumps,
-        Err(_nothing_to_ask) => return Ok(Vec::new()),
+  let dumps = match std::fs::read_dir(COREDUMPS) {
+    Ok(dumps) => dumps,
+    Err(_nothing_to_ask) => return Ok(Vec::new()),
+  };
+  let mut counted: BTreeMap<String, f64> = BTreeMap::new();
+
+  for dump in dumps.flatten() {
+    let file = dump.file_name();
+    let name = match file.to_str() {
+      Some(name) => name,
+      None => continue,
     };
-    let mut counted: BTreeMap<String, f64> = BTreeMap::new();
+    let Ok(named) = dump_program(name);
 
-    for dump in dumps.flatten() {
-        let file = dump.file_name();
-        let Ok(named) = dump_program(&file.to_string_lossy());
-
-        match named {
-            Some(named) => *counted.entry(named).or_insert(NONE) += 1.0,
-            None => {}
-        }
+    match named {
+      Some(named_2) => *counted.entry(named_2).or_insert(NONE) += 1.0,
+      None => {}
     }
+  }
 
-    Ok(counted.into_iter().collect())
+  Ok(counted.into_iter().collect())
 }
 
 fn battery() -> Result<Option<PathBuf>, Never> {
-    let supplies = match std::fs::read_dir(SUPPLIES) {
-        Ok(supplies) => supplies,
-        Err(_nothing_to_ask) => return Ok(None),
-    };
+  let supplies = match std::fs::read_dir(SUPPLIES) {
+    Ok(supplies) => supplies,
+    Err(_nothing_to_ask) => return Ok(None),
+  };
 
-    for supply in supplies.flatten().map(|supply| supply.path()) {
-        let Ok(held) = read(&supply.join("type"));
-        let Ok(kind) = held.text();
+  for supply in supplies.flatten().map(|supply| supply.path()) {
+    let Ok(held) = read(&supply.join("type"));
+    let Ok(kind) = held.text();
 
-        match kind.as_deref().map(str::trim) {
-            Some(BATTERY) => return Ok(Some(supply)),
-            Some(_) | None => {}
-        }
+    match kind.as_deref().map(str::trim) {
+      Some(BATTERY) => return Ok(Some(supply)),
+      Some(_) | None => {}
     }
+  }
 
-    Ok(None)
+  Ok(None)
 }
 
 pub fn sample(at: u64) -> Result<Moment, Never> {
-    let Ok(up) = up();
-    let Ok(slept) = slept();
-    let Ok(gpu) = gpu();
-    let Ok(supply) = battery();
+  let Ok(up) = up();
+  let Ok(slept) = slept();
+  let Ok(gpu) = gpu();
+  let Ok(supply) = battery();
 
-    let (energy, draw) = match supply {
-        Some(supply) => {
-            let Ok(microwatthours) = number(&supply.join("energy_now"));
-            let Ok(microwatts) = number(&supply.join("power_now"));
+  let (energy, draw) = match supply {
+    Some(supply_2) => {
+      let Ok(microwatthours) = number(&supply_2.join("energy_now"));
+      let Ok(microwatts) = number(&supply_2.join("power_now"));
 
-            (
-                microwatthours.map(|microwatthours| microwatthours / MILLION),
-                microwatts.map(|microwatts| microwatts / MILLION),
-            )
-        }
-        None => (None, None),
-    };
-    let Ok(text) = charge();
-    let Ok(charged) = Charge::of(&text);
-    let Ok(Running { busy, held }) = running_processes();
-    let Ok(restarts) = restarts();
-    let Ok(crashes) = crashes();
+      (
+        microwatthours.map(|microwatthours_2| microwatthours_2 / MILLION),
+        microwatts.map(|microwatts_2| microwatts_2 / MILLION),
+      )
+    }
+    None => (None, None),
+  };
+  let Ok(text) = charge();
+  let Ok(charged) = Charge::of(&text);
+  let Ok(Running { busy, held }) = running_processes();
+  let Ok(restarts) = restarts();
+  let Ok(crashes) = crashes();
 
-    Ok(Moment { at, up, slept, energy, draw, gpu, percent: charged.percent, busy, held, restarts, crashes })
+  Ok(Moment {
+    at,
+    up: up.map(Seconds),
+    slept: Seconds(slept),
+    energy: energy.map(WattHours),
+    draw,
+    gpu,
+    percent: charged.percent,
+    busy,
+    held,
+    restarts,
+    crashes,
+  })
 }
 
 fn json_string(text: &str) -> Result<String, Never> {
-    Ok(serde_json::Value::String(text.to_string()).to_string())
+  Ok(serde_json::Value::String(text.to_string()).to_string())
 }
 
 pub fn serialize(moment: &Moment) -> Result<String, Never> {
-    let mut text = format!("{{\"at\":{}", moment.at);
+  let mut text = format!("{{\"at\":{}", moment.at);
 
-    match moment.up {
-        Some(up) => text.push_str(&format!(",\"up\":{up:.1}")),
-        None => {}
-    }
+  match moment.up {
+    Some(Seconds(up)) => text.push_str(&format!(",\"up\":{up:.1}")),
+    None => {}
+  }
 
-    text.push_str(&format!(",\"slept\":{:.1}", moment.slept));
+  let Seconds(slept) = moment.slept;
+  text.push_str(&format!(",\"slept\":{slept:.1}"));
 
-    match moment.energy {
-        Some(energy) => text.push_str(&format!(",\"energy\":{energy:.3}")),
-        None => {}
-    }
+  match moment.energy {
+    Some(WattHours(energy)) => text.push_str(&format!(",\"energy\":{energy:.3}")),
+    None => {}
+  }
 
-    match moment.draw {
-        Some(draw) => text.push_str(&format!(",\"draw\":{draw:.2}")),
-        None => {}
-    }
+  match moment.draw {
+    Some(draw) => text.push_str(&format!(",\"draw\":{draw:.2}")),
+    None => {}
+  }
 
-    match moment.gpu {
-        Some(gpu) => text.push_str(&format!(",\"gpu\":{gpu:.2}")),
-        None => {}
-    }
+  match moment.gpu {
+    Some(gpu) => text.push_str(&format!(",\"gpu\":{gpu:.2}")),
+    None => {}
+  }
 
-    match moment.percent {
-        Some(percent) => text.push_str(&format!(",\"percent\":{percent}")),
-        None => {}
-    }
+  match moment.percent {
+    Some(percent) => text.push_str(&format!(",\"percent\":{percent}")),
+    None => {}
+  }
 
-    let Ok(busy) = object(&moment.busy, FRACTION);
-    let Ok(held) = object(&moment.held, FRACTION);
-    let Ok(restarts) = object(&moment.restarts, WHOLE_NUMBER);
-    let Ok(crashes) = object(&moment.crashes, WHOLE_NUMBER);
+  let Ok(busy) = object(&moment.busy, FRACTION);
+  let Ok(held) = object(&moment.held, FRACTION);
+  let Ok(restarts) = object(&moment.restarts, WHOLE_NUMBER);
+  let Ok(crashes) = object(&moment.crashes, WHOLE_NUMBER);
 
-    text.push_str(&format!(",\"busy\":{busy},\"held\":{held},\"restarts\":{restarts},\"crashes\":{crashes}}}"));
+  text.push_str(&format!(
+    ",\"busy\":{busy},\"held\":{held},\"restarts\":{restarts},\"crashes\":{crashes}}}"
+  ));
 
-    Ok(text)
+  Ok(text)
 }
 
 fn object(named: &[(String, f64)], places: u32) -> Result<String, Never> {
-    let Ok(places) = index(places);
-    let mut text = String::from("{");
-    let mut first = true;
+  let Ok(places_2) = index(places);
+  let mut text = String::from("{");
+  let mut first = true;
 
-    for (named, amount) in named {
-        match first {
-            true => {}
-            false => text.push(','),
-        }
-
-        first = false;
-
-        let Ok(named) = json_string(named);
-
-        text.push_str(&format!("{named}:{amount:.places$}"));
+  for (named_2, amount) in named {
+    match ::core::primitive::bool::then_some(first, ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => text.push(','),
     }
 
-    text.push('}');
+    first = false;
 
-    Ok(text)
-}
+    let Ok(named_3) = json_string(named_2);
 
-fn amounts_under(object: &serde_json::Map<String, serde_json::Value>, key: &str) -> Result<Vec<(String, f64)>, Never> {
-    Ok(match object.get(key).and_then(serde_json::Value::as_object) {
-        Some(named) => named
-            .iter()
-            .filter_map(|(named, amount)| amount.as_f64().map(|amount| (named.to_string(), amount)))
-            .collect(),
-        None => Vec::new(),
-    })
-}
+    text.push_str(&format!(
+      "{named}:{amount:.places$}",
+      named = named_3,
+      places = places_2
+    ));
+  }
 
-pub fn of(text: &str) -> Result<Option<Moment>, Never> {
-    let held: serde_json::Value = match serde_json::from_str(text) {
-        Ok(held) => held,
-        Err(_not_a_line) => return Ok(None),
-    };
+  text.push('}');
 
-    let object = match held.as_object() {
-        Some(object) => object,
-        None => return Ok(None),
-    };
-
-    let at = match object.get("at").and_then(serde_json::Value::as_u64) {
-        Some(at) => at,
-        None => return Ok(None),
-    };
-    let Ok(busy) = amounts_under(object, "busy");
-    let Ok(held) = amounts_under(object, "held");
-    let Ok(restarts) = amounts_under(object, "restarts");
-    let Ok(crashes) = amounts_under(object, "crashes");
-    let slept = match object.get("slept").and_then(serde_json::Value::as_f64) {
-        Some(slept) => slept,
-        None => NONE,
-    };
-
-    Ok(Some(Moment {
-        at,
-        up: object.get("up").and_then(serde_json::Value::as_f64),
-        slept,
-        energy: object.get("energy").and_then(serde_json::Value::as_f64),
-        draw: object.get("draw").and_then(serde_json::Value::as_f64),
-        gpu: object.get("gpu").and_then(serde_json::Value::as_f64),
-        percent: match object.get("percent").and_then(serde_json::Value::as_i64) {
-            Some(percent) => match i32::try_from(percent) {
-                Ok(percent) => Some(percent),
-                Err(_no_battery_says_that) => None,
-            },
-            None => None,
-        },
-        busy,
-        held,
-        restarts,
-        crashes,
-    }))
+  Ok(text)
 }
 
 pub fn append(at: &Path, moment: &Moment) -> Result<(), Unsaid> {
-    match at.parent() {
-        Some(holding) => std::fs::create_dir_all(holding)
-            .map_err(|fault| Unsaid::Making(holding.to_path_buf(), fault))?,
-        None => {}
-    }
+  let Ok(text) = serialize(moment);
+  let Ok(bytes) = fitted::<_, u64>(text.len());
 
-    #[cfg_attr(
-        dylint_lib = "explicit040_no_torn_write",
-        allow(
-            explicit040_no_torn_write,
-            reason = "a log appended to a line at a time: a rename over it would take away every reading already in it, and one short line written to an O_APPEND descriptor lands whole"
-        )
-    )]
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(at)
-        .map_err(|fault| Unsaid::Opening(at.to_path_buf(), fault))?;
+  match bytes.cmp(&record::MAX_RECORD_BYTES) {
+    std::cmp::Ordering::Greater => return Err(Unsaid::Oversized { bytes }),
+    std::cmp::Ordering::Equal | std::cmp::Ordering::Less => {}
+  }
 
-    let Ok(text) = serialize(moment);
+  match at.parent() {
+    Some(holding) => std::fs::create_dir_all(holding)
+      .map_err(|fault| Unsaid::Making(holding.to_path_buf(), fault))?,
+    None => {}
+  }
 
-    file.write_all(format!("{text}\n").as_bytes())
-        .map_err(|fault| Unsaid::Writing(at.to_path_buf(), fault))
+  #[cfg_attr(
+    dylint_lib = "explicit040_no_torn_write",
+    allow(
+      explicit040_no_torn_write,
+      reason = "a log appended to a line at a time: a rename over it would take away every reading already in it, and one short line written to an O_APPEND descriptor lands whole"
+    )
+  )]
+  let mut file = OpenOptions::new()
+    .create(true)
+    .append(true)
+    .open(at)
+    .map_err(|fault| Unsaid::Opening(at.to_path_buf(), fault))?;
+
+  file
+    .write_all(format!("{text}\n").as_bytes())
+    .map_err(|fault| Unsaid::Writing(at.to_path_buf(), fault))
 }
 
 pub fn usage_between(moments: &[Moment]) -> Result<Option<Used>, Never> {
-    let mut used = Used {
-        awake: NONE,
-        asleep: NONE,
-        watthours: NONE,
-        flat: NONE,
-        gpu: None,
-        busy: Vec::new(),
-        grew: Vec::new(),
-        restarted: Vec::new(),
-        crashed: Vec::new(),
-        worst_sleep: None,
-    };
-    let mut drawn = (NONE, NONE);
-    let mut busy: BTreeMap<String, f64> = BTreeMap::new();
-    let mut restarted: BTreeMap<String, f64> = BTreeMap::new();
-    let mut crashed: BTreeMap<String, f64> = BTreeMap::new();
+  let mut used = Used {
+    awake: Seconds(NONE),
+    asleep: Seconds(NONE),
+    watthours: WattHours(NONE),
+    flat: Hours(NONE),
+    gpu: None,
+    busy: Vec::new(),
+    grew: Vec::new(),
+    restarted: Vec::new(),
+    crashed: Vec::new(),
+    worst_sleep: None,
+  };
+  let mut drawn = (NONE, NONE);
+  let mut busy: BTreeMap<String, f64> = BTreeMap::new();
+  let mut restarted: BTreeMap<String, f64> = BTreeMap::new();
+  let mut crashed: BTreeMap<String, f64> = BTreeMap::new();
 
-    for pair in moments.windows(2) {
-        let (before, after) = match (pair.first(), pair.last()) {
-            (Some(before), Some(after)) => (before, after),
-            (None, _) | (_, None) => continue,
-        };
-
-        let went = match (before.up, after.up) {
-            (Some(was), Some(is)) => is - was,
-            (None, _) | (_, None) => continue,
-        };
-
-        match went > NONE {
-            true => {}
-            false => continue,
-        }
-
-        let Ok(wall) = after.at.saturating_sub(before.at).float();
-        let asleep = (after.slept - before.slept).max(NONE);
-        let awake = (went - asleep).max(NONE);
-
-        used.awake += awake;
-        used.asleep += asleep;
-
-        let dropped = match (before.energy, after.energy) {
-            (Some(was), Some(is)) => (was - is).max(NONE),
-            (None, _) | (_, None) => NONE,
-        };
-
-        match (dropped > NONE, asleep > NONE) {
-            (true, false) => {
-                used.watthours += dropped;
-                used.flat += wall / HOUR;
-            }
-            (true, true) | (false, false) | (false, true) => {}
-        }
-
-        match (dropped > NONE, asleep > awake) {
-            (true, true) => {
-                let slept = Sleep { woke: after.at, asleep, watthours: dropped };
-                let Ok(worse) = worse(used.worst_sleep, slept);
-
-                used.worst_sleep = Some(worse);
-            }
-            (true, false) | (false, true) | (false, false) => {}
-        }
-
-        match after.gpu {
-            Some(watts) => drawn = (drawn.0 + watts, drawn.1 + 1.0),
-            None => {}
-        }
-
-        let Ok(()) = add_growth(Counted { before: &before.busy, after: &after.busy, unseen: Unseen::Unknown }, &mut busy);
-        let Ok(()) =
-            add_growth(Counted { before: &before.restarts, after: &after.restarts, unseen: Unseen::None }, &mut restarted);
-        let Ok(()) =
-            add_growth(Counted { before: &before.crashes, after: &after.crashes, unseen: Unseen::None }, &mut crashed);
-    }
-
-    match used.awake > NONE {
-        true => {}
-        false => return Ok(None),
-    }
-
-    used.gpu = match drawn.1 > NONE {
-        true => Some(drawn.0 / drawn.1),
-        false => None,
+  for pair in moments.windows(2) {
+    let (before, after) = match (pair.first(), pair.last()) {
+      (Some(before), Some(after)) => (before, after),
+      (None, _) | (_, None) => continue,
     };
 
-    let Ok(busy) = largest(busy);
-    let Ok(grew) = grew(moments);
-    let Ok(restarted) = largest(restarted);
-    let Ok(crashed) = largest(crashed);
+    let went = match (before.up, after.up) {
+      (Some(Seconds(was)), Some(Seconds(is))) => Seconds(is - was),
+      (None, _) | (_, None) => continue,
+    };
 
-    used.busy = busy;
-    used.grew = grew;
-    used.restarted = restarted;
-    used.crashed = crashed;
+    match ::core::primitive::bool::then_some(went.0 > NONE, ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => continue,
+    }
 
-    Ok(Some(used))
+    let Ok(()) = account_window(&mut used, before, after, went);
+
+    match after.gpu {
+      Some(watts) => drawn = (drawn.0 + watts, drawn.1 + 1.0),
+      None => {}
+    }
+
+    let Ok(()) = add_growth(
+      Counted {
+        before: &before.busy,
+        after: &after.busy,
+        unseen: Unseen::Unknown,
+      },
+      &mut busy,
+    );
+    let Ok(()) = add_growth(
+      Counted {
+        before: &before.restarts,
+        after: &after.restarts,
+        unseen: Unseen::None,
+      },
+      &mut restarted,
+    );
+    let Ok(()) = add_growth(
+      Counted {
+        before: &before.crashes,
+        after: &after.crashes,
+        unseen: Unseen::None,
+      },
+      &mut crashed,
+    );
+  }
+
+  match ::core::primitive::bool::then_some(used.awake.0 > NONE, ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => return Ok(None),
+  }
+
+  used.gpu = match ::core::primitive::bool::then_some(drawn.1 > NONE, ()) {
+    ::core::option::Option::Some(()) => Some(drawn.0 / drawn.1),
+    ::core::option::Option::None => None,
+  };
+
+  let Ok(busy_2) = largest(busy);
+  let Ok(grew) = grew(moments);
+  let Ok(restarted_2) = largest(restarted);
+  let Ok(crashed_2) = largest(crashed);
+
+  used.busy = busy_2;
+  used.grew = grew;
+  used.restarted = restarted_2;
+  used.crashed = crashed_2;
+
+  Ok(Some(used))
+}
+
+fn account_window(
+  used: &mut Used,
+  before: &Moment,
+  after: &Moment,
+  Seconds(elapsed): Seconds,
+) -> Result<(), Never> {
+  let Ok(wall) = after.at.saturating_sub(before.at).float();
+  let asleep = (after.slept.0 - before.slept.0).max(NONE);
+  let awake = (elapsed - asleep).max(NONE);
+
+  used.awake.0 += awake;
+  used.asleep.0 += asleep;
+
+  let dropped = match (before.energy, after.energy) {
+    (Some(WattHours(was)), Some(WattHours(is))) => (was - is).max(NONE),
+    (None, _) | (_, None) => NONE,
+  };
+
+  match (dropped > NONE, asleep > NONE) {
+    (true, false) => {
+      used.watthours.0 += dropped;
+      used.flat.0 += wall / HOUR;
+    }
+    (true, true) | (false, false) | (false, true) => {}
+  }
+
+  match (dropped > NONE, asleep > awake) {
+    (true, true) => {
+      let slept = Sleep {
+        woke: after.at,
+        asleep: Seconds(asleep),
+        watthours: WattHours(dropped),
+      };
+      let Ok(worse) = worse(used.worst_sleep, slept);
+
+      used.worst_sleep = Some(worse);
+    }
+    (true, false) | (false, true) | (false, false) => {}
+  }
+
+  Ok(())
 }
 
 fn worse(held: Option<Sleep>, slept: Sleep) -> Result<Sleep, Never> {
-    let held = match held {
-        Some(held) => held,
-        None => return Ok(slept),
-    };
-    let Ok(was) = held.at_most();
-    let Ok(is) = slept.at_most();
+  let held_3 = match held {
+    Some(held_2) => held_2,
+    None => return Ok(slept),
+  };
+  let Ok(was) = held_3.at_most();
+  let Ok(is) = slept.at_most();
 
-    Ok(match is > was {
-        true => slept,
-        false => held,
-    })
+  Ok(match ::core::primitive::bool::then_some(is > was, ()) {
+    ::core::option::Option::Some(()) => slept,
+    ::core::option::Option::None => held_3,
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Unseen {
-    Unknown,
-    None,
+  Unknown,
+  None,
 }
 
 struct Counted<'a> {
-    before: &'a [(String, f64)],
-    after: &'a [(String, f64)],
-    unseen: Unseen,
+  before: &'a [(String, f64)],
+  after: &'a [(String, f64)],
+  unseen: Unseen,
 }
 
 fn add_growth(counted: Counted<'_>, into: &mut BTreeMap<String, f64>) -> Result<(), Never> {
-    let earlier: BTreeMap<&str, f64> =
-        counted.before.iter().map(|(named, amount)| (named.as_str(), *amount)).collect();
+  let earlier: BTreeMap<&str, f64> = counted
+    .before
+    .iter()
+    .map(|(named, amount)| (named.as_str(), *amount))
+    .collect();
 
-    'over_names: for (named, amount) in counted.after {
-        let was = match (earlier.get(named.as_str()), counted.unseen) {
-            (Some(was), Unseen::Unknown | Unseen::None) => *was,
-            (None, Unseen::None) => NONE,
-            (None, Unseen::Unknown) => continue 'over_names,
-        };
-        let since = amount - was;
+  'over_names: for (named, amount) in counted.after {
+    let was = match (earlier.get(named.as_str()), counted.unseen) {
+      (Some(was), Unseen::Unknown | Unseen::None) => *was,
+      (None, Unseen::None) => NONE,
+      (None, Unseen::Unknown) => continue 'over_names,
+    };
+    let since = amount - was;
 
-        match since > NONE {
-            true => *into.entry(named.clone()).or_insert(NONE) += since,
-            false => {}
-        }
+    match ::core::primitive::bool::then_some(since > NONE, ()) {
+      ::core::option::Option::Some(()) => *into.entry(named.clone()).or_insert(NONE) += since,
+      ::core::option::Option::None => {}
     }
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn grew(moments: &[Moment]) -> Result<Vec<(String, f64)>, Never> {
-    let mut read = moments.iter().filter(|moment| !moment.held.is_empty());
+  let mut read = moments.iter().filter(|moment| !moment.held.is_empty());
 
-    let (first, last) = match (read.next(), read.next_back()) {
-        (Some(first), Some(last)) => (first, last),
-        (None, _) | (_, None) => return Ok(Vec::new()),
+  let (first, last) = match (read.next(), read.next_back()) {
+    (Some(first), Some(last)) => (first, last),
+    (None, _) | (_, None) => return Ok(Vec::new()),
+  };
+  let earlier: BTreeMap<&str, f64> = first
+    .held
+    .iter()
+    .map(|(named, megabytes)| (named.as_str(), *megabytes))
+    .collect();
+  let mut grown: BTreeMap<String, f64> = BTreeMap::new();
+
+  for (named, megabytes) in &last.held {
+    let since = match earlier.get(named.as_str()) {
+      Some(was) => megabytes - was,
+      None => continue,
     };
-    let earlier: BTreeMap<&str, f64> =
-        first.held.iter().map(|(named, megabytes)| (named.as_str(), *megabytes)).collect();
-    let mut grown: BTreeMap<String, f64> = BTreeMap::new();
 
-    for (named, megabytes) in &last.held {
-        let since = match earlier.get(named.as_str()) {
-            Some(was) => megabytes - was,
-            None => continue,
-        };
-
-        match since > NONE {
-            true => {
-                grown.insert(named.clone(), since);
-            }
-            false => {}
-        }
+    match ::core::primitive::bool::then_some(since > NONE, ()) {
+      ::core::option::Option::Some(()) => {
+        grown.insert(named.clone(), since);
+      }
+      ::core::option::Option::None => {}
     }
+  }
 
-    largest(grown)
+  largest(grown)
 }
 
 pub fn watts(used: &Used) -> Result<Option<f64>, Never> {
-    Ok(match (used.flat > NONE, used.watthours > NONE) {
-        (true, true) => Some(used.watthours / used.flat),
-        (true, false) | (false, true) | (false, false) => None,
-    })
+  Ok(match (used.flat.0 > NONE, used.watthours.0 > NONE) {
+    (true, true) => Some(used.watthours.0 / used.flat.0),
+    (true, false) | (false, true) | (false, false) => None,
+  })
 }
 
-fn stretch(seconds: f64) -> Result<String, Never> {
-    let Ok(hours) = console_core_number_conversion::toward_zero_u64(seconds / HOUR);
-    let Ok(minutes) = console_core_number_conversion::toward_zero_u64((seconds / 60.0) % 60.0);
+fn stretch(Seconds(seconds): Seconds) -> Result<String, Never> {
+  let Ok(hours) = console_core_number_conversion::toward_zero_u64(seconds / HOUR);
+  let Ok(minutes) = console_core_number_conversion::toward_zero_u64((seconds / 60.0) % 60.0);
 
-    Ok(format!("{hours}h {minutes:02}m"))
+  Ok(format!("{hours}h {minutes:02}m"))
 }
 
 fn counts(text: &mut String, heading: &str, counted: &[(String, f64)]) -> Result<(), Never> {
-    match counted.is_empty() {
-        true => {}
-        false => {
-            text.push_str(&format!("\n{heading}\n"));
+  match ::core::primitive::bool::then_some(counted.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      text.push_str(&format!("\n{heading}\n"));
 
-            for (named, times) in counted {
-                text.push_str(&format!("  {named:<24}{times:>6.0} times\n"));
-            }
-        }
+      for (named, times) in counted {
+        text.push_str(&format!("  {named:<24}{times:>6.0} times\n"));
+      }
     }
+  }
 
-    Ok(())
+  Ok(())
 }
 
 pub fn summarize(used: &Used) -> Result<String, Never> {
-    let Ok(awake) = stretch(used.awake);
-    let Ok(asleep) = stretch(used.asleep);
-    let mut text = format!("{awake} awake, {asleep} asleep\n");
-    let Ok(drawn) = watts(used);
+  let Ok(awake) = stretch(used.awake);
+  let Ok(asleep) = stretch(used.asleep);
+  let mut text = format!("{awake} awake, {asleep} asleep\n");
+  let Ok(drawn) = watts(used);
 
-    match drawn {
-        Some(drawn) => {
-            let Ok(flat) = stretch(used.flat * HOUR);
+  match drawn {
+    Some(drawn_2) => {
+      let Ok(flat) = stretch(Seconds(used.flat.0 * HOUR));
 
-            text.push_str(&format!(
-                "{drawn:.1} W awake, {:.1} Wh over {flat} of it\n",
-                used.watthours
-            ));
-        }
-        None => text.push_str(
-            "never awake off the cable for a whole reading, so nothing says what it draws\n",
-        ),
+      text.push_str(&format!(
+        "{drawn:.1} W awake, {:.1} Wh over {flat} of it\n",
+        used.watthours.0,
+        drawn = drawn_2
+      ));
     }
+    None => text
+      .push_str("never awake off the cable for a whole reading, so nothing says what it draws\n"),
+  }
 
-    match used.gpu {
-        Some(gpu) => text.push_str(&format!("the graphics drew {gpu:.1} W\n")),
-        None => {}
-    }
+  match used.gpu {
+    Some(gpu) => text.push_str(&format!("the graphics drew {gpu:.1} W\n")),
+    None => {}
+  }
 
-    match used.worst_sleep {
-        Some(slept) => {
-            let Ok(asleep) = stretch(slept.asleep);
-            let Ok(at_most) = slept.at_most();
+  match used.worst_sleep {
+    Some(slept) => {
+      let Ok(asleep_2) = stretch(slept.asleep);
+      let Ok(at_most) = slept.at_most();
 
-            text.push_str(&format!(
+      text.push_str(&format!(
                 "the worst sleep drew at most {at_most:.2} W: {:.1} Wh over {asleep} asleep, woken at {}\n",
-                slept.watthours, slept.woke
-            ));
-        }
-        None => {}
+                slept.watthours.0, slept.woke
+            , asleep = asleep_2));
     }
+    None => {}
+  }
 
-    text.push_str("\nwhat spent the time awake\n");
+  text.push_str("\nwhat spent the time awake\n");
 
-    for (named, seconds) in &used.busy {
-        let share = seconds / used.awake * WHOLE;
+  for (named, seconds) in &used.busy {
+    let share = seconds / used.awake.0 * WHOLE;
 
-        text.push_str(&format!("  {named:<24}{share:>6.1} % of a core\n"));
+    text.push_str(&format!("  {named:<24}{share:>6.1} % of a core\n"));
+  }
+
+  match ::core::primitive::bool::then_some(used.grew.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      text.push_str("\nwhat grew in memory from the first reading to the last\n");
+
+      for (named, megabytes) in &used.grew {
+        text.push_str(&format!("  {named:<24}{megabytes:>6.1} MB\n"));
+      }
     }
+  }
 
-    match used.grew.is_empty() {
-        true => {}
-        false => {
-            text.push_str("\nwhat grew in memory from the first reading to the last\n");
+  let Ok(()) = counts(&mut text, "what systemd started again", &used.restarted);
+  let Ok(()) = counts(&mut text, "what dumped core", &used.crashed);
 
-            for (named, megabytes) in &used.grew {
-                text.push_str(&format!("  {named:<24}{megabytes:>6.1} MB\n"));
-            }
-        }
-    }
-
-    let Ok(()) = counts(&mut text, "what systemd started again", &used.restarted);
-    let Ok(()) = counts(&mut text, "what dumped core", &used.crashed);
-
-    Ok(text)
+  Ok(text)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_line_of_stat_says_the_time_spent_and_the_pages_held() {
-        let said = "1212026 (a (b) c) R 1212024 1212024 1212024 0 -1 4194304 134 0 0 0 250 50 0 0 20 0 1 0 \
+  #[test]
+  fn a_line_of_stat_says_the_time_spent_and_the_pages_held() {
+    let said = "1212026 (a (b) c) R 1212024 1212024 1212024 0 -1 4194304 134 0 0 0 250 50 0 0 20 0 1 0 \
                     2147753 6438912 512 18446744073709551615 94194824380416";
-        let Ok(spent) = parse_spent(said);
-        let spent = spent.map(|Spent { named, seconds, megabytes }| (named, seconds, megabytes));
+    let Ok(spent) = parse_spent(said);
+    let spent_2 = spent.map(
+      |Spent {
+         named,
+         seconds,
+         megabytes,
+       }| (named, seconds, megabytes),
+    );
 
-        assert_eq!(spent, Some(("a (b) c".to_string(), 3.0, Some(2.0))));
-    }
+    assert_eq!(
+      spent_2,
+      Some(("a (b) c".to_string(), Seconds(3.0), Some(2.0)))
+    );
+  }
 }

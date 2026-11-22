@@ -1,0 +1,35 @@
+warning: `RawFd` is a descriptor kept as a number, which the kernel hands out again once it is closed
+  --> $DIR/main.rs:5:25
+   |
+LL | fn kept(held: &File) -> RawFd {
+   |                         ^^^^^
+   |
+   = help: hold an `OwnedFd`, lend a `BorrowedFd` through `AsFd`, and hand `rustix` either. Where the number is what the other side of an `extern` signature or a protocol reads, allow this rule here and let the reason say who that is
+   = note: `#[warn(explicit090_no_raw_descriptor)]` on by default
+
+warning: `as_raw_fd` hands out the number with no lifetime on it, so nothing stops it outliving the descriptor
+  --> $DIR/main.rs:7:5
+   |
+LL |     held.as_raw_fd()
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: hold an `OwnedFd`, lend a `BorrowedFd` through `AsFd`, and hand `rustix` either. Where the number is what the other side of an `extern` signature or a protocol reads, allow this rule here and let the reason say who that is
+
+warning: `into_raw_fd` gives up the owner, and nothing closes what it held
+  --> $DIR/main.rs:12:5
+   |
+LL |     held.into_raw_fd()
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = help: hold an `OwnedFd`, lend a `BorrowedFd` through `AsFd`, and hand `rustix` either. Where the number is what the other side of an `extern` signature or a protocol reads, allow this rule here and let the reason say who that is
+
+warning: `from_raw_fd` declares an owner out of a number, whoever else already owns it
+  --> $DIR/main.rs:18:14
+   |
+LL |     unsafe { File::from_raw_fd(number) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: hold an `OwnedFd`, lend a `BorrowedFd` through `AsFd`, and hand `rustix` either. Where the number is what the other side of an `extern` signature or a protocol reads, allow this rule here and let the reason say who that is
+
+warning: 4 warnings emitted
+

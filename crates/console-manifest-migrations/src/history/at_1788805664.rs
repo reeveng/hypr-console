@@ -34,12 +34,12 @@
 use crate::sweeping::{Migration, Moment, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1788805664),
-    says: "sweeping the session keeper under its old name",
-    steps: &[
-        Step::Stop("console-session.service"),
-        Step::Attic("/usr/local/bin/hyprsession"),
-        Step::Attic("/home/@user@/.local/share/hyprsession"),
-        Step::Attic("/home/@user@/.config/hyprsession"),
-    ],
+  moment: Moment(1788805664),
+  says: "sweeping the session keeper under its old name",
+  steps: &[
+    Step::Stop("console-session.service"),
+    Step::Attic("/usr/local/bin/hyprsession"),
+    Step::Attic("/home/@user@/.local/share/hyprsession"),
+    Step::Attic("/home/@user@/.config/hyprsession"),
+  ],
 };

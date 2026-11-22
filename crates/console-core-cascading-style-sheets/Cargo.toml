@@ -1,0 +1,18 @@
+[package]
+name = "console-core-cascading-style-sheets"
+version = "0.2.2"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_core_cascading_style_sheets"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

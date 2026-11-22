@@ -55,8 +55,8 @@
 //! asking both have to mean the same thing by it, and neither should carry the
 //! other to find out.
 
-use std::path::PathBuf;
 use std::os::unix::net::UnixDatagram;
+use std::path::PathBuf;
 
 use console_core_never::Never;
 use console_core_words::Words;
@@ -65,196 +65,227 @@ use crate::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum PadInput {
-    #[words(word = "up")]
-    Up,
-    #[words(word = "down")]
-    Down,
-    #[words(word = "left")]
-    Left,
-    #[words(word = "right")]
-    Right,
-    #[words(word = "pressed")]
-    Pressed,
-    #[words(word = "more")]
-    More,
-    #[words(word = "back")]
-    Back,
-    #[words(word = "again")]
-    Again,
-    #[words(word = "carry")]
-    Payload,
-    #[words(word = "off")]
-    Off,
+  #[words(word = "up")]
+  Up,
+  #[words(word = "down")]
+  Down,
+  #[words(word = "left")]
+  Left,
+  #[words(word = "right")]
+  Right,
+  #[words(word = "pressed")]
+  Pressed,
+  #[words(word = "more")]
+  More,
+  #[words(word = "back")]
+  Back,
+  #[words(word = "again")]
+  Again,
+  #[words(word = "carry")]
+  Payload,
+  #[words(word = "off")]
+  Off,
 }
 
 impl PadInput {
-    pub fn read(word: &str) -> Result<Option<PadInput>, Never> {
-        Ok(EVERY.iter().copied().find(|said| {
-            let Ok(spelled) = said.word();
+  pub fn read(word: &str) -> Result<Option<PadInput>, Never> {
+    Ok(EVERY.iter().copied().find(|said| {
+      let Ok(spelled) = said.word();
 
-            spelled == word.trim()
-        }))
-    }
+      spelled == word.trim()
+    }))
+  }
 }
 
 pub const EVERY: [PadInput; 10] = [
-    PadInput::Up,
-    PadInput::Down,
-    PadInput::Left,
-    PadInput::Right,
-    PadInput::Pressed,
-    PadInput::More,
-    PadInput::Back,
-    PadInput::Again,
-    PadInput::Payload,
-    PadInput::Off,
+  PadInput::Up,
+  PadInput::Down,
+  PadInput::Left,
+  PadInput::Right,
+  PadInput::Pressed,
+  PadInput::More,
+  PadInput::Back,
+  PadInput::Again,
+  PadInput::Payload,
+  PadInput::Off,
 ];
 
 pub fn homeward() -> Result<PathBuf, Error> {
-    let runtime = crate::runtime()?;
+  let runtime = crate::runtime()?;
 
-    Ok(runtime.join(console_core_places::APPLICATION).join("home.sock"))
+  Ok(
+    runtime
+      .join(console_core_places::APPLICATION)
+      .join("home.sock"),
+  )
 }
 
 pub fn send_to_home(said: PadInput) -> Result<(), Error> {
-    let at = homeward()?;
-    let socket = UnixDatagram::unbound().map_err(Error::Unbound)?;
+  let at = homeward()?;
+  let socket = UnixDatagram::unbound().map_err(Error::Unbound)?;
 
-    let Ok(word) = said.word();
+  let Ok(word) = said.word();
 
-    socket
-        .send_to(word.as_bytes(), &at)
-        .map(|_| ())
-        .map_err(|fault| Error::Sending(at, fault))
+  socket
+    .send_to(word.as_bytes(), &at)
+    .map(|_| ())
+    .map_err(|fault| Error::Sending(at, fault))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WakeState {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 impl WakeState {
-    pub fn detect() -> Result<Self, Never> {
-        Ok(match note(AWAKE).is_ok_and(|note| note.exists()) {
-            true => WakeState::Yes,
-            false => WakeState::No,
-        })
-    }
+  pub fn detect() -> Result<Self, Never> {
+    let Ok(marked) = marked(Marker::Awake);
+
+    Ok(match marked {
+      Presence::Present => WakeState::Yes,
+      Presence::Absent => WakeState::No,
+    })
+  }
 }
 
-const AWAKE: &str = "home-awake";
+enum Marker {
+  Awake,
+  Carrying,
+}
 
-const CARRYING: &str = "home-carrying";
+enum Presence {
+  Present,
+  Absent,
+}
 
-fn note(named: &str) -> Result<PathBuf, Error> {
-    let runtime = crate::runtime()?;
+fn marked(marker: Marker) -> Result<Presence, Never> {
+  let path = match note(marker) {
+    Ok(path) => path,
+    Err(_no_runtime_directory) => return Ok(Presence::Absent),
+  };
 
-    Ok(runtime.join(console_core_places::APPLICATION).join(named))
+  Ok(match std::fs::metadata(path) {
+    Ok(_marker) => Presence::Present,
+    Err(_unavailable_marker) => Presence::Absent,
+  })
+}
+
+fn note(marker: Marker) -> Result<PathBuf, Error> {
+  let runtime = crate::runtime()?;
+  let application = runtime.join(console_core_places::APPLICATION);
+
+  Ok(match marker {
+    Marker::Awake => application.join("home-awake"),
+    Marker::Carrying => application.join("home-carrying"),
+  })
 }
 
 enum Note<'a> {
-    Message(&'a str),
-    Closed,
+  Message(&'a str),
+  Closed,
 }
 
-fn write_note(named: &str, said: Note) -> Result<(), Error> {
-    let note = note(named)?;
+fn write_note(marker: Marker, said: Note) -> Result<(), Error> {
+  let note = note(marker)?;
 
-    match note.parent() {
-        Some(above) => std::fs::create_dir_all(above)
-            .map_err(|fault| Error::Making(above.to_path_buf(), fault))?,
-        None => {}
+  match note.parent() {
+    Some(above) => {
+      std::fs::create_dir_all(above).map_err(|fault| Error::Making(above.to_path_buf(), fault))?
     }
+    None => {}
+  }
 
-    match said {
-        Note::Message(word) => {
-            console_core_atomic_writes::whole(&note, word.as_bytes()).map_err(Error::Writing)
-        }
-        Note::Closed => match std::fs::remove_file(&note) {
-            Ok(()) => Ok(()),
-            Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
-                true => Ok(()),
-                false => Err(Error::Removing(note, fault)),
-            },
-        },
+  match said {
+    Note::Message(word) => {
+      console_core_atomic_writes::whole(&note, word.as_bytes()).map_err(Error::Writing)
     }
+    Note::Closed => match std::fs::remove_file(&note) {
+      Ok(()) => Ok(()),
+      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => Ok(()),
+        ::core::option::Option::None => Err(Error::Removing(note, fault)),
+      },
+    },
+  }
 }
 
 pub fn set_awake(awake: WakeState) -> Result<(), Error> {
-    write_note(
-        AWAKE,
-        match awake {
-            WakeState::Yes => Note::Message("awake\n"),
-            WakeState::No => Note::Closed,
-        },
-    )
+  write_note(
+    Marker::Awake,
+    match awake {
+      WakeState::Yes => Note::Message("awake\n"),
+      WakeState::No => Note::Closed,
+    },
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hand {
-    Carries,
-    Empty,
+  Carries,
+  Empty,
 }
 
 impl Hand {
-    pub fn detect() -> Result<Self, Never> {
-        Ok(match note(CARRYING).is_ok_and(|note| note.exists()) {
-            true => Hand::Carries,
-            false => Hand::Empty,
-        })
-    }
+  pub fn detect() -> Result<Self, Never> {
+    let Ok(marked) = marked(Marker::Carrying);
+
+    Ok(match marked {
+      Presence::Present => Hand::Carries,
+      Presence::Absent => Hand::Empty,
+    })
+  }
 }
 
 pub fn set_hand(hand: Hand) -> Result<(), Error> {
-    write_note(
-        CARRYING,
-        match hand {
-            Hand::Carries => Note::Message("carrying\n"),
-            Hand::Empty => Note::Closed,
-        },
-    )
+  write_note(
+    Marker::Carrying,
+    match hand {
+      Hand::Carries => Note::Message("carrying\n"),
+      Hand::Empty => Note::Closed,
+    },
+  )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn every_word_reads_back_as_the_thing_that_wrote_it() {
-        for said in EVERY {
-            let Ok(word) = said.word();
-            let Ok(read) = PadInput::read(word);
+  #[test]
+  fn every_word_reads_back_as_the_thing_that_wrote_it() {
+    for said in EVERY {
+      let Ok(word) = said.word();
+      let Ok(read) = PadInput::read(word);
 
-            assert_eq!(read, Some(said), "{said:?} does not survive the wire");
-        }
+      assert_eq!(read, Some(said), "{said:?} does not survive the wire");
     }
+  }
 
-    #[test]
-    fn no_two_of_them_are_the_same_word() {
-        for (at, said) in EVERY.iter().enumerate() {
-            for other in EVERY.iter().skip(at.saturating_add(1)) {
-                let Ok(one) = said.word();
-                let Ok(another) = other.word();
+  #[test]
+  fn no_two_of_them_are_the_same_word() {
+    for (at, said) in EVERY.iter().enumerate() {
+      for other in EVERY.iter().skip(at.saturating_add(1)) {
+        let Ok(one) = said.word();
+        let Ok(another) = other.word();
 
-                assert_ne!(one, another, "{said:?} and {other:?} are one word");
-            }
-        }
+        assert_ne!(one, another, "{said:?} and {other:?} are one word");
+      }
     }
+  }
 
-    #[test]
-    fn a_word_no_one_here_says_is_dropped_rather_than_guessed_at() {
-        let Ok(sideways) = PadInput::read("sideways");
-        let Ok(nothing) = PadInput::read("");
+  #[test]
+  fn a_word_no_one_here_says_is_dropped_rather_than_guessed_at() {
+    let Ok(sideways) = PadInput::read("sideways");
+    let Ok(nothing) = PadInput::read("");
 
-        assert_eq!(sideways, None);
-        assert_eq!(nothing, None);
-    }
+    assert_eq!(sideways, None);
+    assert_eq!(nothing, None);
+  }
 
-    #[test]
-    fn a_word_is_read_however_it_is_spaced() {
-        let Ok(spaced) = PadInput::read(" up\n");
+  #[test]
+  fn a_word_is_read_however_it_is_spaced() {
+    let Ok(spaced) = PadInput::read(" up\n");
 
-        assert_eq!(spaced, Some(PadInput::Up));
-    }
+    assert_eq!(spaced, Some(PadInput::Up));
+  }
 }

@@ -1,0 +1,39 @@
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/operand_anchors.rs:10:16
+   |
+LL |     *_target = usize::wrapping_add(*_target, _amount);
+   |                ^^^^^
+   |
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+help: use the conversion that names this machine-width boundary
+   |
+LL -     *_target = usize::wrapping_add(*_target, _amount);
+LL +     *_target = (*_target).wrapping_add(_amount);
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/operand_anchors.rs:15:40
+   |
+LL |     let advance = |distance: Position| usize::wrapping_mul(distance, 3);
+   |                                        ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     let advance = |distance: Position| usize::wrapping_mul(distance, 3);
+LL +     let advance = |distance: Position| distance.wrapping_mul(3);
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/operand_anchors.rs:20:5
+   |
+LL |     usize::wrapping_sub({ order.push(1); 10 }, { order.push(2); position })
+   |     ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     usize::wrapping_sub({ order.push(1); 10 }, { order.push(2); position })
+LL +     (::core::num::Wrapping({ order.push(1); 10 }) - ::core::num::Wrapping({ order.push(2); position })).0
+   |
+
+error: aborting due to 3 previous errors
+

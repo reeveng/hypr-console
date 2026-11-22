@@ -1,0 +1,35 @@
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/option_loops.rs:14:9
+   |
+LL |           while let Some(value) = self.pending.pop_front() {
+   |           ^-----------------------------------------------
+   |           |
+   |  _________help: iterate until this iterator returns no more items: `for value in ::core::iter::from_fn(|| self.pending.pop_front())`
+   | |
+LL | |             self.sum = self.sum.wrapping_add(value);
+LL | |         }
+   | |_________^
+   |
+   = note: `#[deny(explicit053_no_while)]` on by default
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/option_loops.rs:35:5
+   |
+LL | /     'read: while let Some(value) = {
+LL | |         let Ok(next) = reader.read(width);
+LL | |         next
+LL | |     } {
+...  |
+LL | |     }
+   | |_____^
+   |
+help: iterate until this iterator returns no more items
+   |
+LL ~     'read: for value in ::core::iter::from_fn(|| {
+LL +         let Ok(next) = reader.read(width);
+LL +         next
+LL ~     }) {
+   |
+
+error: aborting due to 2 previous errors
+

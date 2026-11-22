@@ -1,0 +1,21 @@
+// run-rustfix
+// edition:2024
+
+fn read(value: Option<u32>) -> Option<u32> {
+    value
+}
+
+fn scale(digits: u8, value: Option<u32>) -> Option<u32> {
+    Some(match digits {
+        1 => ({ let checked_value = read(value)?; checked_value }) * 100,
+        2 => ({ let checked_value_2 = read(value)?; checked_value_2 }) * 10,
+        _ => read(value)?,
+    })
+}
+
+fn main() {
+    assert_eq!(scale(1, Some(3)), Some(300));
+    assert_eq!(scale(2, Some(3)), Some(30));
+    assert_eq!(scale(3, Some(3)), Some(3));
+    assert_eq!(scale(1, None), None);
+}

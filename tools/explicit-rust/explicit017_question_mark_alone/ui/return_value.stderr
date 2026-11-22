@@ -1,0 +1,51 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/return_value.rs:5:8
+   |
+LL |     Ok(value?)
+   |        ^^^^^^
+   |
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+help: return the value directly with the same success and failure types
+   |
+LL -     Ok(value?)
+LL +     value
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/return_value.rs:9:17
+   |
+LL |     return Some(value?);
+   |                 ^^^^^^
+   |
+help: return the value directly with the same success and failure types
+   |
+LL -     return Some(value?);
+LL +     return value;
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/return_value.rs:13:17
+   |
+LL |     let byte = *bytes.get(index)?;
+   |                 ^^^^^^^^^^^^^^^^^
+   |
+help: copy the value before applying the question mark
+   |
+LL -     let byte = *bytes.get(index)?;
+LL +     let byte = ::core::option::Option::<&_>::copied(bytes.get(index))?;
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/return_value.rs:18:17
+   |
+LL |     let byte = *input?;
+   |                 ^^^^^^
+   |
+help: copy the value before applying the question mark
+   |
+LL -     let byte = *input?;
+LL +     let byte = ::core::result::Result::<&_, _>::copied(input)?;
+   |
+
+error: aborting due to 4 previous errors
+

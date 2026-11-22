@@ -1,11 +1,15 @@
-warning: floats compared with `==`, which a `NaN` on either side quietly answers `false` for
+warning: float equality and inequality have an unordered case when either operand is NaN
   --> $DIR/main.rs:3:5
    |
 LL |     one == another
    |     ^^^^^^^^^^^^^^
    |
-   = help: ask with `total_cmp`, which is total over every value the type holds, or -- where the comparison is about the bit pattern -- compare `to_bits()` on purpose. Where both sides are known good by construction, allow this rule here and let the reason say so
    = note: `#[warn(explicit071_no_float_pitfalls)]` on by default
+help: compare the partial ordering explicitly, keeping the unordered NaN case
+   |
+LL -     one == another
+LL +     <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&one, &another) == ::core::option::Option::Some(::core::cmp::Ordering::Equal)
+   |
 
 warning: 1 warning emitted
 

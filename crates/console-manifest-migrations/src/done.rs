@@ -48,176 +48,204 @@ const SCRIPT: &str = ".sh";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Applied {
-    Before(BTreeSet<Moment>),
-    Never,
+  Before(BTreeSet<Moment>),
+  Never,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outstanding {
-    Run(Vec<Migration>),
-    Remember(Vec<Migration>),
+  Run(Vec<Migration>),
+  Remember(Vec<Migration>),
 }
 
 pub fn pending(every: &[Migration], applied: &Applied) -> Result<Outstanding, Never> {
-    Ok(match applied {
-        Applied::Never => Outstanding::Remember(every.to_vec()),
-        Applied::Before(done) => {
-            Outstanding::Run(every.iter().filter(|one| !done.contains(&one.moment)).copied().collect())
-        }
-    })
+  Ok(match applied {
+    Applied::Never => Outstanding::Remember(every.to_vec()),
+    Applied::Before(done) => Outstanding::Run(
+      every
+        .iter()
+        .filter(|one| !done.contains(&one.moment))
+        .copied()
+        .collect(),
+    ),
+  })
 }
 
 pub fn moment(marker: &str) -> Result<Option<Moment>, Never> {
-    let named = match marker.strip_suffix(SCRIPT) {
-        Some(named) => named,
-        None => marker,
-    };
+  let named = match marker.strip_suffix(SCRIPT) {
+    Some(named) => named,
+    None => marker,
+  };
 
-    Ok(match named.parse::<u64>() {
-        Ok(moment) => Some(Moment(moment)),
-        Err(_not_a_moment) => None,
-    })
+  Ok(match named.parse::<u64>() {
+    Ok(moment) => Some(Moment(moment)),
+    Err(_not_a_moment) => None,
+  })
 }
 
 pub fn already(at: &Path) -> Result<Applied, Undone> {
-    let entries = match std::fs::read_dir(at) {
-        Ok(entries) => entries,
-        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
-            true => return Ok(Applied::Never),
-            false => return Err(Undone::Listing(at.to_path_buf(), fault)),
-        },
-    };
+  let entries = match std::fs::read_dir(at) {
+    Ok(entries) => entries,
+    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+      ::core::option::Option::Some(()) => return Ok(Applied::Never),
+      ::core::option::Option::None => return Err(Undone::Listing(at.to_path_buf(), fault)),
+    },
+  };
 
-    Ok(Applied::Before(
-        entries
-            .flatten()
-            .filter_map(|entry| {
-                let Ok(moment) = moment(&entry.file_name().to_string_lossy());
+  Ok(Applied::Before(
+    entries
+      .flatten()
+      .filter_map(|entry| {
+        let name = entry.file_name();
+        let text = name.to_str()?;
+        let Ok(moment) = moment(text);
 
-                moment
-            })
-            .collect(),
-    ))
+        moment
+      })
+      .collect(),
+  ))
 }
 
 pub fn marker(at: &Path, moment: Moment) -> Result<PathBuf, Never> {
-    Ok(at.join(moment.to_string()))
+  #[cfg_attr(
+    dylint_lib = "explicit086_no_climbing_join",
+    expect(
+      explicit086_no_climbing_join,
+      reason = "Moment displays only the decimal digits of its u64 timestamp"
+    )
+  )]
+  let path = at.join(moment.to_string());
+
+  Ok(path)
 }
 
 pub fn remember(at: &Path, moment: Moment) -> Result<(), Undone> {
-    std::fs::create_dir_all(at).map_err(|fault| Undone::Holding(at.to_path_buf(), fault))?;
+  std::fs::create_dir_all(at).map_err(|fault| Undone::Holding(at.to_path_buf(), fault))?;
 
-    let Ok(marker) = marker(at, moment);
+  let Ok(marker) = marker(at, moment);
 
-    console_core_atomic_writes::whole(&marker, b"").map_err(Undone::Marking)
+  console_core_atomic_writes::whole(&marker, b"").map_err(Undone::Marking)
 }
 
 pub fn attic(when: &str) -> Result<PathBuf, Never> {
-    Ok(PathBuf::from(format!("/var/tmp/console-migration-{when}")))
+  Ok(PathBuf::from(format!("/var/tmp/console-migration-{when}")))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn every(moments: &[u64]) -> Result<Vec<Migration>, Never> {
-        Ok(moments.iter().map(|moment| Migration { moment: Moment(*moment), says: "", steps: &[] }).collect())
-    }
+  fn every(moments: &[u64]) -> Result<Vec<Migration>, Never> {
+    Ok(
+      moments
+        .iter()
+        .map(|moment| Migration {
+          moment: Moment(*moment),
+          says: "",
+          steps: &[],
+        })
+        .collect(),
+    )
+  }
 
-    fn applied_before(moments: &[u64]) -> Result<Applied, Never> {
-        Ok(Applied::Before(moments.iter().map(|moment| Moment(*moment)).collect()))
-    }
+  fn applied_before(moments: &[u64]) -> Result<Applied, Never> {
+    Ok(Applied::Before(
+      moments.iter().map(|moment| Moment(*moment)).collect(),
+    ))
+  }
 
-    fn runs(moments: &[u64]) -> Result<Outstanding, Never> {
-        let Ok(every) = every(moments);
+  fn runs(moments: &[u64]) -> Result<Outstanding, Never> {
+    let Ok(every) = every(moments);
 
-        Ok(Outstanding::Run(every))
-    }
+    Ok(Outstanding::Run(every))
+  }
 
-    #[test]
-    fn a_machine_that_has_applied_and_run_nothing_has_all_of_them_pending() {
-        let Ok(every) = every(&[1780294774, 1784767406]);
-        let Ok(applied) = applied_before(&[]);
-        let Ok(outstanding) = pending(&every, &applied);
-        let Ok(expected) = runs(&[1780294774, 1784767406]);
+  #[test]
+  fn a_machine_that_has_applied_and_run_nothing_has_all_of_them_pending() {
+    let Ok(every) = every(&[1780294774, 1784767406]);
+    let Ok(applied) = applied_before(&[]);
+    let Ok(outstanding) = pending(&every, &applied);
+    let Ok(expected) = runs(&[1780294774, 1784767406]);
 
-        assert_eq!(outstanding, expected);
-    }
+    assert_eq!(outstanding, expected);
+  }
 
-    #[test]
-    fn one_already_run_is_not_run_again() {
-        let Ok(every) = every(&[1780294774, 1784767406]);
-        let Ok(applied) = applied_before(&[1780294774]);
-        let Ok(outstanding) = pending(&every, &applied);
-        let Ok(expected) = runs(&[1784767406]);
+  #[test]
+  fn one_already_run_is_not_run_again() {
+    let Ok(every) = every(&[1780294774, 1784767406]);
+    let Ok(applied) = applied_before(&[1780294774]);
+    let Ok(outstanding) = pending(&every, &applied);
+    let Ok(expected) = runs(&[1784767406]);
 
-        assert_eq!(outstanding, expected);
-    }
+    assert_eq!(outstanding, expected);
+  }
 
-    #[test]
-    fn what_is_pending_comes_back_oldest_first() {
-        let Ok(every) = every(&[1780294774, 1784767406, 1787618700]);
-        let Ok(applied) = applied_before(&[1784767406]);
-        let Ok(outstanding) = pending(&every, &applied);
-        let Ok(expected) = runs(&[1780294774, 1787618700]);
+  #[test]
+  fn what_is_pending_comes_back_oldest_first() {
+    let Ok(every) = every(&[1780294774, 1784767406, 1787618700]);
+    let Ok(applied) = applied_before(&[1784767406]);
+    let Ok(outstanding) = pending(&every, &applied);
+    let Ok(expected) = runs(&[1780294774, 1787618700]);
 
-        assert_eq!(outstanding, expected);
-    }
+    assert_eq!(outstanding, expected);
+  }
 
-    #[test]
-    fn a_machine_that_has_run_them_all_has_nothing_pending() {
-        let Ok(every) = every(&[1780294774]);
-        let Ok(applied) = applied_before(&[1780294774]);
-        let Ok(outstanding) = pending(&every, &applied);
-        let Ok(expected) = runs(&[]);
+  #[test]
+  fn a_machine_that_has_run_them_all_has_nothing_pending() {
+    let Ok(every) = every(&[1780294774]);
+    let Ok(applied) = applied_before(&[1780294774]);
+    let Ok(outstanding) = pending(&every, &applied);
+    let Ok(expected) = runs(&[]);
 
-        assert_eq!(outstanding, expected);
-    }
+    assert_eq!(outstanding, expected);
+  }
 
-    #[test]
-    fn a_machine_that_has_never_applied_remembers_every_one_and_runs_none() {
-        let Ok(every) = every(&[1780294774, 1784767406]);
-        let Ok(outstanding) = pending(&every, &Applied::Never);
+  #[test]
+  fn a_machine_that_has_never_applied_remembers_every_one_and_runs_none() {
+    let Ok(every) = every(&[1780294774, 1784767406]);
+    let Ok(outstanding) = pending(&every, &Applied::Never);
 
-        assert_eq!(outstanding, Outstanding::Remember(every));
-    }
+    assert_eq!(outstanding, Outstanding::Remember(every));
+  }
 
-    #[test]
-    fn a_marker_the_scripts_wrote_is_the_same_migration_as_one_written_now() {
-        let Ok(script) = moment("1788609965.sh");
-        let Ok(step) = moment("1788609965");
+  #[test]
+  fn a_marker_the_scripts_wrote_is_the_same_migration_as_one_written_now() {
+    let Ok(script) = moment("1788609965.sh");
+    let Ok(step) = moment("1788609965");
 
-        assert_eq!(script, Some(Moment(1788609965)));
-        assert_eq!(step, script);
-    }
+    assert_eq!(script, Some(Moment(1788609965)));
+    assert_eq!(step, script);
+  }
 
-    #[test]
-    fn a_marker_that_is_not_a_moment_is_not_a_migration() {
-        let Ok(helper) = moment("attic.sh");
-        let Ok(longer) = moment("1788609965.sh.bak");
+  #[test]
+  fn a_marker_that_is_not_a_moment_is_not_a_migration() {
+    let Ok(helper) = moment("attic.sh");
+    let Ok(longer) = moment("1788609965.sh.bak");
 
-        assert_eq!(helper, None);
-        assert_eq!(longer, None);
-    }
+    assert_eq!(helper, None);
+    assert_eq!(longer, None);
+  }
 
-    #[test]
-    fn a_marker_directory_that_is_not_there_is_a_machine_that_has_never_applied() -> Result<(), Undone> {
-        let applied = already(Path::new("/nowhere/console/migrations"))?;
+  #[test]
+  fn a_marker_directory_that_is_not_there_is_a_machine_that_has_never_applied()
+  -> Result<(), Undone> {
+    let applied = already(Path::new("/nowhere/console/migrations"))?;
 
-        assert_eq!(applied, Applied::Never);
+    assert_eq!(applied, Applied::Never);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_marker_directory_that_is_there_and_empty_is_a_machine_that_has_applied() -> Result<(), Box<dyn std::error::Error>> {
-        let at = console_core_temporary_directories::fresh("done")?;
-        let applied = already(&at)?;
+  #[test]
+  fn a_marker_directory_that_is_there_and_empty_is_a_machine_that_has_applied()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let at = console_core_temporary_directories::fresh("done")?;
+    let applied = already(&at)?;
 
-        assert_eq!(applied, Applied::Before(BTreeSet::new()));
+    assert_eq!(applied, Applied::Before(BTreeSet::new()));
 
-        let _ = std::fs::remove_dir_all(&at);
+    std::fs::remove_dir_all(&at)?;
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

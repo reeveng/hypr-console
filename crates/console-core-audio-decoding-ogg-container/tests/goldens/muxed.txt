@@ -1,0 +1,244 @@
+== muxed
+-- gapless Disabled
+track 0xdea2e76d CodecParameters { codec: CodecType(8192), sample_rate: Some(16000), time_base: Some(TimeBase { numer: 1, denom: 16000 }), n_frames: Some(14400), start_ts: 0, sample_format: None, bits_per_sample: Some(16), bits_per_coded_sample: None, channels: Some(FRONT_LEFT), channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Guaranteed, verification_check: Some(Md5([251, 211, 162, 210, 137, 158, 46, 124, 160, 72, 194, 18, 64, 221, 186, 42])), frames_per_block: None, extra_data: None } extra Some((34, 4011204079))
+track 0xef4752aa CodecParameters { codec: CodecType(4096), sample_rate: Some(22050), time_base: Some(TimeBase { numer: 1, denom: 22050 }), n_frames: Some(28665), start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: Some(FRONT_LEFT | FRONT_RIGHT), channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: None } extra Some((3572, 3118777148))
+tag { std_key=Encoder, key="encoder", value=Lavc63.1.102 libvorbis }
+tag { std_key=TrackTitle, key="title", value=Tone }
+tag { std_key=Artist, key="artist", value=Test }
+visuals 0
+ended after 57 packets: end of stream
+packet 0xef4752aa ts 0 dur 0 trim 0 0 len 39 crc 0xce17ba09
+packet 0xef4752aa ts 0 dur 512 trim 0 0 len 37 crc 0x98203a5f
+packet 0xef4752aa ts 512 dur 512 trim 0 0 len 36 crc 0xada79006
+packet 0xef4752aa ts 1024 dur 512 trim 0 0 len 36 crc 0xed7e3521
+packet 0xef4752aa ts 1536 dur 512 trim 0 0 len 35 crc 0x839871ca
+packet 0xef4752aa ts 2048 dur 512 trim 0 0 len 37 crc 0x29b5c34
+packet 0xef4752aa ts 2560 dur 512 trim 0 0 len 34 crc 0x8ae16a10
+packet 0xef4752aa ts 3072 dur 512 trim 0 0 len 36 crc 0xb0fa60ae
+packet 0xef4752aa ts 3584 dur 512 trim 0 0 len 36 crc 0x2ebf7787
+packet 0xef4752aa ts 4096 dur 512 trim 0 0 len 37 crc 0xf9e7e8d2
+packet 0xef4752aa ts 4608 dur 512 trim 0 0 len 36 crc 0x37930c38
+packet 0xef4752aa ts 5120 dur 512 trim 0 0 len 33 crc 0x1680d137
+packet 0xef4752aa ts 5632 dur 512 trim 0 0 len 37 crc 0x913df224
+packet 0xef4752aa ts 6144 dur 512 trim 0 0 len 37 crc 0xa9f94545
+packet 0xef4752aa ts 6656 dur 512 trim 0 0 len 36 crc 0x91966317
+packet 0xef4752aa ts 7168 dur 512 trim 0 0 len 36 crc 0xf4eb8d65
+packet 0xef4752aa ts 7680 dur 512 trim 0 0 len 34 crc 0x845a1bad
+packet 0xef4752aa ts 8192 dur 512 trim 0 0 len 37 crc 0x4237e54d
+packet 0xef4752aa ts 8704 dur 512 trim 0 0 len 35 crc 0xc83cb391
+packet 0xef4752aa ts 9216 dur 512 trim 0 0 len 36 crc 0xbd3ec5f2
+packet 0xef4752aa ts 9728 dur 512 trim 0 0 len 36 crc 0xf1445666
+packet 0xef4752aa ts 10240 dur 512 trim 0 0 len 37 crc 0xdec067fd
+packet 0xef4752aa ts 10752 dur 512 trim 0 0 len 37 crc 0xb8d0d7a4
+packet 0xef4752aa ts 11264 dur 512 trim 0 0 len 33 crc 0xdb1ff24f
+packet 0xef4752aa ts 11776 dur 512 trim 0 0 len 38 crc 0xfa480a19
+packet 0xef4752aa ts 12288 dur 512 trim 0 0 len 37 crc 0xb99b611a
+packet 0xef4752aa ts 12800 dur 512 trim 0 0 len 34 crc 0x99b6e113
+packet 0xef4752aa ts 13312 dur 512 trim 0 0 len 37 crc 0x5a87a5b8
+packet 0xef4752aa ts 13824 dur 512 trim 0 0 len 38 crc 0x5997dce7
+packet 0xef4752aa ts 14336 dur 512 trim 0 0 len 38 crc 0xe8cc7a53
+packet 0xef4752aa ts 14848 dur 512 trim 0 0 len 37 crc 0xd025ec8e
+packet 0xef4752aa ts 15360 dur 512 trim 0 0 len 37 crc 0x8f739b67
+packet 0xef4752aa ts 15872 dur 512 trim 0 0 len 36 crc 0x1667864
+packet 0xef4752aa ts 16384 dur 512 trim 0 0 len 36 crc 0x5acba179
+packet 0xef4752aa ts 16896 dur 512 trim 0 0 len 35 crc 0x6f7607ae
+packet 0xef4752aa ts 17408 dur 512 trim 0 0 len 37 crc 0x5ae816de
+packet 0xef4752aa ts 17920 dur 512 trim 0 0 len 34 crc 0xcb2ba3e4
+packet 0xef4752aa ts 18432 dur 512 trim 0 0 len 36 crc 0x42f4f989
+packet 0xef4752aa ts 18944 dur 512 trim 0 0 len 36 crc 0x15c35065
+packet 0xef4752aa ts 19456 dur 512 trim 0 0 len 37 crc 0xadcf6c38
+packet 0xef4752aa ts 19968 dur 512 trim 0 0 len 37 crc 0x3540786a
+packet 0xef4752aa ts 20480 dur 512 trim 0 0 len 33 crc 0xc66816c9
+packet 0xef4752aa ts 20992 dur 512 trim 0 0 len 36 crc 0x2eefc38e
+packet 0xef4752aa ts 21504 dur 512 trim 0 0 len 37 crc 0x81a2f833
+packet 0xef4752aa ts 22016 dur 512 trim 0 0 len 37 crc 0x8fa1625d
+packet 0xef4752aa ts 22521 dur 512 trim 0 0 len 36 crc 0x20b1a212
+packet 0xef4752aa ts 23033 dur 512 trim 0 0 len 34 crc 0x4128bc
+packet 0xef4752aa ts 23545 dur 512 trim 0 0 len 38 crc 0x9239e6f2
+packet 0xef4752aa ts 24057 dur 512 trim 0 0 len 35 crc 0x998da661
+packet 0xef4752aa ts 24569 dur 512 trim 0 0 len 36 crc 0xcf860f81
+packet 0xef4752aa ts 25081 dur 512 trim 0 0 len 36 crc 0x8e5f0d18
+packet 0xef4752aa ts 25593 dur 512 trim 0 0 len 37 crc 0x75a8cfaf
+packet 0xef4752aa ts 26105 dur 512 trim 0 0 len 37 crc 0x416211c2
+packet 0xef4752aa ts 26617 dur 512 trim 0 0 len 38 crc 0x9b8573fa
+packet 0xef4752aa ts 27129 dur 512 trim 0 0 len 37 crc 0x1fc07af9
+packet 0xef4752aa ts 27641 dur 512 trim 0 0 len 37 crc 0x29ab3f24
+packet 0xef4752aa ts 28153 dur 512 trim 0 0 len 42 crc 0x24a1cc9
+seek 0xdea2e76d 0 -> Ok(SeekedTo { track_id: 3735218029, required_ts: 0, actual_ts: 0 }) then Ok((0, 4096))
+seek 0xdea2e76d 1 -> Ok(SeekedTo { track_id: 3735218029, required_ts: 1, actual_ts: 0 }) then Ok((0, 4096))
+seek 0xdea2e76d 700 -> Ok(SeekedTo { track_id: 3735218029, required_ts: 700, actual_ts: 0 }) then Ok((0, 4096))
+seek 0xdea2e76d 4096 -> Ok(SeekedTo { track_id: 3735218029, required_ts: 4096, actual_ts: 0 }) then Ok((0, 4096))
+seek 0xdea2e76d 10000 -> Ok(SeekedTo { track_id: 3735218029, required_ts: 10000, actual_ts: 8192 }) then Ok((8192, 4096))
+seek 0xdea2e76d 22050 -> Err(SeekError(OutOfRange)) then Ok((12288, 2112))
+seek 0xdea2e76d 100000 -> Err(SeekError(OutOfRange)) then Ok((0, 0))
+seek 0xdea2e76d 400000 -> Err(SeekError(OutOfRange)) then Ok((0, 512))
+seek 0xdea2e76d 1000000000 -> Err(SeekError(OutOfRange)) then Ok((512, 512))
+seek 0xef4752aa 0 -> Ok(SeekedTo { track_id: 4014428842, required_ts: 0, actual_ts: 0 }) then Ok((0, 0))
+seek 0xef4752aa 1 -> Ok(SeekedTo { track_id: 4014428842, required_ts: 1, actual_ts: 0 }) then Ok((0, 512))
+seek 0xef4752aa 700 -> Ok(SeekedTo { track_id: 4014428842, required_ts: 700, actual_ts: 512 }) then Ok((512, 512))
+seek 0xef4752aa 4096 -> Ok(SeekedTo { track_id: 4014428842, required_ts: 4096, actual_ts: 3584 }) then Ok((3584, 512))
+seek 0xef4752aa 10000 -> Ok(SeekedTo { track_id: 4014428842, required_ts: 10000, actual_ts: 9728 }) then Ok((9728, 512))
+seek 0xef4752aa 22050 -> Ok(SeekedTo { track_id: 4014428842, required_ts: 22050, actual_ts: 22016 }) then Ok((22016, 512))
+seek 0xef4752aa 100000 -> Err(SeekError(OutOfRange)) then Ok((22521, 512))
+seek 0xef4752aa 400000 -> Err(SeekError(OutOfRange)) then Ok((23033, 512))
+seek 0xef4752aa 1000000000 -> Err(SeekError(OutOfRange)) then Ok((23545, 512))
+seek 0 s -> Ok(SeekedTo { track_id: 3735218029, required_ts: 0, actual_ts: 0 })
+seek 0.25 s -> Ok(SeekedTo { track_id: 3735218029, required_ts: 4000, actual_ts: 0 })
+seek 0.5 s -> Ok(SeekedTo { track_id: 3735218029, required_ts: 8000, actual_ts: 4096 })
+seek 3.5 s -> Err(SeekError(OutOfRange))
+seek 9 s -> Err(SeekError(OutOfRange))
+seek on no track -> Err(SeekError(InvalidTrack))
+-- gapless Enabled
+track 0xdea2e76d CodecParameters { codec: CodecType(8192), sample_rate: Some(16000), time_base: Some(TimeBase { numer: 1, denom: 16000 }), n_frames: Some(14400), start_ts: 0, sample_format: None, bits_per_sample: Some(16), bits_per_coded_sample: None, channels: Some(FRONT_LEFT), channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Guaranteed, verification_check: Some(Md5([251, 211, 162, 210, 137, 158, 46, 124, 160, 72, 194, 18, 64, 221, 186, 42])), frames_per_block: None, extra_data: None } extra Some((34, 4011204079))
+track 0xef4752aa CodecParameters { codec: CodecType(4096), sample_rate: Some(22050), time_base: Some(TimeBase { numer: 1, denom: 22050 }), n_frames: Some(28665), start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: Some(FRONT_LEFT | FRONT_RIGHT), channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: None } extra Some((3572, 3118777148))
+tag { std_key=Encoder, key="encoder", value=Lavc63.1.102 libvorbis }
+tag { std_key=TrackTitle, key="title", value=Tone }
+tag { std_key=Artist, key="artist", value=Test }
+visuals 0
+ended after 57 packets: end of stream
+packet 0xef4752aa ts 0 dur 0 trim 0 0 len 39 crc 0xce17ba09
+packet 0xef4752aa ts 0 dur 512 trim 0 0 len 37 crc 0x98203a5f
+packet 0xef4752aa ts 512 dur 512 trim 0 0 len 36 crc 0xada79006
+packet 0xef4752aa ts 1024 dur 512 trim 0 0 len 36 crc 0xed7e3521
+packet 0xef4752aa ts 1536 dur 512 trim 0 0 len 35 crc 0x839871ca
+packet 0xef4752aa ts 2048 dur 512 trim 0 0 len 37 crc 0x29b5c34
+packet 0xef4752aa ts 2560 dur 512 trim 0 0 len 34 crc 0x8ae16a10
+packet 0xef4752aa ts 3072 dur 512 trim 0 0 len 36 crc 0xb0fa60ae
+packet 0xef4752aa ts 3584 dur 512 trim 0 0 len 36 crc 0x2ebf7787
+packet 0xef4752aa ts 4096 dur 512 trim 0 0 len 37 crc 0xf9e7e8d2
+packet 0xef4752aa ts 4608 dur 512 trim 0 0 len 36 crc 0x37930c38
+packet 0xef4752aa ts 5120 dur 512 trim 0 0 len 33 crc 0x1680d137
+packet 0xef4752aa ts 5632 dur 512 trim 0 0 len 37 crc 0x913df224
+packet 0xef4752aa ts 6144 dur 512 trim 0 0 len 37 crc 0xa9f94545
+packet 0xef4752aa ts 6656 dur 512 trim 0 0 len 36 crc 0x91966317
+packet 0xef4752aa ts 7168 dur 512 trim 0 0 len 36 crc 0xf4eb8d65
+packet 0xef4752aa ts 7680 dur 512 trim 0 0 len 34 crc 0x845a1bad
+packet 0xef4752aa ts 8192 dur 512 trim 0 0 len 37 crc 0x4237e54d
+packet 0xef4752aa ts 8704 dur 512 trim 0 0 len 35 crc 0xc83cb391
+packet 0xef4752aa ts 9216 dur 512 trim 0 0 len 36 crc 0xbd3ec5f2
+packet 0xef4752aa ts 9728 dur 512 trim 0 0 len 36 crc 0xf1445666
+packet 0xef4752aa ts 10240 dur 512 trim 0 0 len 37 crc 0xdec067fd
+packet 0xef4752aa ts 10752 dur 512 trim 0 0 len 37 crc 0xb8d0d7a4
+packet 0xef4752aa ts 11264 dur 512 trim 0 0 len 33 crc 0xdb1ff24f
+packet 0xef4752aa ts 11776 dur 512 trim 0 0 len 38 crc 0xfa480a19
+packet 0xef4752aa ts 12288 dur 512 trim 0 0 len 37 crc 0xb99b611a
+packet 0xef4752aa ts 12800 dur 512 trim 0 0 len 34 crc 0x99b6e113
+packet 0xef4752aa ts 13312 dur 512 trim 0 0 len 37 crc 0x5a87a5b8
+packet 0xef4752aa ts 13824 dur 512 trim 0 0 len 38 crc 0x5997dce7
+packet 0xef4752aa ts 14336 dur 512 trim 0 0 len 38 crc 0xe8cc7a53
+packet 0xef4752aa ts 14848 dur 512 trim 0 0 len 37 crc 0xd025ec8e
+packet 0xef4752aa ts 15360 dur 512 trim 0 0 len 37 crc 0x8f739b67
+packet 0xef4752aa ts 15872 dur 512 trim 0 0 len 36 crc 0x1667864
+packet 0xef4752aa ts 16384 dur 512 trim 0 0 len 36 crc 0x5acba179
+packet 0xef4752aa ts 16896 dur 512 trim 0 0 len 35 crc 0x6f7607ae
+packet 0xef4752aa ts 17408 dur 512 trim 0 0 len 37 crc 0x5ae816de
+packet 0xef4752aa ts 17920 dur 512 trim 0 0 len 34 crc 0xcb2ba3e4
+packet 0xef4752aa ts 18432 dur 512 trim 0 0 len 36 crc 0x42f4f989
+packet 0xef4752aa ts 18944 dur 512 trim 0 0 len 36 crc 0x15c35065
+packet 0xef4752aa ts 19456 dur 512 trim 0 0 len 37 crc 0xadcf6c38
+packet 0xef4752aa ts 19968 dur 512 trim 0 0 len 37 crc 0x3540786a
+packet 0xef4752aa ts 20480 dur 512 trim 0 0 len 33 crc 0xc66816c9
+packet 0xef4752aa ts 20992 dur 512 trim 0 0 len 36 crc 0x2eefc38e
+packet 0xef4752aa ts 21504 dur 512 trim 0 0 len 37 crc 0x81a2f833
+packet 0xef4752aa ts 22016 dur 512 trim 0 0 len 37 crc 0x8fa1625d
+packet 0xef4752aa ts 22521 dur 512 trim 0 0 len 36 crc 0x20b1a212
+packet 0xef4752aa ts 23033 dur 512 trim 0 0 len 34 crc 0x4128bc
+packet 0xef4752aa ts 23545 dur 512 trim 0 0 len 38 crc 0x9239e6f2
+packet 0xef4752aa ts 24057 dur 512 trim 0 0 len 35 crc 0x998da661
+packet 0xef4752aa ts 24569 dur 512 trim 0 0 len 36 crc 0xcf860f81
+packet 0xef4752aa ts 25081 dur 512 trim 0 0 len 36 crc 0x8e5f0d18
+packet 0xef4752aa ts 25593 dur 512 trim 0 0 len 37 crc 0x75a8cfaf
+packet 0xef4752aa ts 26105 dur 512 trim 0 0 len 37 crc 0x416211c2
+packet 0xef4752aa ts 26617 dur 512 trim 0 0 len 38 crc 0x9b8573fa
+packet 0xef4752aa ts 27129 dur 512 trim 0 0 len 37 crc 0x1fc07af9
+packet 0xef4752aa ts 27641 dur 512 trim 0 0 len 37 crc 0x29ab3f24
+packet 0xef4752aa ts 28153 dur 512 trim 0 0 len 42 crc 0x24a1cc9
+seek 0xdea2e76d 0 -> Ok(SeekedTo { track_id: 3735218029, required_ts: 0, actual_ts: 0 }) then Ok((0, 4096))
+seek 0xdea2e76d 1 -> Ok(SeekedTo { track_id: 3735218029, required_ts: 1, actual_ts: 0 }) then Ok((0, 4096))
+seek 0xdea2e76d 700 -> Ok(SeekedTo { track_id: 3735218029, required_ts: 700, actual_ts: 0 }) then Ok((0, 4096))
+seek 0xdea2e76d 4096 -> Ok(SeekedTo { track_id: 3735218029, required_ts: 4096, actual_ts: 0 }) then Ok((0, 4096))
+seek 0xdea2e76d 10000 -> Ok(SeekedTo { track_id: 3735218029, required_ts: 10000, actual_ts: 8192 }) then Ok((8192, 4096))
+seek 0xdea2e76d 22050 -> Err(SeekError(OutOfRange)) then Ok((12288, 2112))
+seek 0xdea2e76d 100000 -> Err(SeekError(OutOfRange)) then Ok((0, 0))
+seek 0xdea2e76d 400000 -> Err(SeekError(OutOfRange)) then Ok((0, 512))
+seek 0xdea2e76d 1000000000 -> Err(SeekError(OutOfRange)) then Ok((512, 512))
+seek 0xef4752aa 0 -> Ok(SeekedTo { track_id: 4014428842, required_ts: 0, actual_ts: 0 }) then Ok((0, 0))
+seek 0xef4752aa 1 -> Ok(SeekedTo { track_id: 4014428842, required_ts: 1, actual_ts: 0 }) then Ok((0, 512))
+seek 0xef4752aa 700 -> Ok(SeekedTo { track_id: 4014428842, required_ts: 700, actual_ts: 512 }) then Ok((512, 512))
+seek 0xef4752aa 4096 -> Ok(SeekedTo { track_id: 4014428842, required_ts: 4096, actual_ts: 3584 }) then Ok((3584, 512))
+seek 0xef4752aa 10000 -> Ok(SeekedTo { track_id: 4014428842, required_ts: 10000, actual_ts: 9728 }) then Ok((9728, 512))
+seek 0xef4752aa 22050 -> Ok(SeekedTo { track_id: 4014428842, required_ts: 22050, actual_ts: 22016 }) then Ok((22016, 512))
+seek 0xef4752aa 100000 -> Err(SeekError(OutOfRange)) then Ok((22521, 512))
+seek 0xef4752aa 400000 -> Err(SeekError(OutOfRange)) then Ok((23033, 512))
+seek 0xef4752aa 1000000000 -> Err(SeekError(OutOfRange)) then Ok((23545, 512))
+seek 0 s -> Ok(SeekedTo { track_id: 3735218029, required_ts: 0, actual_ts: 0 })
+seek 0.25 s -> Ok(SeekedTo { track_id: 3735218029, required_ts: 4000, actual_ts: 0 })
+seek 0.5 s -> Ok(SeekedTo { track_id: 3735218029, required_ts: 8000, actual_ts: 4096 })
+seek 3.5 s -> Err(SeekError(OutOfRange))
+seek 9 s -> Err(SeekError(OutOfRange))
+seek on no track -> Err(SeekError(InvalidTrack))
+-- forward only
+track 0xdea2e76d CodecParameters { codec: CodecType(8192), sample_rate: Some(16000), time_base: Some(TimeBase { numer: 1, denom: 16000 }), n_frames: Some(14400), start_ts: 0, sample_format: None, bits_per_sample: Some(16), bits_per_coded_sample: None, channels: Some(FRONT_LEFT), channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Guaranteed, verification_check: Some(Md5([251, 211, 162, 210, 137, 158, 46, 124, 160, 72, 194, 18, 64, 221, 186, 42])), frames_per_block: None, extra_data: None } extra Some((34, 4011204079))
+track 0xef4752aa CodecParameters { codec: CodecType(4096), sample_rate: Some(22050), time_base: Some(TimeBase { numer: 1, denom: 22050 }), n_frames: None, start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: Some(FRONT_LEFT | FRONT_RIGHT), channel_layout: None, delay: None, padding: None, max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: None } extra Some((3572, 3118777148))
+tag { std_key=Encoder, key="encoder", value=Lavc63.1.102 libvorbis }
+tag { std_key=TrackTitle, key="title", value=Tone }
+tag { std_key=Artist, key="artist", value=Test }
+visuals 0
+ended after 57 packets: end of stream
+packet 0xef4752aa ts 0 dur 0 trim 0 0 len 39 crc 0xce17ba09
+packet 0xef4752aa ts 0 dur 512 trim 0 0 len 37 crc 0x98203a5f
+packet 0xef4752aa ts 512 dur 512 trim 0 0 len 36 crc 0xada79006
+packet 0xef4752aa ts 1024 dur 512 trim 0 0 len 36 crc 0xed7e3521
+packet 0xef4752aa ts 1536 dur 512 trim 0 0 len 35 crc 0x839871ca
+packet 0xef4752aa ts 2048 dur 512 trim 0 0 len 37 crc 0x29b5c34
+packet 0xef4752aa ts 2560 dur 512 trim 0 0 len 34 crc 0x8ae16a10
+packet 0xef4752aa ts 3072 dur 512 trim 0 0 len 36 crc 0xb0fa60ae
+packet 0xef4752aa ts 3584 dur 512 trim 0 0 len 36 crc 0x2ebf7787
+packet 0xef4752aa ts 4096 dur 512 trim 0 0 len 37 crc 0xf9e7e8d2
+packet 0xef4752aa ts 4608 dur 512 trim 0 0 len 36 crc 0x37930c38
+packet 0xef4752aa ts 5120 dur 512 trim 0 0 len 33 crc 0x1680d137
+packet 0xef4752aa ts 5632 dur 512 trim 0 0 len 37 crc 0x913df224
+packet 0xef4752aa ts 6144 dur 512 trim 0 0 len 37 crc 0xa9f94545
+packet 0xef4752aa ts 6656 dur 512 trim 0 0 len 36 crc 0x91966317
+packet 0xef4752aa ts 7168 dur 512 trim 0 0 len 36 crc 0xf4eb8d65
+packet 0xef4752aa ts 7680 dur 512 trim 0 0 len 34 crc 0x845a1bad
+packet 0xef4752aa ts 8192 dur 512 trim 0 0 len 37 crc 0x4237e54d
+packet 0xef4752aa ts 8704 dur 512 trim 0 0 len 35 crc 0xc83cb391
+packet 0xef4752aa ts 9216 dur 512 trim 0 0 len 36 crc 0xbd3ec5f2
+packet 0xef4752aa ts 9728 dur 512 trim 0 0 len 36 crc 0xf1445666
+packet 0xef4752aa ts 10240 dur 512 trim 0 0 len 37 crc 0xdec067fd
+packet 0xef4752aa ts 10752 dur 512 trim 0 0 len 37 crc 0xb8d0d7a4
+packet 0xef4752aa ts 11264 dur 512 trim 0 0 len 33 crc 0xdb1ff24f
+packet 0xef4752aa ts 11776 dur 512 trim 0 0 len 38 crc 0xfa480a19
+packet 0xef4752aa ts 12288 dur 512 trim 0 0 len 37 crc 0xb99b611a
+packet 0xef4752aa ts 12800 dur 512 trim 0 0 len 34 crc 0x99b6e113
+packet 0xef4752aa ts 13312 dur 512 trim 0 0 len 37 crc 0x5a87a5b8
+packet 0xef4752aa ts 13824 dur 512 trim 0 0 len 38 crc 0x5997dce7
+packet 0xef4752aa ts 14336 dur 512 trim 0 0 len 38 crc 0xe8cc7a53
+packet 0xef4752aa ts 14848 dur 512 trim 0 0 len 37 crc 0xd025ec8e
+packet 0xef4752aa ts 15360 dur 512 trim 0 0 len 37 crc 0x8f739b67
+packet 0xef4752aa ts 15872 dur 512 trim 0 0 len 36 crc 0x1667864
+packet 0xef4752aa ts 16384 dur 512 trim 0 0 len 36 crc 0x5acba179
+packet 0xef4752aa ts 16896 dur 512 trim 0 0 len 35 crc 0x6f7607ae
+packet 0xef4752aa ts 17408 dur 512 trim 0 0 len 37 crc 0x5ae816de
+packet 0xef4752aa ts 17920 dur 512 trim 0 0 len 34 crc 0xcb2ba3e4
+packet 0xef4752aa ts 18432 dur 512 trim 0 0 len 36 crc 0x42f4f989
+packet 0xef4752aa ts 18944 dur 512 trim 0 0 len 36 crc 0x15c35065
+packet 0xef4752aa ts 19456 dur 512 trim 0 0 len 37 crc 0xadcf6c38
+packet 0xef4752aa ts 19968 dur 512 trim 0 0 len 37 crc 0x3540786a
+packet 0xef4752aa ts 20480 dur 512 trim 0 0 len 33 crc 0xc66816c9
+packet 0xef4752aa ts 20992 dur 512 trim 0 0 len 36 crc 0x2eefc38e
+packet 0xef4752aa ts 21504 dur 512 trim 0 0 len 37 crc 0x81a2f833
+packet 0xef4752aa ts 22016 dur 512 trim 0 0 len 37 crc 0x8fa1625d
+packet 0xef4752aa ts 22521 dur 512 trim 0 0 len 36 crc 0x20b1a212
+packet 0xef4752aa ts 23033 dur 512 trim 0 0 len 34 crc 0x4128bc
+packet 0xef4752aa ts 23545 dur 512 trim 0 0 len 38 crc 0x9239e6f2
+packet 0xef4752aa ts 24057 dur 512 trim 0 0 len 35 crc 0x998da661
+packet 0xef4752aa ts 24569 dur 512 trim 0 0 len 36 crc 0xcf860f81
+packet 0xef4752aa ts 25081 dur 512 trim 0 0 len 36 crc 0x8e5f0d18
+packet 0xef4752aa ts 25593 dur 512 trim 0 0 len 37 crc 0x75a8cfaf
+packet 0xef4752aa ts 26105 dur 512 trim 0 0 len 37 crc 0x416211c2
+packet 0xef4752aa ts 26617 dur 512 trim 0 0 len 38 crc 0x9b8573fa
+packet 0xef4752aa ts 27129 dur 512 trim 0 0 len 37 crc 0x1fc07af9
+packet 0xef4752aa ts 27641 dur 512 trim 0 0 len 37 crc 0x29ab3f24
+packet 0xef4752aa ts 28153 dur 512 trim 0 0 len 42 crc 0x24a1cc9

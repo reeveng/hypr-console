@@ -1,0 +1,7 @@
+[[explicit008_enum_families]]
+module = "console_core_video_decoding_av1::src::itx"
+enum = "crate::src::itx::DcShortcut"
+when_true = "Available"
+when_false = "Unavailable"
+sources = ["console-core-video-decoding-av1/src/itx.rs"]
+members = { inv_txfm_add = "has_dc_only", inv_txfm_add_body = "has_dc_only" }

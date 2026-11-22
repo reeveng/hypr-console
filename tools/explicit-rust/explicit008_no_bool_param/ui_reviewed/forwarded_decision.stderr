@@ -1,0 +1,26 @@
+error: boolean parameter is forbidden
+  --> $DIR/forwarded_decision.rs:12:20
+   |
+LL | fn direction(flip: bool) -> i32 {
+   |                    ^^^^
+   |
+   = note: `#[deny(explicit008_no_bool_param)]` on by default
+help: propagate the reviewed enum through this function family
+   |
+LL ~ fn direction(flip: crate::Order) -> i32 {
+LL |     match flip {
+LL ~         crate::Order::Reversed => -1,
+LL ~         crate::Order::Normal => 1,
+LL |     }
+...
+LL | fn with_specialized_order<const FLIPPED: bool>() -> i32 {
+LL ~     direction(match ::core::primitive::bool::then_some(FLIPPED, ()) { ::core::option::Option::Some(()) => crate::Order::Reversed, ::core::option::Option::None => crate::Order::Normal })
+LL | }
+LL |
+LL | fn main() {
+LL ~     let _ = by_literal!(crate::Order::Reversed);
+LL ~     let _ = by_literal!(crate::Order::Normal);
+   |
+
+error: aborting due to 1 previous error
+

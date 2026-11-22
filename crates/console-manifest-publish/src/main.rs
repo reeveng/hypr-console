@@ -21,7 +21,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use console_core_arguments::{Command, Operands, ValidationError};
+use console_core_arguments::{Command, Flag, Operands, Presence, Takes, ValidationError};
 use console_core_directory_listing::{Descend, Unlisted};
 use console_core_external_programs::Program;
 use console_core_never::Never;
@@ -29,351 +29,401 @@ use console_manifest_publish::names::{self, Watched};
 use console_manifest_publish::papers;
 use console_manifest_publish::tree;
 use console_repository::tracked::{Untracked, tracked};
+use console_repository::{InvalidRelativePath, RelativePath};
 
 fn main() -> ExitCode {
-    let said: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(code) = console_core_arguments::run_main(&COMMAND, &said, copy, run);
+  let said: Vec<String> = std::env::args().skip(1).collect();
+  let Ok(code) = console_core_arguments::run_main(&COMMAND, &said, copy, run);
 
-    code
+  code
 }
 
 #[derive(Debug)]
 enum Unpublished {
-    Rootless(console_repository::NotFound),
-    Read(PathBuf, std::io::Error),
-    Uncleared(PathBuf, std::io::Error),
-    Holding(PathBuf, std::io::Error),
-    Unwritten(console_core_atomic_writes::Unwritten),
-    Unset(PathBuf, std::io::Error),
-    NotAName(PathBuf),
-    Untracked(Untracked),
+  Rootless(console_repository::NotFound),
+  Read(PathBuf, std::io::Error),
+  Uncleared(PathBuf, std::io::Error),
+  Holding(PathBuf, std::io::Error),
+  Unwritten(console_core_atomic_writes::Unwritten),
+  NotAName(PathBuf),
+  InvalidPath(InvalidRelativePath),
+  Untracked(Untracked),
 }
 
 impl std::fmt::Display for Unpublished {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unpublished::Rootless(fault) => write!(to, "{fault}"),
-            Unpublished::Read(at, fault) => {
-                write!(to, "{} could not be read: {fault}", at.display())
-            }
-            Unpublished::Uncleared(at, fault) => {
-                write!(to, "{} could not be cleared: {fault}", at.display())
-            }
-            Unpublished::Holding(at, fault) => {
-                write!(to, "{} could not be made: {fault}", at.display())
-            }
-            Unpublished::Unwritten(fault) => write!(to, "{fault}"),
-            Unpublished::Unset(at, fault) => {
-                write!(to, "{} could not be set: {fault}", at.display())
-            }
-            Unpublished::NotAName(at) => {
-                write!(to, "{} is not a name git can be given", at.display())
-            }
-            Unpublished::Untracked(fault) => write!(to, "{fault}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unpublished::Rootless(fault) => write!(to, "{fault}"),
+      Unpublished::Read(at, fault) => {
+        write!(to, "{} could not be read: {fault}", at.display())
+      }
+      Unpublished::Uncleared(at, fault) => {
+        write!(to, "{} could not be cleared: {fault}", at.display())
+      }
+      Unpublished::Holding(at, fault) => {
+        write!(to, "{} could not be made: {fault}", at.display())
+      }
+      Unpublished::Unwritten(fault) => write!(to, "{fault}"),
+      Unpublished::NotAName(at) => {
+        write!(to, "{} is not a name git can be given", at.display())
+      }
+      Unpublished::InvalidPath(fault) => write!(to, "{fault}"),
+      Unpublished::Untracked(fault) => write!(to, "{fault}"),
     }
+  }
 }
 
 impl std::error::Error for Unpublished {}
 
 impl From<console_repository::NotFound> for Unpublished {
-    fn from(fault: console_repository::NotFound) -> Self {
-        Unpublished::Rootless(fault)
-    }
+  fn from(fault: console_repository::NotFound) -> Self {
+    Unpublished::Rootless(fault)
+  }
 }
 
 const COPY: [&str; 1] = ["COPY"];
 
-const COMMAND: Command = Command {
-    name: "console-manifest-publish",
-    about: "build the public copy of this tree at COPY, with no one's name in it",
-    flags: &[],
-    operands: Operands::Named(&COPY),
+const EXPORT_ONLY: Flag = Flag {
+  spelling: "--export-only",
+  takes: Takes::None,
+  about: "check the public copy for private names and leave the build to CI",
 };
 
-fn copy(said: &[String]) -> Result<PathBuf, ValidationError> {
-    let line = console_core_arguments::read(&COMMAND, said)?;
-    let [at] = line.exactly(COPY)?;
+const COMMAND: Command = Command {
+  name: "console-manifest-publish",
+  about: "build the public copy of this tree at COPY, with no one's name in it",
+  flags: &[EXPORT_ONLY],
+  operands: Operands::Named(&COPY),
+};
 
-    Ok(PathBuf::from(at))
+struct Publication {
+  where_: PathBuf,
+  export_only: Presence,
 }
 
-fn run(where_: PathBuf) -> Result<ExitCode, Unpublished> {
-    let repository = console_repository::root()?;
+fn copy(said: &[String]) -> Result<Publication, ValidationError> {
+  let line = console_core_arguments::read(&COMMAND, said)?;
+  let [at] = line.exactly(COPY)?;
+  let Ok(export_only) = line.presence(EXPORT_ONLY);
 
-    publish(&repository, &where_)?;
-    println!("built {}", where_.display());
-    check(&repository, &where_)
+  Ok(Publication {
+    where_: PathBuf::from(at),
+    export_only,
+  })
+}
+
+fn run(publication: Publication) -> Result<ExitCode, Unpublished> {
+  let Publication {
+    where_,
+    export_only,
+  } = publication;
+  let repository = console_repository::root()?;
+
+  publish(&repository, &where_)?;
+  println!("built {}", where_.display());
+  check(&repository, &where_, export_only)
 }
 
 const KEPT: [&str; 2] = [".git", "target"];
 
 fn clear_directory(where_: &Path) -> Result<(), Unpublished> {
-    let held = match std::fs::read_dir(where_) {
-        Ok(held) => held,
-        Err(_nothing_there) => return Ok(()),
-    };
+  let held = match std::fs::read_dir(where_) {
+    Ok(held) => held,
+    Err(_nothing_there) => return Ok(()),
+  };
 
-    for entry in held {
-        let entry = entry
-            .map_err(|fault| Unpublished::Read(where_.to_path_buf(), fault))?;
-        let name = entry.file_name();
-        let kept = KEPT.iter().any(|keep| std::ffi::OsStr::new(keep) == name);
+  for entry in held {
+    let entry_2 = entry.map_err(|fault| Unpublished::Read(where_.to_path_buf(), fault))?;
+    let name = entry_2.file_name();
+    let kept = KEPT.iter().any(|keep| std::ffi::OsStr::new(keep) == name);
 
-        match kept {
-            true => continue,
-            false => {}
-        }
-
-        let path = entry.path();
-        let what = entry
-            .file_type()
-            .map_err(|fault| Unpublished::Read(path.clone(), fault))?;
-
-        match what.is_dir() {
-            true => std::fs::remove_dir_all(&path),
-            false => std::fs::remove_file(&path),
-        }
-        .map_err(|fault| Unpublished::Uncleared(path.clone(), fault))?;
+    match ::core::primitive::bool::then_some(kept, ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
     }
 
-    Ok(())
+    let path = entry_2.path();
+    let what = entry_2
+      .file_type()
+      .map_err(|fault| Unpublished::Read(path.clone(), fault))?;
+
+    match ::core::primitive::bool::then_some(what.is_dir(), ()) {
+      ::core::option::Option::Some(()) => std::fs::remove_dir_all(&path),
+      ::core::option::Option::None => std::fs::remove_file(&path),
+    }
+    .map_err(|fault| Unpublished::Uncleared(path.clone(), fault))?;
+  }
+
+  Ok(())
 }
 
 fn publish(repository: &Path, where_: &Path) -> Result<(), Unpublished> {
-    clear_directory(where_)?;
+  clear_directory(where_)?;
 
-    std::fs::create_dir_all(where_)
-        .map_err(|fault| Unpublished::Holding(where_.to_path_buf(), fault))?;
+  std::fs::create_dir_all(where_)
+    .map_err(|fault| Unpublished::Holding(where_.to_path_buf(), fault))?;
 
-    let tracked = tracked_files(repository)?;
+  let tracked = tracked_files(repository)?;
 
-    let Ok(carried) = tree::binary_forks(tracked);
+  let Ok(carried) = tree::binary_forks(tracked);
 
-    for name in carried {
-        carry(&repository.join(&name), &where_.join(&name))?;
-    }
+  for name in carried {
+    let relative = RelativePath::new(Path::new(&name)).map_err(Unpublished::InvalidPath)?;
 
-    let manifest = where_.join(console_repository::MARK);
-    let held = read(&manifest)?;
-    let Ok(written) = tree::manifest(&held);
+    carry(&repository.join(&relative), &where_.join(&relative))?;
+  }
 
-    write(&manifest, &written)?;
-    write(&where_.join(papers::FORKS_AT), papers::FORKS)?;
-    write(&where_.join(papers::README_AT), papers::README)
+  let manifest = where_.join(console_repository::MARK);
+  let held = read(&manifest)?;
+  let Ok(written) = tree::manifest(&held);
+
+  write(&manifest, &written)?;
+  write(&where_.join(papers::FORKS_AT), papers::FORKS)?;
+  write(&where_.join(papers::README_AT), papers::README)
 }
 
 fn carry(source: &Path, target: &Path) -> Result<(), Unpublished> {
-    match target.parent() {
-        Some(holding) => std::fs::create_dir_all(holding)
-            .map_err(|fault| Unpublished::Holding(holding.to_path_buf(), fault))?,
-        None => {}
-    }
+  match target.parent() {
+    Some(holding) => std::fs::create_dir_all(holding)
+      .map_err(|fault| Unpublished::Holding(holding.to_path_buf(), fault))?,
+    None => {}
+  }
 
-    let held = std::fs::read(source)
-        .map_err(|fault| Unpublished::Read(source.to_path_buf(), fault))?;
+  let held =
+    std::fs::read(source).map_err(|fault| Unpublished::Read(source.to_path_buf(), fault))?;
 
-    console_core_atomic_writes::whole(target, &held).map_err(Unpublished::Unwritten)?;
+  let about =
+    std::fs::metadata(source).map_err(|fault| Unpublished::Read(source.to_path_buf(), fault))?;
 
-    let about = std::fs::metadata(source)
-        .map_err(|fault| Unpublished::Read(source.to_path_buf(), fault))?;
-    let how = about.permissions();
-
-    std::fs::set_permissions(target, how)
-        .map_err(|fault| Unpublished::Unset(target.to_path_buf(), fault))
+  console_core_atomic_writes::whole_with_permissions(target, &held, about.permissions())
+    .map_err(Unpublished::Unwritten)
 }
 
-fn check(repository: &Path, where_: &Path) -> Result<ExitCode, Unpublished> {
-    let Ok((names, missing)) = names::forbidden_names();
+fn check(
+  repository: &Path,
+  where_: &Path,
+  export_only: Presence,
+) -> Result<ExitCode, Unpublished> {
+  let Ok((names, missing)) = names::forbidden_names();
 
-    for said in &missing {
-        eprintln!("{said}");
+  for said in &missing {
+    eprintln!("{said}");
+  }
+
+  let said = files_naming(where_, &names)?;
+
+  match ::core::primitive::bool::then_some(said.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      eprintln!("still says too much:");
+
+      for (path, watched) in &said {
+        eprintln!(
+          "  {} says {}, which is {}",
+          path.display(),
+          watched.name,
+          watched.what
+        );
+      }
+
+      return Ok(ExitCode::FAILURE);
     }
+  }
 
-    let said = files_naming(where_, &names)?;
+  println!("nothing of anyone's name in it");
 
-    match said.is_empty() {
-        true => {}
-        false => {
-            eprintln!("still says too much:");
+  match (export_only, missing.is_empty()) {
+    (Presence::Present, true) => return Ok(ExitCode::SUCCESS),
+    (Presence::Present, false) => return Ok(ExitCode::FAILURE),
+    (Presence::Absent, _) => {}
+  }
 
-            for (path, watched) in &said {
-                eprintln!("  {} says {}, which is {}", path.display(), watched.name, watched.what);
-            }
+  let where_it_builds = [(
+    "CARGO_TARGET_DIR",
+    repository.join("target/published").display().to_string(),
+  )];
 
-            return Ok(ExitCode::FAILURE);
-        }
-    }
+  let Ok(built) = ran(
+    where_,
+    Program::Cargo,
+    &["build", "--quiet", "--workspace", "--all-features"],
+    &where_it_builds,
+  );
 
-    println!("nothing of anyone's name in it");
+  match built {
+    Passed::No => return Ok(ExitCode::FAILURE),
+    Passed::Yes => {}
+  }
 
-    let where_it_builds = [("CARGO_TARGET_DIR", repository.join("target/published").display().to_string())];
+  let Ok(passed) = ran(
+    where_,
+    Program::Cargo,
+    &["test", "--quiet", "--workspace", "--all-features"],
+    &where_it_builds,
+  );
 
-    let Ok(built) = ran(
-        where_,
-        Program::Cargo,
-        &["build", "--quiet", "--workspace", "--all-features"],
-        &where_it_builds,
-    );
-
-    match built {
-        Passed::No => return Ok(ExitCode::FAILURE),
-        Passed::Yes => {}
-    }
-
-    let Ok(passed) = ran(
-        where_,
-        Program::Cargo,
-        &["test", "--quiet", "--workspace", "--all-features"],
-        &where_it_builds,
-    );
-
-    Ok(match passed {
-        Passed::Yes => ExitCode::SUCCESS,
-        Passed::No => ExitCode::FAILURE,
-    })
+  Ok(match passed {
+    Passed::Yes => ExitCode::SUCCESS,
+    Passed::No => ExitCode::FAILURE,
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Passed {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
-fn ran(where_: &Path, program: Program, arguments: &[&str], told: &[(&str, String)]) -> Result<Passed, Never> {
-    let Ok(mut command) = program.command();
+fn ran(
+  where_: &Path,
+  program: Program,
+  arguments: &[&str],
+  told: &[(&str, String)],
+) -> Result<Passed, Never> {
+  let Ok(mut command) = program.command();
 
-    Ok(match command
-        .args(arguments)
-        .envs(told.iter().map(|(name, value)| (*name, value)))
-        .current_dir(where_)
-        .status()
+  Ok(
+    match command
+      .args(arguments)
+      .envs(told.iter().map(|(name, value)| (*name, value)))
+      .current_dir(where_)
+      .status()
     {
-        Ok(status) => match status.success() {
-            true => Passed::Yes,
-            false => Passed::No,
-        },
-        Err(fault) => {
-            let Ok(name) = program.name();
+      Ok(status) => match ::core::primitive::bool::then_some(status.success(), ()) {
+        ::core::option::Option::Some(()) => Passed::Yes,
+        ::core::option::Option::None => Passed::No,
+      },
+      Err(fault) => {
+        let Ok(name) = program.name();
 
-            eprintln!("{name} would not run: {fault}");
-            Passed::No
-        }
-    })
+        eprintln!("{name} would not run: {fault}");
+        Passed::No
+      }
+    },
+  )
 }
 
 fn files_naming<'a>(
-    where_: &Path,
-    names: &'a [Watched],
+  where_: &Path,
+  names: &'a [Watched],
 ) -> Result<Vec<(PathBuf, &'a Watched)>, Unpublished> {
-    let Ok(listing) = console_core_directory_listing::recursive(where_, |holding| {
-        let kept = holding
-            .file_name()
-            .is_some_and(|name| KEPT.iter().any(|keep| std::ffi::OsStr::new(keep) == name));
+  let Ok(listing) = console_core_directory_listing::recursive(where_, |holding| {
+    let kept = holding
+      .file_name()
+      .is_some_and(|name| KEPT.iter().any(|keep| std::ffi::OsStr::new(keep) == name));
 
-        match kept {
-            true => Descend::Past,
-            false => Descend::Into,
-        }
-    });
-    let mut said = Vec::new();
+    match ::core::primitive::bool::then_some(kept, ()) {
+      ::core::option::Option::Some(()) => Descend::Past,
+      ::core::option::Option::None => Descend::Into,
+    }
+  });
+  let mut said = Vec::new();
 
-    for entry in listing {
-        let path = entry.map_err(|Unlisted { directory, fault }| Unpublished::Read(directory, fault))?;
+  for entry in listing {
+    let path =
+      entry.map_err(|Unlisted { directory, fault }| Unpublished::Read(directory, fault))?;
 
-        let inside_the_copy = match path.strip_prefix(where_) {
-            Ok(inside_the_copy) => inside_the_copy,
-            Err(_outside_the_copy) => &path,
-        };
-        let Ok(named) = names::leaks(inside_the_copy.to_string_lossy().as_bytes(), names);
+    let inside_the_copy = match path.strip_prefix(where_) {
+      Ok(inside_the_copy) => inside_the_copy,
+      Err(_outside_the_copy) => &path,
+    };
+    let Ok(named) = names::leaks(inside_the_copy.as_os_str().as_encoded_bytes(), names);
 
-        match named {
-            Some(watched) => said.push((path.clone(), watched)),
-            None => {}
-        }
-
-        match path.is_dir() {
-            true => (),
-            false => {
-                let bytes = std::fs::read(&path)
-                    .map_err(|fault| Unpublished::Read(path.clone(), fault))?;
-                let Ok(leaks) = names::leaks(&bytes, names);
-
-                match leaks {
-                    Some(watched) => said.push((path, watched)),
-                    None => {}
-                }
-            },
-        }
+    match named {
+      Some(watched) => said.push((path.clone(), watched)),
+      None => {}
     }
 
-    said.sort_by(|(one, _), (other, _)| one.cmp(other));
-    Ok(said)
+    let bytes = match std::fs::read(&path) {
+      Ok(bytes) => bytes,
+      Err(fault) => match ::core::primitive::bool::then_some(
+        fault.kind() == std::io::ErrorKind::IsADirectory,
+        (),
+      ) {
+        ::core::option::Option::Some(()) => continue,
+        ::core::option::Option::None => return Err(Unpublished::Read(path, fault)),
+      },
+    };
+    let Ok(leaks) = names::leaks(&bytes, names);
+
+    match leaks {
+      Some(watched) => said.push((path, watched)),
+      None => {}
+    }
+  }
+
+  said.sort_by(|(one, _), (other, _)| one.cmp(other));
+  Ok(said)
 }
 
 fn tracked_files(repository: &Path) -> Result<Vec<String>, Unpublished> {
-    let names = tracked(repository).map_err(Unpublished::Untracked)?;
+  let names = tracked(repository).map_err(Unpublished::Untracked)?;
 
-    names
-        .into_iter()
-        .map(|name| match name.to_str() {
-            Some(said) => Ok(said.to_string()),
-            None => Err(Unpublished::NotAName(name)),
-        })
-        .collect()
+  names
+    .into_iter()
+    .map(|name| match name.to_str() {
+      Some(said) => Ok(said.to_string()),
+      None => Err(Unpublished::NotAName(name)),
+    })
+    .collect()
 }
 
 fn read(path: &Path) -> Result<String, Unpublished> {
-    std::fs::read_to_string(path)
-        .map_err(|fault| Unpublished::Read(path.to_path_buf(), fault))
+  std::fs::read_to_string(path).map_err(|fault| Unpublished::Read(path.to_path_buf(), fault))
 }
 
 fn write(path: &Path, body: &str) -> Result<(), Unpublished> {
-    console_core_atomic_writes::whole(path, body.as_bytes()).map_err(Unpublished::Unwritten)
+  console_core_atomic_writes::whole(path, body.as_bytes()).map_err(Unpublished::Unwritten)
 }
-
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    fn somewhere(named: &str) -> Result<PathBuf, Box<dyn Error>> {
-        let fresh = console_core_temporary_directories::fresh(&format!("publish-{named}"))?;
-        let at = fresh.join("ada").join("copy");
+  fn somewhere(named: &str) -> Result<PathBuf, Box<dyn Error>> {
+    let fresh = console_core_temporary_directories::fresh(&format!("publish-{named}"))?;
+    let at = fresh.join("ada").join("copy");
 
-        std::fs::create_dir_all(&at)?;
+    std::fs::create_dir_all(&at)?;
 
-        Ok(at)
-    }
+    Ok(at)
+  }
 
-    #[test]
-    fn every_file_and_every_path_in_the_copy_is_read_and_nothing_above_it() -> Result<(), Box<dyn Error>> {
-        let copy = somewhere("walk")?;
-        let names = vec![Watched { name: "ada".to_string(), what: "someone" }];
+  #[test]
+  fn every_file_and_every_path_in_the_copy_is_read_and_nothing_above_it()
+  -> Result<(), Box<dyn Error>> {
+    let copy = somewhere("walk")?;
+    let names = vec![Watched {
+      name: "ada".to_string(),
+      what: "someone",
+    }];
 
-        console_core_atomic_writes::whole(&copy.join("clean.txt"), b"nothing of anyone")?;
-        console_core_atomic_writes::whole(
-            &copy.join("picture.png"),
-            &[0x89, b'P', 0xff, b'/', b'A', b'D', b'A', b'/', 0x00],
-        )?;
-        std::fs::create_dir_all(copy.join("Ada-things"))?;
-        console_core_atomic_writes::whole(&copy.join("Ada-things/empty"), b"")?;
+    console_core_atomic_writes::whole(&copy.join("clean.txt"), b"nothing of anyone")?;
+    console_core_atomic_writes::whole(
+      &copy.join("picture.png"),
+      &[0x89, b'P', 0xff, b'/', b'A', b'D', b'A', b'/', 0x00],
+    )?;
+    std::fs::create_dir_all(copy.join("Ada-things"))?;
+    console_core_atomic_writes::whole(&copy.join("Ada-things/empty"), b"")?;
 
-        let found = files_naming(&copy, &names)?;
-        let said: Vec<String> = found
-            .iter()
-            .map(|(path, _)| match path.strip_prefix(&copy) {
-                Ok(inside) => inside.display().to_string(),
-                Err(_outside) => path.display().to_string(),
-            })
-            .collect();
+    let found = files_naming(&copy, &names)?;
+    let said: Vec<String> = found
+      .iter()
+      .map(|(path, _)| match path.strip_prefix(&copy) {
+        Ok(inside) => inside.display().to_string(),
+        Err(_outside) => path.display().to_string(),
+      })
+      .collect();
 
-        assert_eq!(said, vec!["Ada-things", "Ada-things/empty", "picture.png"]);
+    assert_eq!(said, vec!["Ada-things", "Ada-things/empty", "picture.png"]);
 
-        let above = copy.parent().and_then(Path::parent).ok_or("above the copy")?;
-        let _ = std::fs::remove_dir_all(above);
+    let above = copy
+      .parent()
+      .and_then(Path::parent)
+      .ok_or("above the copy")?;
+    std::fs::remove_dir_all(above)?;
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

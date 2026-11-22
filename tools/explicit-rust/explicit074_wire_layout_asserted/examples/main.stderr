@@ -39,5 +39,16 @@ LL | | }
    |
    = help: pin it with `#[repr(C)]` and assert its size and alignment in a `const` beside it, so the shape the other end expects is a shape the compiler is held to. Where the other end only ever holds it behind a pointer and never reads inside it, allow this rule here and let the reason say so
 
-warning: 4 warnings emitted
+warning: this foreign layout is missing const assertions for alignment, offset of `tail`
+  --> $DIR/main.rs:68:1
+   |
+LL | / struct PartlyChecked {
+LL | |     word: u32,
+LL | |     tail: u32,
+LL | | }
+   | |_^
+   |
+   = help: compare size_of, align_of and offset_of! with the foreign ABI in a const item; document opaque pointer types with a local expectation
+
+warning: 5 warnings emitted
 

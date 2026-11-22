@@ -1,0 +1,147 @@
+error: `as` cast is forbidden
+  --> $DIR/const_integer.rs:11:5
+   |
+LL |     value as u16
+   |     ^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit011_no_as_cast)]` on by default
+help: keep the same low bits with a named integer conversion
+   |
+LL -     value as u16
+LL +     ::console_core_number_conversion::const_wrapped_integer!(signed ::core::primitive::i8 => ::core::primitive::u16, value)
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/const_integer.rs:15:5
+   |
+LL |     value as WireWord
+   |     ^^^^^^^^^^^^^^^^^
+   |
+help: keep the same low bits with a named integer conversion
+   |
+LL -     value as WireWord
+LL +     ::console_core_number_conversion::const_wrapped_integer!(unsigned ::core::primitive::u64 => WireWord, value)
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/const_integer.rs:19:5
+   |
+LL |     value as _
+   |     ^^^^^^^^^^
+   |
+help: keep the same low bits with a named integer conversion
+   |
+LL -     value as _
+LL +     ::console_core_number_conversion::const_wrapped_integer!(unsigned ::core::primitive::u8 => ::core::primitive::usize, value)
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/const_integer.rs:23:5
+   |
+LL |     value as i32
+   |     ^^^^^^^^^^^^
+   |
+help: keep the same low bits with a named integer conversion
+   |
+LL -     value as i32
+LL +     ::core::convert::identity::<::core::primitive::i32>(value)
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/const_integer.rs:34:30
+   |
+LL | const MACRO_OPERAND: usize = source!() as usize;
+   |                              ^^^^^^^^^^^^^^^^^^
+   |
+help: keep the same low bits with a named integer conversion
+   |
+LL - const MACRO_OPERAND: usize = source!() as usize;
+LL + const MACRO_OPERAND: usize = ::console_core_number_conversion::const_wrapped_integer!(unsigned ::core::primitive::u8 => ::core::primitive::usize, source!());
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/const_integer.rs:35:21
+   |
+LL | const FLAG: usize = matches!(MACRO_OPERAND, 255) as usize;
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: keep the same low bits with a named integer conversion
+   |
+LL - const FLAG: usize = matches!(MACRO_OPERAND, 255) as usize;
+LL + const FLAG: usize = ::core::convert::identity::<::core::primitive::usize>(match matches!(MACRO_OPERAND, 255) { true => 1, false => 0 });
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/const_integer.rs:41:20
+   |
+LL | const BINARY: u8 = (pair_sum((1, 2)) + 1_u32 as u16) as u8;
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: keep the same low bits with a named integer conversion
+   |
+LL - const BINARY: u8 = (pair_sum((1, 2)) + 1_u32 as u16) as u8;
+LL + const BINARY: u8 = ::console_core_number_conversion::const_wrapped_integer!(unsigned ::core::primitive::u16 => ::core::primitive::u8, pair_sum((1, 2)) + 1_u32 as u16);
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/const_integer.rs:41:40
+   |
+LL | const BINARY: u8 = (pair_sum((1, 2)) + 1_u32 as u16) as u8;
+   |                                        ^^^^^^^^^^^^
+   |
+help: keep the same low bits with a named integer conversion
+   |
+LL - const BINARY: u8 = (pair_sum((1, 2)) + 1_u32 as u16) as u8;
+LL + const BINARY: u8 = (pair_sum((1, 2)) + ::console_core_number_conversion::const_wrapped_integer!(unsigned ::core::primitive::u32 => ::core::primitive::u16, 1_u32)) as u8;
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/const_integer.rs:42:23
+   |
+LL | const LEFT_CAST: u8 = (1_u32 as u16 + 3) as u8;
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: keep the same low bits with a named integer conversion
+   |
+LL - const LEFT_CAST: u8 = (1_u32 as u16 + 3) as u8;
+LL + const LEFT_CAST: u8 = ::console_core_number_conversion::const_wrapped_integer!(unsigned ::core::primitive::u16 => ::core::primitive::u8, 1_u32 as u16 + 3);
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/const_integer.rs:42:24
+   |
+LL | const LEFT_CAST: u8 = (1_u32 as u16 + 3) as u8;
+   |                        ^^^^^^^^^^^^
+   |
+help: keep the same low bits with a named integer conversion
+   |
+LL - const LEFT_CAST: u8 = (1_u32 as u16 + 3) as u8;
+LL + const LEFT_CAST: u8 = (::console_core_number_conversion::const_wrapped_integer!(unsigned ::core::primitive::u32 => ::core::primitive::u16, 1_u32) + 3) as u8;
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/const_integer.rs:56:6
+   |
+LL |     (value as _, value as WireWord)
+   |      ^^^^^^^^^^
+   |
+help: keep the same low bits with a named integer conversion
+   |
+LL -     (value as _, value as WireWord)
+LL +     (match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(value) { ::core::result::Result::Ok(converted_position) => converted_position }, value as WireWord)
+   |
+
+error: `as` cast is forbidden
+  --> $DIR/const_integer.rs:56:18
+   |
+LL |     (value as _, value as WireWord)
+   |                  ^^^^^^^^^^^^^^^^^
+   |
+help: keep the same low bits with a named integer conversion
+   |
+LL -     (value as _, value as WireWord)
+LL +     (value as _, match ::console_core_number_conversion::wrapped::<_, WireWord>(value) { ::core::result::Result::Ok(converted_position) => converted_position })
+   |
+
+error: aborting due to 12 previous errors
+

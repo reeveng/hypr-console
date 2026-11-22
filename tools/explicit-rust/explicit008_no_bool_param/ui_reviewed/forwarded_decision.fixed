@@ -1,0 +1,33 @@
+// run-rustfix
+// edition:2024
+// only-x86_64-unknown-linux-gnu
+
+
+#[derive(Clone, Copy)]
+enum Order {
+    Normal,
+    Reversed,
+}
+
+fn direction(flip: crate::Order) -> i32 {
+    match flip {
+        crate::Order::Reversed => -1,
+        crate::Order::Normal => 1,
+    }
+}
+
+macro_rules! by_literal {
+    ($flip:expr) => {
+        direction($flip)
+    };
+}
+
+fn with_specialized_order<const FLIPPED: bool>() -> i32 {
+    direction(match ::core::primitive::bool::then_some(FLIPPED, ()) { ::core::option::Option::Some(()) => crate::Order::Reversed, ::core::option::Option::None => crate::Order::Normal })
+}
+
+fn main() {
+    let _ = by_literal!(crate::Order::Reversed);
+    let _ = by_literal!(crate::Order::Normal);
+    let _ = with_specialized_order::<false>();
+}

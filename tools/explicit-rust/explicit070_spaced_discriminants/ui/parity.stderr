@@ -1,0 +1,60 @@
+warning: `Payload`'s discriminants `Zero` and `One` are one bit apart, so a flipped bit turns one into the other and nothing catches it
+  --> $DIR/parity.rs:6:1
+   |
+LL | / enum Payload {
+LL | |     Zero = 0,
+LL | |     One,
+LL | |     Four = 4,
+LL | |     Five,
+LL | | }
+   | |_^
+   |
+   = note: `#[warn(explicit070_spaced_discriminants)]` on by default
+help: use the reviewed internal encoding with an even parity bit
+   |
+LL ~     One = 0x9,
+LL ~     Four = 0xc,
+LL ~     Five = 0x5,
+   |
+
+warning: `Payload`'s discriminants `Zero` and `Four` are one bit apart, so a flipped bit turns one into the other and nothing catches it
+  --> $DIR/parity.rs:6:1
+   |
+LL | / enum Payload {
+LL | |     Zero = 0,
+LL | |     One,
+LL | |     Four = 4,
+LL | |     Five,
+LL | | }
+   | |_^
+   |
+   = help: space every pair two bits or more apart, so a single-bit error lands between states and the read fails rather than contin$DIRng in a state nothing chose. Where the encoding is not this enum's to choose -- a protocol somebody else wrote -- allow this rule here and let the reason name the protocol
+
+warning: `Payload`'s discriminants `One` and `Five` are one bit apart, so a flipped bit turns one into the other and nothing catches it
+  --> $DIR/parity.rs:6:1
+   |
+LL | / enum Payload {
+LL | |     Zero = 0,
+LL | |     One,
+LL | |     Four = 4,
+LL | |     Five,
+LL | | }
+   | |_^
+   |
+   = help: space every pair two bits or more apart, so a single-bit error lands between states and the read fails rather than contin$DIRng in a state nothing chose. Where the encoding is not this enum's to choose -- a protocol somebody else wrote -- allow this rule here and let the reason name the protocol
+
+warning: `Payload`'s discriminants `Four` and `Five` are one bit apart, so a flipped bit turns one into the other and nothing catches it
+  --> $DIR/parity.rs:6:1
+   |
+LL | / enum Payload {
+LL | |     Zero = 0,
+LL | |     One,
+LL | |     Four = 4,
+LL | |     Five,
+LL | | }
+   | |_^
+   |
+   = help: space every pair two bits or more apart, so a single-bit error lands between states and the read fails rather than contin$DIRng in a state nothing chose. Where the encoding is not this enum's to choose -- a protocol somebody else wrote -- allow this rule here and let the reason name the protocol
+
+warning: 4 warnings emitted
+

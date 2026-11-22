@@ -1,0 +1,26 @@
+[package]
+name = "explicit105_no_blocking_in_handler"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+clippy_utils = { workspace = true }
+dylint_linting = { workspace = true }
+
+[dev-dependencies]
+console-actor = { path = "../../../crates/console-actor" }
+console-core-state-machine = { path = "../../../crates/console-core-state-machine" }
+dylint_testing = { workspace = true }
+
+[[example]]
+name = "handlers"
+path = "examples/handlers.rs"
+
+[package.metadata.rust-analyzer]
+rustc_private = true

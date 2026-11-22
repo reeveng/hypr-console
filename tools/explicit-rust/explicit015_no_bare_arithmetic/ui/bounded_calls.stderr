@@ -1,0 +1,46 @@
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bounded_calls.rs:8:19
+   |
+LL |     let limited = x.min(14) + 1;
+   |                   ^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u8::wrapping_add(x.min(14), 1)`
+   |
+   = note: `#[deny(explicit015_no_bare_arithmetic)]` on by default
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bounded_calls.rs:9:18
+   |
+LL |     let forced = 64 / core::cmp::max(u32::from(x), 2);
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_div(64, core::cmp::max(u32::from(x), 2))`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bounded_calls.rs:10:19
+   |
+LL |     let nonzero = 64 % divisor.get();
+   |                   ^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_rem(64, divisor.get())`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bounded_calls.rs:11:19
+   |
+LL |     let shifted = 128 >> Ord::clamp(shift, 0, 6);
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::i32::wrapping_shr(128, ::core::primitive::i32::unsigned_abs(Ord::clamp(shift, 0, 6)))`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bounded_calls.rs:16:5
+   |
+LL |     x += 0;
+   |     ^^^^^^ help: the operand bounds preserve this operation in every profile: `x = ::core::primitive::u32::wrapping_add(x, 0)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bounded_calls.rs:17:5
+   |
+LL |     x -= 0;
+   |     ^^^^^^ help: the operand bounds preserve this operation in every profile: `x = ::core::primitive::u32::wrapping_sub(x, 0)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/bounded_calls.rs:18:5
+   |
+LL |     x *= 1;
+   |     ^^^^^^ help: the operand bounds preserve this operation in every profile: `x = ::core::primitive::u32::wrapping_mul(x, 1)`
+
+error: aborting due to 7 previous errors
+

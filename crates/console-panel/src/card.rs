@@ -30,198 +30,221 @@ use console_core_state_machine::Machine;
 use crate::page::{Aside, Page, Row, Rows};
 use crate::picker::Again;
 
-pub type Build = std::sync::Arc<dyn Fn() -> Vec<crate::page::Page> + Send + Sync>;
+pub type Build = Box<dyn FnOnce() -> Vec<Page> + Send>;
 
 pub type Finalizer = Box<dyn FnOnce() -> Result<(), Never>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Door {
-    pub name: String,
-    pub again: Again,
+  pub name: String,
+  pub again: Again,
 }
 
 impl Door {
-    pub fn new(name: &str, again: Again) -> Result<Self, Never> {
-        Ok(Door { name: name.to_string(), again })
-    }
+  pub fn new(name: &str, again: Again) -> Result<Self, Never> {
+    Ok(Door {
+      name: name.to_string(),
+      again,
+    })
+  }
 
-    pub fn closing(name: &str) -> Result<Self, Never> {
-        Door::new(name, Again::Closes)
-    }
+  pub fn closing(name: &str) -> Result<Self, Never> {
+    Door::new(name, Again::Closes)
+  }
 
-    pub fn closing_at(name: &str, tab: Option<&str>) -> Result<Self, Never> {
-        Door::closing(&match tab {
-            Some(tab) => format!("{name} {tab}"),
-            None => name.to_string(),
-        })
-    }
+  pub fn closing_at(name: &str, tab: Option<&str>) -> Result<Self, Never> {
+    Door::closing(&match tab {
+      Some(tab_2) => format!("{name} {tab}", tab = tab_2),
+      None => name.to_string(),
+    })
+  }
 }
 
 pub struct Card {
-    pub build: Build,
-    pub column: i32,
-    pub start: Option<String>,
-    pub done: Finalizer,
+  pub build: Build,
+  pub column: i32,
+  pub start: Option<String>,
+  pub done: Finalizer,
 }
 
 impl Card {
-    pub fn new(build: Build) -> Result<Self, Never> {
-        Ok(Card { build, column: 0, start: None, done: Box::new(|| Ok(())) })
-    }
+  pub fn new(build: impl FnOnce() -> Vec<Page> + Send + 'static) -> Result<Self, Never> {
+    Ok(Card {
+      build: Box::new(build),
+      column: 0,
+      start: None,
+      done: Box::new(|| Ok(())),
+    })
+  }
 
-    pub fn under(mut self, column: i32) -> Result<Self, Never> {
-        self.column = column;
+  pub fn under(mut self, column: i32) -> Result<Self, Never> {
+    self.column = column;
 
-        Ok(self)
-    }
+    Ok(self)
+  }
 
-    pub fn supervised<M, P>(input: M::Input, pages: P) -> Result<Self, Never>
-    where
-        M: Machine<Input: Send + 'static, State: Send + 'static, Request: Send + 'static, Effect: Send + 'static>
-            + 'static,
-        P: Fn(&Actor<M>) -> Result<Vec<Page>, Never> + Send + Sync + 'static,
-    {
-        let Booted { actor, scope, effects: _ } = match console_actor::boot::<M>(input) {
-            Ok(booted) => booted,
-            Err(fault) => return Card::fallen(&fault),
-        };
+  pub fn supervised<M, P>(input: M::Input, pages: P) -> Result<Self, Never>
+  where
+    M: Machine<
+        Input: Send + 'static,
+        State: Send + 'static,
+        Request: Send + 'static,
+        Effect: Send + 'static,
+      > + 'static,
+    P: FnOnce(&Actor<M>) -> Result<Vec<Page>, Never> + Send + 'static,
+  {
+    let Booted {
+      actor,
+      scope,
+      effects: _,
+    } = match console_actor::boot::<M>(input) {
+      Ok(booted) => booted,
+      Err(fault) => return Card::fallen(&fault),
+    };
 
-        let Ok(card) = Card::new(std::sync::Arc::new(move || {
-            let Ok(pages) = pages(&actor);
+    let Ok(card) = Card::new(move || {
+      let Ok(pages_2) = pages(&actor);
 
-            pages
-        }));
+      pages_2
+    });
 
-        card.shutting(Box::new(move || scope.close()))
-    }
+    card.shutting(Box::new(move || scope.close()))
+  }
 
-    fn fallen(fault: &BootError) -> Result<Self, Never> {
-        let said = fault.to_string();
+  fn fallen(fault: &BootError) -> Result<Self, Never> {
+    let said = fault.to_string();
 
-        Card::new(std::sync::Arc::new(move || {
-            let Ok(row) = Row::text(&said, Aside(""));
-            let Ok(page) = Page::new("Unavailable", Rows::Fixed(vec![row]));
+    Card::new(move || {
+      let Ok(row) = Row::text(&said, Aside(""));
+      let Ok(page) = Page::new("Unavailable", Rows::Fixed(vec![row]));
 
-            vec![page]
-        }))
-    }
+      vec![page]
+    })
+  }
 
-    pub fn opening_at(mut self, tab: Option<&str>) -> Result<Self, Never> {
-        self.start = tab.map(str::to_string);
+  pub fn opening_at(mut self, tab: Option<&str>) -> Result<Self, Never> {
+    self.start = tab.map(str::to_string);
 
-        Ok(self)
-    }
+    Ok(self)
+  }
 
-    pub fn shutting(mut self, done: Finalizer) -> Result<Self, Never> {
-        self.done = done;
+  pub fn shutting(mut self, done: Finalizer) -> Result<Self, Never> {
+    self.done = done;
 
-        Ok(self)
-    }
+    Ok(self)
+  }
 }
 
 pub struct Panel {
-    pub who: &'static str,
-    pub command: Command,
-    pub door: fn(&[String]) -> Result<Door, Never>,
-    pub card: fn(&[String]) -> Result<Card, Never>,
+  pub who: &'static str,
+  pub command: Command,
+  pub door: fn(&[String]) -> Result<Door, Never>,
+  pub card: fn(&[String]) -> Result<Card, Never>,
 }
 
 pub struct App {
-    pub who: &'static str,
-    pub command: Command,
-    pub card: fn(&[String]) -> Result<Card, Never>,
+  pub who: &'static str,
+  pub command: Command,
+  pub card: fn(&[String]) -> Result<Card, Never>,
 }
 
 pub fn refusal(command: &Command, asked: &[String]) -> Result<Option<ExitCode>, Never> {
-    Ok(match read(command, asked) {
-        Ok(_line) => None,
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
+  Ok(match read(command, asked) {
+    Ok(_line) => None,
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
 
-            Some(ExitCode::from(code))
-        }
-    })
+      Some(ExitCode::from(code))
+    }
+  })
 }
 
 pub fn open_app(asked: &[String], app: App) -> Result<ExitCode, Never> {
-    let Ok(refusing) = refusal(&app.command, asked);
+  let Ok(refusing) = refusal(&app.command, asked);
 
-    match refusing {
-        Some(code) => return Ok(code),
-        None => {},
+  match refusing {
+    Some(code) => return Ok(code),
+    None => {}
+  }
+
+  let Ok(alone) = crate::picker::alone_as(app.who, asked);
+
+  match alone {
+    crate::picker::Alone::No => {}
+    crate::picker::Alone::Yes => {
+      let Ok(card) = (app.card)(asked);
+      let Ok(()) = crate::surface::app(app.who, card);
     }
+  }
 
-    let Ok(alone) = crate::picker::alone_as(app.who, asked);
-
-    match alone {
-        crate::picker::Alone::No => {},
-        crate::picker::Alone::Yes => {
-            let Ok(card) = (app.card)(asked);
-            let Ok(()) = crate::surface::app(app.who, card);
-        },
-    }
-
-    Ok(ExitCode::SUCCESS)
+  Ok(ExitCode::SUCCESS)
 }
 
 pub fn opened(asked: &[String], panel: Panel) -> Result<ExitCode, Never> {
-    let Ok(refusing) = refusal(&panel.command, asked);
+  let Ok(refusing) = refusal(&panel.command, asked);
 
-    match refusing {
-        Some(code) => return Ok(code),
-        None => {},
+  match refusing {
+    Some(code) => return Ok(code),
+    None => {}
+  }
+
+  let Ok(door) = (panel.door)(asked);
+  let Ok(alone) = crate::picker::alone_once_drawn(&door.name, door.again);
+
+  match alone {
+    crate::picker::Alone::No => return Ok(ExitCode::SUCCESS),
+    crate::picker::Alone::Yes => {}
+  }
+
+  let Ok(drawn) = crate::handoff::stood_in(panel.who, asked);
+
+  match drawn {
+    crate::handoff::DrawnBy::ByTheHost => {}
+    crate::handoff::DrawnBy::Here => {
+      let Ok(card) = (panel.card)(asked);
+      let Ok(()) = crate::surface::drawn_here(panel.who, card);
     }
+  }
 
-    let Ok(door) = (panel.door)(asked);
-    let Ok(alone) = crate::picker::alone_once_drawn(&door.name, door.again);
-
-    match alone {
-        crate::picker::Alone::No => return Ok(ExitCode::SUCCESS),
-        crate::picker::Alone::Yes => {},
-    }
-
-    let Ok(drawn) = crate::handoff::stood_in(panel.who, asked);
-
-    match drawn {
-        crate::handoff::DrawnBy::ByTheHost => {},
-        crate::handoff::DrawnBy::Here => {
-            let Ok(card) = (panel.card)(asked);
-            let Ok(()) = crate::surface::drawn_here(panel.who, card);
-        },
-    }
-
-    Ok(ExitCode::SUCCESS)
+  Ok(ExitCode::SUCCESS)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_door_closes_unless_it_was_asked_not_to() {
-        let Ok(door) = Door::closing("menu");
+  #[test]
+  fn a_door_closes_unless_it_was_asked_not_to() {
+    let Ok(door) = Door::closing("menu");
 
-        assert_eq!(door.again, Again::Closes, "a bar icon tapped twice has to put its panel away");
-    }
+    assert_eq!(
+      door.again,
+      Again::Closes,
+      "a bar icon tapped twice has to put its panel away"
+    );
+  }
 
-    #[test]
-    fn a_card_says_nothing_about_a_tab_until_it_is_told_one() {
-        let Ok(card) = Card::new(std::sync::Arc::new(Vec::new));
+  #[test]
+  fn a_card_says_nothing_about_a_tab_until_it_is_told_one() {
+    let Ok(card) = Card::new(Vec::new);
 
-        assert_eq!(card.start, None, "opened with nothing named, a panel opens where it was left");
-        assert_eq!(card.column, 0);
+    assert_eq!(
+      card.start, None,
+      "opened with nothing named, a panel opens where it was left"
+    );
+    assert_eq!(card.column, 0);
 
-        let Ok(card) = card.opening_at(Some("Sound"));
+    let Ok(card_2) = card.opening_at(Some("Sound"));
 
-        assert_eq!(card.start.as_deref(), Some("Sound"));
-    }
+    assert_eq!(card_2.start.as_deref(), Some("Sound"));
+  }
 
-    #[test]
-    fn a_door_opened_at_a_tab_is_a_door_of_its_own() {
-        let Ok(wifi) = Door::closing_at("settings", Some("wifi"));
-        let Ok(bare) = Door::closing_at("settings", None);
+  #[test]
+  fn a_door_opened_at_a_tab_is_a_door_of_its_own() {
+    let Ok(wifi) = Door::closing_at("settings", Some("wifi"));
+    let Ok(bare) = Door::closing_at("settings", None);
 
-        assert_eq!(wifi.name, "settings wifi");
-        assert_eq!(bare.name, "settings");
-    }
+    assert_eq!(wifi.name, "settings wifi");
+    assert_eq!(bare.name, "settings");
+  }
 }

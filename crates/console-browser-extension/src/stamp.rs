@@ -13,113 +13,125 @@ use console_core_never::Never;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stamp {
-    pub hash: String,
-    pub version: String,
+  pub hash: String,
+  pub version: String,
 }
 
 pub const FIRST: &str = "1.0.0";
 
 pub fn read(said: &str) -> Result<Option<Stamp>, Never> {
-    let (hash, version) = match said.trim().split_once(' ') {
-        Some((hash, version)) => (hash, version),
-        None => return Ok(None),
-    };
+  let (hash, version) = match said.trim().split_once(' ') {
+    Some((hash, version)) => (hash, version),
+    None => return Ok(None),
+  };
 
-    Ok(match hash.is_empty() || version.is_empty() {
-        true => None,
-        false => Some(Stamp { hash: hash.to_string(), version: version.to_string() }),
-    })
+  Ok(match ::core::primitive::bool::then_some(hash.is_empty() || version.is_empty(), ()) {
+    ::core::option::Option::Some(()) => None,
+    ::core::option::Option::None => Some(Stamp {
+      hash: hash.to_string(),
+      version: version.to_string(),
+    }),
+  })
 }
 
 pub fn format_stamp(stamp: &Stamp) -> Result<String, Never> {
-    Ok(format!("{} {}\n", stamp.hash, stamp.version))
+  Ok(format!("{} {}\n", stamp.hash, stamp.version))
 }
 
 pub fn next(was: Option<&str>) -> Result<String, Never> {
-    let was = match was {
-        Some(was) => was,
-        None => return Ok(FIRST.to_string()),
-    };
+  let was_3 = match was {
+    Some(was_2) => was_2,
+    None => return Ok(FIRST.to_string()),
+  };
 
-    let (front, last) = match was.rsplit_once('.') {
-        Some((front, last)) => (front, last),
-        None => return Ok(FIRST.to_string()),
-    };
+  let (front, last) = match was_3.rsplit_once('.') {
+    Some((front, last)) => (front, last),
+    None => return Ok(FIRST.to_string()),
+  };
 
-    Ok(match last.parse::<u32>() {
-        Ok(number) => match number.checked_add(1) {
-            Some(next) => format!("{front}.{next}"),
-            None => FIRST.to_string(),
-        },
-        Err(_not_a_number) => FIRST.to_string(),
-    })
+  Ok(match last.parse::<u32>() {
+    Ok(number) => match number.checked_add(1) {
+      Some(next) => format!("{front}.{next}"),
+      None => FIRST.to_string(),
+    },
+    Err(_not_a_number) => FIRST.to_string(),
+  })
 }
 
 pub fn version_of(bytes: &[u8]) -> Result<Option<String>, Never> {
-    let text = String::from_utf8_lossy(bytes);
+  const VERSION: &[u8] = b"\"version\": \"";
 
-    let rest = match text.split_once("\"version\": \"") {
-        Some((_, rest)) => rest,
-        None => return Ok(None),
-    };
+  let after_key = bytes
+    .windows(VERSION.len().max(1))
+    .position(|window| window == VERSION)
+    .and_then(|start| bytes.get(start.saturating_add(VERSION.len())..));
+  let mut parts = match after_key {
+    Some(rest) => rest.splitn(2, |byte| *byte == b'"'),
+    None => return Ok(None),
+  };
 
-    let said = match rest.split_once('"') {
-        Some((said, _)) => said,
-        None => return Ok(None),
-    };
+  let said = match (parts.next(), parts.next()) {
+    (Some(spelled), Some(_after_quote)) => match std::str::from_utf8(spelled) {
+      Ok(version) => Some(version),
+      Err(_invalid_version) => None,
+    },
+    (Some(_) | None, Some(_) | None) => None,
+  };
 
-    Ok(match said.is_empty() || said.contains(char::REPLACEMENT_CHARACTER) {
-        true => None,
-        false => Some(said.to_string()),
-    })
+  Ok(
+    said
+      .filter(|text| !text.is_empty() && !text.contains(char::REPLACEMENT_CHARACTER))
+      .map(str::to_owned),
+  )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    #[test]
-    fn a_note_is_what_was_packed_and_what_it_was_called() -> Result<(), Box<dyn Error>> {
-        let Ok(stamp) = read("abc123 1.0.4\n");
-        let stamp = stamp.ok_or("a note")?;
+  #[test]
+  fn a_note_is_what_was_packed_and_what_it_was_called() -> Result<(), Box<dyn Error>> {
+    let Ok(note) = read("abc123 1.0.4\n");
+    let stamp = note.ok_or("a note")?;
 
-        assert_eq!(stamp.hash, "abc123");
-        assert_eq!(stamp.version, "1.0.4");
-        assert_eq!(format_stamp(&stamp), Ok("abc123 1.0.4\n".to_string()));
+    assert_eq!(stamp.hash, "abc123");
+    assert_eq!(stamp.version, "1.0.4");
+    assert_eq!(format_stamp(&stamp), Ok("abc123 1.0.4\n".to_string()));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_note_that_says_nothing_is_no_note_at_all() {
-        assert_eq!(read(""), Ok(None));
-        assert_eq!(read("abc123"), Ok(None));
-    }
+  #[test]
+  fn a_note_that_says_nothing_is_no_note_at_all() {
+    assert_eq!(read(""), Ok(None));
+    assert_eq!(read("abc123"), Ok(None));
+  }
 
-    #[test]
-    fn the_next_version_is_the_last_number_and_one() {
-        assert_eq!(next(Some("1.0.9")), Ok("1.0.10".to_string()));
-        assert_eq!(next(Some("2.3.99")), Ok("2.3.100".to_string()));
-    }
+  #[test]
+  fn the_next_version_is_the_last_number_and_one() {
+    assert_eq!(next(Some("1.0.9")), Ok("1.0.10".to_string()));
+    assert_eq!(next(Some("2.3.99")), Ok("2.3.100".to_string()));
+  }
 
-    #[test]
-    fn nothing_to_go_up_from_starts_at_the_first_one() {
-        assert_eq!(next(None), Ok(FIRST.to_string()));
-        assert_eq!(next(Some("what")), Ok(FIRST.to_string()));
-    }
+  #[test]
+  fn nothing_to_go_up_from_starts_at_the_first_one() {
+    assert_eq!(next(None), Ok(FIRST.to_string()));
+    assert_eq!(next(Some("what")), Ok(FIRST.to_string()));
+  }
 
-    #[test]
-    fn the_version_can_be_read_back_out_of_what_was_packed() {
-        let palette = crate::source::Palette(":root { --pink: #ffb5e2; }");
-        let Ok(files) = crate::source::every("1.2.3", palette);
-        let Ok(held) = crate::pack::zip(&files);
+  #[test]
+  fn the_version_can_be_read_back_out_of_what_was_packed() {
+    let palette = crate::source::Palette(":root { --pink: #ffb5e2; }");
+    let Ok(files) = crate::source::every("1.2.3", palette);
+    let Ok(held) = crate::pack::zip(&files);
 
-        assert_eq!(version_of(&held), Ok(Some("1.2.3".to_string())));
-    }
+    assert_eq!(version_of(&held), Ok(Some("1.2.3".to_string())));
+  }
 
-    #[test]
-    fn an_archive_that_is_not_ours_says_nothing_about_a_version() {
-        assert_eq!(version_of(b"PK\x03\x04 and nothing else"), Ok(None));
-    }
+  #[test]
+  fn an_archive_that_is_not_ours_says_nothing_about_a_version() {
+    assert_eq!(version_of(b"PK\x03\x04 and nothing else"), Ok(None));
+    assert_eq!(version_of(b"PK\xff \"version\": \"\xff\""), Ok(None));
+  }
 }

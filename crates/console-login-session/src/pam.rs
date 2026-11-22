@@ -17,6 +17,7 @@ pub const PROMPT_ECHO_OFF: c_int = 1;
 pub const PROMPT_ECHO_ON: c_int = 2;
 pub const ERROR_MSG: c_int = 3;
 pub const TEXT_INFO: c_int = 4;
+pub const MAX_NUM_MSG: c_int = 32;
 
 pub const TTY: c_int = 3;
 
@@ -25,64 +26,112 @@ pub const DELETE_CRED: c_int = 0x0004;
 
 #[repr(C)]
 pub struct Handle {
-    private: [u8; 0],
+  private: [u8; 0],
 }
 
 #[repr(C)]
 pub struct Message {
-    pub style: c_int,
-    pub text: *const c_char,
+  pub style: c_int,
+  pub text: *const c_char,
 }
 
 #[repr(C)]
 pub struct Response {
-    pub answer: *mut c_char,
-    pub code: c_int,
+  pub answer: *mut c_char,
+  pub code: c_int,
 }
 
 pub type Answer =
-    unsafe extern "C" fn(c_int, *mut *const Message, *mut *mut Response, *mut c_void) -> c_int;
+  unsafe extern "C" fn(c_int, *mut *const Message, *mut *mut Response, *mut c_void) -> c_int;
 
 #[repr(C)]
 pub struct Conversation {
-    pub answer: Option<Answer>,
-    pub data: *mut c_void,
+  pub answer: Option<Answer>,
+  pub data: *mut c_void,
 }
+
+const _: () = {
+  assert!(std::mem::size_of::<Handle>() == 0);
+  assert!(std::mem::align_of::<Handle>() == 1);
+  assert!(std::mem::offset_of!(Handle, private) == 0);
+};
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+  assert!(std::mem::size_of::<Message>() == 16);
+  assert!(std::mem::align_of::<Message>() == 8);
+  assert!(std::mem::offset_of!(Message, style) == 0);
+  assert!(std::mem::offset_of!(Message, text) == 8);
+
+  assert!(std::mem::size_of::<Response>() == 16);
+  assert!(std::mem::align_of::<Response>() == 8);
+  assert!(std::mem::offset_of!(Response, answer) == 0);
+  assert!(std::mem::offset_of!(Response, code) == 8);
+
+  assert!(std::mem::size_of::<Conversation>() == 16);
+  assert!(std::mem::align_of::<Conversation>() == 8);
+  assert!(std::mem::offset_of!(Conversation, answer) == 0);
+  assert!(std::mem::offset_of!(Conversation, data) == 8);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+  assert!(std::mem::size_of::<Message>() == 8);
+  assert!(std::mem::align_of::<Message>() == 4);
+  assert!(std::mem::offset_of!(Message, style) == 0);
+  assert!(std::mem::offset_of!(Message, text) == 4);
+
+  assert!(std::mem::size_of::<Response>() == 8);
+  assert!(std::mem::align_of::<Response>() == 4);
+  assert!(std::mem::offset_of!(Response, answer) == 0);
+  assert!(std::mem::offset_of!(Response, code) == 4);
+
+  assert!(std::mem::size_of::<Conversation>() == 8);
+  assert!(std::mem::align_of::<Conversation>() == 4);
+  assert!(std::mem::offset_of!(Conversation, answer) == 0);
+  assert!(std::mem::offset_of!(Conversation, data) == 4);
+};
 
 #[link(name = "pam")]
 unsafe extern "C" {
-    pub fn pam_start_confdir(
-        service: *const c_char,
-        user: *const c_char,
-        conversation: *const Conversation,
-        rules: *const c_char,
-        handle: *mut *mut Handle,
-    ) -> c_int;
+  pub fn pam_start_confdir(
+    service: *const c_char,
+    user: *const c_char,
+    conversation: *const Conversation,
+    rules: *const c_char,
+    handle: *mut *mut Handle,
+  ) -> c_int;
 
-    pub fn pam_end(handle: *mut Handle, status: c_int) -> c_int;
+  pub fn pam_end(handle: *mut Handle, status: c_int) -> c_int;
 
-    pub fn pam_authenticate(handle: *mut Handle, flags: c_int) -> c_int;
+  pub fn pam_authenticate(handle: *mut Handle, flags: c_int) -> c_int;
 
-    pub fn pam_acct_mgmt(handle: *mut Handle, flags: c_int) -> c_int;
+  pub fn pam_acct_mgmt(handle: *mut Handle, flags: c_int) -> c_int;
 
-    pub fn pam_setcred(handle: *mut Handle, flags: c_int) -> c_int;
+  pub fn pam_setcred(handle: *mut Handle, flags: c_int) -> c_int;
 
-    pub fn pam_open_session(handle: *mut Handle, flags: c_int) -> c_int;
+  pub fn pam_open_session(handle: *mut Handle, flags: c_int) -> c_int;
 
-    pub fn pam_close_session(handle: *mut Handle, flags: c_int) -> c_int;
+  pub fn pam_close_session(handle: *mut Handle, flags: c_int) -> c_int;
 
-    pub fn pam_putenv(handle: *mut Handle, pair: *const c_char) -> c_int;
+  pub fn pam_putenv(handle: *mut Handle, pair: *const c_char) -> c_int;
 
-    pub fn pam_getenvlist(handle: *mut Handle) -> *mut *mut c_char;
+  pub fn pam_getenvlist(handle: *mut Handle) -> *mut *mut c_char;
 
-    pub fn pam_set_item(handle: *mut Handle, kind: c_int, item: *const c_void) -> c_int;
+  pub fn pam_set_item(handle: *mut Handle, kind: c_int, item: *const c_void) -> c_int;
 }
 
 unsafe extern "C" {
-    #[cfg_attr(dylint_lib = "explicit051_no_machine_width", allow(explicit051_no_machine_width, reason = "calloc's two parameters are C's `size_t`, which is the machine's width by the C ABI and not by choice here"))]
-    pub fn calloc(count: usize, size: usize) -> *mut c_void;
+  #[cfg_attr(
+    dylint_lib = "explicit051_no_machine_width",
+    allow(
+      explicit051_no_machine_width,
+      reason = "calloc's two parameters are C's `size_t`, which is the machine's width by the C ABI and not by choice here"
+    )
+  )]
+  pub fn calloc(count: usize, size: usize) -> *mut c_void;
 
-    pub fn strdup(text: *const c_char) -> *mut c_char;
+  pub fn strdup(text: *const c_char) -> *mut c_char;
 
-    pub fn free(pointer: *mut c_void);
+  pub fn free(pointer: *mut c_void);
 }

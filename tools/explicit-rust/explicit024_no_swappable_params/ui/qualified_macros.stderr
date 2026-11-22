@@ -1,0 +1,41 @@
+error: a second parameter of type `f64`: the compiler takes these two in either order and says nothing
+  --> $DIR/qualified_macros.rs:4:21
+   |
+LL | fn cross(a: f64, b: f64, c: f64, d: f64) -> f64 { a * b - c * d }
+   |                     ^^^
+   |
+   = note: `#[deny(explicit024_no_swappable_params)]` on by default
+help: name the arguments at every call to this private function
+   |
+LL ~ fn cross(CrossArguments { a, b, c, d }: CrossArguments) -> f64 { a * b - c * d }
+LL + 
+LL + struct CrossArguments {
+LL +   a: f64,
+LL +   b: f64,
+LL +   c: f64,
+LL +   d: f64,
+LL + }
+LL |
+LL | fn main() {
+LL ~     let first = cross(self::CrossArguments { a: 2.0, b: 3.0, c: 4.0, d: 5.0 });
+LL ~     let second = cross(self::CrossArguments { a: 4.0, b: 5.0, c: 2.0, d: 3.0 });
+   |
+
+error: a second parameter of type `f64`: the compiler takes these two in either order and says nothing
+  --> $DIR/qualified_macros.rs:4:29
+   |
+LL | fn cross(a: f64, b: f64, c: f64, d: f64) -> f64 { a * b - c * d }
+   |                             ^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: a second parameter of type `f64`: the compiler takes these two in either order and says nothing
+  --> $DIR/qualified_macros.rs:4:37
+   |
+LL | fn cross(a: f64, b: f64, c: f64, d: f64) -> f64 { a * b - c * d }
+   |                                     ^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: aborting due to 3 previous errors
+

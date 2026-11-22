@@ -12,6 +12,10 @@ HOST := env_var_or_default("CONSOLE_HOST", "")
 default:
     @just --list --unsorted
 
+# format the Rust workspace
+format:
+    cargo fmt
+
 # Everything a run starts, in a control group of its own.
 #
 # A nested desktop is a compositor, and that compositor starts a session, a bar,
@@ -64,11 +68,17 @@ alone +command:
 # that is asked of the compiler: `tools/explicit-rust/architecture_facts` is a
 # dylint pass that warns about nothing and writes a file per crate instead.
 #
-# A crate cargo has cached is never handed to a lint, so a second run over an
-# unchanged tree would write nothing and the map would say half the desktop
-# does nothing. The run has a target directory of its own so the gate's cache
-# is not the one thrown away, and the workspace's own crates are cleaned out of
-# it first -- the dependencies stay, which is most of the time. Then
+# A crate cargo has cached is never handed to a lint, so a crate's file is the
+# one written the last time it was built, and it stands until cargo builds it
+# again -- which it does when the crate's sources change, when a crate it uses
+# does, or when the lint does, since the driver names every lint it loads as
+# an input of every crate it checks. That is the same question a stale file
+# would be wrong about, answered by the one thing that already keeps it. The
+# run has a target directory of its own, so no other check's cache answers for
+# it and the facts have one writer. It used to clean the workspace's crates out
+# of that directory every time, which made every `ready` check the whole
+# workspace again under the nightly to learn what had not changed; now that is
+# done only when the facts are missing altogether. Then
 # `console-architecture` asks `cargo metadata` for every library and program
 # and refuses to draw if one of them left no file.
 #
@@ -95,7 +105,7 @@ sky:
     cargo run --quiet --release --bin wallpaper-render
 
 # `--all-features` because the keyboard's Rust port is behind one. It is off by
-# default so the device does not compile cairo and pango for a program it does
+# default so the device does not compile the rasterizer and text engine for a program it does
 # not run, and on here so that being unfinished is not the same as being
 # untested.
 #
@@ -230,12 +240,8 @@ rename *arguments:
 
 # The EXPLICIT_* rules, counted rather than enforced.
 #
-# Deliberately not in `ready`, because what it counts is the warned tier:
-# the tree is held to the denied rules by `just explicit-gate`, and this
-# is where a rule the code has not caught up with says how far there is left to
-# go. Nothing stands there today -- 047 and 048 were the last two and came out
-# together -- so what this prints is a clean run until someone writes the next
-# rule ahead of the code.
+# This prints the legacy workspace summary. The merge audit with the owned
+# forks and the default and all-features build configurations is explicit-gate.
 # tools/explicit-rust/README.md says what each rule is for.
 #
 # Capped to warnings so the run reaches every crate. Left uncapped it stops at
@@ -262,8 +268,7 @@ explicit:
     }
     out=$(mktemp)
     trap 'rm -f "$out"' EXIT
-    RUSTFLAGS="--cap-lints warn" cargo dylint --all -- \
-      --locked --all-targets --all-features >"$out" 2>&1 || {
+    RUSTFLAGS="--cap-lints warn" cargo x rules >"$out" 2>&1 || {
         echo "explicit: the lint run itself failed -- the counts below would be a lie" >&2
         grep -E '^error' "$out" | head -20 >&2
         exit 1
@@ -271,102 +276,159 @@ explicit:
     grep '^warning: ' "$out" | grep -v 'generated' \
     | sed -E 's/`[^`]*`/X/g' | sort | uniq -c | sort -rn
 
-# The rules the workspace already keeps, enforced rather than counted.
-#
-# Every rule in the suite runs over every crate. This recipe is about which
-# ones are allowed to fail the build, and the answer is: the ones nothing in
-# the tree breaks. A rule moves out of ALLOW and into the gate when the last
-# call site that broke it is fixed, and it never moves back.
-#
-# That is the whole ratchet. There is no count here on purpose -- a number in a
-# recipe is a number that goes stale the first time someone writes a line of
-# code. `just explicit` says where the workspace actually stands, today, and it
-# is the only thing that should be believed about the distance.
-#
-# Tests are held to the same rules as production code, so this runs over
-# every target rather than the libraries and binaries alone.
-
-# The ALLOW list this recipe once carried is gone for good: a rule's tier now
-# lives in its own crate, as the level in `declare_late_lint!`. A Deny rule
-# fails this gate and a Warn rule only prints. A rule moves
-# from Warn to Deny in its own source when the last call site that broke it is
-# fixed, and it never moves back.
-#
-# 047 and 048 were the last two out, and they came out together. 047's sites
-# were one design question repeated: an iterator word standing in for a loop,
-# and a closure handed nothing and then given what it needed by capture -- a
-# wait, a stretch of an apply, the sentence a failed check prints, the line a
-# run draws quietly. Each of those has a `_handed` spelling now that takes the
-# thing it is asked with and hands it in at the call. 048's sites split: some were the flat enum it is
-# named for and are enums, and the rest were fields that really are independent
-# and carry the allow with a sentence saying so.
-#
-# The five written before them were read off a rule taxonomy someone keeps for C++,
-# which is worth saying because of what it cost: most of that list was already
-# answered here or is a fault Rust will not compile, and five questions came
-# back that this tree could be asked. Two had call sites -- 035, a thread let
-# go without the word being said, and 036, a program named by a string that no
-# list of what this desktop runs can see. Two arrived green and are ratchets
-# rather than sweeps, 034 and 037. The fifth is 038, the argument the suite had
-# been having with itself since 001, and it broke the tree in more crates than
-# anything since 019: a fault said as a `String` is one no caller can decide
-# anything about, and the answer is an enum per crate naming the ways its own
-# calls fail. It came out bottom-up, a crate at a time, the way 002 went.
-#
-# Before them 033 arrived denied
-# with the tree breaking it in more places than anything before it: the
-# `unwrap_or` family over an `Option`, which is 001's rule about a `Result` said
-# where there is no error to swallow, and what it found in three hundred-odd
-# sites was mostly a `match` with both arms and a named value, twice a real fault
-# wearing a default, and three times one answer written out in several crates --
-# `console-core-walking` is where the first of those went. Before it 024, which
-# arrived with the tree breaking it in more places than anything since 019 and
-# came out a family of quantities at a time rather than a function at a time.
-# Before it, 026
-# through 032, seven at once, which arrived together and
-# came out together. Before them 023, which went the way 019 went -- every `let … else` in the tree turned
-# into a `match` in the initializer. Before it, 022, and what let that one out was not a check
-# but what a wait may carry: `Device::until` now carries the fault its question
-# carries, so a question that reads the screen -- which is what the home
-# screen's checks were waiting on -- can be handed to one. Before it, 002 had
-# waited longest because it had nowhere to point until `console-core-never` was
-# written; before that, 020 came out the way a rule should not have to: the
-# comments it forbids had been swept out of the tree once already, by hand, and
-# were back in most of the crates by the time anyone looked. A rule kept by
-# memory is a rule with a half-life.
-#
-# 013 is the one rule here that can be applied rather than only reported:
-# `cargo dylint --fix --lib explicit013_breathing_room` puts the missing blank
-# lines in. Every other rule in the suite is asking for a decision, which is
-# not a thing to hand to a machine.
-#
-# The kernel is linted a second time for the firmware, because the half of it
-# that talks to the firmware only exists when it is built for it; that run
-# wants `rustup target add --toolchain` of the suite's nightly for
-# `x86_64-unknown-uefi`.
+# Verify the Explicit Rust merge gate. Supply a pinned report with --baseline
+# while the backlog is open. A scoped audit without a baseline requires zero.
+[positional-arguments]
 explicit-gate *scope:
-    @cargo x rules {{scope}}
+    @just explicit-batch audit "$@"
+
+# Apply compiler-checked EXPLICIT suggestions to one package.
+[positional-arguments]
+explicit-fix package *flags:
+    @just _explicit-fix --all-targets -p "$@"
+
+# Rewrite supported if expressions and boolean matches as enum matches.
+[positional-arguments]
+explicit-fix-branches *flags:
+    DYLINT_TOML="${DYLINT_TOML-explicit019_structural_only = true}" DYLINT_RUSTFLAGS="${DYLINT_RUSTFLAGS:+$DYLINT_RUSTFLAGS }--cap-lints=warn" cargo dylint --fix --no-deps --lib explicit019_no_if -- "$@"
+
+# Apply and recheck all automatic Explicit Rust fixes.
+[positional-arguments]
+explicit-rust action *flags:
+    @test "$1" = fix-all || { printf 'Run just explicit-rust fix-all [OPTIONS].\n' >&2; exit 1; }
+    @shift && \
+        if [ "${DYLINT_TOML+x}" != x ] && [ ! -f dylint.toml ]; then \
+            DYLINT_TOML="$(printf '%s\n' 'explicit019_structural_only = true' && cat \
+                tools/explicit-rust/explicit007_no_bool_return/font-type1-outcomes.toml \
+                tools/explicit-rust/explicit008_no_bool_param/reviewed/av1-rectangular-scale.toml \
+                tools/explicit-rust/explicit008_no_bool_param/reviewed/av1-superblock-size.toml \
+                tools/explicit-rust/explicit008_no_bool_param/reviewed/av1-adst-row-order.toml \
+                tools/explicit-rust/explicit008_no_bool_param/reviewed/av1-dc-shortcut.toml)" || exit; \
+            export DYLINT_TOML; \
+        fi && exec just explicit-batch fix-all "$@"
+
+# Apply wrapping arithmetic after choosing that policy for a package.
+[positional-arguments]
+explicit-wrap package *flags:
+    DYLINT_TOML='explicit015_wrapping = true' DYLINT_RUSTFLAGS="${DYLINT_RUSTFLAGS:+$DYLINT_RUSTFLAGS }--cap-lints=warn" cargo dylint --fix --no-deps --lib explicit015_no_bare_arithmetic -- --all-targets -p "$@"
+
+# Apply the same fixes across every host crate and the UEFI kernel.
+[positional-arguments]
+explicit-fix-all *flags:
+    @just _explicit-fix --workspace --all-targets --all-features "$@"
+    @just _explicit-fix -p console-kernel --target x86_64-unknown-uefi --lib --bins --all-features "$@"
+
+# Apply the reviewed public-API, test, decoder, and local pipe fixes together.
+[positional-arguments]
+explicit-fix-reviewed *flags:
+    #!/usr/bin/env bash
+    set -eu
+    rules=tools/explicit-rust
+    export DYLINT_TOML="$(printf '%s\n' 'explicit051_public_compatibility = true' 'explicit024_typed_coordinates = true' 'explicit004_test_results = true' 'explicit004_fixed_array_bounds = true' 'explicit019_structural_only = true'; cat \
+        "$rules/explicit017_question_mark_alone/av1-first-slice.toml" \
+        "$rules/explicit073_no_shadowing/av1-macros.toml" \
+        "$rules/explicit091_closes_on_exec/local-pipes.toml" \
+        "$rules/explicit014_no_index_slice/decoder-bounds.toml" \
+        "$rules/explicit007_no_bool_return/font-type1-outcomes.toml" \
+        "$rules/explicit008_no_bool_param/reviewed/av1-rectangular-scale.toml" \
+        "$rules/explicit008_no_bool_param/reviewed/av1-superblock-size.toml" \
+        "$rules/explicit008_no_bool_param/reviewed/av1-adst-row-order.toml" \
+        "$rules/explicit008_no_bool_param/reviewed/av1-dc-shortcut.toml")"
+    just explicit-fix-all "$@"
+
+# Inventory all EXPLICIT rules and apply selected Dylint fixes in verified batches.
+[positional-arguments]
+explicit-batch *flags:
+    cargo +nightly-2026-05-28 run --offline --locked --manifest-path tools/explicit-rust/migration-collector/Cargo.toml --target-dir "${TMPDIR:-/var/tmp}/builds/explicit-migration-collector" --bin batch -- "$@"
+
+# Preview or apply the source repairs that use the batch inventory's diagnostics.
+[positional-arguments]
+explicit-repair *flags:
+    cargo +nightly-2026-05-28 run --offline --locked --manifest-path tools/explicit-rust/migration-collector/Cargo.toml --target-dir "${TMPDIR:-/var/tmp}/builds/explicit-migration-collector" --bin repair -- "$@"
+
+# Prepare compiler-guided migration edits from captured compiler facts.
+[positional-arguments]
+explicit-apis *flags:
+    cargo +nightly-2026-05-28 run --offline --locked --manifest-path tools/explicit-rust/migration-collector/Cargo.toml --target-dir "${TMPDIR:-/var/tmp}/builds/explicit-migration-collector" --bin apis -- "$@"
+
+# Apply fixed-array patterns and checked codec lookups.
+[positional-arguments]
+explicit-index-bulk *flags:
+    DYLINT_TOML="$(cat tools/explicit-rust/explicit014_no_index_slice/decoder-bounds.toml)" DYLINT_RUSTFLAGS="${DYLINT_RUSTFLAGS:+$DYLINT_RUSTFLAGS }--cap-lints=warn" cargo dylint --fix --no-deps --lib explicit014_no_index_slice -- --all-targets --all-features \
+        -p console-core-video-decoding-av1 -p console-core-video-decoding-advanced-video-coding \
+        -p console-core-video-decoding-high-efficiency-video-coding -p console-core-video-decoding-vp9 \
+        -p console-core-paths -p console-core-path-rasterizer -p console-core-portable-document-syntax -p console-core-font-reading \
+        -p console-core-scalable-vector-graphics-values "$@"
+
+# Apply the checked indexing fixes enabled by AV1's typed transform errors.
+[positional-arguments]
+explicit-av1-transform-bounds *flags:
+    DYLINT_TOML="$(cat tools/explicit-rust/explicit014_no_index_slice/av1-transform-bounds.toml)" DYLINT_RUSTFLAGS="${DYLINT_RUSTFLAGS:+$DYLINT_RUSTFLAGS }--cap-lints=warn" cargo dylint --fix --no-deps --lib explicit014_no_index_slice -- -p console-core-video-decoding-av1 --lib --all-features "$@"
+
+# Rename AV1 bindings through reviewed macro expansions.
+[positional-arguments]
+explicit-shadow-av1 *flags:
+    DYLINT_TOML="$(cat tools/explicit-rust/explicit073_no_shadowing/av1-macros.toml)" DYLINT_RUSTFLAGS="${DYLINT_RUSTFLAGS:+$DYLINT_RUSTFLAGS }--cap-lints=warn" cargo dylint --fix --no-deps --lib explicit073_no_shadowing -- -p console-core-video-decoding-av1 --all-targets --all-features "$@"
+
+[positional-arguments]
+_explicit-fix +args:
+    DYLINT_RUSTFLAGS="${DYLINT_RUSTFLAGS:+$DYLINT_RUSTFLAGS }--cap-lints=warn" cargo dylint --fix --no-deps --all -- "$@"
 
 # The kernel is a member of the workspace like any other crate, built here for
 # the firmware rather than for this machine. It runs in QEMU on OVMF with the
 # exit port wired, and QEMU reports the kernel's answer shifted left and ored
 # with one: one is every step held, anything else is not.
 
-# the kernel, booted in a virtual machine
-kernel:
+# the x86-64 UEFI kernel staged in a removable-media layout
+kernel-image:
+    cargo build --quiet --release -p console-kernel --target x86_64-unknown-uefi --target-dir "${CARGO_TARGET_DIR:-target}"
+    install -Dm644 "${CARGO_TARGET_DIR:-target}/x86_64-unknown-uefi/release/console-kernel.efi" target/kernel/esp/EFI/BOOT/BOOTX64.EFI
+
+# boot the removable-media tree with UEFI and check the serial and display milestones
+[positional-arguments]
+kernel cpu="qemu64" memory="256M": kernel-image
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo build --quiet --release -p console-kernel --target x86_64-unknown-uefi
-    mkdir -p target/kernel/esp/EFI/BOOT
-    cp target/x86_64-unknown-uefi/release/console-kernel.efi target/kernel/esp/EFI/BOOT/BOOTX64.EFI
     set +e
-    timeout 60 qemu-system-x86_64 -machine q35 -m 256M -bios /usr/share/edk2/x64/OVMF.4m.fd \
-        -drive format=raw,file=fat:rw:target/kernel/esp -display none -serial stdio \
+    timeout 60 qemu-system-x86_64 -machine q35 -cpu "$1" -m "$2" -bios /usr/share/edk2/x64/OVMF.4m.fd \
+        -drive if=none,id=preview,format=raw,file=fat:target/kernel/esp,readonly=on \
+        -device qemu-xhci -device usb-storage,drive=preview,removable=on,bootindex=1 \
+        -display none -serial stdio \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot \
-        | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r' | grep -a --line-buffered '^console-kernel'
-    answered=${PIPESTATUS[0]}
+        | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r' \
+        | awk '/^console-kernel/ { print; fflush() } \
+            /^console-kernel: every step held$/ { finished = 1 } \
+            /^console-kernel: the browser page is on the panel$/ { displayed = 1 } \
+            END { exit !(finished && displayed) }'
+    statuses=("${PIPESTATUS[@]}")
     set -e
-    [ "$answered" -eq 1 ] || { echo "kernel: QEMU answered $answered" >&2; exit 1; }
+    [ "${statuses[*]}" = "1 0 0 0" ] || { echo "kernel: QEMU exited ${statuses[0]}, and a complete transcript is required" >&2; exit 1; }
+
+# inject keys through a virtual xHCI keyboard and check the portrait screen
+kernel-input: kernel-image
+    TMPDIR="${TMPDIR:-/var/tmp}" cargo run --quiet -p console-tasks --example kernel-usb -- target/kernel/esp
+
+# check native USB input with AMD-Vi translation and revocation
+kernel-input-iommu: kernel-image
+    TMPDIR="${TMPDIR:-/var/tmp}" cargo run --quiet -p console-tasks --example kernel-usb -- target/kernel/esp amd-vi
+
+# compare batched checksums and their tree reduction on CPU and Vulkan
+kernel-gpu-checksums:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    build="${CARGO_TARGET_DIR:-target}/kernel-compute"
+    source_dir=crates/console-kernel/compute
+    mkdir -p "$build"
+    glslangValidator --target-env vulkan1.0 -V "$source_dir/checksums.comp" -o "$build/checksums.spv"
+    spirv-val --target-env vulkan1.0 "$build/checksums.spv"
+    cc -std=c17 -O2 -Wall -Wextra -Werror "$source_dir/vulkan.c" -o "$build/vulkan" -lvulkan
+    cargo run --locked --release -p console-kernel --example gpu-checksums -- "$build/vulkan" "$build/checksums.spv"
+
+# Regenerate the browser extension's packaged WebAssembly with rustup's wasm32-unknown-unknown target.
+browser-pad-wasm:
+    mkdir -p target/browser-pad
+    rustc +1.98.0 --edition=2024 --crate-type=cdylib --target=wasm32-unknown-unknown -C opt-level=z -C lto -C panic=abort -C strip=symbols crates/console-browser-extension/wasm/pad.rs -o target/browser-pad/pad.wasm
+    install -m644 target/browser-pad/pad.wasm crates/console-browser-extension/web/pad.wasm
 
 # the tier that makes real input devices, if it can
 live:
@@ -414,6 +476,36 @@ device-checks:
 # and what the whole tier would do, emulator second opinions and all
 device-checks-all:
     cargo run --quiet --bin console-check -- --stage device --dry-run --all
+
+# open the experimental browser window on this desktop
+[positional-arguments]
+browser *arguments:
+    CONSOLE_BROWSER_SERVO_WORKER="${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo" cargo run --quiet --locked -p console-browser-window -- "$@"
+
+# load a local website and reopen it in a fresh Chromium renderer
+browser-check:
+    cargo build --quiet --locked -p console-browser-window --features checks
+    "${CARGO_TARGET_DIR:-target}/debug/console-browser-check" "${CARGO_TARGET_DIR:-target}/debug/console-browser-window"
+
+[private]
+browser-servo-build:
+    cargo build --locked --manifest-path crates/console-browser-renderer-servo/Cargo.toml --target-dir "${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}"
+
+[positional-arguments]
+browser-servo *arguments: browser-servo-build
+    cargo run --quiet --locked -p console-browser-window -- --servo-worker "${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo" "$@"
+
+browser-servo-check: browser-servo-build
+    cargo build --quiet --locked -p console-browser-window --features checks
+    "${CARGO_TARGET_DIR:-target}/debug/console-browser-check" "${CARGO_TARGET_DIR:-target}/debug/console-browser-window" "${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo"
+
+# Run the packaged Chromium and WPE renderers in the Console window.
+browser-webkit *arguments:
+    nix run .#browser -- "$@"
+
+# Run the browser unit tests and renderer switch in a pinned NixOS VM.
+browser-webkit-check:
+    nix build --no-link --print-build-logs .#checks.x86_64-linux.browser
 
 # the device's desktop here, in a window
 desktop:

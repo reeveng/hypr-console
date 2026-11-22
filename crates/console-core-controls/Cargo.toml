@@ -1,0 +1,22 @@
+[package]
+name = "console-core-controls"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_core_controls"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-color.workspace = true
+console-core-fonts.workspace = true
+console-core-geometry.workspace = true
+console-core-highlight.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-shapes.workspace = true
+
+[lints]
+workspace = true

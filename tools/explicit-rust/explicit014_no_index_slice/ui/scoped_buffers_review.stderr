@@ -1,0 +1,35 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/scoped_buffers_review.rs:9:21
+   |
+LL |     for x in 0..8 { scratch[x] = x; }
+   |                     ^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/scoped_buffers_review.rs:19:25
+   |
+LL |         for x in 0..8 { scratch[x] = x; }
+   |                         ^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/scoped_buffers_review.rs:29:13
+   |
+LL |             scratch[x] = x;
+   |             ^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/scoped_buffers_review.rs:42:25
+   |
+LL |         for x in 0..8 { scratch[x] = x; }
+   |                         ^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: aborting due to 4 previous errors
+

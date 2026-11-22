@@ -22,80 +22,96 @@ use console_panel::description::{Description, KeyboardFocus};
 use console_test_stages::panels::Panel;
 
 fn describe_after(keys: &[&str]) -> Result<Vec<Description>, Box<dyn Error>> {
-    let Ok(mut panel) = Panel::opening("calendar-panel", &[]);
+  let Ok(mut panel) = Panel::opening("calendar-panel", &[]);
 
-    for key in keys {
-        panel.key(key)?;
-    }
+  for key in keys {
+    panel.key(key)?;
+  }
 
-    let drawn = panel.descriptions().map_err(|why| format!("the calendar could not be asked what it drew: {why}"))?;
+  let drawn = panel
+    .descriptions()
+    .map_err(|why| format!("the calendar could not be asked what it drew: {why}"))?;
 
-    Ok(drawn)
+  Ok(drawn)
 }
 
 fn month(card: &Description) -> Result<String, Box<dyn Error>> {
-    match card.lines.iter().find(|line| !line.says.is_empty()) {
-        Some(line) => Ok(line.says.clone()),
-        None => Err(Box::from("the card says nothing at all")),
-    }
+  match card.lines.iter().find(|line| !line.says.is_empty()) {
+    Some(line) => Ok(line.says.clone()),
+    None => Err(Box::from("the card says nothing at all")),
+  }
 }
 
 fn first(every: &[Description]) -> Result<&Description, Box<dyn Error>> {
-    every.first().ok_or_else(|| Box::from("the calendar drew nothing at all"))
+  every
+    .first()
+    .ok_or_else(|| Box::from("the calendar drew nothing at all"))
 }
 
 fn last(every: &[Description]) -> Result<&Description, Box<dyn Error>> {
-    every.last().ok_or_else(|| Box::from("the calendar drew nothing at all"))
+  every
+    .last()
+    .ok_or_else(|| Box::from("the calendar drew nothing at all"))
 }
 
 #[test]
 fn it_opens_saying_which_month_it_is_showing() -> Result<(), Box<dyn Error>> {
-    let every = describe_after(&[])?;
-    let card = first(&every)?;
-    let said = month(card)?;
-    let words: Vec<&str> = said.split_whitespace().collect();
+  let every = describe_after(&[])?;
+  let card = first(&every)?;
+  let said = month(card)?;
+  let words: Vec<&str> = said.split_whitespace().collect();
 
-    assert_eq!(words.len(), 2, "the month it opened on is written {said:?}");
-    assert!(
-        words.last().is_some_and(|year| year.chars().all(|letter| letter.is_ascii_digit())),
-        "the month it opened on names no year: {said:?}"
-    );
+  assert_eq!(words.len(), 2, "the month it opened on is written {said:?}");
+  assert!(
+    words
+      .last()
+      .is_some_and(|year| year.chars().all(|letter| letter.is_ascii_digit())),
+    "the month it opened on names no year: {said:?}"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn the_dpad_walks_to_the_month_after_this_one() -> Result<(), Box<dyn Error>> {
-    let every = describe_after(&["Right"])?;
-    let card = first(&every)?;
-    let opened = month(card)?;
-    let card = last(&every)?;
-    let on = month(card)?;
+  let every = describe_after(&["Right"])?;
+  let card = first(&every)?;
+  let opened = month(card)?;
+  let card_2 = last(&every)?;
+  let on = month(card_2)?;
 
-    assert_ne!(opened, on, "right on the month drew the same month again");
+  assert_ne!(opened, on, "right on the month drew the same month again");
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn the_keyboard_is_held_before_the_first_press() -> Result<(), Box<dyn Error>> {
-    let every = describe_after(&["Right"])?;
-    let listening = every.iter().any(|card| (card.presses, card.keyboard) == (0, KeyboardFocus::Here));
+  let every = describe_after(&["Right"])?;
+  let listening = every
+    .iter()
+    .any(|card| (card.presses, card.keyboard) == (0, KeyboardFocus::Here));
 
-    assert!(listening, "the calendar never said it held the keyboard before it was pressed, so the press went to whoever did");
+  assert!(
+    listening,
+    "the calendar never said it held the keyboard before it was pressed, so the press went to whoever did"
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn walking_back_comes_back() -> Result<(), Box<dyn Error>> {
-    let every = describe_after(&["Right", "Left"])?;
-    let card = first(&every)?;
-    let opened = month(card)?;
-    let card = last(&every)?;
-    let back = month(card)?;
+  let every = describe_after(&["Right", "Left"])?;
+  let card = first(&every)?;
+  let opened = month(card)?;
+  let card_2 = last(&every)?;
+  let back = month(card_2)?;
 
-    assert_eq!(opened, back, "a month on and a month back is not where it started");
+  assert_eq!(
+    opened, back,
+    "a month on and a month back is not where it started"
+  );
 
-    Ok(())
+  Ok(())
 }

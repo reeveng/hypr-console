@@ -1,0 +1,121 @@
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success.rs:18:16
+   |
+LL |     assert_eq!(read(&[0xAA]).unwrap(), 0xAA);
+   |                ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit004_no_panic)]` on by default
+help: compare the returned success variant directly
+   |
+LL -     assert_eq!(read(&[0xAA]).unwrap(), 0xAA);
+LL +     assert_eq!(read(&[0xAA]), ::core::result::Result::Ok(0xAA));
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success.rs:19:19
+   |
+LL |     assert_eq!(0, read(&[0]).unwrap());
+   |                   ^^^^^^^^^^^^^^^^^^^
+   |
+help: compare the returned success variant directly
+   |
+LL -     assert_eq!(0, read(&[0]).unwrap());
+LL +     assert_eq!(::core::result::Result::Ok(0), read(&[0]));
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success.rs:20:16
+   |
+LL |     assert_eq!(glyph(0).unwrap(), ".notdef");
+   |                ^^^^^^^^^^^^^^^^^
+   |
+help: compare the returned success variant directly
+   |
+LL -     assert_eq!(glyph(0).unwrap(), ".notdef");
+LL +     assert_eq!(glyph(0), ::core::option::Option::Some(".notdef"));
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success.rs:22:16
+   |
+LL |     assert_eq!(Some(-3i32).unwrap(), expected);
+   |                ^^^^^^^^^^^^^^^^^^^^
+   |
+help: compare the returned success variant directly
+   |
+LL -     assert_eq!(Some(-3i32).unwrap(), expected);
+LL +     assert_eq!(Some(-3i32), ::core::option::Option::Some(expected));
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success.rs:28:16
+   |
+LL |     assert_eq!(bytes.next().unwrap(), 12);
+   |                ^^^^^^^^^^^^^^^^^^^^^
+   |
+help: compare the returned success variant directly
+   |
+LL -     assert_eq!(bytes.next().unwrap(), 12);
+LL +     assert_eq!(bytes.next(), ::core::option::Option::Some(12));
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success.rs:29:20
+   |
+LL |     assert_eq!(35, bytes.next().unwrap());
+   |                    ^^^^^^^^^^^^^^^^^^^^^
+   |
+help: compare the returned success variant directly
+   |
+LL -     assert_eq!(35, bytes.next().unwrap());
+LL +     assert_eq!(::core::option::Option::Some(35), bytes.next());
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success.rs:39:16
+   |
+LL |     assert_eq!(read_int(20).unwrap(), 20);
+   |                ^^^^^^^^^^^^^^^^^^^^^
+   |
+help: report failed test setup through its concrete error type
+   |
+LL ~ fn postscript_operands() -> ::core::result::Result<(), crate::ParseError> {
+LL ~     let asserted_value = read_int(20)?;
+LL ~     assert_eq!(asserted_value, 20);
+LL ~     let asserted_value_2 = read_int(-102)?;
+LL ~     assert_eq!(asserted_value_2.abs(), 102);
+LL ~     let asserted_value_3 = read_int(4)?;
+LL ~     assert_eq!(4, asserted_value_3);
+LL +     ::core::result::Result::Ok(())
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success.rs:40:16
+   |
+LL |     assert_eq!(read_int(-102).unwrap().abs(), 102);
+   |                ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success.rs:41:19
+   |
+LL |     assert_eq!(4, read_int(4).unwrap());
+   |                   ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success.rs:50:17
+   |
+LL |     let first = fixed_value().unwrap();
+   |                 ^^^^^^^^^^^^^^^^^^^^^^ help: extract the success value by matching the uninhabited error: `match fixed_value() { ::core::result::Result::Ok(_explicit_value) => _explicit_value, ::core::result::Result::Err(_explicit_error) => match _explicit_error {} }`
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/asserted_success.rs:51:16
+   |
+LL |     assert_eq!(fixed_value().unwrap(), first);
+   |                ^^^^^^^^^^^^^^^^^^^^^^ help: extract the success value by matching the uninhabited error: `(match fixed_value() { ::core::result::Result::Ok(_explicit_value) => _explicit_value, ::core::result::Result::Err(_explicit_error) => match _explicit_error {} })`
+
+error: aborting due to 11 previous errors
+

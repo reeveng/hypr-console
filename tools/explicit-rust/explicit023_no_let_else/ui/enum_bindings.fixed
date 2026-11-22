@@ -1,0 +1,73 @@
+// run-rustfix
+// edition:2024
+
+include!("auxiliary/let_else_enum_included.rs");
+
+enum Record {
+    Count(u16),
+    Label { text: String },
+    Empty,
+}
+
+fn count(record: Record) -> u16 {
+    let value = match record {
+        Record::Count(matched_value) => matched_value,
+        crate::Record::Label { .. } | crate::Record::Empty => return 0,
+    };
+    value
+}
+
+fn label(record: &Record) -> &str {
+    let text = match record {
+        Record::Label { text: matched_text } => matched_text,
+        crate::Record::Count(..) | crate::Record::Empty => ::core::panic!("expected label"),
+    };
+    text
+}
+
+fn expect_count(record: Record) {
+    match record {
+        Record::Count(..) => (),
+        crate::Record::Label { .. } | crate::Record::Empty => panic!("expected count"),
+    };
+}
+
+fn expect_empty(record: Record) {
+    match record {
+        Record::Empty => (),
+        crate::Record::Count(..) | crate::Record::Label { .. } => panic!("expected empty"),
+    };
+}
+
+fn included(record: Included) -> u16 {
+    let value = match record {
+        Included::Count(matched_value) => matched_value,
+        crate::Included::Other => return 0,
+    };
+    value
+}
+
+fn read_kind() -> Result<Included, ()> {
+    Ok(Included::Count(9))
+}
+
+fn read_included() -> Result<u16, ()> {
+    let value = {
+        let outcome_value = read_kind()?;
+
+        match outcome_value {
+            Included::Count(matched_value) => matched_value,
+            crate::Included::Other => return Err(()),
+        }
+    };
+    Ok(value)
+}
+
+fn main() {
+    assert_eq!(count(Record::Count(5)), 5);
+    assert_eq!(label(&Record::Label { text: "test".into() }), "test");
+    expect_count(Record::Count(1));
+    expect_empty(Record::Empty);
+    assert_eq!(included(Included::Other), 0);
+    assert_eq!(read_included(), Ok(9));
+}

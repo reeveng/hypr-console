@@ -10,12 +10,14 @@ name = "console_compositor"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-bounded-reads.workspace = true
 console-core-external-programs.workspace = true
 console-core-places.workspace = true
-console-core-geometry.workspace = true
+console-core-size.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-screen-orientation.workspace = true
+console-core-text-encodings.workspace = true
 console-core-words.workspace = true
 serde_json = "1"
 
@@ -24,3 +26,4 @@ workspace = true
 
 [dev-dependencies]
 console-core-temporary-directories.workspace = true
+rustix.workspace = true

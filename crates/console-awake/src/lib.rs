@@ -73,267 +73,300 @@ use std::time::Duration;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_words::Words;
+use console_operating_system_linux::program_lifetime::{BoundToParent, alongside};
 use console_session::reaching::shell_quote;
-use console_program_lifetime::{BoundToParent, alongside};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Words)]
 pub enum InhibitReason {
-    #[words(
-        what = "shutdown:sleep:idle",
-        who = "console apply",
-        why = "installing the desktop"
-    )]
-    FromStopping,
-    #[words(what = "sleep", who = "console music", why = "a song is playing")]
-    FromSleeping,
-    #[words(
-        what = "sleep:idle",
-        who = "console-deploy",
-        why = "a deploy from another machine is under way"
-    )]
-    FromDeploying,
-    #[words(
-        what = "sleep:idle",
-        who = "console-check",
-        why = "the checks are being pressed from another machine"
-    )]
-    FromChecking,
+  #[words(
+    what = "shutdown:sleep:idle",
+    who = "console apply",
+    why = "installing the desktop"
+  )]
+  FromStopping,
+  #[words(what = "sleep", who = "console music", why = "a song is playing")]
+  FromSleeping,
+  #[words(
+    what = "sleep:idle",
+    who = "console-deploy",
+    why = "a deploy from another machine is under way"
+  )]
+  FromDeploying,
+  #[words(
+    what = "sleep:idle",
+    who = "console-check",
+    why = "the checks are being pressed from another machine"
+  )]
+  FromChecking,
 }
 
 #[derive(Debug)]
 pub struct Staying {
-    holding: Option<BoundToParent>,
+  holding: Option<BoundToParent>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InhibitResult {
-    Acquired(Staying),
-    Failed(String),
+  Acquired(Staying),
+  Failed(String),
 }
 
 impl PartialEq for Staying {
-    fn eq(&self, _: &Self) -> bool {
-        false
-    }
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
 }
 
 impl Eq for Staying {}
 
 pub fn inhibit(kept: InhibitReason) -> Result<InhibitResult, Never> {
-    let Ok(mut asking) = Program::SystemdInhibit.command();
-    let Ok(cat) = Program::Cat.name();
-    let Ok(what) = kept.what();
-    let Ok(who) = kept.who();
-    let Ok(why) = kept.why();
+  let Ok(mut asking) = Program::SystemdInhibit.command();
+  let Ok(cat) = Program::Cat.name();
+  let Ok(what) = kept.what();
+  let Ok(who) = kept.who();
+  let Ok(why) = kept.why();
 
-    asking
-        .args([
-            &format!("--what={what}"),
-            &format!("--who={who}"),
-            &format!("--why={why}"),
-            "--mode=block",
-            cat,
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+  asking
+    .args([
+      &format!("--what={what}"),
+      &format!("--who={who}"),
+      &format!("--why={why}"),
+      "--mode=block",
+      cat,
+    ])
+    .stdin(Stdio::piped())
+    .stdout(Stdio::null())
+    .stderr(Stdio::null());
 
-    let started = alongside(&mut asking);
+  let started = alongside(&mut asking);
 
-    Ok(match started {
-        Ok(holding) => InhibitResult::Acquired(Staying { holding: Some(holding) }),
-        Err(fault) => InhibitResult::Failed(format!(
-            "the machine could not be asked to stay up ({fault}), so {why} will be interrupted \
+  Ok(match started {
+    Ok(holding) => InhibitResult::Acquired(Staying {
+      holding: Some(holding),
+    }),
+    Err(fault) => InhibitResult::Failed(format!(
+      "the machine could not be asked to stay up ({fault}), so {why} will be interrupted \
              by a machine that stops underneath it"
-        )),
-    })
+    )),
+  })
 }
 
 const HEARTBEAT: Duration = Duration::from_secs(10);
+const HEARTBEAT_SCRIPT: &str = "while read -t \"$1\" _ || [ $? -gt 128 ]; do echo || exit; done";
 
 fn heartbeat(every: Duration) -> Result<String, Never> {
-    let Ok(shell) = Program::Sh.name();
-    let seconds = every.as_secs();
-    let Ok(beating) = shell_quote(&format!("while read -t {seconds} _ || [ $? -gt 128 ]; do echo || exit; done"));
+  let Ok(shell) = Program::Sh.name();
+  let seconds = every.as_secs();
+  let Ok(beating) = shell_quote(HEARTBEAT_SCRIPT);
 
-    Ok(format!("{shell} -c {beating}"))
+  Ok(format!("{shell} -c {beating} heartbeat {seconds}"))
 }
 
 pub fn taking_on(host: &str, kept: InhibitReason) -> Result<InhibitResult, Never> {
-    let Ok(mut asking) = Program::Ssh.command();
-    let Ok(inhibit) = Program::SystemdInhibit.name();
-    let Ok(holding) = heartbeat(HEARTBEAT);
-    let Ok(what) = kept.what();
-    let Ok(who) = kept.who();
-    let Ok(why) = kept.why();
-    let Ok(who_quoted) = shell_quote(who);
-    let Ok(why_quoted) = shell_quote(why);
-    let there = format!(
-        "{inhibit} --what={what} --who={who_quoted} --why={why_quoted} --mode=block {holding}"
-    );
+  let Ok(mut asking) = Program::Ssh.command();
+  let Ok(inhibit) = Program::SystemdInhibit.name();
+  let Ok(beating) = heartbeat(HEARTBEAT);
+  let Ok(what) = kept.what();
+  let Ok(who) = kept.who();
+  let Ok(why) = kept.why();
+  let Ok(who_quoted) = shell_quote(who);
+  let Ok(why_quoted) = shell_quote(why);
+  let there = format!(
+    "{inhibit} --what={what} --who={who_quoted} --why={why_quoted} --mode=block {beating}"
+  );
 
-    asking
-        .args([host, &there])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+  asking
+    .args([host, &there])
+    .stdin(Stdio::piped())
+    .stdout(Stdio::null())
+    .stderr(Stdio::null());
 
-    let started = alongside(&mut asking);
+  let started = alongside(&mut asking);
 
-    Ok(match started {
-        Ok(holding) => InhibitResult::Acquired(Staying { holding: Some(holding) }),
-        Err(fault) => InhibitResult::Failed(format!(
-            "{host} could not be asked to stay up ({fault}), so it may sleep while {why}"
-        )),
-    })
+  Ok(match started {
+    Ok(holding) => InhibitResult::Acquired(Staying {
+      holding: Some(holding),
+    }),
+    Err(fault) => InhibitResult::Failed(format!(
+      "{host} could not be asked to stay up ({fault}), so it may sleep while {why}"
+    )),
+  })
 }
 
 impl Drop for Staying {
-    fn drop(&mut self) {
-        let mut holding = match self.holding.take() {
-            Some(holding) => holding,
-            None => return,
-        };
+  fn drop(&mut self) {
+    let mut holding = match self.holding.take() {
+      Some(holding) => holding,
+      None => return,
+    };
 
-        let Ok(writing) = holding.take_stdin();
+    let Ok(writing) = holding.take_stdin();
 
-        drop(writing);
-    }
+    drop(writing);
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
-    use std::process::Command;
+  use std::error::Error;
+  use std::process::Command;
 
-    use console_waiting::{Outcome, Ready, Schedule, until_handed};
+  use console_waiting::{Outcome, Ready, Schedule, until_handed};
 
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn an_apply_is_kept_from_stopping_sleeping_and_going_idle() {
-        let Ok(what) = InhibitReason::FromStopping.what();
+  #[test]
+  fn an_apply_is_kept_from_stopping_sleeping_and_going_idle() {
+    let Ok(what) = InhibitReason::FromStopping.what();
 
-        assert!(what.contains("shutdown"), "{what}");
-        assert!(what.contains("sleep"), "{what}");
-        assert!(what.contains("idle"), "{what}");
-    }
+    assert!(what.contains("shutdown"), "{what}");
+    assert!(what.contains("sleep"), "{what}");
+    assert!(what.contains("idle"), "{what}");
+  }
 
-    #[test]
-    fn a_song_is_kept_from_sleeping_and_from_nothing_else() {
-        let Ok(what) = InhibitReason::FromSleeping.what();
+  #[test]
+  fn a_song_is_kept_from_sleeping_and_from_nothing_else() {
+    let Ok(what) = InhibitReason::FromSleeping.what();
 
-        assert_eq!(what, "sleep");
-    }
+    assert_eq!(what, "sleep");
+  }
 
-    #[test]
-    fn the_lid_is_left_to_whoever_shut_it() {
-        let Ok(stopping) = InhibitReason::FromStopping.what();
-        let Ok(sleeping) = InhibitReason::FromSleeping.what();
+  #[test]
+  fn the_lid_is_left_to_whoever_shut_it() {
+    let Ok(stopping) = InhibitReason::FromStopping.what();
+    let Ok(sleeping) = InhibitReason::FromSleeping.what();
 
-        assert!(!stopping.contains("lid"), "{stopping}");
-        assert!(!sleeping.contains("lid"), "{sleeping}");
-    }
+    assert!(!stopping.contains("lid"), "{stopping}");
+    assert!(!sleeping.contains("lid"), "{sleeping}");
+  }
 
-    #[test]
-    fn a_machine_that_cannot_be_asked_says_so_rather_than_failing() -> Result<(), Box<dyn Error>> {
-        let Ok(taken) = taking_with("this-is-not-a-program-on-any-machine");
+  #[test]
+  fn a_machine_that_cannot_be_asked_says_so_rather_than_failing() -> Result<(), Box<dyn Error>> {
+    let Ok(taken) = taking_with("this-is-not-a-program-on-any-machine");
 
-        let said = match taken {
-            InhibitResult::Failed(said) => said,
-            InhibitResult::Acquired(_) => return Err(Box::from("a program that does not exist held a lock")),
-        };
+    let said = match taken {
+      InhibitResult::Failed(said) => said,
+      InhibitResult::Acquired(_) => {
+        return Err(Box::from("a program that does not exist held a lock"));
+      }
+    };
 
-        assert!(said.contains("stay up"), "{said}");
+    assert!(said.contains("stay up"), "{said}");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    fn taking_with(program: &str) -> Result<InhibitResult, Never> {
-        let mut asking = Command::new(program);
-        asking.stdin(Stdio::piped());
+  fn taking_with(program: &str) -> Result<InhibitResult, Never> {
+    let mut asking = Command::new(program);
+    asking.stdin(Stdio::piped());
 
-        Ok(match alongside(&mut asking) {
-            Ok(holding) => InhibitResult::Acquired(Staying { holding: Some(holding) }),
-            Err(fault) => InhibitResult::Failed(format!(
-                "the machine could not be asked to stay up ({fault}), so a song is playing will \
+    Ok(match alongside(&mut asking) {
+      Ok(holding) => InhibitResult::Acquired(Staying {
+        holding: Some(holding),
+      }),
+      Err(fault) => InhibitResult::Failed(format!(
+        "the machine could not be asked to stay up ({fault}), so a song is playing will \
                  be interrupted by a machine that stops underneath it"
-            )),
-        })
+      )),
+    })
+  }
+
+  fn held_far_away() -> Result<BoundToParent, Box<dyn Error>> {
+    let Ok(mut asking) = Program::Sh.command();
+
+    asking
+      .args(["-c", HEARTBEAT_SCRIPT, "heartbeat", "1"])
+      .stdin(Stdio::piped())
+      .stdout(Stdio::piped())
+      .stderr(Stdio::null());
+
+    let held = alongside(&mut asking)?;
+
+    Ok(held)
+  }
+
+  fn ended(holding: &mut BoundToParent) -> Result<Outcome, Never> {
+    let Ok(patience) = Schedule::of(Duration::from_secs(10));
+
+    until_handed(patience, holding, |holding_2| {
+      let Ok(still) = holding_2.still();
+
+      Ok(match still {
+        console_program_lifetime::Still::Ended => Ready::Yes,
+        console_program_lifetime::Still::Running => Ready::NotYet,
+      })
+    })
+  }
+
+  #[test]
+  fn a_lock_whose_holder_has_gone_without_a_word_lets_go() -> Result<(), Box<dyn Error>> {
+    let mut holding = held_far_away()?;
+    let Ok(still_open) = holding.take_stdin();
+    let Ok(hearing) = holding.take_stdout();
+
+    drop(hearing);
+
+    let Ok(gone) = ended(&mut holding);
+
+    assert_eq!(
+      gone,
+      Outcome::Happened,
+      "the device held a lock for a connection nobody was on"
+    );
+    drop(still_open);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_lock_lets_go_when_its_holder_does() -> Result<(), Box<dyn Error>> {
+    let mut holding = held_far_away()?;
+    let Ok(hearing) = holding.take_stdout();
+    let Ok(writing) = holding.take_stdin();
+
+    drop(writing);
+
+    let Ok(gone) = ended(&mut holding);
+
+    assert_eq!(
+      gone,
+      Outcome::Happened,
+      "the device held a lock after the laptop let go of it"
+    );
+    drop(hearing);
+
+    Ok(())
+  }
+
+  #[test]
+  fn letting_go_ends_the_child_that_was_holding_it() -> Result<(), std::io::Error> {
+    let Ok(mut asking) = Program::Cat.command();
+
+    asking.stdin(Stdio::piped()).stdout(Stdio::null());
+
+    let holding = alongside(&mut asking)?;
+
+    let Ok(id) = holding.id();
+    let staying = Staying {
+      holding: Some(holding),
+    };
+    drop(staying);
+
+    match std::fs::metadata(format!("/proc/{id}/stat")) {
+      Ok(_) => {
+        return Err(std::io::Error::other(
+          "the child holding the lock outlived the lock",
+        ));
+      }
+      Err(fault) => match ::core::primitive::bool::then_some(
+        fault.kind() == std::io::ErrorKind::NotFound,
+        (),
+      ) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => return Err(fault),
+      },
     }
 
-    fn held_far_away() -> Result<console_program_lifetime::BoundToParent, Box<dyn Error>> {
-        let Ok(holding) = heartbeat(Duration::from_secs(1));
-        let Ok(mut asking) = Program::Sh.command();
-
-        asking.args(["-c", &holding]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
-
-        let held = alongside(&mut asking)?;
-
-        Ok(held)
-    }
-
-    fn ended(holding: &mut console_program_lifetime::BoundToParent) -> Result<Outcome, Never> {
-        let Ok(patience) = Schedule::of(Duration::from_secs(10));
-
-        until_handed(patience, holding, |holding| {
-            let Ok(still) = holding.still();
-
-            Ok(match still {
-                console_program_lifetime::Still::Ended => Ready::Yes,
-                console_program_lifetime::Still::Running => Ready::NotYet,
-            })
-        })
-    }
-
-    #[test]
-    fn a_lock_whose_holder_has_gone_without_a_word_lets_go() -> Result<(), Box<dyn Error>> {
-        let mut holding = held_far_away()?;
-        let Ok(still_open) = holding.take_stdin();
-        let Ok(hearing) = holding.take_stdout();
-
-        drop(hearing);
-
-        let Ok(gone) = ended(&mut holding);
-
-        assert_eq!(gone, Outcome::Happened, "the device held a lock for a connection nobody was on");
-        drop(still_open);
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_lock_lets_go_when_its_holder_does() -> Result<(), Box<dyn Error>> {
-        let mut holding = held_far_away()?;
-        let Ok(hearing) = holding.take_stdout();
-        let Ok(writing) = holding.take_stdin();
-
-        drop(writing);
-
-        let Ok(gone) = ended(&mut holding);
-
-        assert_eq!(gone, Outcome::Happened, "the device held a lock after the laptop let go of it");
-        drop(hearing);
-
-        Ok(())
-    }
-
-    #[test]
-    fn letting_go_ends_the_child_that_was_holding_it() -> Result<(), std::io::Error> {
-        let Ok(mut asking) = Program::Cat.command();
-
-        asking.stdin(Stdio::piped()).stdout(Stdio::null());
-
-        let holding = alongside(&mut asking)?;
-
-        let Ok(id) = holding.id();
-        let staying = Staying { holding: Some(holding) };
-        drop(staying);
-
-        let still = std::path::Path::new(&format!("/proc/{id}/stat")).exists();
-
-        assert!(!still, "the child holding the lock outlived the lock");
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

@@ -1,0 +1,418 @@
+== 0
+rules=3
+svg0:
+g1:
+rect2: fill=red | stroke=blue! | fill=green |
+rect3: fill=red | stroke=blue! |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: fill=red |
+== 1
+rules=3
+svg0:
+g1: opacity=.5 |
+rect2: opacity=.5 |
+rect3: opacity=.5 |
+circle4: opacity=.5 |
+text5:
+tspan6:
+g7: opacity=.5 |
+rect8: opacity=.5 |
+== 2
+rules=5
+svg0:
+g1:
+rect2: a=b | h=i | j=k |
+rect3: a=b | c=d | h=i | j=k |
+circle4: e=f |
+text5:
+tspan6:
+g7:
+rect8: a=b | h=i | j=k |
+== 3
+rules=6
+svg0:
+g1: d=4 |
+rect2: a=1 | b=2 |
+rect3: a=1 | c=3 | d=4 |
+circle4: e=5 | f=6 |
+text5: e=5 | f=6 |
+tspan6:
+g7:
+rect8:
+== 4
+rules=4
+svg0: i=j |
+g1: i=j | g=h |
+rect2: i=j | a=b |
+rect3:
+circle4:
+text5:
+tspan6: i=j |
+g7:
+rect8: i=j | a=b |
+== 5
+rules=1
+svg0:
+g1:
+rect2: a=b |
+rect3: a=b |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: a=b |
+== 6
+rules=2
+svg0:
+g1:
+rect2: a=b |
+rect3: a=b |
+circle4: c=d |
+text5:
+tspan6:
+g7:
+rect8: a=b |
+== 7
+rules=1
+svg0:
+g1:
+rect2: x=y |
+rect3: x=y |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: x=y |
+== 8
+rules=1
+svg0:
+g1:
+rect2: fill=red |
+rect3: fill=red |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: fill=red |
+== 9
+rules=3
+svg0:
+g1:
+rect2: fill=red | a=b |
+rect3: fill=red | a=b |
+circle4: z=1 |
+text5:
+tspan6:
+g7:
+rect8: fill=red | a=b |
+== 10
+rules=1
+svg0:
+g1:
+rect2: fill=url(#a) stroke=rgb(1, 2, 3) font-family='A B', serif width=5px height=50% color=#fff c2=#abc123 margin=-1.5em +2 .5 |
+rect3: fill=url(#a) stroke=rgb(1, 2, 3) font-family='A B', serif width=5px height=50% color=#fff c2=#abc123 margin=-1.5em +2 .5 |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: fill=url(#a) stroke=rgb(1, 2, 3) font-family='A B', serif width=5px height=50% color=#fff c2=#abc123 margin=-1.5em +2 .5 |
+== 11
+rules=5
+svg0: a=b |
+g1: a=b |
+rect2: a=b | g=h | i=j | k=l |
+rect3: a=b | g=h | i=j | k=l |
+circle4: a=b |
+text5: a=b |
+tspan6: a=b |
+g7: a=b |
+rect8: a=b | g=h | i=j | k=l |
+== 12
+rules=1
+svg0:
+g1:
+rect2: a=b! c=d! e=f |
+rect3: a=b! c=d! e=f |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: a=b! c=d! e=f |
+== 13
+rules=1
+svg0:
+g1:
+rect2: zoom=1 a=b |
+rect3: zoom=1 a=b |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: zoom=1 a=b |
+== 14
+rules=1
+svg0:
+g1: a=b c=d |
+rect2:
+rect3:
+circle4:
+text5:
+tspan6:
+g7: a=b c=d |
+rect8:
+== 15
+rules=0
+svg0:
+g1:
+rect2:
+rect3:
+circle4:
+text5:
+tspan6:
+g7:
+rect8:
+== 16
+rules=4
+svg0:
+g1:
+rect2:
+rect3:
+circle4: c=d | g=h |
+text5:
+tspan6:
+g7:
+rect8:
+== 17
+rules=1
+svg0:
+g1:
+rect2: a=b |
+rect3: a=b |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: a=b |
+== 18
+rules=7
+svg0:
+g1:
+rect2: a=b | c=d | g=h | i=j | m=n | e=f |
+rect3: a=b | c=d | g=h | i=j | k=l | m=n |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: a=b | c=d | g=h | i=j |
+== 19
+rules=0
+svg0:
+g1:
+rect2:
+rect3:
+circle4:
+text5:
+tspan6:
+g7:
+rect8:
+== 20
+rules=2
+svg0:
+g1:
+rect2: a="x\"y" b='p' |
+rect3: a="x\"y" b='p' |
+circle4: c=url( 'x) |
+text5:
+tspan6:
+g7:
+rect8: a="x\"y" b='p' |
+== 21
+rules=1
+svg0:
+g1:
+rect2: a=b |
+rect3: a=b |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: a=b |
+== 22
+rules=2
+svg0:
+g1:
+rect2: a=b |
+rect3: a=b |
+circle4: c=d |
+text5:
+tspan6:
+g7:
+rect8: a=b |
+== 23
+rules=0
+svg0:
+g1:
+rect2:
+rect3:
+circle4:
+text5:
+tspan6:
+g7:
+rect8:
+== 24
+rules=4
+svg0:
+g1: c=d |
+rect2: a=b | c=d |
+rect3: a=b | c=d |
+circle4: a=b |
+text5:
+tspan6:
+g7: c=d |
+rect8: a=b | c=d |
+== 25
+rules=4
+svg0:
+g1: c=d | e=f |
+rect2:
+rect3:
+circle4:
+text5:
+tspan6:
+g7:
+rect8:
+== 26
+rules=3
+svg0:
+g1: e=f |
+rect2: a=b |
+rect3:
+circle4:
+text5:
+tspan6:
+g7:
+rect8:
+== 27
+rules=1
+svg0:
+g1:
+rect2:
+rect3:
+circle4: c=d |
+text5:
+tspan6:
+g7:
+rect8:
+== 28
+rules=1
+svg0:
+g1:
+rect2:
+rect3:
+circle4: c=d |
+text5:
+tspan6:
+g7:
+rect8:
+== 29
+rules=1
+svg0:
+g1:
+rect2:
+rect3:
+circle4: c=d |
+text5:
+tspan6:
+g7:
+rect8:
+== 30
+rules=1
+svg0:
+g1:
+rect2:
+rect3:
+circle4: c=d |
+text5:
+tspan6:
+g7:
+rect8:
+== 31
+rules=2
+svg0:
+g1:
+rect2: margin=0 auto! |
+rect3: margin=0 auto! |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: margin=0 auto! |
+== 32
+rules=1
+svg0:
+g1:
+rect2: a=1.5.5 b=5% 10% c=+.5 d=-x e=#-a f=#12 |
+rect3: a=1.5.5 b=5% 10% c=+.5 d=-x e=#-a f=#12 |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: a=1.5.5 b=5% 10% c=+.5 d=-x e=#-a f=#12 |
+== 33
+rules=0
+svg0:
+g1:
+rect2:
+rect3:
+circle4:
+text5:
+tspan6:
+g7:
+rect8:
+== 34
+rules=1
+svg0:
+g1:
+rect2: a=b c |
+rect3: a=b c |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: a=b c |
+== 35
+rules=2
+svg0:
+g1:
+rect2: a=b |
+rect3: a=b |
+circle4: c=d |
+text5:
+tspan6:
+g7:
+rect8: a=b |
+== 36
+rules=3
+svg0:
+g1: e=f |
+rect2: a=b |
+rect3: a=b |
+circle4: c=d |
+text5:
+tspan6:
+g7: e=f |
+rect8: a=b |
+== 37
+rules=4
+svg0:
+g1:
+rect2: c=d | e=f | g=h |
+rect3: c=d | e=f | g=h |
+circle4:
+text5:
+tspan6:
+g7:
+rect8: c=d | e=f | g=h |

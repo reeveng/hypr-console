@@ -1,5 +1,0 @@
-[bindings.swift]
-module_name = "Merman"
-ffi_module_name = "MermanFFI"
-ffi_module_filename = "MermanFFI"
-generate_module_map = true

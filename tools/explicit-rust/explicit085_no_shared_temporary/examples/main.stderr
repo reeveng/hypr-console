@@ -1,0 +1,27 @@
+warning: `std::env::temp_dir` is a place every user of this machine can write to
+  --> $DIR/main.rs:5:5
+   |
+LL |     std::env::temp_dir().join(format!("console-{named}-{}", std::process::id()))
+   |     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask `console-core-temporary-directories` for somewhere to put it, which is made under the session's own runtime directory by a call that fails when the name is already there. A session with no runtime directory is a fault to say rather than a reason to stand somewhere shared. Where the path is only a value and nothing is ever made at it, allow this rule here and let the reason say so
+   = note: `#[warn(explicit085_no_shared_temporary)]` on by default
+
+warning: `"/dev/shm"` is a place every user of this machine can write to
+  --> $DIR/main.rs:12:27
+   |
+LL |         None => Path::new("/dev/shm").join("voice"),
+   |                           ^^^^^^^^^^
+   |
+   = help: ask `console-core-temporary-directories` for somewhere to put it, which is made under the session's own runtime directory by a call that fails when the name is already there. A session with no runtime directory is a fault to say rather than a reason to stand somewhere shared. Where the path is only a value and nothing is ever made at it, allow this rule here and let the reason say so
+
+warning: `"/dev/shm/console-page"` is a place every user of this machine can write to
+  --> $DIR/main.rs:18:5
+   |
+LL |     "/dev/shm/console-page"
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask `console-core-temporary-directories` for somewhere to put it, which is made under the session's own runtime directory by a call that fails when the name is already there. A session with no runtime directory is a fault to say rather than a reason to stand somewhere shared. Where the path is only a value and nothing is ever made at it, allow this rule here and let the reason say so
+
+warning: 3 warnings emitted
+

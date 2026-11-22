@@ -1,0 +1,14 @@
+explicit014_fixed_places = true
+
+[explicit014_bounds_errors]
+"console_core_font_reading::read::ReadError" = "OutOfBounds"
+"console_core_video_decoding_av1::src::error::Rav1dError" = "EINVAL"
+"console_core_video_decoding_av1::src::decode::decode_b" = "()"
+"console_core_video_decoding_av1::src::decode::decode_sb" = "()"
+"console_core_video_decoding_av1::src::decode::rav1d_decode_tile_sbrow" = "()"
+"console_core_video_decoding_av1::src::recon::rav1d_recon_b_inter" = "()"
+"console_core_video_decoding_av1::src::recon::mc" = "()"
+"console_core_video_decoding_av1::src::recon::obmc" = "()"
+"console_core_video_decoding_av1::src::recon::warp_affine" = "()"
+"console_core_video_decoding_advanced_video_coding::error::Error" = "Invalid"
+"console_core_video_decoding_high_efficiency_video_coding::error::Error" = "Invalid"

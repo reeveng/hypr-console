@@ -4,7 +4,7 @@ error: a comment that is neither a module head nor a `// SAFETY:` reason
 LL |     // what this is doing //~ EXPLICIT020_NO_COMMENT
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in `docs/`
+   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in the documentation in Orbit
    = note: `#[deny(explicit020_no_comment)]` on by default
 
 error: a comment that is neither a module head nor a `// SAFETY:` reason
@@ -13,7 +13,7 @@ error: a comment that is neither a module head nor a `// SAFETY:` reason
 LL | /// what this returns //~ EXPLICIT020_NO_COMMENT
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in `docs/`
+   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in the documentation in Orbit
 
 error: a comment that is neither a module head nor a `// SAFETY:` reason
   --> $DIR/main.rs:19:1
@@ -21,7 +21,7 @@ error: a comment that is neither a module head nor a `// SAFETY:` reason
 LL | /* said in a block */ //~ EXPLICIT020_NO_COMMENT
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in `docs/`
+   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in the documentation in Orbit
 
 error: a comment that is neither a module head nor a `// SAFETY:` reason
   --> $DIR/main.rs:25:7
@@ -29,7 +29,7 @@ error: a comment that is neither a module head nor a `// SAFETY:` reason
 LL |     4 // the answer //~ EXPLICIT020_NO_COMMENT
    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in `docs/`
+   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in the documentation in Orbit
 
 error: a comment that is neither a module head nor a `// SAFETY:` reason
   --> $DIR/main.rs:43:5
@@ -37,7 +37,7 @@ error: a comment that is neither a module head nor a `// SAFETY:` reason
 LL |     // and this paragraph is not part of that reason //~ EXPLICIT020_NO_COMMENT
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in `docs/`
+   = help: delete it: what the code says, it says. What it cannot say goes in the module's `//!` head or in the documentation in Orbit
 
 error: aborting due to 5 previous errors
 

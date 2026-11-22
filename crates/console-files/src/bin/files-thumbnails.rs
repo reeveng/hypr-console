@@ -27,157 +27,169 @@ use console_files::thumbnails;
 const FOLDER: [&str; 1] = ["FOLDER"];
 
 const COMMAND: Command = Command {
-    name: "files-thumbnails",
-    about: "make the pictures one folder's listing wants, and stop",
-    flags: &[],
-    operands: Operands::Named(&FOLDER),
+  name: "files-thumbnails",
+  about: "make the pictures one folder's listing wants, and stop",
+  flags: &[],
+  operands: Operands::Named(&FOLDER),
 };
 
 fn folder(words: &[String]) -> Result<String, ValidationError> {
-    let read = read(&COMMAND, words);
-    let line = read?;
-    let operands = line.exactly(FOLDER);
-    let [folder] = operands?;
+  let read = read(&COMMAND, words);
+  let line = read?;
+  let operands = line.exactly(FOLDER);
+  let [folder] = operands?;
 
-    Ok(folder.clone())
+  Ok(folder.clone())
 }
 
 fn main() -> ExitCode {
-    let words: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, folder, |folder| make(&folder));
+  let words: Vec<String> = std::env::args().skip(1).collect();
+  let Ok(code) =
+    console_core_arguments::run_main(&COMMAND, &words, folder, |folder| make(&folder));
 
-    code
+  code
 }
 
 fn make(folder: &str) -> Result<(), Never> {
+  let Ok(cache) = Base::Cache.user();
 
-    let Ok(cache) = Base::Cache.user();
+  let cache_3 = match cache {
+    Some(cache_2) => cache_2,
+    None => {
+      eprintln!("files-thumbnails: no home, so there is nowhere to keep a picture");
 
-    let cache = match cache {
-        Some(cache) => cache,
-        None => {
-            eprintln!("files-thumbnails: no home, so there is nowhere to keep a picture");
-
-            return Ok(());
-        }
-    };
-
-    let Ok(store) = thumbnails::store(&cache);
-
-    match std::fs::create_dir_all(&store) {
-        Ok(()) => {},
-        Err(fault) => {
-            eprintln!(
-                "files-thumbnails: {}: making the store the pictures go in: {fault}",
-                store.display()
-            );
-
-            return Ok(());
-        }
+      return Ok(());
     }
+  };
 
-    let Ok(wanting) = wanting(Path::new(&folder), &store);
+  let Ok(store) = thumbnails::store(&cache_3);
 
-    let Ok(cores) = console_concurrency::Cores::counted();
-    let every = console_concurrency::map(cores, &wanting, |(thing, kind)| make_thumbnail(thing, kind, &store));
+  match std::fs::create_dir_all(&store) {
+    Ok(()) => {}
+    Err(fault) => {
+      eprintln!(
+        "files-thumbnails: {}: making the store the pictures go in: {fault}",
+        store.display()
+      );
 
-    match every {
-        Ok(_every_one_tried) => {},
-        Err(fault) => eprintln!("files-thumbnails: {fault}"),
+      return Ok(());
     }
+  }
 
-    Ok(())
+  let Ok(wanting) = wanting(Path::new(&folder), &store);
+
+  let Ok(cores) = console_concurrency::Cores::counted();
+  let every = console_concurrency::map(cores, &wanting, |(thing, kind)| {
+    make_thumbnail(thing, kind, &store)
+  });
+
+  match every {
+    Ok(_every_one_tried) => {}
+    Err(fault) => eprintln!("files-thumbnails: {fault}"),
+  }
+
+  Ok(())
 }
 
 fn wanting(folder: &Path, store: &Path) -> Result<Vec<(PathBuf, String)>, Never> {
-    let kinds = match Table::here() {
-        Ok(kinds) => kinds,
-        Err(why) => {
-            eprintln!("files-thumbnails: nothing says what a file is: {why}");
+  let kinds = match Table::here() {
+    Ok(kinds) => kinds,
+    Err(why) => {
+      eprintln!("files-thumbnails: nothing says what a file is: {why}");
 
-            Table::default()
-        }
-    };
-
-    let children = match std::fs::read_dir(folder) {
-        Ok(children) => children,
-        Err(_nothing_to_walk) => return Ok(Vec::new()),
-    };
-
-    let mut wanting: Vec<(PathBuf, String)> = Vec::new();
-
-    for about in children.flatten() {
-        let path = about.path();
-        let Ok(kind) = console_content_types::of(&kinds, &path);
-
-        let entry = Entry {
-            folder: path.is_dir(),
-            kind,
-            name: String::new(),
-            size: 0,
-        };
-        let worth = entry.worth_a_picture()?;
-        let found = thumbnails::find_thumbnail(store, &path)?;
-
-        match worth == Worth::APicture && found.is_none() {
-            true => wanting.push((path, entry.kind)),
-            false => {},
-        }
+      Table::default()
     }
+  };
 
-    Ok(wanting)
+  let children = match std::fs::read_dir(folder) {
+    Ok(children) => children,
+    Err(_nothing_to_walk) => return Ok(Vec::new()),
+  };
+
+  let mut wanting: Vec<(PathBuf, String)> = Vec::new();
+
+  for about in children.flatten() {
+    let path = about.path();
+    let Ok(kind) = console_content_types::of(&kinds, &path);
+
+    let is_folder = match path.metadata() {
+      Ok(metadata) => metadata.is_dir(),
+      Err(_unavailable) => false,
+    };
+    let entry = Entry {
+      folder: is_folder,
+      kind,
+      name: String::new(),
+      size: 0,
+    };
+    let worth = entry.worth_a_picture()?;
+    let found = thumbnails::find_thumbnail(store, &path)?;
+
+    match ::core::primitive::bool::then_some(worth == Worth::APicture && found.is_none(), ()) {
+      ::core::option::Option::Some(()) => wanting.push((path, entry.kind)),
+      ::core::option::Option::None => {}
+    }
+  }
+
+  Ok(wanting)
 }
 
 fn make_thumbnail(thing: &Path, kind: &str, store: &Path) -> Result<(), Never> {
-    let address = thumbnails::address(thing)?;
+  let address = thumbnails::address(thing)?;
 
-    let address = match address {
-        Some(address) => address,
-        None => return Ok(()),
-    };
+  let address_3 = match address {
+    Some(address_2) => address_2,
+    None => return Ok(()),
+  };
 
-    let kept = thumbnails::of(store, &address)?;
+  let kept = thumbnails::of(store, &address_3)?;
 
-    let kept = match kept {
-        Some(kept) => kept,
-        None => return Ok(()),
-    };
+  let kept_3 = match kept {
+    Some(kept_2) => kept_2,
+    None => return Ok(()),
+  };
 
-    let Ok(changed) = changed_at(thing);
-    let stamp = thumbnails::Stamp { address: &address, changed: &changed };
-    let png = match thumbnails::drawn(thing, kind, Some(stamp)) {
-        Ok(Some(png)) => png,
-        Ok(None) => return Ok(()),
-        Err(fault) => {
-            eprintln!("files-thumbnails: {}: {fault}", thing.display());
+  let Ok(changed) = changed_at(thing);
+  let stamp = thumbnails::Stamp {
+    address: &address_3,
+    changed: &changed,
+  };
+  let png = match thumbnails::drawn(thing, kind, Some(stamp)) {
+    Ok(Some(png)) => png,
+    Ok(None) => return Ok(()),
+    Err(fault) => {
+      eprintln!("files-thumbnails: {}: {fault}", thing.display());
 
-            return Ok(());
-        }
-    };
-
-    match console_core_atomic_writes::whole(&kept, &png) {
-        Ok(()) => {},
-        Err(fault) => eprintln!("files-thumbnails: {}: writing the picture: {fault}", kept.display()),
+      return Ok(());
     }
+  };
 
-    Ok(())
+  match console_core_atomic_writes::whole(&kept_3, &png) {
+    Ok(()) => {}
+    Err(fault) => eprintln!(
+      "files-thumbnails: {}: writing the picture: {fault}",
+      kept_3.display()
+    ),
+  }
+
+  Ok(())
 }
 
 fn changed_at(thing: &Path) -> Result<String, Never> {
-    let about = match thing.metadata() {
-        Ok(about) => about,
-        Err(_unreadable) => return Ok(String::new()),
-    };
+  let about = match thing.metadata() {
+    Ok(about) => about,
+    Err(_unreadable) => return Ok(String::new()),
+  };
 
-    let when = match about.modified() {
-        Ok(when) => when,
-        Err(_unstamped) => return Ok(String::new()),
-    };
+  let when = match about.modified() {
+    Ok(when) => when,
+    Err(_unstamped) => return Ok(String::new()),
+  };
 
-    let since = match when.duration_since(std::time::UNIX_EPOCH) {
-        Ok(since) => since,
-        Err(_the_clock_is_before_the_epoch) => return Ok(String::new()),
-    };
+  let since = match when.duration_since(std::time::UNIX_EPOCH) {
+    Ok(since) => since,
+    Err(_the_clock_is_before_the_epoch) => return Ok(String::new()),
+  };
 
-    Ok(since.as_secs().to_string())
+  Ok(since.as_secs().to_string())
 }

@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/*"]
-exclude = ["tools", "forks"]
+exclude = ["tools", "forks", "crates/console-browser-renderer-servo", "crates/console-browser-renderer-webkit"]
 resolver = "3"
 
 [workspace.package]
@@ -9,35 +9,66 @@ rust-version = "1.98"
 license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
+console-core-curve-geometry = { path = "forks/console-core-curve-geometry", default-features = false }
+console-core-fixed-capacity-vectors = { path = "crates/console-core-fixed-capacity-vectors" }
+console-core-synchronization = { path = "crates/console-core-synchronization" }
+console-core-api-compatibility = { path = "crates/console-core-api-compatibility" }
+console-core-video-planes = { path = "crates/console-core-video-planes" }
+console-core-macintosh-roman = { path = "crates/console-core-macintosh-roman" }
+console-core-iso-media-boxes = { path = "crates/console-core-iso-media-boxes" }
+console-core-extensible-binary-meta-language = { path = "crates/console-core-extensible-binary-meta-language" }
+console-core-matroska-blocks = { path = "crates/console-core-matroska-blocks" }
+console-core-font-hinting = { path = "crates/console-core-font-hinting", default-features = false }
+console-core-perfect-hash = { path = "crates/console-core-perfect-hash" }
+console-input-key-symbols = { path = "crates/console-input-key-symbols" }
+console-core-byte-streams = { path = "crates/console-core-byte-streams" }
+console-core-frequency-transforms = { path = "crates/console-core-frequency-transforms" }
+console-core-audio-samples = { path = "crates/console-core-audio-samples" }
+console-core-audio-windows = { path = "crates/console-core-audio-windows" }
+console-core-integer-sets = { path = "crates/console-core-integer-sets", default-features = false }
+console-core-portable-document-functions = { path = "crates/console-core-portable-document-functions" }
+console-core-glyph-names = { path = "crates/console-core-glyph-names" }
+console-core-font-encodings = { path = "crates/console-core-font-encodings" }
+console-core-bounded-reads = { path = "crates/console-core-bounded-reads" }
+console-core-text-layout = { path = "crates/console-core-text-layout" }
+console-core-text-boundaries = { path = "crates/console-core-text-boundaries" }
+console-core-line-breaking = { path = "crates/console-core-line-breaking" }
 console-core-adaptive-arithmetic-decoding = { path = "crates/console-core-adaptive-arithmetic-decoding" }
 console-core-mq-decoding = { path = "crates/console-core-mq-decoding" }
+console-core-fax-images = { path = "crates/console-core-fax-images" }
 console-core-byte-sources = { path = "crates/console-core-byte-sources" }
-console-core-mermaid = { path = "forks/console-core-mermaid/crates/merman", default-features = false, features = ["all-diagrams", "svg", "layout-cytoscape"] }
-console-core-audio-metadata = { path = "forks/console-core-audio-metadata" }
-console-core-audio-decoding = { path = "forks/console-core-audio-decoding", default-features = false, features = ["mp3", "flac", "vorbis", "aac", "alac", "pcm", "ogg", "isomp4", "mkv", "wav", "aiff"] }
-console-core-audio-decoding-opus = { path = "forks/console-core-audio-decoding-opus" }
-console-core-video-decoding-advanced-video-coding = { path = "forks/console-core-video-decoding-advanced-video-coding" }
-console-core-video-decoding-av1 = { path = "forks/console-core-video-decoding-av1", features = ["unchecked"] }
-console-core-video-decoding-high-efficiency-video-coding = { path = "forks/console-core-video-decoding-high-efficiency-video-coding" }
-console-core-video-decoding-matroska-container = { path = "forks/console-core-video-decoding-matroska-container" }
-console-core-video-decoding-mpeg-4-container = { path = "forks/console-core-video-decoding-mpeg-4-container" }
-console-core-video-decoding-vp9 = { path = "forks/console-core-video-decoding-vp9" }
+console-core-markdown = { path = "forks/console-core-markdown" }
+console-core-mermaid = { path = "forks/console-core-mermaid", default-features = false, features = ["all-diagrams", "svg", "layout-cytoscape"] }
+console-core-audio-metadata = { path = "crates/console-core-audio-metadata" }
+console-core-mpeg-audio-frames = { path = "crates/console-core-mpeg-audio-frames" }
+console-core-audio-decoding = { path = "crates/console-core-audio-decoding" }
+console-core-audio-decoding-opus = { path = "crates/console-core-audio-decoding-opus" }
+console-core-video-decoding-advanced-video-coding = { path = "crates/console-core-video-decoding-advanced-video-coding" }
+console-core-video-decoding-av1 = { path = "crates/console-core-video-decoding-av1", features = ["unchecked"] }
+console-core-video-decoding-high-efficiency-video-coding = { path = "crates/console-core-video-decoding-high-efficiency-video-coding" }
+console-core-video-decoding-matroska-container = { path = "crates/console-core-video-decoding-matroska-container" }
+console-core-video-decoding-mpeg-4-container = { path = "crates/console-core-video-decoding-mpeg-4-container" }
+console-core-video-decoding-vp9 = { path = "crates/console-core-video-decoding-vp9" }
+console-core-video-interpolation = { path = "crates/console-core-video-interpolation" }
+console-core-video-inverse-transforms = { path = "crates/console-core-video-inverse-transforms" }
 console-films = { path = "crates/console-films" }
-console-core-portable-document-rasterizer = { path = "forks/console-core-portable-document-rasterizer" }
-console-core-portable-document-text = { path = "forks/console-core-portable-document-text" }
-console-core-scalable-vector-graphics = { path = "forks/console-core-scalable-vector-graphics", default-features = false }
-console-core-scalable-vector-graphics-rasterizer = { path = "forks/console-core-scalable-vector-graphics-rasterizer", default-features = false, features = ["svgz"] }
-console-core-path-rasterizer = { path = "forks/console-core-path-rasterizer" }
-rustix = { version = "1.1", features = ["process", "fs", "mm", "event", "pipe", "time", "param", "stdio", "thread", "linux_4_11"] }
+console-core-portable-document-rasterizer = { path = "crates/console-core-portable-document-rasterizer" }
+console-core-portable-document-text = { path = "crates/console-core-portable-document-text" }
+console-core-scalable-vector-graphics = { path = "crates/console-core-scalable-vector-graphics", default-features = false }
+console-core-scalable-vector-graphics-rasterizer = { path = "crates/console-core-scalable-vector-graphics-rasterizer", default-features = false, features = ["svgz"] }
+console-core-path-rasterizer = { path = "crates/console-core-path-rasterizer" }
+rustix = { version = "1.1", features = ["process", "fs", "mm", "event", "pipe", "time", "param", "stdio", "thread", "rand", "linux_4_11"] }
+libm = "0.2.16"
 console-applications = { path = "crates/console-applications" }
 console-input-mapping = { path = "crates/console-input-mapping" }
 console-program-lifetime = { path = "crates/console-program-lifetime" }
-console-program-lifetime-linux = { path = "crates/console-program-lifetime-linux" }
-console-program-scopes-systemd = { path = "crates/console-program-scopes-systemd" }
 console-awake = { path = "crates/console-awake" }
 console-boot-entries = { path = "crates/console-boot-entries" }
+console-bluetooth = { path = "crates/console-bluetooth" }
+console-bluetooth-agent = { path = "crates/console-bluetooth-agent" }
 console-bus = { path = "crates/console-bus" }
 console-calendar = { path = "crates/console-calendar" }
+console-capture = { path = "crates/console-capture", default-features = false }
 console-calculator = { path = "crates/console-calculator" }
 console-forecast = { path = "crates/console-forecast" }
 console-notes = { path = "crates/console-notes" }
@@ -46,13 +77,17 @@ console-core-jpeg-files = { path = "crates/console-core-jpeg-files" }
 console-core-png-files = { path = "crates/console-core-png-files" }
 console-core-subtitle-files = { path = "crates/console-core-subtitle-files" }
 console-core-picture-scaling = { path = "crates/console-core-picture-scaling" }
+console-core-pixel-buffers = { path = "crates/console-core-pixel-buffers" }
 console-core-prefix-codes = { path = "crates/console-core-prefix-codes" }
 console-core-webp-files = { path = "crates/console-core-webp-files" }
 console-core-color = { path = "crates/console-core-color" }
 console-compositor = { path = "crates/console-compositor" }
 console-concurrency = { path = "crates/console-concurrency" }
+console-core-parallel-execution = { path = "crates/console-core-parallel-execution" }
 console-control-center = { path = "crates/console-control-center" }
 console-overview = { path = "crates/console-overview" }
+console-task-manager = { path = "crates/console-task-manager" }
+console-clipboard = { path = "crates/console-clipboard" }
 console-input-controller = { path = "crates/console-input-controller" }
 console-cpu-boost = { path = "crates/console-cpu-boost" }
 console-battery = { path = "crates/console-battery" }
@@ -78,6 +113,8 @@ console-input-focus = { path = "crates/console-input-focus" }
 console-input-text = { path = "crates/console-input-text" }
 console-input-language = { path = "crates/console-input-language" }
 console-input-keyboard = { path = "crates/console-input-keyboard" }
+console-input-keymaps = { path = "crates/console-input-keymaps" }
+console-input-keymaps-derive = { path = "crates/console-input-keymaps-derive" }
 console-launcher = { path = "crates/console-launcher" }
 console-login-greeter = { path = "crates/console-login-greeter" }
 console-login-pattern = { path = "crates/console-login-pattern" }
@@ -89,27 +126,46 @@ console-music = { path = "crates/console-music" }
 console-music-player = { path = "crates/console-music-player" }
 console-test-desktop = { path = "crates/console-test-desktop" }
 console-core-geometry = { path = "crates/console-core-geometry" }
+console-core-line = { path = "crates/console-core-line" }
+console-core-point = { path = "crates/console-core-point" }
+console-core-rectangle = { path = "crates/console-core-rectangle" }
+console-core-size = { path = "crates/console-core-size" }
+console-core-transform = { path = "crates/console-core-transform" }
+console-core-picture-sizes = { path = "crates/console-core-picture-sizes" }
+console-core-highlight = { path = "crates/console-core-highlight" }
+console-core-controls = { path = "crates/console-core-controls" }
+console-core-tile-rows = { path = "crates/console-core-tile-rows" }
 console-core-web-engine = { path = "crates/console-core-web-engine" }
 console-core-shapes = { path = "crates/console-core-shapes" }
 console-core-fonts = { path = "crates/console-core-fonts" }
 console-pictures = { path = "crates/console-pictures" }
 console-content-types = { path = "crates/console-content-types" }
 console-core-checksums = { path = "crates/console-core-checksums" }
+sha2 = "0.11.1"
+criterion = { version = "=0.8.2", default-features = false, features = ["plotters", "cargo_bench_support"] }
+console-core-ogg-pages = { path = "crates/console-core-ogg-pages" }
 console-core-temporary-directories = { path = "crates/console-core-temporary-directories" }
 console-core-walking = { path = "crates/console-core-walking" }
 console-core-directory-listing = { path = "crates/console-core-directory-listing" }
 console-core-arguments = { path = "crates/console-core-arguments" }
 console-core-iteration = { path = "crates/console-core-iteration" }
 console-core-file-names = { path = "crates/console-core-file-names" }
+console-core-media-access-control-addresses = { path = "crates/console-core-media-access-control-addresses" }
 console-core-file-urls = { path = "crates/console-core-file-urls" }
+console-core-boolean-decoding = { path = "crates/console-core-boolean-decoding" }
+console-core-percent-decoding = { path = "crates/console-core-percent-decoding" }
+console-core-text-encodings = { path = "crates/console-core-text-encodings" }
 console-recovery = { path = "crates/console-recovery" }
 console-readiness = { path = "crates/console-readiness" }
 console-lock-screen = { path = "crates/console-lock-screen" }
 console-core-never = { path = "crates/console-core-never" }
+console-core-logging = { path = "crates/console-core-logging", default-features = false }
+console-core-vertical-orientation = { path = "crates/console-core-vertical-orientation" }
 console-core-internal-programs = { path = "crates/console-core-internal-programs" }
 console-notifications = { path = "crates/console-notifications" }
 console-core-ini-files = { path = "crates/console-core-ini-files" }
 console-core-number-conversion = { path = "crates/console-core-number-conversion" }
+console-core-finite-numbers = { path = "crates/console-core-finite-numbers" }
 console-onscreen = { path = "crates/console-onscreen" }
 console-draw-painting = { path = "crates/console-draw-painting" }
 console-panel = { path = "crates/console-panel" }
@@ -118,6 +174,7 @@ console-core-qr-codes = { path = "crates/console-core-qr-codes" }
 console-core-places = { path = "crates/console-core-places" }
 console-program-contract = { path = "crates/console-program-contract" }
 console-program-runtime = { path = "crates/console-program-runtime" }
+console-operating-system-linux = { path = "crates/console-operating-system-linux" }
 console-core-reconnect = { path = "crates/console-core-reconnect" }
 console-core-schedules = { path = "crates/console-core-schedules" }
 console-core-screen-orientation = { path = "crates/console-core-screen-orientation" }
@@ -140,15 +197,27 @@ console-response-times = { path = "crates/console-response-times" }
 console-resume = { path = "crates/console-resume" }
 console-wallpaper = { path = "crates/console-wallpaper" }
 console-weather = { path = "crates/console-weather" }
+console-core-bitmap-font = { path = "forks/console-core-bitmap-font", default-features = false }
 console-kernel-handles = { path = "crates/console-kernel-handles" }
+console-kernel-heap = { path = "crates/console-kernel-heap" }
 console-kernel-scheduling = { path = "crates/console-kernel-scheduling" }
 console-kernel-files = { path = "crates/console-kernel-files" }
+console-kernel-software = { path = "crates/console-kernel-software" }
+console-browser-site-isolation = { path = "crates/console-browser-site-isolation" }
 console-waiting = { path = "crates/console-waiting" }
 console-sound-effects = { path = "crates/console-sound-effects" }
 console-core-words = { path = "crates/console-core-words" }
 console-core-zip-files = { path = "crates/console-core-zip-files" }
+console-core-epub-files = { path = "crates/console-core-epub-files" }
+console-core-markup-tokens = { path = "crates/console-core-markup-tokens" }
+console-core-lzw = { path = "crates/console-core-lzw" }
+console-core-deflate = { path = "crates/console-core-deflate" }
 console-books = { path = "crates/console-books" }
 console-architecture = { path = "crates/console-architecture" }
+
+[patch.crates-io]
+kurbo = { path = "forks/console-core-curve-geometry/compat" }
+string_cache = { path = "forks/console-core-string-interning/compat" }
 
 [profile.dev]
 debug = "line-tables-only"
@@ -173,16 +242,21 @@ strip = true
 libraries = [{ path = "tools/explicit-rust", pattern = "explicit*" }]
 
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(dylint_lib, values(any()))'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(dylint_lib, values(any()))', 'cfg(kani)'] }
+unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]
+# EXPLICIT019 keeps control flow in explicit matches.
 single_match = "allow"
 single_match_else = "allow"
 match_bool = "allow"
 equatable_if_let = "allow"
 option_if_let_else = "allow"
+# EXPLICIT006 requires callers to handle Result errors before returning an option.
 manual_ok_err = "allow"
+# EXPLICIT023 uses a match to name the outcomes of a fallible binding.
 manual_let_else = "allow"
+# EXPLICIT033 keeps defaults visible in the match arms that choose them.
 manual_unwrap_or = "allow"
 manual_unwrap_or_default = "allow"
 
@@ -200,4 +274,5 @@ suspicious_operation_groupings = "deny"
 empty_line_after_doc_comments = "deny"
 empty_line_after_outer_attr = "deny"
 
+# The literals recipe enables this lint for its separate audit.
 default_numeric_fallback = "allow"

@@ -33,149 +33,158 @@ use console_login_window::stored_pattern::{self, Hash, Matched, NOT_THE_PATTERN,
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Wanted {
-    Lock(Hash),
-    Absent,
+  Lock(Hash),
+  Absent,
 }
 
 pub const SETTING: &str = "lock-screen";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum LockScreen {
-    #[words(key = "on")]
-    On,
-    #[words(key = "off")]
-    Off,
+  #[words(key = "on")]
+  On,
+  #[words(key = "off")]
+  Off,
 }
 
 impl LockScreen {
-    pub fn flipped(self) -> Result<LockScreen, Never> {
-        Ok(match self {
-            LockScreen::On => LockScreen::Off,
-            LockScreen::Off => LockScreen::On,
-        })
-    }
+  pub fn flipped(self) -> Result<LockScreen, Never> {
+    Ok(match self {
+      LockScreen::On => LockScreen::Off,
+      LockScreen::Off => LockScreen::On,
+    })
+  }
 }
 
-pub fn read(said: Option<&str>) -> Result<LockScreen, Never> {
-    let said = match said {
-        Some(said) => said,
-        None => return Ok(LockScreen::On),
-    };
-    let Ok(found) = LockScreen::from_key(said);
+pub fn read(setting: Option<&str>) -> Result<LockScreen, Never> {
+  let said = match setting {
+    Some(text) => text,
+    None => return Ok(LockScreen::On),
+  };
+  let Ok(found) = LockScreen::from_key(said);
 
-    match found {
-        Some(chosen) => Ok(chosen),
-        None => {
-            eprintln!("console-lock-screen: {SETTING}={said} is neither on nor off; the screen still locks");
+  match found {
+    Some(chosen) => Ok(chosen),
+    None => {
+      eprintln!(
+        "console-lock-screen: {SETTING}={said} is neither on nor off; the screen still locks"
+      );
 
-            Ok(LockScreen::On)
-        }
+      Ok(LockScreen::On)
     }
+  }
 }
 
 pub fn current() -> Result<LockScreen, Never> {
-    let told = console_defaults::setting(SETTING)?;
+  let told = console_defaults::setting(SETTING)?;
 
-    read(told.as_deref())
+  read(told.as_deref())
 }
 
 pub fn choose(chosen: LockScreen) -> Result<(), Never> {
-    let Ok(key) = chosen.key();
+  let Ok(key) = chosen.key();
 
-    console_defaults::set(console_defaults::Setting { key: SETTING, value: key })
+  console_defaults::set(console_defaults::Setting {
+    key: SETTING,
+    value: key,
+  })
 }
 
 pub fn desired(stored: StoredPattern, chosen: LockScreen) -> Result<Wanted, Never> {
-    Ok(match (stored, chosen) {
-        (StoredPattern::Hash(hash), LockScreen::On) => Wanted::Lock(hash),
-        (StoredPattern::Hash(_), LockScreen::Off) | (StoredPattern::Absent, LockScreen::On | LockScreen::Off) => Wanted::Absent,
-    })
+  Ok(match (stored, chosen) {
+    (StoredPattern::Hash(hash), LockScreen::On) => Wanted::Lock(hash),
+    (StoredPattern::Hash(_), LockScreen::Off)
+    | (StoredPattern::Absent, LockScreen::On | LockScreen::Off) => Wanted::Absent,
+  })
 }
 
 pub fn respond(said: &FromGreeter, hash: &Hash) -> Result<Option<ToGreeter>, Never> {
-    Ok(match said {
-        FromGreeter::Login(letters) => {
-            let Ok(matched) = stored_pattern::matches(letters, hash);
+  Ok(match said {
+    FromGreeter::Login(letters) => {
+      let Ok(matched) = stored_pattern::matches(letters, hash);
 
-            Some(match matched {
-                Matched::Yes => ToGreeter::Welcome,
-                Matched::No => ToGreeter::Failed(NOT_THE_PATTERN.to_string()),
-            })
-        }
-        FromGreeter::Terminal => None,
-    })
+      Some(match matched {
+        Matched::Yes => ToGreeter::Welcome,
+        Matched::No => ToGreeter::Failed(NOT_THE_PATTERN.to_string()),
+      })
+    }
+    FromGreeter::Terminal => None,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_person_who_never_chose_a_pattern_is_never_locked() {
-        let Ok(wanted) = desired(StoredPattern::Absent, LockScreen::On);
+  #[test]
+  fn a_person_who_never_chose_a_pattern_is_never_locked() {
+    let Ok(wanted) = desired(StoredPattern::Absent, LockScreen::On);
 
-        assert_eq!(wanted, Wanted::Absent);
-    }
+    assert_eq!(wanted, Wanted::Absent);
+  }
 
-    #[test]
-    fn a_chosen_pattern_is_what_the_lock_is_answered_with() -> Result<(), Box<dyn std::error::Error>> {
-        let chosen = stored_pattern::hashed("aec")?;
-        let Ok(wanted) = desired(StoredPattern::Hash(chosen.clone()), LockScreen::On);
+  #[test]
+  fn a_chosen_pattern_is_what_the_lock_is_answered_with() -> Result<(), Box<dyn std::error::Error>>
+  {
+    let chosen = stored_pattern::hashed("aec")?;
+    let Ok(wanted) = desired(StoredPattern::Hash(chosen.clone()), LockScreen::On);
 
-        assert_eq!(wanted, Wanted::Lock(chosen));
+    assert_eq!(wanted, Wanted::Lock(chosen));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_pattern_kept_for_login_alone_does_not_lock() -> Result<(), Box<dyn std::error::Error>> {
-        let aec = stored_pattern::hashed("aec")?;
-        let Ok(wanted) = desired(StoredPattern::Hash(aec), LockScreen::Off);
+  #[test]
+  fn a_pattern_kept_for_login_alone_does_not_lock() -> Result<(), Box<dyn std::error::Error>> {
+    let aec = stored_pattern::hashed("aec")?;
+    let Ok(wanted) = desired(StoredPattern::Hash(aec), LockScreen::Off);
 
-        assert_eq!(wanted, Wanted::Absent);
+    assert_eq!(wanted, Wanted::Absent);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn nothing_chosen_locks_as_a_pattern_was_chosen_to() {
-        assert_eq!(read(None), Ok(LockScreen::On));
-    }
+  #[test]
+  fn nothing_chosen_locks_as_a_pattern_was_chosen_to() {
+    assert_eq!(read(None), Ok(LockScreen::On));
+  }
 
-    #[test]
-    fn off_is_off_and_a_word_that_is_neither_still_locks() {
-        assert_eq!(read(Some("off")), Ok(LockScreen::Off));
-        assert_eq!(read(Some("on")), Ok(LockScreen::On));
-        assert_eq!(read(Some("no")), Ok(LockScreen::On));
-    }
+  #[test]
+  fn off_is_off_and_a_word_that_is_neither_still_locks() {
+    assert_eq!(read(Some("off")), Ok(LockScreen::Off));
+    assert_eq!(read(Some("on")), Ok(LockScreen::On));
+    assert_eq!(read(Some("no")), Ok(LockScreen::On));
+  }
 
-    #[test]
-    fn the_pattern_that_was_chosen_unlocks() -> Result<(), Box<dyn std::error::Error>> {
-        let aec = stored_pattern::hashed("aec")?;
-        let Ok(answer) = respond(&FromGreeter::Login("aec".to_string()), &aec);
+  #[test]
+  fn the_pattern_that_was_chosen_unlocks() -> Result<(), Box<dyn std::error::Error>> {
+    let aec = stored_pattern::hashed("aec")?;
+    let Ok(answer) = respond(&FromGreeter::Login("aec".to_string()), &aec);
 
-        assert_eq!(answer, Some(ToGreeter::Welcome));
+    assert_eq!(answer, Some(ToGreeter::Welcome));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn any_other_pattern_is_refused_in_the_login_window_s_words() -> Result<(), Box<dyn std::error::Error>> {
-        let aec = stored_pattern::hashed("aec")?;
-        let Ok(answer) = respond(&FromGreeter::Login("ace".to_string()), &aec);
+  #[test]
+  fn any_other_pattern_is_refused_in_the_login_window_s_words()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let aec = stored_pattern::hashed("aec")?;
+    let Ok(answer) = respond(&FromGreeter::Login("ace".to_string()), &aec);
 
-        assert_eq!(answer, Some(ToGreeter::Failed(NOT_THE_PATTERN.to_string())));
+    assert_eq!(answer, Some(ToGreeter::Failed(NOT_THE_PATTERN.to_string())));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn asking_for_a_terminal_over_a_locked_session_is_not_answered() -> Result<(), Box<dyn std::error::Error>> {
-        let aec = stored_pattern::hashed("aec")?;
-        let Ok(answer) = respond(&FromGreeter::Terminal, &aec);
+  #[test]
+  fn asking_for_a_terminal_over_a_locked_session_is_not_answered()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let aec = stored_pattern::hashed("aec")?;
+    let Ok(answer) = respond(&FromGreeter::Terminal, &aec);
 
-        assert_eq!(answer, None);
+    assert_eq!(answer, None);
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

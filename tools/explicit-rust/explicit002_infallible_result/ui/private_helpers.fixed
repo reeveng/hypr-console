@@ -1,0 +1,57 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_never.rs
+extern crate console_core_never;
+
+mod fixtures {
+    fn write_header(bytes: &mut Vec<u8>) -> ::core::result::Result<(), ::console_core_never::Never> {
+        bytes.push(3);
+        ::core::result::Result::Ok(())
+    }
+
+    fn example_track_table() -> ::core::result::Result<Vec<u8>, ::console_core_never::Never> {
+        let mut bytes = vec![1];
+        let ::core::result::Result::Ok(()) = write_header(&mut bytes);
+        ::core::result::Result::Ok(bytes)
+    }
+
+    pub fn inspect() -> Result<(), ()> {
+        let ::core::result::Result::Ok(first) = example_track_table();
+        let ::core::result::Result::Ok(mut second) = example_track_table();
+        let ::core::result::Result::Ok(_) = example_track_table();
+        second.push(9);
+        assert_eq!(first, vec![1, 3]);
+        assert_eq!(second, vec![1, 3, 9]);
+        Ok(())
+    }
+}
+
+mod ranges {
+    fn covers<T: Ord>(start: T, end: T, inner_start: T, inner_end: T) -> ::core::result::Result<bool, ::console_core_never::Never> {
+        ::core::result::Result::Ok(start <= inner_start && inner_end <= end)
+    }
+
+    fn intersection<T: Copy + Ord>(left: &[T; 2], right: &[T; 2]) -> ::core::result::Result<Option<T>, ::console_core_never::Never> {
+        ::core::result::Result::Ok(match left[0].max(right[0]) <= left[1].min(right[1]) {
+            true => Some(left[0].max(right[0])),
+            false => None,
+        })
+    }
+
+    pub fn inspect() -> Result<(), ()> {
+        match covers(2, 8, 4, 6) {
+            ::core::result::Result::Ok(true) => {}
+            ::core::result::Result::Ok(false) => return Err(()),
+        }
+
+        match intersection(&[1, 3], &[2, 4]) {
+            ::core::result::Result::Ok(Some(start)) if start == 2 => Ok(()),
+            ::core::result::Result::Ok(Some(_) | None) => Err(()),
+        }
+    }
+}
+
+fn main() {
+    assert!(fixtures::inspect().is_ok());
+    assert!(ranges::inspect().is_ok());
+}

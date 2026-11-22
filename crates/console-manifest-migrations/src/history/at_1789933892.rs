@@ -22,9 +22,10 @@
 use crate::sweeping::{Each, Migration, Moment, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1789933892),
-    says: "sweeping the notification store under its old name",
-    steps: &[
-        Step::AtticEach(Each { under: "/run/user", named: "console/notices.json" }),
-    ],
+  moment: Moment(1789933892),
+  says: "sweeping the notification store under its old name",
+  steps: &[Step::AtticEach(Each {
+    under: "/run/user",
+    named: "console/notices.json",
+  })],
 };

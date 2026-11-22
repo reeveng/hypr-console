@@ -5,11 +5,11 @@
 //! reason the panel did not have to be rewritten when the player stopped being
 //! someone else's. The name says which half this is.
 
-pub mod card;
 pub mod ascii;
+pub mod card;
 pub mod library;
 pub mod looking;
 pub mod player;
 pub mod update;
 
-pub use card::{COMMAND, APP, WHO, card, door, library};
+pub use card::{APP, COMMAND, WHO, card, door, library};

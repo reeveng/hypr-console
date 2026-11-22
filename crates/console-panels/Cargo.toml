@@ -15,9 +15,11 @@ path = "src/bin/console-panels.rs"
 
 [dependencies]
 console-core-iteration.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
 console-input-mapping.workspace = true
 console-calculator.workspace = true
 console-calendar.workspace = true
+console-clipboard.workspace = true
 console-downloads.workspace = true
 console-files.workspace = true
 console-forecast.workspace = true
@@ -29,13 +31,16 @@ console-core-never.workspace = true
 console-notifications.workspace = true
 console-panel.workspace = true
 console-settings.workspace = true
+console-task-manager.workspace = true
 console-media-viewer.workspace = true
 console-response-times.workspace = true
+console-waiting.workspace = true
 rustix.workspace = true
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+console-operating-system-linux.workspace = true
 console-core-external-programs.workspace = true
 console-core-temporary-directories.workspace = true

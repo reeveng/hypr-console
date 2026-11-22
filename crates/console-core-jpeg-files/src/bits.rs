@@ -14,6 +14,8 @@
 //! which one subtraction across all of them says, and a byte at a time only
 //! when one is.
 
+use core::cmp::Ordering;
+
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 
@@ -21,17 +23,17 @@ use crate::segments::{Found, Restarts, marker};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Flow {
-    Data,
-    Stopped,
+  Data,
+  Stopped,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Bits<'a> {
-    bytes: &'a [u8],
-    at: u32,
-    held: u64,
-    count: u32,
-    flow: Flow,
+  bytes: &'a [u8],
+  at: u32,
+  held: u64,
+  count: u32,
+  flow: Flow,
 }
 
 const LOOKED_AHEAD: u32 = 16;
@@ -44,199 +46,218 @@ const EVERY_HIGH_BIT: u64 = 0x8080_8080_8080_8080;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Extra {
-    pub(crate) bits: u32,
-    pub(crate) count: u32,
+  pub(crate) bits: u32,
+  pub(crate) count: u32,
 }
 
 #[inline(always)]
 pub(crate) fn signed(extra: Extra) -> Result<i32, Never> {
-    let Extra { bits, count } = extra;
-    let Ok(value) = fitted::<u32, i32>(bits);
+  let Extra { bits, count } = extra;
+  let Ok(value) = fitted::<u32, i32>(bits);
 
-    Ok(match count {
-        0 => 0,
-        _ => match value < 1i32.wrapping_shl(count.saturating_sub(1)) {
-            true => value.wrapping_sub(1i32.wrapping_shl(count)).wrapping_add(1),
-            false => value,
-        },
-    })
+  Ok(match count {
+    0 => 0,
+    _ => match value.cmp(&1i32.wrapping_shl(count.saturating_sub(1))) {
+      Ordering::Less => value.wrapping_sub(1i32.wrapping_shl(count)).wrapping_add(1),
+      Ordering::Equal | Ordering::Greater => value,
+    },
+  })
 }
 
 impl<'a> Bits<'a> {
-    pub(crate) fn new(bytes: &'a [u8], at: u32) -> Result<Self, Never> {
-        Ok(Bits { bytes, at, held: 0, count: 0, flow: Flow::Data })
+  pub(crate) fn new(bytes: &'a [u8], at: u32) -> Result<Self, Never> {
+    Ok(Bits {
+      bytes,
+      at,
+      held: 0,
+      count: 0,
+      flow: Flow::Data,
+    })
+  }
+
+  #[inline(always)]
+  pub(crate) fn at(&self) -> Result<u32, Never> {
+    Ok(self.at)
+  }
+
+  #[inline(always)]
+  fn next_byte(&mut self) -> Result<u8, Never> {
+    match self.flow {
+      Flow::Stopped => return Ok(0),
+      Flow::Data => {}
     }
 
-    #[inline(always)]
-    pub(crate) fn at(&self) -> Result<u32, Never> {
-        Ok(self.at)
+    let Ok(here) = index(self.at);
+    let Ok(next) = index(self.at.saturating_add(1));
+
+    Ok(match (self.bytes.get(here), self.bytes.get(next)) {
+      (Some(0xFF), Some(0x00)) => {
+        self.at = self.at.saturating_add(2);
+
+        0xFF
+      }
+      (Some(0xFF), Some(_) | None) | (None, _) => {
+        self.flow = Flow::Stopped;
+
+        0
+      }
+      (Some(byte), _) => {
+        self.at = self.at.saturating_add(1);
+
+        *byte
+      }
+    })
+  }
+
+  #[inline(always)]
+  fn fill(&mut self) -> Result<(), Never> {
+    let Ok(()) = self.fill_at_once();
+
+    match self.count.cmp(&FULL) {
+      Ordering::Greater => {}
+      Ordering::Less | Ordering::Equal => {
+        let Ok(filled) = self.filled();
+
+        *self = filled;
+      }
     }
 
-    #[inline(always)]
-    fn next_byte(&mut self) -> Result<u8, Never> {
-        match self.flow {
-            Flow::Stopped => return Ok(0),
-            Flow::Data => {},
-        }
+    Ok(())
+  }
 
-        let Ok(here) = index(self.at);
-        let Ok(next) = index(self.at.saturating_add(1));
+  #[inline(never)]
+  fn filled(self) -> Result<Self, Never> {
+    let mut bits = self;
 
-        Ok(match (self.bytes.get(here), self.bytes.get(next)) {
-            (Some(0xFF), Some(0x00)) => {
-                self.at = self.at.saturating_add(2);
+    for _byte in 0..8u32 {
+      match bits.count.cmp(&FULL) {
+        Ordering::Less | Ordering::Equal => {}
+        Ordering::Greater => break,
+      }
 
-                0xFF
-            },
-            (Some(0xFF), Some(_) | None) | (None, _) => {
-                self.flow = Flow::Stopped;
+      let Ok(byte) = bits.next_byte();
 
-                0
-            },
-            (Some(byte), _) => {
-                self.at = self.at.saturating_add(1);
-
-                *byte
-            },
-        })
+      bits.held |= u64::from(byte).wrapping_shl(56u32.saturating_sub(bits.count));
+      bits.count = bits.count.saturating_add(8);
     }
 
-    #[inline(always)]
-    fn fill(&mut self) -> Result<(), Never> {
-        let Ok(()) = self.fill_at_once();
+    Ok(bits)
+  }
 
-        match self.count > FULL {
-            true => {},
-            false => {
-                let Ok(filled) = self.filled();
+  #[inline(always)]
+  fn fill_at_once(&mut self) -> Result<(), Never> {
+    let Ok(here) = index(self.at);
+    let room = 64u32.saturating_sub(self.count).wrapping_shr(3);
 
-                *self = filled;
-            },
-        }
+    let window = match (
+      self.flow,
+      self.bytes.get(here..).and_then(<[u8]>::first_chunk::<8>),
+    ) {
+      (Flow::Data, Some(window)) => window,
+      (Flow::Data, None) | (Flow::Stopped, _) => return Ok(()),
+    };
 
-        Ok(())
+    let word = u64::from_be_bytes(*window);
+    let flipped = !word;
+
+    match (
+      room,
+      flipped.wrapping_sub(EVERY_BYTE) & !flipped & EVERY_HIGH_BIT,
+    ) {
+      (1.., 0) => {
+        let bits = room.wrapping_shl(3);
+        let extra = word.wrapping_shr(64u32.saturating_sub(bits));
+
+        self.held |= extra.wrapping_shl(64u32.saturating_sub(self.count).saturating_sub(bits));
+        self.count = self.count.saturating_add(bits);
+        self.at = self.at.saturating_add(room);
+      }
+      (0, _) | (_, 1..) => {}
     }
 
-    #[inline(never)]
-    fn filled(self) -> Result<Self, Never> {
-        let mut bits = self;
+    Ok(())
+  }
 
-        for _byte in 0..8u32 {
-            match bits.count <= FULL {
-                true => {},
-                false => break,
-            }
-
-            let Ok(byte) = bits.next_byte();
-
-            bits.held |= u64::from(byte).wrapping_shl(56u32.saturating_sub(bits.count));
-            bits.count = bits.count.saturating_add(8);
-        }
-
-        Ok(bits)
+  #[inline(always)]
+  pub(crate) fn peek(&mut self) -> Result<u32, Never> {
+    match self.count.cmp(&LOOKED_AHEAD) {
+      Ordering::Less => {
+        let Ok(()) = self.fill();
+      }
+      Ordering::Equal | Ordering::Greater => {}
     }
 
-    #[inline(always)]
-    fn fill_at_once(&mut self) -> Result<(), Never> {
-        let Ok(here) = index(self.at);
-        let room = 64u32.saturating_sub(self.count).wrapping_shr(3);
+    fitted::<u64, u32>(self.held.wrapping_shr(64u32.saturating_sub(LOOKED_AHEAD)))
+  }
 
-        let window = match (self.flow, self.bytes.get(here..).and_then(<[u8]>::first_chunk::<8>)) {
-            (Flow::Data, Some(window)) => window,
-            (Flow::Data, None) | (Flow::Stopped, _) => return Ok(()),
-        };
+  #[inline(always)]
+  pub(crate) fn skip(&mut self, count: u32) -> Result<(), Never> {
+    self.held = self.held.wrapping_shl(count);
+    self.count = self.count.saturating_sub(count);
 
-        let word = u64::from_be_bytes(*window);
-        let flipped = !word;
+    Ok(())
+  }
 
-        match (room, flipped.wrapping_sub(EVERY_BYTE) & !flipped & EVERY_HIGH_BIT) {
-            (1.., 0) => {
-                let bits = room.wrapping_shl(3);
-                let extra = word.wrapping_shr(64u32.saturating_sub(bits));
-
-                self.held |= extra.wrapping_shl(64u32.saturating_sub(self.count).saturating_sub(bits));
-                self.count = self.count.saturating_add(bits);
-                self.at = self.at.saturating_add(room);
-            },
-            (0, _) | (_, 1..) => {},
-        }
-
-        Ok(())
+  #[inline(always)]
+  pub(crate) fn take(&mut self, count: u32) -> Result<u32, Never> {
+    match count {
+      0 => return Ok(0),
+      _ => {}
     }
 
-    #[inline(always)]
-    pub(crate) fn peek(&mut self) -> Result<u32, Never> {
-        match self.count < LOOKED_AHEAD {
-            true => {
-                let Ok(()) = self.fill();
-            },
-            false => {},
-        }
-
-        fitted::<u64, u32>(self.held.wrapping_shr(64u32.saturating_sub(LOOKED_AHEAD)))
+    match self.count.cmp(&count) {
+      Ordering::Less => {
+        let Ok(()) = self.fill();
+      }
+      Ordering::Equal | Ordering::Greater => {}
     }
 
-    #[inline(always)]
-    pub(crate) fn skip(&mut self, count: u32) -> Result<(), Never> {
-        self.held = self.held.wrapping_shl(count);
-        self.count = self.count.saturating_sub(count);
+    let Ok(value) = fitted::<u64, u32>(self.held.wrapping_shr(64u32.saturating_sub(count)));
+    let Ok(()) = self.skip(count);
 
-        Ok(())
+    Ok(value)
+  }
+
+  #[inline(always)]
+  pub(crate) fn extended(&mut self, count: u32) -> Result<i32, Never> {
+    let Ok(bits) = self.take(count);
+
+    signed(Extra { bits, count })
+  }
+
+  #[inline(always)]
+  pub(crate) fn restart(&mut self) -> Result<(), Never> {
+    let Ok(restarted) = self.restarted();
+
+    *self = restarted;
+
+    Ok(())
+  }
+
+  #[inline(never)]
+  fn restarted(self) -> Result<Self, Never> {
+    let mut bits = Bits {
+      held: 0,
+      count: 0,
+      ..self
+    };
+    let Ok(found) = marker(bits.bytes, bits.at, Restarts::Stopped);
+
+    match found {
+      Some(Found {
+        at,
+        marker: 0xD0..=0xD7,
+      }) => {
+        bits.at = at.saturating_add(2);
+        bits.flow = Flow::Data;
+      }
+      Some(Found { at, .. }) => {
+        bits.at = at;
+        bits.flow = Flow::Stopped;
+      }
+      None => bits.flow = Flow::Stopped,
     }
 
-    #[inline(always)]
-    pub(crate) fn take(&mut self, count: u32) -> Result<u32, Never> {
-        match count {
-            0 => return Ok(0),
-            _ => {},
-        }
-
-        match self.count < count {
-            true => {
-                let Ok(()) = self.fill();
-            },
-            false => {},
-        }
-
-        let Ok(value) = fitted::<u64, u32>(self.held.wrapping_shr(64u32.saturating_sub(count)));
-        let Ok(()) = self.skip(count);
-
-        Ok(value)
-    }
-
-    #[inline(always)]
-    pub(crate) fn extended(&mut self, count: u32) -> Result<i32, Never> {
-        let Ok(bits) = self.take(count);
-
-        signed(Extra { bits, count })
-    }
-
-    #[inline(always)]
-    pub(crate) fn restart(&mut self) -> Result<(), Never> {
-        let Ok(restarted) = self.restarted();
-
-        *self = restarted;
-
-        Ok(())
-    }
-
-    #[inline(never)]
-    fn restarted(self) -> Result<Self, Never> {
-        let mut bits = Bits { held: 0, count: 0, ..self };
-        let Ok(found) = marker(bits.bytes, bits.at, Restarts::Stopped);
-
-        match found {
-            Some(Found { at, marker: 0xD0..=0xD7 }) => {
-                bits.at = at.saturating_add(2);
-                bits.flow = Flow::Data;
-            },
-            Some(Found { at, .. }) => {
-                bits.at = at;
-                bits.flow = Flow::Stopped;
-            },
-            None => bits.flow = Flow::Stopped,
-        }
-
-        Ok(bits)
-    }
+    Ok(bits)
+  }
 }

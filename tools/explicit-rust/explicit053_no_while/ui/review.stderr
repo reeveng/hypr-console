@@ -1,0 +1,98 @@
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/review.rs:5:5
+   |
+LL | /     while position < end {
+LL | |         end -= 1;
+LL | |         position += 1;
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+   = note: `#[deny(explicit053_no_while)]` on by default
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/review.rs:14:5
+   |
+LL | /     'walk: while position < end {
+LL | |         if position == 0 {
+LL | |             position += 2;
+LL | |             continue 'walk;
+LL | |         }
+LL | |         position += 1;
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/review.rs:26:5
+   |
+LL | /     while position < end {
+LL | |         position += 1;
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/review.rs:34:5
+   |
+LL | /     while position < core::cmp::min(end, max) {
+LL | |         let ref mut bound = end;
+LL | |         *bound = bound.saturating_sub(1);
+LL | |         position = position.wrapping_add(1);
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/review.rs:44:5
+   |
+LL | /     while position < limit() {
+LL | |         position += 1;
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/review.rs:51:5
+   |
+LL | /     while position.wrapping_add(2) <= bound {
+LL | |         position = position.wrapping_add(2);
+LL | |         if position == 0 {
+LL | |             break;
+LL | |         }
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/review.rs:61:5
+   |
+LL | /     while let Some(item) = state.0.next() {
+LL | |         state.0.as_slice();
+LL | |         state.1 += item;
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/review.rs:68:5
+   |
+LL | /     while index < limit {
+LL | |         {
+LL | |             let amount = 2;
+LL | |             let target = &mut index;
+LL | |             *target = u32::wrapping_add(*target, amount);
+LL | |         };
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+
+error: aborting due to 8 previous errors
+

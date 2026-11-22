@@ -1,0 +1,34 @@
+error: boolean parameter is forbidden
+  --> $DIR/methods.rs:13:40
+   |
+LL |     pub(crate) fn branch(&self, large: bool) -> u32 {
+   |                                        ^^^^
+   |
+   = note: `#[deny(explicit008_no_bool_param)]` on by default
+help: propagate the reviewed enum through this function family
+   |
+LL ~     pub(crate) fn branch(&self, large: crate::TreeSize) -> u32 {
+LL |         match large {
+LL ~             crate::TreeSize::Large => 128,
+LL ~             crate::TreeSize::Small => 64,
+LL |         }
+LL |     }
+LL |
+LL ~     fn leaf(&self, large: crate::TreeSize) -> u32 {
+LL |         self.branch(large)
+...
+LL |     let depending_on_args = std::env::args().len() > 1;
+LL ~     let _ = tree.leaf(match ::core::primitive::bool::then_some(depending_on_args, ()) { ::core::option::Option::Some(()) => crate::TreeSize::Large, ::core::option::Option::None => crate::TreeSize::Small });
+LL ~     assert_eq!(Tree::branch(&tree, crate::TreeSize::Small), 64);
+   |
+
+error: boolean parameter is forbidden
+  --> $DIR/methods.rs:20:27
+   |
+LL |     fn leaf(&self, large: bool) -> u32 {
+   |                           ^^^^
+   |
+   = help: use an `enum` so the call site reads `Mode::Append`, not `true`
+
+error: aborting due to 2 previous errors
+

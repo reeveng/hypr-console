@@ -27,116 +27,134 @@
 //! was running for. So a [`Instant`] carries both clocks, and what the guard
 //! reads is how far they drew apart, which is the sleeping and nothing else.
 
-
 use console_core_never::Never;
 use console_core_number_conversion::Float;
-use rustix::time::{clock_gettime, clock_gettime_dynamic, ClockId, DynamicClockId};
+use rustix::time::{ClockId, DynamicClockId, clock_gettime, clock_gettime_dynamic};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, PartialOrd)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the inner value is fractional seconds at the precision supplied by the Linux clock"
+  )
+)]
+pub struct Seconds(pub f64);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Instant {
-    pub since_boot: f64,
-    pub suspended: f64,
+  pub since_boot: Seconds,
+  pub suspended: Seconds,
 }
 
 pub fn now() -> Result<Instant, Never> {
-    let Ok(since_boot) = since_boot();
-    let Ok(running) = monotonic();
+  let Ok(Seconds(since_boot)) = since_boot();
+  let Ok(running) = monotonic();
 
-    Ok(Instant { since_boot, suspended: (since_boot - running).max(0.0) })
+  Ok(Instant {
+    since_boot: Seconds(since_boot),
+    suspended: Seconds((since_boot - running).max(0.0)),
+  })
 }
 
-pub fn since_boot() -> Result<f64, Never> {
-    let when = match clock_gettime_dynamic(DynamicClockId::Boottime) {
-        Ok(when) => when,
-        Err(_no_boot_clock) => return monotonic(),
-    };
+pub fn since_boot() -> Result<Seconds, Never> {
+  let when = match clock_gettime_dynamic(DynamicClockId::Boottime) {
+    Ok(when) => when,
+    Err(_no_boot_clock) => return monotonic().map(Seconds),
+  };
 
-    let Ok(seconds) = when.tv_sec.float();
-    let Ok(nanoseconds) = when.tv_nsec.float();
+  let Ok(seconds) = when.tv_sec.float();
+  let Ok(nanoseconds) = when.tv_nsec.float();
 
-    Ok(seconds + nanoseconds / 1e9)
+  Ok(Seconds(seconds + nanoseconds / 1e9))
 }
 
 fn monotonic() -> Result<f64, Never> {
-    let when = clock_gettime(ClockId::Monotonic);
+  let when = clock_gettime(ClockId::Monotonic);
 
-    let Ok(seconds) = when.tv_sec.float();
-    let Ok(nanoseconds) = when.tv_nsec.float();
+  let Ok(seconds) = when.tv_sec.float();
+  let Ok(nanoseconds) = when.tv_nsec.float();
 
-    Ok(seconds + nanoseconds / 1e9)
+  Ok(seconds + nanoseconds / 1e9)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn it_answers_with_a_time_the_machine_has_been_up() {
-        let Ok(up) = since_boot();
+  #[test]
+  fn it_answers_with_a_time_the_machine_has_been_up() {
+    let Ok(Seconds(up)) = since_boot();
 
-        assert!(up > 0.0, "a booted machine has been up for some seconds");
-    }
+    assert!(up > 0.0, "a booted machine has been up for some seconds");
+  }
 
-    #[test]
-    fn it_goes_forwards() {
-        let Ok(first) = since_boot();
+  #[test]
+  fn it_goes_forwards() {
+    let Ok(first) = since_boot();
 
-        #[cfg_attr(
-            dylint_lib = "explicit021_no_sleeping",
-            allow(
-                explicit021_no_sleeping,
-                reason = "time passing is what is asked: there is nothing to wait for but the clock itself moving on"
-            )
-        )]
-        std::thread::sleep(std::time::Duration::from_millis(20));
+    #[cfg_attr(
+      dylint_lib = "explicit021_no_sleeping",
+      allow(
+        explicit021_no_sleeping,
+        reason = "time passing is what is asked: there is nothing to wait for but the clock itself moving on"
+      )
+    )]
+    std::thread::sleep(std::time::Duration::from_millis(20));
 
-        let Ok(later) = since_boot();
+    let Ok(later) = since_boot();
 
-        assert!(later > first);
-    }
+    assert!(later > first);
+  }
 
-    #[test]
-    fn it_is_never_behind_the_clock_that_stops_for_a_suspend() {
-        let Ok(booted) = since_boot();
-        let Ok(monotonic) = monotonic();
+  #[test]
+  fn it_is_never_behind_the_clock_that_stops_for_a_suspend() {
+    let Ok(Seconds(booted)) = since_boot();
+    let Ok(monotonic) = monotonic();
 
-        assert!(booted >= monotonic - 0.05);
-    }
+    assert!(booted >= monotonic - 0.05);
+  }
 
-    #[test]
-    fn a_machine_that_has_not_slept_since_the_last_look_has_not_drawn_apart() {
-        let Ok(first) = now();
+  #[test]
+  fn a_machine_that_has_not_slept_since_the_last_look_has_not_drawn_apart() {
+    let Ok(first) = now();
 
-        #[cfg_attr(
-            dylint_lib = "explicit021_no_sleeping",
-            allow(
-                explicit021_no_sleeping,
-                reason = "time passing is what is asked: there is nothing to wait for but the clock itself moving on"
-            )
-        )]
-        std::thread::sleep(std::time::Duration::from_millis(20));
+    #[cfg_attr(
+      dylint_lib = "explicit021_no_sleeping",
+      allow(
+        explicit021_no_sleeping,
+        reason = "time passing is what is asked: there is nothing to wait for but the clock itself moving on"
+      )
+    )]
+    std::thread::sleep(std::time::Duration::from_millis(20));
 
-        let Ok(later) = now();
+    let Ok(later) = now();
 
-        assert!(later.since_boot > first.since_boot);
-        assert!((later.suspended - first.suspended).abs() < 0.01, "{first:?} then {later:?}");
-    }
+    assert!(later.since_boot > first.since_boot);
+    assert!(
+      (later.suspended.0 - first.suspended.0).abs() < 0.01,
+      "{first:?} then {later:?}"
+    );
+  }
 
-    #[test]
-    fn it_agrees_with_what_the_kernel_calls_uptime() -> Result<(), Box<dyn std::error::Error>> {
-        let said = match std::fs::read_to_string("/proc/uptime") {
-            Ok(said) => said,
-            Err(_no_proc_uptime_here) => return Ok(()),
-        };
-        let first = said.split_whitespace().next().ok_or("a first word in /proc/uptime")?;
-        let uptime: f64 = first.parse()?;
-        let Ok(counted) = since_boot();
+  #[test]
+  fn it_agrees_with_what_the_kernel_calls_uptime() -> Result<(), Box<dyn std::error::Error>> {
+    let said = match std::fs::read_to_string("/proc/uptime") {
+      Ok(said) => said,
+      Err(_no_proc_uptime_here) => return Ok(()),
+    };
+    let first = said
+      .split_whitespace()
+      .next()
+      .ok_or("a first word in /proc/uptime")?;
+    let uptime: f64 = first.parse()?;
+    let Ok(Seconds(counted)) = since_boot();
 
-        assert!(
-            (counted - uptime).abs() < 2.0,
-            "the kernel says the machine has been up {uptime}s and this says {counted}s"
-        );
+    assert!(
+      (counted - uptime).abs() < 2.0,
+      "the kernel says the machine has been up {uptime}s and this says {counted}s"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

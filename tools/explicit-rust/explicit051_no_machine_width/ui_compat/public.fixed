@@ -1,0 +1,14 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_api_compatibility.rs
+#![crate_type = "lib"]
+extern crate console_core_api_compatibility;
+
+pub struct Surface { pub stride: ::console_core_api_compatibility::NativeOffset }
+pub fn row(pixels: &[u8], offset: ::console_core_api_compatibility::NativeSize) -> Option<&u8> { pixels.get(offset) }
+pub trait PixelRows { fn height(&self) -> ::console_core_api_compatibility::NativeSize; }
+impl Surface {
+    pub fn step(&self, rows: ::console_core_api_compatibility::NativeOffset) -> ::console_core_api_compatibility::NativeOffset { self.stride.wrapping_mul(rows) }
+}
+unsafe extern "C" { pub fn consume_pixels(ptr: *const u8, len: ::console_core_api_compatibility::NativeSize); }
+pub type OffsetCallback = extern "C" fn(::console_core_api_compatibility::NativeOffset) -> ::console_core_api_compatibility::NativeSize;

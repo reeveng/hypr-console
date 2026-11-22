@@ -1,0 +1,43 @@
+error: a second parameter of type `usize`: the compiler takes these two in either order and says nothing
+  --> $DIR/native_projection.rs:5:37
+   |
+LL |     fn predict_block(px: usize, py: usize, bias: usize, edge: usize) -> usize {
+   |                                     ^^^^^
+   |
+   = note: `#[deny(explicit024_no_swappable_params)]` on by default
+help: name the arguments at every call to this private function
+   |
+LL ~     fn predict_block(PredictBlockArguments { px, py, bias, edge }: PredictBlockArguments) -> usize {
+LL |         px + py + bias + edge
+LL ~     }
+LL + 
+LL +     struct PredictBlockArguments {
+LL +         px: usize,
+LL +         py: usize,
+LL +         bias: usize,
+LL +         edge: usize,
+LL +     }
+LL |
+...
+LL |         let edge = bytes.len().saturating_sub(3);
+LL ~         predict_block(self::PredictBlockArguments { px, py, bias: predict_block(self::PredictBlockArguments { px, py, bias: 2, edge }), edge })
+   |
+
+error: a second parameter of type `usize`: the compiler takes these two in either order and says nothing
+  --> $DIR/native_projection.rs:5:50
+   |
+LL |     fn predict_block(px: usize, py: usize, bias: usize, edge: usize) -> usize {
+   |                                                  ^^^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: a second parameter of type `usize`: the compiler takes these two in either order and says nothing
+  --> $DIR/native_projection.rs:5:63
+   |
+LL |     fn predict_block(px: usize, py: usize, bias: usize, edge: usize) -> usize {
+   |                                                               ^^^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: aborting due to 3 previous errors
+

@@ -1,0 +1,39 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/temporary_arrays.rs:9:21
+   |
+LL |     let expected = &[vec![[-1.0f32, -1.0, 0.0]], vec![[0.0, 1.0, 1.0]]][..];
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: borrow the temporary array as a slice at the binding
+   |
+LL -     let expected = &[vec![[-1.0f32, -1.0, 0.0]], vec![[0.0, 1.0, 1.0]]][..];
+LL +     let expected: &[_] = &[vec![[-1.0f32, -1.0, 0.0]], vec![[0.0, 1.0, 1.0]]];
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/temporary_arrays.rs:12:23
+   |
+LL |     let values = &mut [vec![1], vec![2]][..];
+   |                       ^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: borrow the temporary array as a slice at the binding
+   |
+LL -     let values = &mut [vec![1], vec![2]][..];
+LL +     let values: &mut [_] = &mut [vec![1], vec![2]];
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/temporary_arrays.rs:15:29
+   |
+LL |     let typed: &[String] = &[String::from("font")][..];
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: borrow the temporary array as a slice at the binding
+   |
+LL -     let typed: &[String] = &[String::from("font")][..];
+LL +     let typed: &[String] = &[String::from("font")];
+   |
+
+error: aborting due to 3 previous errors
+

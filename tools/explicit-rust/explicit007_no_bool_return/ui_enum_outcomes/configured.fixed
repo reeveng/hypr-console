@@ -1,0 +1,29 @@
+// run-rustfix
+// edition:2024
+
+mod bytes {
+    enum ByteClass {
+        Control,
+        Data,
+    }
+
+    fn classify(byte: u8) -> self::ByteClass {
+        // Both values have the same classification.
+        match ::core::primitive::bool::then_some(::core::matches!(byte, 0 | 27), ()) {
+            ::core::option::Option::Some(()) => self::ByteClass::Control,
+            ::core::option::Option::None => self::ByteClass::Data,
+        }
+    }
+
+    pub fn count(bytes: &[u8]) -> usize {
+        bytes.iter().filter(|&&byte| ::core::matches!(classify(byte), self::ByteClass::Control)).count()
+    }
+
+    pub fn answer(byte: u8) -> usize {
+        usize::from(!::core::matches!(classify(byte), self::ByteClass::Control))
+    }
+}
+
+fn main() {
+    let _ = (bytes::count(&[0, 1, 27]), bytes::answer(1));
+}

@@ -1,0 +1,22 @@
+error: `as` cast is forbidden
+  --> $DIR/signedness.rs:6:36
+   |
+LL | const fn bits(value: i32) -> u32 { value as u32 }
+   |                                    ^^^^^^^^^^^^ help: name the change of signedness: `::core::primitive::i32::cast_unsigned(value)`
+   |
+   = note: `#[deny(explicit011_no_as_cast)]` on by default
+
+error: `as` cast is forbidden
+  --> $DIR/signedness.rs:7:37
+   |
+LL | fn signed(read: fn() -> u8) -> i8 { read() as i8 }
+   |                                     ^^^^^^^^^^^^ help: name the change of signedness: `::core::primitive::u8::cast_signed(read())`
+
+error: `as` cast is forbidden
+  --> $DIR/signedness.rs:8:36
+   |
+LL | fn offset(value: usize) -> isize { value as isize }
+   |                                    ^^^^^^^^^^^^^^ help: name the change of signedness: `::core::primitive::usize::cast_signed(value)`
+
+error: aborting due to 3 previous errors
+

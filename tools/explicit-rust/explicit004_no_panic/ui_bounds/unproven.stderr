@@ -1,0 +1,27 @@
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/unproven.rs:3:40
+   |
+LL | fn unchecked(bytes:&[u8]) -> &[u8;4] { <&[u8;4]>::try_from(bytes).unwrap() }
+   |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+   = note: `#[deny(explicit004_no_panic)]` on by default
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/unproven.rs:5:8
+   |
+LL |     Ok(<&[u8;4]>::try_from(bytes.get(..4).ok_or(error())?).unwrap())
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/unproven.rs:9:20
+   |
+LL |     let read = || *<&[u8;4]>::try_from(value).unwrap();
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `?`, `match`, or return a `Result<T, E>` so the failure is visible at the call site
+
+error: aborting due to 3 previous errors
+

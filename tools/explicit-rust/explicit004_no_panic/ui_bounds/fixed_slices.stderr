@@ -1,0 +1,27 @@
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/fixed_slices.rs:8:23
+   |
+LL |     let value = load!(<&[u8; 4]>::try_from(&*(bytes.get(..width).ok_or(DecodeError::Invalid)?)).unwrap());
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit004_no_panic)]` on by default
+help: report a wrong array length through the checked slice's bounds error
+   |
+LL -     let value = load!(<&[u8; 4]>::try_from(&*(bytes.get(..width).ok_or(DecodeError::Invalid)?)).unwrap());
+LL +     let value = load!(bytes.get(..width).ok_or(crate::DecodeError::Invalid).and_then(|_explicit_array_source| <&[u8; 4]>::try_from(_explicit_array_source).map_err(|_| crate::DecodeError::Invalid))?);
+   |
+
+error: `unwrap` is forbidden: it turns a typed error path into an implicit panic
+  --> $DIR/fixed_slices.rs:13:12
+   |
+LL |     store!(<&mut [u8; 4]>::try_from(row).unwrap(), [1, 2, 3, 4]);
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: report a wrong array length through the checked slice's bounds error
+   |
+LL -     store!(<&mut [u8; 4]>::try_from(row).unwrap(), [1, 2, 3, 4]);
+LL +     store!(<&mut [u8; 4]>::try_from(row).map_err(|_| crate::DecodeError::Invalid)?, [1, 2, 3, 4]);
+   |
+
+error: aborting due to 2 previous errors
+

@@ -13,97 +13,121 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use console_core_arguments::read_with;
-use console_input_controller::profile::{Buzz, COMMAND, ProfileEffect, ProfileName, Profile, Switch};
+use console_core_never::Never;
+use console_input_controller::profile::{
+  Buzz, COMMAND, Profile, ProfileEffect, ProfileName, Switch,
+};
 use console_input_gamepad::devices::Has;
 use console_input_gamepad::front;
-use console_core_never::Never;
+use console_operating_system_linux::program_runtime::{Clock, Interpreter};
 use console_program_contract::Event;
-use console_program_runtime::Interpreter;
 
 const HID: &str = "/sys/bus/hid/devices";
 
 struct Buzzing;
 
 impl Interpreter for Buzzing {
-    type Event = Never;
-    type Effect = ProfileEffect;
+  type Event = Never;
+  type Effect = ProfileEffect;
 
-    fn interpret(&mut self, acts: &ProfileEffect) -> Vec<Event<Never>> {
-        match acts {
-            ProfileEffect::Buzzing(buzz) => {
-                let Ok(()) = buzzed(*buzz);
-            },
-        }
-
-        Vec::new()
+  fn interpret(&mut self, acts: &ProfileEffect, _clock: &Clock) -> Vec<Event<Never>> {
+    match acts {
+      ProfileEffect::Buzzing(buzz) => {
+        let Ok(()) = buzzed(*buzz);
+      }
     }
+
+    Vec::new()
+  }
 }
 
 fn buzzed(buzz: Buzz) -> Result<(), Never> {
-    let Ok(written) = buzz.written();
+  let Ok(written) = buzz.written();
 
-    let devices = match std::fs::read_dir(HID) {
-        Ok(devices) => devices,
-        Err(_no_hid_devices) => return Ok(()),
+  let devices = match std::fs::read_dir(HID) {
+    Ok(devices) => devices,
+    Err(_no_hid_devices) => return Ok(()),
+  };
+
+  for device in devices.flatten() {
+    let at: PathBuf = device.path().join("touchpad/vibration_enabled");
+
+    #[cfg_attr(
+      dylint_lib = "explicit040_no_torn_write",
+      expect(
+        explicit040_no_torn_write,
+        reason = "this sysfs control must be written directly because the kernel owns its directory entry"
+      )
+    )]
+    let mut knob = match std::fs::OpenOptions::new()
+      .write(true)
+      .truncate(true)
+      .open(&at)
+    {
+      Ok(knob) => knob,
+      Err(fault) => {
+        let disappeared = matches!(
+          fault.kind(),
+          std::io::ErrorKind::NotFound | std::io::ErrorKind::IsADirectory
+        );
+
+        match disappeared.then_some(()) {
+          Some(()) => {}
+          None => eprintln!("controller-profile: {}: {fault}", at.display()),
+        }
+
+        continue;
+      }
     };
 
-    for device in devices.flatten() {
-        let at: PathBuf = device.path().join("touchpad/vibration_enabled");
-
-        match at.is_file() {
-            #[cfg_attr(
-                dylint_lib = "explicit040_no_torn_write",
-                allow(
-                    explicit040_no_torn_write,
-                    reason = "the touchpad buzz is a kernel knob rather than a file: there is nothing beside it to write and nothing to rename over"
-                )
-            )]
-            true => match std::fs::write(&at, written) {
-                Ok(()) => {},
-                Err(fault) => eprintln!("controller-profile: {}: {fault}", at.display()),
-            },
-            false => {},
-        }
+    match std::io::Write::write_all(&mut knob, written.as_bytes()) {
+      Ok(()) => {}
+      Err(fault) => eprintln!("controller-profile: {}: {fault}", at.display()),
     }
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn listed() -> Result<String, Never> {
-    Ok(match std::fs::read_to_string(front::DEVICES) {
-        Ok(said) => said,
+  Ok(match std::fs::read_to_string(front::DEVICES) {
+    Ok(said) => said,
 
-        Err(fault) => {
-            eprintln!("controller-profile: {}: {fault}", front::DEVICES);
-            String::new()
-        }
-    })
+    Err(fault) => {
+      eprintln!("controller-profile: {}: {fault}", front::DEVICES);
+      String::new()
+    }
+  })
 }
 
 fn pad() -> Result<Has, Never> {
-    let Ok(listed) = listed();
-    let Ok(pad) = front::pad(&listed);
+  let Ok(listed) = listed();
+  let Ok(pad) = front::pad(&listed);
 
-    Ok(match pad {
-        Some(Has::No) => Has::No,
-        Some(Has::Yes) | None => Has::Yes,
-    })
+  Ok(match pad {
+    Some(Has::No) => Has::No,
+    Some(Has::Yes) | None => Has::Yes,
+  })
 }
 
 fn main() -> ExitCode {
-    let words: Vec<String> = std::env::args().skip(1).collect();
+  let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let line = match read_with::<ProfileName, String>(&COMMAND, &words) {
-        Ok(line) => line,
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
+  let line = match read_with::<ProfileName, String>(&COMMAND, &words) {
+    Ok(line) => line,
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
 
-            return ExitCode::from(code);
-        }
-    };
-    let Ok(pad) = pad();
-    let Ok(switch) = Switch::of(&line, pad);
-    let Ok(code) = console_program_runtime::run::<Profile, Buzzing>(COMMAND.name, &switch, &mut Buzzing);
+      return ExitCode::from(code);
+    }
+  };
+  let Ok(pad) = pad();
+  let Ok(switch) = Switch::of(&line, pad);
+  let Ok(code) = console_operating_system_linux::program_runtime::run::<Profile, Buzzing>(
+    COMMAND.name,
+    &switch,
+    &mut Buzzing,
+  );
 
-    code
+  code
 }

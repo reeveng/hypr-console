@@ -1,0 +1,43 @@
+warning: this name is joined as it arrived: a `/` at the front of it replaces the base, and a `..` walks out of it
+  --> $DIR/main.rs:26:15
+   |
+LL |     base.join(entry)
+   |               ^^^^^
+   |
+   = help: join a name that is a type: one constructor that refuses a `/`, a `..` and an empty name, private fields, and an `AsRef<Path>` so the join takes it and takes nothing else. Where the name was made here and arrived from nowhere, allow this rule and let the reason say where it was made
+   = note: `#[warn(explicit086_no_climbing_join)]` on by default
+
+warning: this name is joined as it arrived: a `/` at the front of it replaces the base, and a `..` walks out of it
+  --> $DIR/main.rs:33:13
+   |
+LL |     at.push(entry);
+   |             ^^^^^
+   |
+   = help: join a name that is a type: one constructor that refuses a `/`, a `..` and an empty name, private fields, and an `AsRef<Path>` so the join takes it and takes nothing else. Where the name was made here and arrived from nowhere, allow this rule and let the reason say where it was made
+
+warning: this name is joined as it arrived: a `/` at the front of it replaces the base, and a `..` walks out of it
+  --> $DIR/main.rs:40:15
+   |
+LL |     base.join(format!("{named}.png"))
+   |               ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: join a name that is a type: one constructor that refuses a `/`, a `..` and an empty name, private fields, and an `AsRef<Path>` so the join takes it and takes nothing else. Where the name was made here and arrived from nowhere, allow this rule and let the reason say where it was made
+
+warning: "/etc/passwd" does not stay under what it is joined to
+  --> $DIR/main.rs:45:15
+   |
+LL |     base.join("/etc/passwd")
+   |               ^^^^^^^^^^^^^
+   |
+   = help: join a name that is a type: one constructor that refuses a `/`, a `..` and an empty name, private fields, and an `AsRef<Path>` so the join takes it and takes nothing else. Where the name was made here and arrived from nowhere, allow this rule and let the reason say where it was made
+
+warning: "../elsewhere" does not stay under what it is joined to
+  --> $DIR/main.rs:50:15
+   |
+LL |     base.join("../elsewhere")
+   |               ^^^^^^^^^^^^^^
+   |
+   = help: join a name that is a type: one constructor that refuses a `/`, a `..` and an empty name, private fields, and an `AsRef<Path>` so the join takes it and takes nothing else. Where the name was made here and arrived from nowhere, allow this rule and let the reason say where it was made
+
+warning: 5 warnings emitted
+

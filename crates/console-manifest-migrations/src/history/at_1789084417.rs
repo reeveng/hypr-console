@@ -30,16 +30,16 @@
 use crate::sweeping::{Migration, Moment, Rewrite, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1789084417),
-    says: "sweeping the three files that were in ~/.config/hypr, and logging in through console.desktop",
-    steps: &[
-        Step::Attic("/home/@user@/.config/hypr/hyprland.lua"),
-        Step::Attic("/home/@user@/.config/hypr/hypridle.conf"),
-        Step::Attic("/home/@user@/.config/hypr/hyprsunset.conf"),
-        Step::Rewrite(Rewrite {
-            at: "/etc/plasmalogin.conf.d/zz-steamos-autologin.conf",
-            was: "Session=hyprland.desktop",
-            becomes: "Session=console.desktop",
-        }),
-    ],
+  moment: Moment(1789084417),
+  says: "sweeping the three files that were in ~/.config/hypr, and logging in through console.desktop",
+  steps: &[
+    Step::Attic("/home/@user@/.config/hypr/hyprland.lua"),
+    Step::Attic("/home/@user@/.config/hypr/hypridle.conf"),
+    Step::Attic("/home/@user@/.config/hypr/hyprsunset.conf"),
+    Step::Rewrite(Rewrite {
+      at: "/etc/plasmalogin.conf.d/zz-steamos-autologin.conf",
+      was: "Session=hyprland.desktop",
+      becomes: "Session=console.desktop",
+    }),
+  ],
 };

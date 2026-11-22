@@ -1,0 +1,15 @@
+[package]
+name = "console-core-markup-tokens"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Tolerant tokenization for XML and XHTML text."
+
+[dependencies]
+console-core-iteration.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+
+[lints]
+workspace = true

@@ -30,7 +30,8 @@
 //! as text across the tree after the definitions.
 //!
 //! `check` is what keeps a finished rename finished: a retired word defined
-//! anywhere the plan did not mark as kept is a failure, so a session that writes
+//! anywhere the plan did not mark as kept, and no `[what X was]` line keeps for
+//! that place, is a failure, so a session that writes
 //! one back hears about it from a tool rather than from the person. A section
 //! whose heading says `(walking)` is a table the tree is still walking towards,
 //! the way a lint is registered warned: its words are planned and counted, and
@@ -129,6 +130,10 @@ fn plan(root: &Path, paths: &[String]) -> std::io::Result<ExitCode> {
                 .get(file.as_str())
                 .and_then(|keys| keys.get(&key))
                 .cloned()
+                .or_else(|| match vocabulary.kept_at(&definition.word, file) {
+                    true => Some(KEEP.to_string()),
+                    false => None,
+                })
                 .or_else(|| vocabulary.site_choice(&definition.word, file).map(str::to_string))
                 .unwrap_or_else(|| plan::open(&options));
 
@@ -346,6 +351,9 @@ fn check(root: &Path, paths: &[String]) -> std::io::Result<ExitCode> {
 
         for definition in definitions(&src, &wanted) {
             if chosen.get(&file).and_then(|keys| keys.get(&definition.key())).is_some_and(|right| right == KEEP) {
+                continue;
+            }
+            if vocabulary.kept_at(&definition.word, &file) {
                 continue;
             }
             if vocabulary.walking.contains(&definition.word) {

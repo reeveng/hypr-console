@@ -3,6 +3,7 @@
   "name": "Console",
   "version": "@version@",
   "description": "The pad, in a page. Y labels everything that can be pressed, the d-pad walks between them, and B goes back.",
+  "content_security_policy": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
 
   "browser_specific_settings": {
     "gecko": {
@@ -35,7 +36,7 @@
     }
   ],
 
-  "web_accessible_resources": ["pad.css", "palette.css"],
+  "web_accessible_resources": ["pad.css", "pad.wasm", "palette.css"],
 
   "chrome_url_overrides": { "newtab": "new.html" },
 

@@ -1,0 +1,19 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/borrowed_pattern.rs:4:30
+   |
+LL |     if let Some(ref score) = result? {
+   |                              ^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/borrowed_pattern.rs:24:28
+   |
+LL |     if let Some(address) = address(&word())? {
+   |                            ^^^^^^^^^^^^^^^^^
+   |
+   = help: lift it out -- `let name = …?;` -- so the exit sits on the left margin where it can be seen
+
+error: aborting due to 2 previous errors
+

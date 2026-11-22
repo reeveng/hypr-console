@@ -1,0 +1,202 @@
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/structural_decisions.rs:17:9
+   |
+LL |         if let Self::Move(x, y) = self { x + y } else { 0 }
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit019_no_if)]` on by default
+help: name both outcomes in a match
+   |
+LL ~         match self {
+LL +             Self::Move(x, y) => { x + y },
+LL +             Self::Close | Self::Draw { .. } | Self::r#move => { 0 },
+LL +         }
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/structural_decisions.rs:22:5
+   |
+LL |     if let Ok(Some(value)) = input { value } else { 0 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match input {
+LL +         Ok(Some(value)) => { value },
+LL +         ::core::result::Result::Err(_) | ::core::result::Result::Ok(::core::option::Option::None) => { 0 },
+LL +     }
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/structural_decisions.rs:26:5
+   |
+LL |     if let (Some(x), Some(y)) = (left, right) { x + y } else { 0 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match (left, right) {
+LL +         (Some(x), Some(y)) => { x + y },
+LL +         (::core::option::Option::None, _) | (_, ::core::option::Option::None) => { 0 },
+LL +     }
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/structural_decisions.rs:38:5
+   |
+LL | /     if let Ok(value) = first.read() {
+LL | |         value
+LL | |     } else if let Ok(value) = second.read() {
+LL | |         value
+LL | |     } else {
+LL | |         0
+LL | |     }
+   | |_____^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match first.read() {
+LL +         Ok(value) => {
+LL +             value
+LL +         },
+LL +         ::core::result::Result::Err(_) => match second.read() {
+LL +             Ok(value) => {
+LL +                 value
+LL +             },
+LL +             ::core::result::Result::Err(_) => {
+LL +                 0
+LL +             },
+LL +         },
+LL +     }
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/structural_decisions.rs:40:12
+   |
+LL |       } else if let Ok(value) = second.read() {
+   |  ____________^
+LL | |         value
+LL | |     } else {
+LL | |         0
+LL | |     }
+   | |_____^
+   |
+   = help: match on an enum that names the outcomes
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/structural_decisions.rs:48:5
+   |
+LL | /     match { count != 0 } {
+LL | |         true => { "text" }
+LL | |         false => "empty",
+LL | |     }
+   | |_____^
+   |
+help: match the outcomes directly
+   |
+LL ~     match count {
+LL ~         0 => "empty",
+LL ~         _ => { "text" },
+   |
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/structural_decisions.rs:55:5
+   |
+LL | /     match { !items.is_empty() } {
+LL | |         true => "neighbors",
+LL | |         false => "isolated",
+LL | |     }
+   | |_____^
+   |
+help: match the outcomes directly
+   |
+LL ~     match items {
+LL ~         [_, ..] => "neighbors",
+LL ~         [] => "isolated",
+   |
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/structural_decisions.rs:63:18
+   |
+LL |       let result = match lhs >= { lhs = 11; 9 } {
+   |  __________________^
+LL | |         true => lhs,
+LL | |         false => 0,
+LL | |     };
+   | |_____^
+   |
+help: match the outcomes directly
+   |
+LL ~     let result = match ::core::cmp::Ord::cmp(&::core::convert::identity(lhs), &::core::convert::identity({ lhs = 11; 9 })) {
+LL ~         ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => lhs,
+LL ~         ::core::cmp::Ordering::Less => 0,
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/structural_decisions.rs:85:5
+   |
+LL | /     if Observe(&drops).length() > 1 {
+LL | |         assert_eq!(drops.get(), 1);
+LL | |     }
+   | |_____^
+   |
+help: name both outcomes in a match
+   |
+LL ~     match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(Observe(&drops).length()), &::core::convert::identity(1)); _explicit_ordering } {
+LL +         ::core::cmp::Ordering::Greater => {
+LL +             assert_eq!(drops.get(), 1);
+LL +         },
+LL +         ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {},
+LL +     }
+   |
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/structural_decisions.rs:88:5
+   |
+LL | /     match Observe(&drops).length() > 1 {
+LL | |         true => assert_eq!(drops.get(), 1),
+LL | |         false => unreachable!(),
+LL | |     }
+   | |_____^
+   |
+help: match the outcomes directly
+   |
+LL ~     match ::core::cmp::Ord::cmp(&::core::convert::identity(Observe(&drops).length()), &::core::convert::identity(1)) {
+LL ~         ::core::cmp::Ordering::Greater => assert_eq!(drops.get(), 1),
+LL ~         ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => unreachable!(),
+   |
+
+error: a match over a boolean needs an enum that names the outcomes
+  --> $DIR/structural_decisions.rs:92:5
+   |
+LL | /     match { Observe(&drops).length() > 1 } {
+LL | |         true => assert_eq!(drops.get(), 3),
+LL | |         false => unreachable!(),
+LL | |     }
+   | |_____^
+   |
+help: match the outcomes directly
+   |
+LL ~     match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(Observe(&drops).length()), &::core::convert::identity(1)); _explicit_ordering } {
+LL ~         ::core::cmp::Ordering::Greater => assert_eq!(drops.get(), 3),
+LL ~         ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => unreachable!(),
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/structural_decisions.rs:98:9
+   |
+LL |         if let Ok(()) = Err(Observe(&drops)) { unreachable!() },
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: name both outcomes in a match
+   |
+LL ~         {
+LL +             match Err(Observe(&drops)) {
+LL +                 Ok(()) => { unreachable!() },
+LL +                 ::core::result::Result::Err(_) => {},
+LL +             };
+LL ~         },
+   |
+
+error: aborting due to 12 previous errors
+

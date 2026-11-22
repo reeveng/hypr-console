@@ -32,22 +32,22 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use console_architecture::Architecture;
-use console_architecture::facts::{self, Fact, Kind, LIBRARY, Target, Ownership};
+use console_architecture::facts::{self, Fact, Kind, LIBRARY, Ownership, Target};
 use console_architecture::units::{SERVICE, SERVICE_SUFFIX, Started};
 use console_core_external_programs::Program;
-use console_core_internal_programs::APPS;
 use console_core_ini_files::{Key, field};
+use console_core_internal_programs::APPS;
 use console_core_never::Never;
 use console_test_stages::checking::{Body, Check, CheckResult, cannot, failed};
 use console_test_stages::device::Device;
 
 pub const MAPPED: Check = Check {
-    name: "470-what-runs-is-what-the-map-says",
-    about: "Every unit running is on the map, every unit it enables is running, and whatever holds a \
+  name: "470-what-runs-is-what-the-map-says",
+  about: "Every unit running is on the map, every unit it enables is running, and whatever holds a \
             connection to the pool is a program the map says subscribes.",
-    feature: "architecture",
-    since: "2026-09-24",
-    bodies: &[Body::Device(mapped)],
+  feature: "architecture",
+  since: "2026-09-24",
+  bodies: &[Body::Device(mapped)],
 };
 
 const PREFIX: &str = "console";
@@ -58,285 +58,355 @@ const DECLINES: Key<'static> = Key("ExecCondition");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Process {
-    pub parent: u32,
-    pub binary: String,
+  pub parent: u32,
+  pub binary: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Difference {
-    Unmapped(String),
-    NotRunning(String),
-    Undeclared(String, u32),
-    Orphaned(String, u32),
+  Unmapped(String),
+  NotRunning(String),
+  Undeclared(String, u32),
+  Orphaned(String, u32),
 }
 
 impl std::fmt::Display for Difference {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Difference::Unmapped(unit) => write!(to, "{unit} is running and the tree has no unit file for it"),
-            Difference::NotRunning(unit) => write!(to, "{unit} is enabled in desktop.conf and not running"),
-            Difference::Undeclared(binary, pid) => {
-                write!(to, "{binary} ({pid}) holds a connection to the pool and the map says it never subscribes")
-            }
-            Difference::Orphaned(binary, pid) => write!(
-                to,
-                "{binary} ({pid}) is subscribed, was left to the user manager, and is not what any running unit starts"
-            ),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Difference::Unmapped(unit) => {
+        write!(to, "{unit} is running and the tree has no unit file for it")
+      }
+      Difference::NotRunning(unit) => {
+        write!(to, "{unit} is enabled in desktop.conf and not running")
+      }
+      Difference::Undeclared(binary, pid) => {
+        write!(
+          to,
+          "{binary} ({pid}) holds a connection to the pool and the map says it never subscribes"
+        )
+      }
+      Difference::Orphaned(binary, pid) => write!(
+        to,
+        "{binary} ({pid}) is subscribed, was left to the user manager, and is not what any running unit starts"
+      ),
     }
+  }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Seen {
-    pub units: BTreeSet<String>,
-    pub processes: BTreeMap<u32, Process>,
-    pub pool: BTreeSet<u32>,
+  pub units: BTreeSet<String>,
+  pub processes: BTreeMap<u32, Process>,
+  pub pool: BTreeSet<u32>,
 }
 
 fn base(path: &str) -> Result<String, Never> {
-    Ok(match path.rsplit_once('/') {
-        Some((_, name)) => String::from(name),
-        None => String::from(path),
-    })
+  Ok(match path.rsplit_once('/') {
+    Some((_, name)) => String::from(name),
+    None => String::from(path),
+  })
 }
 
-pub const RUNNING: &str = "--user list-units --type=service --state=running --plain --no-legend --full";
+pub const RUNNING: &str =
+  "--user list-units --type=service --state=running --plain --no-legend --full";
 
 pub fn units(said: &str) -> Result<BTreeSet<String>, Never> {
-    Ok(said.lines().filter_map(|line| line.split_whitespace().next()).map(String::from).collect())
+  Ok(
+    said
+      .lines()
+      .filter_map(|line| line.split_whitespace().next())
+      .map(String::from)
+      .collect(),
+  )
 }
 
 pub fn processes(said: &str) -> Result<BTreeMap<u32, Process>, Never> {
-    let mut held = BTreeMap::new();
+  let mut held = BTreeMap::new();
 
-    for line in said.lines() {
-        let mut words = line.split_whitespace();
-        let pid = words.next().map(str::parse::<u32>);
-        let parent = words.next().map(str::parse::<u32>);
+  for line in said.lines() {
+    let mut words = line.split_whitespace();
+    let pid = words.next().map(str::parse::<u32>);
+    let parent = words.next().map(str::parse::<u32>);
 
-        match (pid, parent, words.next()) {
-            (Some(Ok(pid)), Some(Ok(parent)), Some(program)) => {
-                let Ok(binary) = base(program);
-                let _ = held.insert(pid, Process { parent, binary });
-            }
-            (Some(_) | None, Some(_) | None, Some(_) | None) => {}
-        }
+    match (pid, parent, words.next()) {
+      (Some(Ok(pid_2)), Some(Ok(parent_2)), Some(program)) => {
+        let Ok(binary) = base(program);
+        let _ = held.insert(
+          pid_2,
+          Process {
+            parent: parent_2,
+            binary,
+          },
+        );
+      }
+      (Some(_) | None, Some(_) | None, Some(_) | None) => {}
     }
+  }
 
-    Ok(held)
+  Ok(held)
 }
 
 fn pids(users: &str) -> Result<BTreeSet<u32>, Never> {
-    let mut found = BTreeSet::new();
+  let mut found = BTreeSet::new();
 
-    for after in users.split("pid=").skip(1) {
-        let number = after.split(|c: char| !c.is_ascii_digit()).next();
+  for after in users.split("pid=").skip(1) {
+    let number = after.split(|c: char| !c.is_ascii_digit()).next();
 
-        match number.map(str::parse::<u32>) {
-            Some(Ok(pid)) => {
-                let _ = found.insert(pid);
-            }
-            None => {}
-            Some(Err(_not_a_number)) => {}
-        }
+    match number.map(str::parse::<u32>) {
+      Some(Ok(pid)) => {
+        let _ = found.insert(pid);
+      }
+      None => {}
+      Some(Err(_not_a_number)) => {}
     }
+  }
 
-    Ok(found)
+  Ok(found)
 }
 
 pub fn pool(said: &str) -> Result<BTreeSet<u32>, Never> {
-    let socket = console_events::place::SOCKET;
-    let rows: Vec<Vec<&str>> = said.lines().map(|line| line.split_whitespace().collect()).collect();
-    let mut peers = BTreeSet::new();
-    let mut connected = BTreeSet::new();
+  let socket = console_events::place::SOCKET;
+  let rows: Vec<Vec<&str>> = said
+    .lines()
+    .map(|line| line.split_whitespace().collect())
+    .collect();
+  let mut peers = BTreeSet::new();
+  let mut connected = BTreeSet::new();
 
-    for row in &rows {
-        match row.as_slice() {
-            [_, _, _, _, local, _, _, peer, ..] => match local.ends_with(socket) && *peer != "0" {
-                true => {
-                    let _ = peers.insert(*peer);
-                }
-                false => {}
-            },
-            _ => {}
+  for row in &rows {
+    match row.as_slice() {
+      [_, _, _, _, local, _, _, peer, ..] => match ::core::primitive::bool::then_some(local.ends_with(socket) && *peer != "0", ()) {
+        ::core::option::Option::Some(()) => {
+          let _ = peers.insert(*peer);
         }
+        ::core::option::Option::None => {}
+      },
+      _ => {}
     }
+  }
 
-    for row in &rows {
-        match row.as_slice() {
-            [_, _, _, _, _, inode, _, _, users, ..] => match peers.contains(inode) {
-                true => {
-                    let Ok(found) = pids(users);
+  for row in &rows {
+    match row.as_slice() {
+      [_, _, _, _, _, inode, _, _, users, ..] => match ::core::primitive::bool::then_some(peers.contains(inode), ()) {
+        ::core::option::Option::Some(()) => {
+          let Ok(found) = pids(users);
 
-                    connected.extend(found);
-                }
-                false => {}
-            },
-            _ => {}
+          connected.extend(found);
         }
+        ::core::option::Option::None => {}
+      },
+      _ => {}
     }
+  }
 
-    Ok(connected)
+  Ok(connected)
 }
 
 fn subscribes(facts: &[Fact], target: &Target) -> Result<Subscribes, Never> {
-    let Ok(reach) = facts::reachable(facts, target);
-    let own = |fact: &&Fact| fact.whose(target).is_ok_and(|whose| whose == Ownership::Its);
-    let linked = |fact: &&Fact| fact.target == LIBRARY && reach.contains(&fact.package);
+  let Ok(reach) = facts::reachable(facts, target);
+  let own = |fact: &&Fact| {
+    fact
+      .whose(target)
+      .is_ok_and(|whose| whose == Ownership::Its)
+  };
+  let linked = |fact: &&Fact| fact.target == LIBRARY && reach.contains(&fact.package);
 
-    Ok(match facts.iter().filter(|fact| fact.kind == Kind::Subscribes).any(|fact| own(&fact) || linked(&fact)) {
-        true => Subscribes::Yes,
-        false => Subscribes::No,
-    })
+  Ok(
+    match ::core::primitive::bool::then_some(facts
+      .iter()
+      .filter(|fact| fact.kind == Kind::Subscribes)
+      .any(|fact| own(&fact) || linked(&fact)), ())
+    {
+      ::core::option::Option::Some(()) => Subscribes::Yes,
+      ::core::option::Option::None => Subscribes::No,
+    },
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Subscribes {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 pub fn subscribers(facts: &[Fact]) -> Result<BTreeSet<String>, Never> {
-    let mut found = BTreeSet::new();
+  let mut found = BTreeSet::new();
 
-    for fact in facts.iter().filter(|fact| fact.kind == Kind::Builds && fact.target != LIBRARY) {
-        let Ok(target) = fact.of();
-        let Ok(said) = subscribes(facts, &target);
+  for fact in facts
+    .iter()
+    .filter(|fact| fact.kind == Kind::Builds && fact.target != LIBRARY)
+  {
+    let Ok(target) = fact.of();
+    let Ok(said) = subscribes(facts, &target);
 
-        match said {
-            Subscribes::Yes => {
-                let _ = found.insert(target.name);
-            }
-            Subscribes::No => {}
-        }
+    match said {
+      Subscribes::Yes => {
+        let _ = found.insert(target.name);
+      }
+      Subscribes::No => {}
     }
+  }
 
-    Ok(found)
+  Ok(found)
 }
 
-fn started_by_running(architecture: &Architecture, seen: &Seen) -> Result<BTreeSet<String>, Never> {
-    let mut started = BTreeSet::new();
+fn started_by_running(
+  architecture: &Architecture,
+  seen: &Seen,
+) -> Result<BTreeSet<String>, Never> {
+  let mut started = BTreeSet::new();
 
-    for unit in architecture.units.iter().filter(|unit| seen.units.contains(&unit.name)) {
-        let Ok(program) = unit.exec_start();
+  for unit in architecture
+    .units
+    .iter()
+    .filter(|unit| seen.units.contains(&unit.name))
+  {
+    let Ok(program) = unit.exec_start();
 
-        match program {
-            Some(Started::InternalProgram(binary) | Started::ExternalProgram(binary)) => {
-                let _ = started.insert(binary);
-            }
-            None => {}
-        }
+    match program {
+      Some(Started::InternalProgram(binary) | Started::ExternalProgram(binary)) => {
+        let _ = started.insert(binary);
+      }
+      None => {}
     }
+  }
 
-    Ok(started)
+  Ok(started)
 }
 
 fn opened_by_a_person() -> Result<BTreeSet<String>, Never> {
-    let mut opened = BTreeSet::new();
+  let mut opened = BTreeSet::new();
 
-    for app in APPS {
-        let Ok(name) = app.name();
-        let _ = opened.insert(String::from(name));
-    }
+  for app in APPS {
+    let Ok(name) = app.name();
+    let _ = opened.insert(String::from(name));
+  }
 
-    Ok(opened)
+  Ok(opened)
 }
 
 fn units_compared(architecture: &Architecture, seen: &Seen) -> Result<Vec<Difference>, Never> {
-    let mapped: BTreeSet<&String> = architecture.units.iter().map(|unit| &unit.name).collect();
-    let enabled: BTreeSet<&String> = architecture.enabled.iter().collect();
-    let mut found = Vec::new();
+  let mapped: BTreeSet<&String> = architecture.units.iter().map(|unit| &unit.name).collect();
+  let enabled: BTreeSet<&String> = architecture.enabled.iter().collect();
+  let mut found = Vec::new();
 
-    for unit in seen.units.iter().filter(|unit| unit.starts_with(PREFIX) && !mapped.contains(unit)) {
-        found.push(Difference::Unmapped(unit.clone()));
+  for unit in seen
+    .units
+    .iter()
+    .filter(|unit| unit.starts_with(PREFIX) && !mapped.contains(unit))
+  {
+    found.push(Difference::Unmapped(unit.clone()));
+  }
+
+  for unit in architecture.units.iter().filter(|unit| {
+    unit.name.ends_with(SERVICE_SUFFIX)
+      && enabled.contains(&unit.name)
+      && !seen.units.contains(&unit.name)
+  }) {
+    let Ok(declines) = field(&unit.text, SERVICE, DECLINES);
+
+    match declines {
+      Some(_) => {}
+      None => found.push(Difference::NotRunning(unit.name.clone())),
     }
+  }
 
-    for unit in architecture.units.iter().filter(|unit| {
-        unit.name.ends_with(SERVICE_SUFFIX) && enabled.contains(&unit.name) && !seen.units.contains(&unit.name)
-    }) {
-        let Ok(declines) = field(&unit.text, SERVICE, DECLINES);
-
-        match declines {
-            Some(_) => {}
-            None => found.push(Difference::NotRunning(unit.name.clone())),
-        }
-    }
-
-    Ok(found)
+  Ok(found)
 }
 
 pub fn compared(architecture: &Architecture, seen: &Seen) -> Result<Vec<Difference>, Never> {
-    let Ok(mut found) = units_compared(architecture, seen);
-    let Ok(subscribers) = subscribers(&architecture.facts);
-    let Ok(mut started) = started_by_running(architecture, seen);
-    let Ok(opened) = opened_by_a_person();
+  let Ok(mut found) = units_compared(architecture, seen);
+  let Ok(subscribers) = subscribers(&architecture.facts);
+  let Ok(mut started) = started_by_running(architecture, seen);
+  let Ok(opened) = opened_by_a_person();
 
-    started.extend(opened);
+  started.extend(opened);
 
-    for pid in &seen.pool {
-        let process = match seen.processes.get(pid) {
-            Some(process) => process,
-            None => continue,
-        };
-        let parent = seen.processes.get(&process.parent).map(|parent| parent.binary.as_str());
+  for pid in &seen.pool {
+    let process = match seen.processes.get(pid) {
+      Some(process) => process,
+      None => continue,
+    };
+    let parent = seen
+      .processes
+      .get(&process.parent)
+      .map(|parent| parent.binary.as_str());
 
-        match (subscribers.contains(&process.binary), parent == Some(USER_MANAGER), started.contains(&process.binary)) {
-            (false, true | false, true | false) => found.push(Difference::Undeclared(process.binary.clone(), *pid)),
-            (true, true, false) => found.push(Difference::Orphaned(process.binary.clone(), *pid)),
-            (true, true, true) | (true, false, true | false) => {}
-        }
+    match (
+      subscribers.contains(&process.binary),
+      parent == Some(USER_MANAGER),
+      started.contains(&process.binary),
+    ) {
+      (false, true | false, true | false) => {
+        found.push(Difference::Undeclared(process.binary.clone(), *pid))
+      }
+      (true, true, false) => found.push(Difference::Orphaned(process.binary.clone(), *pid)),
+      (true, true, true) | (true, false, true | false) => {}
     }
+  }
 
-    found.sort();
+  found.sort();
 
-    Ok(found)
+  Ok(found)
 }
 
 fn observe(stage: &mut Device) -> Result<Seen, Never> {
-    let Ok(systemctl) = Program::Systemctl.name();
-    let Ok(ss) = Program::Ss.name();
-    let Ok(ps) = Program::Ps.name();
-    let Ok(running) = stage.user(&format!("{systemctl} {RUNNING}"));
-    let Ok(sockets) = stage.user(&format!("{ss} -xp"));
-    let Ok(tree) = stage.user(&format!("{ps} -eo pid=,ppid=,args="));
-    let Ok(units) = units(&running);
-    let Ok(processes) = processes(&tree);
-    let Ok(pool) = pool(&sockets);
+  let Ok(systemctl) = Program::Systemctl.name();
+  let Ok(ss) = Program::Ss.name();
+  let Ok(ps) = Program::Ps.name();
+  let Ok(running) = stage.user(&format!("{systemctl} {RUNNING}"));
+  let Ok(sockets) = stage.user(&format!("{ss} -xp"));
+  let Ok(tree) = stage.user(&format!("{ps} -eo pid=,ppid=,args="));
+  let Ok(units) = units(&running);
+  let Ok(processes) = processes(&tree);
+  let Ok(pool) = pool(&sockets);
 
-    Ok(Seen { units, processes, pool })
+  Ok(Seen {
+    units,
+    processes,
+    pool,
+  })
 }
 
 fn mapped(stage: &mut Device) -> CheckResult {
-    let architecture = match console_repository::root() {
-        Ok(root) => match Architecture::read(&root) {
-            Ok(architecture) => architecture,
-            Err(fault) => return cannot(&format!("the map cannot be read: {fault}")),
-        },
-        Err(fault) => return cannot(&format!("{fault}")),
-    };
-    let Ok(seen) = observe(stage);
+  let architecture = match console_repository::root() {
+    Ok(root) => match Architecture::read(&root) {
+      Ok(architecture) => architecture,
+      Err(fault) => return cannot(&format!("the map cannot be read: {fault}")),
+    },
+    Err(fault) => return cannot(&format!("{fault}")),
+  };
+  let Ok(seen) = observe(stage);
 
-    match seen.units.is_empty() {
-        true => return cannot("the device named no running unit, so there is nothing to hold the map against"),
-        false => {}
+  match ::core::primitive::bool::then_some(seen.units.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {
+      return cannot(
+        "the device named no running unit, so there is nothing to hold the map against",
+      );
     }
+    ::core::option::Option::None => {}
+  }
 
-    let Ok(differences) = compared(&architecture, &seen);
+  let Ok(differences) = compared(&architecture, &seen);
 
-    match differences.is_empty() {
-        true => Ok(()),
-        false => failed(format!(
-            "the device and the map disagree:\n{}",
-            differences.iter().map(|one| format!("  {one}")).collect::<Vec<_>>().join("\n")
-        )),
-    }
+  match ::core::primitive::bool::then_some(differences.is_empty(), ()) {
+    ::core::option::Option::Some(()) => Ok(()),
+    ::core::option::Option::None => failed(format!(
+      "the device and the map disagree:\n{}",
+      differences
+        .iter()
+        .map(|one| format!("  {one}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+    )),
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const SS: &str = "\
+  const SS: &str = "\
 Netid State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process
 u_str LISTEN 0      4096   /run/user/1000/console/events.sock 100 * 0 users:((\"console-events\",pid=10,fd=3))
 u_str ESTAB  0      0      /run/user/1000/console/events.sock 101 * 201 users:((\"console-events\",pid=10,fd=7))
@@ -344,116 +414,157 @@ u_str ESTAB  0      0      * 201 * 101 users:((\"console-bar\",pid=20,fd=5))
 u_str ESTAB  0      0      * 301 * 302 users:((\"pipewire\",pid=30,fd=5))
 ";
 
-    #[test]
-    fn a_running_unit_is_asked_for_by_its_whole_name() {
-        assert!(
-            RUNNING.split_whitespace().any(|word| word == "--full"),
-            "systemctl cuts a long unit name to fit the terminal, and a cut name is a unit the tree has no file for"
-        );
-    }
+  #[test]
+  fn a_running_unit_is_asked_for_by_its_whole_name() {
+    assert!(
+      RUNNING.split_whitespace().any(|word| word == "--full"),
+      "systemctl cuts a long unit name to fit the terminal, and a cut name is a unit the tree has no file for"
+    );
+  }
 
-    #[test]
-    fn the_pool_is_whoever_is_at_the_other_end_of_its_socket() {
-        let Ok(pool) = pool(SS);
+  #[test]
+  fn the_pool_is_whoever_is_at_the_other_end_of_its_socket() {
+    let Ok(pool) = pool(SS);
 
-        assert_eq!(pool, BTreeSet::from([20]));
-    }
+    assert_eq!(pool, BTreeSet::from([20]));
+  }
 
-    #[test]
-    fn a_process_is_named_for_the_program_it_runs_rather_than_its_cut_comm() {
-        let Ok(held) = processes("  20     1 /usr/local/bin/console-control-center --flag\n   1     0 /usr/lib/systemd/systemd --user\n");
+  #[test]
+  fn a_process_is_named_for_the_program_it_runs_rather_than_its_cut_comm() {
+    let Ok(held) = processes(
+      "  20     1 /usr/local/bin/console-control-center --flag\n   1     0 /usr/lib/systemd/systemd --user\n",
+    );
 
-        assert_eq!(held.get(&20).map(|one| one.binary.as_str()), Some("console-control-center"));
-        assert_eq!(held.get(&1).map(|one| one.binary.as_str()), Some("systemd"));
-    }
+    assert_eq!(
+      held.get(&20).map(|one| one.binary.as_str()),
+      Some("console-control-center")
+    );
+    assert_eq!(held.get(&1).map(|one| one.binary.as_str()), Some("systemd"));
+  }
 
-    fn facts(said: &[(&str, &str, Kind, &str)]) -> Result<Vec<Fact>, Never> {
-        Ok(said
-            .iter()
-            .map(|(package, target, kind, what)| Fact {
-                package: String::from(*package),
-                target: String::from(*target),
-                kind: *kind,
-                what: String::from(*what),
-            })
-            .collect())
-    }
-
-    fn architecture() -> Result<Architecture, Never> {
-        let Ok(facts) = facts(&[
-            ("console-status-bar", "console-bar", Kind::Builds, "console_bar"),
-            ("console-status-bar", "console-bar", Kind::Links, "console_status_bar"),
-            ("console-status-bar", "lib", Kind::Builds, "console_status_bar"),
-            ("console-status-bar", "lib", Kind::Subscribes, "Sound"),
-            ("console-screen", "console-scale", Kind::Builds, "console_scale"),
-            ("console-books", "books", Kind::Builds, "books"),
-            ("console-books", "books", Kind::Subscribes, "Theme"),
-        ]);
-
-        Ok(Architecture {
-            facts,
-            enabled: vec![String::from("console-bar.service")],
-            units: vec![console_architecture::units::Unit {
-                name: String::from("console-bar.service"),
-                text: String::from("[Service]\nExecStart=/usr/local/bin/console-bar\n"),
-            }],
+  fn facts(said: &[(&str, &str, Kind, &str)]) -> Result<Vec<Fact>, Never> {
+    Ok(
+      said
+        .iter()
+        .map(|(package, target, kind, what)| Fact {
+          package: String::from(*package),
+          target: String::from(*target),
+          kind: *kind,
+          what: String::from(*what),
         })
-    }
+        .collect(),
+    )
+  }
 
-    fn running(said: &[(u32, u32, &str)]) -> Result<BTreeMap<u32, Process>, Never> {
-        Ok(said
-            .iter()
-            .map(|(pid, parent, binary)| (*pid, Process { parent: *parent, binary: String::from(*binary) }))
-            .collect())
-    }
+  fn architecture() -> Result<Architecture, Never> {
+    let Ok(facts) = facts(&[
+      (
+        "console-status-bar",
+        "console-bar",
+        Kind::Builds,
+        "console_bar",
+      ),
+      (
+        "console-status-bar",
+        "console-bar",
+        Kind::Links,
+        "console_status_bar",
+      ),
+      (
+        "console-status-bar",
+        "lib",
+        Kind::Builds,
+        "console_status_bar",
+      ),
+      ("console-status-bar", "lib", Kind::Subscribes, "Sound"),
+      (
+        "console-screen",
+        "console-scale",
+        Kind::Builds,
+        "console_scale",
+      ),
+      ("console-books", "books", Kind::Builds, "books"),
+      ("console-books", "books", Kind::Subscribes, "Theme"),
+    ]);
 
-    #[test]
-    fn a_device_that_matches_the_map_says_nothing() {
-        let Ok(processes) = running(&[(1, 0, "systemd"), (20, 1, "console-bar")]);
-        let seen = Seen {
-            units: BTreeSet::from([String::from("console-bar.service")]),
-            processes,
-            pool: BTreeSet::from([20]),
-        };
-        let Ok(architecture) = architecture();
-        let Ok(differences) = compared(&architecture, &seen);
+    Ok(Architecture {
+      facts,
+      enabled: vec![String::from("console-bar.service")],
+      units: vec![console_architecture::units::Unit {
+        name: String::from("console-bar.service"),
+        text: String::from("[Service]\nExecStart=/usr/local/bin/console-bar\n"),
+      }],
+    })
+  }
 
-        assert_eq!(differences, Vec::new());
-    }
+  fn running(said: &[(u32, u32, &str)]) -> Result<BTreeMap<u32, Process>, Never> {
+    Ok(
+      said
+        .iter()
+        .map(|(pid, parent, binary)| {
+          (
+            *pid,
+            Process {
+              parent: *parent,
+              binary: String::from(*binary),
+            },
+          )
+        })
+        .collect(),
+    )
+  }
 
-    #[test]
-    fn an_app_a_person_opened_is_theirs_whoever_started_it() {
-        let Ok(processes) = running(&[(1, 0, "systemd"), (20, 1, "console-bar"), (30, 1, "books")]);
-        let seen = Seen {
-            units: BTreeSet::from([String::from("console-bar.service")]),
-            processes,
-            pool: BTreeSet::from([20, 30]),
-        };
-        let Ok(architecture) = architecture();
-        let Ok(differences) = compared(&architecture, &seen);
+  #[test]
+  fn a_device_that_matches_the_map_says_nothing() {
+    let Ok(processes) = running(&[(1, 0, "systemd"), (20, 1, "console-bar")]);
+    let seen = Seen {
+      units: BTreeSet::from([String::from("console-bar.service")]),
+      processes,
+      pool: BTreeSet::from([20]),
+    };
+    let Ok(architecture) = architecture();
+    let Ok(differences) = compared(&architecture, &seen);
 
-        assert_eq!(differences, Vec::new());
-    }
+    assert_eq!(differences, Vec::new());
+  }
 
-    #[test]
-    fn what_is_in_one_and_not_the_other_is_said() {
-        let Ok(processes) = running(&[(1, 0, "systemd"), (20, 1, "console-bar"), (21, 1, "console-scale")]);
-        let seen = Seen {
-            units: BTreeSet::from([String::from("console-stray.service")]),
-            processes,
-            pool: BTreeSet::from([20, 21]),
-        };
-        let Ok(architecture) = architecture();
-        let Ok(differences) = compared(&architecture, &seen);
+  #[test]
+  fn an_app_a_person_opened_is_theirs_whoever_started_it() {
+    let Ok(processes) = running(&[(1, 0, "systemd"), (20, 1, "console-bar"), (30, 1, "books")]);
+    let seen = Seen {
+      units: BTreeSet::from([String::from("console-bar.service")]),
+      processes,
+      pool: BTreeSet::from([20, 30]),
+    };
+    let Ok(architecture) = architecture();
+    let Ok(differences) = compared(&architecture, &seen);
 
-        assert_eq!(
-            differences,
-            vec![
-                Difference::Unmapped(String::from("console-stray.service")),
-                Difference::NotRunning(String::from("console-bar.service")),
-                Difference::Undeclared(String::from("console-scale"), 21),
-                Difference::Orphaned(String::from("console-bar"), 20),
-            ]
-        );
-    }
+    assert_eq!(differences, Vec::new());
+  }
+
+  #[test]
+  fn what_is_in_one_and_not_the_other_is_said() {
+    let Ok(processes) = running(&[
+      (1, 0, "systemd"),
+      (20, 1, "console-bar"),
+      (21, 1, "console-scale"),
+    ]);
+    let seen = Seen {
+      units: BTreeSet::from([String::from("console-stray.service")]),
+      processes,
+      pool: BTreeSet::from([20, 21]),
+    };
+    let Ok(architecture) = architecture();
+    let Ok(differences) = compared(&architecture, &seen);
+
+    assert_eq!(
+      differences,
+      vec![
+        Difference::Unmapped(String::from("console-stray.service")),
+        Difference::NotRunning(String::from("console-bar.service")),
+        Difference::Undeclared(String::from("console-scale"), 21),
+        Difference::Orphaned(String::from("console-bar"), 20),
+      ]
+    );
+  }
 }

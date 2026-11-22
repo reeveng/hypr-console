@@ -17,8 +17,9 @@
 pub mod card;
 pub mod doing;
 pub mod listing;
-pub mod open_with;
 pub mod looking;
+pub mod open_with;
+pub mod paths;
 pub mod places;
 pub mod standing;
 pub mod thumbnails;

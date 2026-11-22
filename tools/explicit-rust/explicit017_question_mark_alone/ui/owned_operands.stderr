@@ -1,0 +1,22 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/owned_operands.rs:28:30
+   |
+LL |     Some((observe(trace, 1), load(trace, valid)?))
+   |                              ^^^^^^^^^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = load(trace, valid)?; checked_value }`
+   |
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/owned_operands.rs:32:11
+   |
+LL |     match load(trace, valid)? {
+   |           ^^^^^^^^^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = load(trace, valid)?; checked_value }`
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/owned_operands.rs:45:25
+   |
+LL |         true => value = load(trace, true)?,
+   |                         ^^^^^^^^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = load(trace, true)?; checked_value }`
+
+error: aborting due to 3 previous errors
+

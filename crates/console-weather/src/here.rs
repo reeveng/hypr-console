@@ -31,432 +31,477 @@
 use std::time::{Duration, Instant};
 
 use console_core_atomic_writes::Stored;
+use console_core_finite_numbers::FiniteF64;
 use console_core_never::Never;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Where {
-    pub latitude: f64,
-    pub longitude: f64,
+  pub latitude: Latitude,
+  pub longitude: Longitude,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the wrapped value gives latitude in decimal degrees north"
+  )
+)]
+pub struct Latitude(pub f64);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the wrapped value gives longitude in decimal degrees east"
+  )
+)]
+pub struct Longitude(pub f64);
 
 pub const CLOCK: &str = "/etc/localtime";
 
 pub const ZONES: [&str; 2] = [
-    "/usr/share/zoneinfo/zone1970.tab",
-    "/usr/share/zoneinfo/zone.tab",
+  "/usr/share/zoneinfo/zone1970.tab",
+  "/usr/share/zoneinfo/zone.tab",
 ];
 
 const KEEP_FOR: Duration = Duration::from_secs(12 * 60 * 60);
 
 pub const NOWHERE: Where = Where {
-    latitude: 51.48,
-    longitude: 0.0,
+  latitude: Latitude(51.48),
+  longitude: Longitude(0.0),
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct CachedLocation(Option<(Instant, Where)>);
 
 impl CachedLocation {
-    pub fn none() -> Result<CachedLocation, Never> {
-        Ok(CachedLocation(None))
+  pub fn none() -> Result<CachedLocation, Never> {
+    Ok(CachedLocation(None))
+  }
+
+  pub fn here(&mut self, now: Instant) -> Result<Where, Never> {
+    match self.0 {
+      Some((asked, at)) => match ::core::primitive::bool::then_some(now.saturating_duration_since(asked) < KEEP_FOR, ()) {
+        ::core::option::Option::Some(()) => return Ok(at),
+        ::core::option::Option::None => {}
+      },
+      None => {}
     }
 
-    pub fn here(&mut self, now: Instant) -> Result<Where, Never> {
-        match self.0 {
-            Some((asked, at)) => match now.saturating_duration_since(asked) < KEEP_FOR {
-                true => return Ok(at),
-                false => {},
-            },
-            None => {},
-        }
+    let at = locate()?;
 
-        let at = locate()?;
+    self.0 = Some((now, at));
 
-        self.0 = Some((now, at));
-
-        Ok(at)
-    }
+    Ok(at)
+  }
 }
 
 const CHOSEN: &str = "location";
 
 pub fn current() -> Result<Option<String>, Never> {
-    let told = console_defaults::setting(CHOSEN)?;
+  let told = console_defaults::setting(CHOSEN)?;
 
-    Ok(told.filter(|zone| !zone.is_empty()))
+  Ok(told.filter(|zone| !zone.is_empty()))
 }
 
 pub fn choose(zone: Option<Zone<'_>>) -> Result<(), Never> {
-    let value = match zone {
-        Some(zone) => zone.0,
-        None => "",
-    };
+  let value = match zone {
+    Some(zone_2) => zone_2.0,
+    None => "",
+  };
 
-    console_defaults::set(console_defaults::Setting { key: CHOSEN, value })
+  console_defaults::set(console_defaults::Setting { key: CHOSEN, value })
 }
 
 pub fn place() -> Result<Option<String>, Never> {
-    let chosen = current()?;
+  let chosen = current()?;
 
-    match chosen {
-        Some(chosen) => Ok(Some(chosen)),
-        None => zone(),
-    }
+  match chosen {
+    Some(chosen_2) => Ok(Some(chosen_2)),
+    None => zone(),
+  }
 }
 
 pub fn zones(table: &str) -> Result<Vec<String>, Never> {
-    Ok(table
-        .lines()
-        .filter(|line| !line.starts_with('#'))
-        .filter_map(|line| line.split('\t').nth(2))
-        .map(str::to_string)
-        .collect())
+  Ok(
+    table
+      .lines()
+      .filter(|line| !line.starts_with('#'))
+      .filter_map(|line| line.split('\t').nth(2))
+      .map(str::to_string)
+      .collect(),
+  )
 }
 
 pub fn every_zone() -> Result<Vec<String>, Never> {
-    let mut every = Vec::new();
+  let mut every = Vec::new();
 
-    for named in ZONES {
-        let Ok(held) = console_core_atomic_writes::read(std::path::Path::new(named));
+  for named in ZONES {
+    let Ok(held) = console_core_atomic_writes::read(std::path::Path::new(named));
 
-        match held {
-            Stored::Text(table) => {
-                let Ok(zones) = zones(&table);
+    match held {
+      Stored::Text(table) => {
+        let Ok(zones) = zones(&table);
 
-                every.extend(zones);
-            }
-            Stored::Absent => {},
-            Stored::Failed(fault) => eprintln!("console-weather: {named}: {fault}"),
-        }
+        every.extend(zones);
+      }
+      Stored::Absent => {}
+      Stored::Failed(fault) => eprintln!("console-weather: {named}: {fault}"),
     }
+  }
 
-    every.sort_by_cached_key(|zone| {
-        let Ok(city) = city(Zone(zone));
+  every.sort_by_cached_key(|zone| {
+    let Ok(city) = city(Zone(zone));
 
-        (city, zone.clone())
-    });
-    every.dedup();
+    (city, zone.clone())
+  });
+  every.dedup();
 
-    Ok(every)
+  Ok(every)
 }
 
 pub fn locate() -> Result<Where, Never> {
-    let zone = place()?;
+  let zone = place()?;
 
-    let zone = match zone {
-        Some(zone) => zone,
-        None => return Ok(NOWHERE),
+  let zone_3 = match zone {
+    Some(zone_2) => zone_2,
+    None => return Ok(NOWHERE),
+  };
+
+  for named in ZONES {
+    let Ok(held) = console_core_atomic_writes::read(std::path::Path::new(named));
+
+    let table = match held {
+      Stored::Text(table) => table,
+      Stored::Absent => continue,
+      Stored::Failed(fault) => {
+        eprintln!("console-weather: {named}: {fault}");
+
+        continue;
+      }
     };
 
-    for named in ZONES {
-        let Ok(held) = console_core_atomic_writes::read(std::path::Path::new(named));
+    let found = at(Zone(&zone_3), &table)?;
 
-        let table = match held {
-            Stored::Text(table) => table,
-            Stored::Absent => continue,
-            Stored::Failed(fault) => {
-                eprintln!("console-weather: {named}: {fault}");
-
-                continue;
-            }
-        };
-
-        let found = at(Zone(&zone), &table)?;
-
-        match found {
-            Some(found) => return Ok(found),
-            None => {},
-        }
+    match found {
+      Some(found_2) => return Ok(found_2),
+      None => {}
     }
+  }
 
-    Ok(NOWHERE)
+  Ok(NOWHERE)
 }
 
 pub fn zone() -> Result<Option<String>, Never> {
-    let at = match std::fs::read_link(CLOCK) {
-        Ok(at) => at,
-        Err(fault)
-            if matches!(
-                fault.kind(),
-                std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput
-            ) =>
-        {
-            return Ok(None);
-        }
-        Err(fault) => {
-            eprintln!("console-weather: {CLOCK}: {fault}");
+  let at = match std::fs::read_link(CLOCK) {
+    Ok(at) => at,
+    Err(fault)
+      if matches!(
+        fault.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput
+      ) =>
+    {
+      return Ok(None);
+    }
+    Err(fault) => {
+      eprintln!("console-weather: {CLOCK}: {fault}");
 
-            return Ok(None);
-        }
-    };
+      return Ok(None);
+    }
+  };
 
-    let said = match at.to_str() {
-        Some(said) => said,
-        None => return Ok(None),
-    };
+  let said = match at.to_str() {
+    Some(said) => said,
+    None => return Ok(None),
+  };
 
-    Ok(said.split_once("zoneinfo/").map(|(_, zone)| zone.to_string()))
+  Ok(
+    said
+      .split_once("zoneinfo/")
+      .map(|(_, zone)| zone.to_string()),
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Zone<'a>(pub &'a str);
 
 pub fn city(zone: Zone<'_>) -> Result<String, Never> {
-    let last = zone.0.rsplit('/').next();
+  let last = zone.0.rsplit('/').next();
 
-    Ok(match last {
-        Some(last) => last.replace('_', " "),
-        None => zone.0.to_string(),
-    })
+  Ok(match last {
+    Some(last_2) => last_2.replace('_', " "),
+    None => zone.0.to_string(),
+  })
 }
 
 pub fn at(zone: Zone<'_>, table: &str) -> Result<Option<Where>, Never> {
-    for line in table.lines() {
-        match line.starts_with('#') {
-            true => continue,
-            false => {},
-        }
-
-        let mut columns = line.split('\t');
-
-        let place = match columns.nth(1) {
-            Some(place) => place,
-            None => continue,
-        };
-
-        let said = match columns.next() {
-            Some(said) => said,
-            None => continue,
-        };
-
-        match said == zone.0 {
-            true => {},
-            false => continue,
-        }
-
-        let found = pair(place)?;
-
-        match found {
-            Some(found) => return Ok(Some(found)),
-            None => {},
-        }
+  for line in table.lines() {
+    match ::core::primitive::bool::then_some(line.starts_with('#'), ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
     }
 
-    Ok(None)
+    let mut columns = line.split('\t');
+
+    let place = match columns.nth(1) {
+      Some(place) => place,
+      None => continue,
+    };
+
+    let said = match columns.next() {
+      Some(said) => said,
+      None => continue,
+    };
+
+    match ::core::primitive::bool::then_some(said == zone.0, ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => continue,
+    }
+
+    let found = pair(place)?;
+
+    match found {
+      Some(found_2) => return Ok(Some(found_2)),
+      None => {}
+    }
+  }
+
+  Ok(None)
 }
 
 fn pair(said: &str) -> Result<Option<Where>, Never> {
-    let mut letters = said.chars();
+  let mut letters = said.chars();
 
-    let first = match letters.next() {
-        Some(first) => first,
-        None => return Ok(None),
-    };
+  let first = match letters.next() {
+    Some(first) => first,
+    None => return Ok(None),
+  };
 
-    let rest = letters.as_str();
+  let rest = letters.as_str();
 
-    let split = match rest.split_once('+') {
-        Some((before, after)) => Some((before, '+', after)),
-        None => rest.split_once('-').map(|(before, after)| (before, '-', after)),
-    };
+  let split = match rest.split_once('+') {
+    Some((before, after)) => Some((before, '+', after)),
+    None => rest
+      .split_once('-')
+      .map(|(before, after)| (before, '-', after)),
+  };
 
-    let (before, sign, after) = match split {
-        Some(split) => split,
-        None => return Ok(None),
-    };
+  let (before, sign, after) = match split {
+    Some(split_2) => split_2,
+    None => return Ok(None),
+  };
 
-    let before = format!("{first}{before}");
-    let after = format!("{sign}{after}");
+  let latitude_text = format!("{first}{before}");
+  let longitude_text = format!("{sign}{after}");
 
-    let latitude = degrees(&before)?;
+  let latitude = degrees(&latitude_text)?;
 
-    let latitude = match latitude {
-        Some(latitude) => latitude,
-        None => return Ok(None),
-    };
+  let latitude_3 = match latitude {
+    Some(latitude_2) => latitude_2,
+    None => return Ok(None),
+  };
 
-    let longitude = degrees(&after)?;
+  let longitude = degrees(&longitude_text)?;
 
-    let longitude = match longitude {
-        Some(longitude) => longitude,
-        None => return Ok(None),
-    };
+  let longitude_3 = match longitude {
+    Some(longitude_2) => longitude_2,
+    None => return Ok(None),
+  };
 
-    Ok(Some(Where { latitude, longitude }))
+  Ok(Some(Where {
+    latitude: Latitude(latitude_3),
+    longitude: Longitude(longitude_3),
+  }))
 }
 
 fn degrees(said: &str) -> Result<Option<f64>, Never> {
-    let first = match said.as_bytes().first() {
-        Some(first) => first,
-        None => return Ok(None),
-    };
+  let first = match said.as_bytes().first() {
+    Some(first) => first,
+    None => return Ok(None),
+  };
 
-    let sign = match first {
-        b'+' => 1.0,
-        b'-' => -1.0,
-        _ => return Ok(None),
-    };
+  let sign = match first {
+    b'+' => 1.0,
+    b'-' => -1.0,
+    _ => return Ok(None),
+  };
 
-    let digits = match said.get(1..) {
-        Some(digits) => digits,
-        None => return Ok(None),
-    };
+  let digits = match said.get(1..) {
+    Some(digits) => digits,
+    None => return Ok(None),
+  };
 
-    match digits.bytes().all(|byte| byte.is_ascii_digit()) {
-        true => {},
-        false => return Ok(None),
-    }
+  match ::core::primitive::bool::then_some(digits.bytes().all(|byte| byte.is_ascii_digit()), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => return Ok(None),
+  }
 
-    let (whole, rest) = match digits.len() {
-        4 | 5 => digits.split_at(digits.len().saturating_sub(2)),
-        6 | 7 => digits.split_at(digits.len().saturating_sub(4)),
-        _ => return Ok(None),
-    };
+  let parts = match digits.len() {
+    4 | 5 => digits.split_at_checked(digits.len().saturating_sub(2)),
+    6 | 7 => digits.split_at_checked(digits.len().saturating_sub(4)),
+    _ => None,
+  };
+  let (written_whole, rest) = match parts {
+    Some(split) => split,
+    None => return Ok(None),
+  };
 
-    let first_two = match rest.get(..2) {
-        Some(first_two) => first_two,
-        None => return Ok(None),
-    };
+  let first_two = match rest.get(..2) {
+    Some(first_two) => first_two,
+    None => return Ok(None),
+  };
 
-    let (minutes, whole) = match (first_two.parse::<f64>(), whole.parse::<f64>()) {
-        (Ok(minutes), Ok(whole)) => (minutes, whole),
-        (Err(_not_a_number), _) | (_, Err(_not_a_number)) => return Ok(None),
-    };
+  let (minutes, whole) = match (
+    first_two.parse::<FiniteF64>(),
+    written_whole.parse::<FiniteF64>(),
+  ) {
+    (Ok(read_minutes), Ok(read_whole)) => (f64::from(read_minutes), f64::from(read_whole)),
+    (Err(_not_a_finite_number), _) | (_, Err(_not_a_finite_number)) => return Ok(None),
+  };
 
-    let seconds: f64 = match rest.get(2..) {
-        Some(said) => match said.is_empty() {
-            true => 0.0,
-            false => match said.parse() {
-                Ok(seconds) => seconds,
-                Err(_not_a_number) => return Ok(None),
-            },
-        },
-        None => 0.0,
-    };
+  let seconds: f64 = match rest.get(2..) {
+    Some(said_2) => match ::core::primitive::bool::then_some(said_2.is_empty(), ()) {
+      ::core::option::Option::Some(()) => 0.0,
+      ::core::option::Option::None => match said_2.parse::<FiniteF64>() {
+        Ok(seconds) => f64::from(seconds),
+        Err(_not_a_finite_number) => return Ok(None),
+      },
+    },
+    None => 0.0,
+  };
 
-    Ok(Some(sign * (whole + minutes / 60.0 + seconds / 3600.0)))
+  Ok(Some(sign * (whole + minutes / 60.0 + seconds / 3600.0)))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    const TABLE: &str = "# a comment, which is not a row\n\
+  const TABLE: &str = "# a comment, which is not a row\n\
                          AD\t+4230+00131\tEurope/Andorra\n\
                          CA\t+4439-06336\tAmerica/Halifax\n\
                          NZ\t-3652+17446\tPacific/Auckland\n\
                          AQ\t-720041+0023206\tAntarctica/Troll\n";
 
-    #[test]
-    fn a_zone_is_the_tail_of_where_the_clock_points() {
-        assert_eq!(
-            "/usr/share/zoneinfo/Europe/Andorra"
-                .split_once("zoneinfo/")
-                .map(|(_, zone)| zone),
-            Some("Europe/Andorra")
-        );
-    }
+  #[test]
+  fn a_zone_is_the_tail_of_where_the_clock_points() {
+    assert_eq!(
+      "/usr/share/zoneinfo/Europe/Andorra"
+        .split_once("zoneinfo/")
+        .map(|(_, zone)| zone),
+      Some("Europe/Andorra")
+    );
+  }
 
-    #[test]
-    fn a_zone_is_looked_up_by_its_name_and_not_by_its_country() -> Result<(), Box<dyn Error>> {
-        let Ok(andorra) = at(Zone("Europe/Andorra"), TABLE);
+  #[test]
+  fn a_zone_is_looked_up_by_its_name_and_not_by_its_country() -> Result<(), Box<dyn Error>> {
+    let Ok(found) = at(Zone("Europe/Andorra"), TABLE);
 
-        let andorra = andorra.ok_or("a place")?;
-        assert!((andorra.latitude - 42.5).abs() < 0.001, "{andorra:?}");
-        assert!((andorra.longitude - 1.5167).abs() < 0.001, "{andorra:?}");
+    let andorra = found.ok_or("a place")?;
+    assert!((andorra.latitude.0 - 42.5).abs() < 0.001, "{andorra:?}");
+    assert!((andorra.longitude.0 - 1.5167).abs() < 0.001, "{andorra:?}");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_place_south_or_west_is_a_negative_number() -> Result<(), Box<dyn Error>> {
-        let Ok(west) = at(Zone("America/Halifax"), TABLE);
+  #[test]
+  fn a_place_south_or_west_is_a_negative_number() -> Result<(), Box<dyn Error>> {
+    let Ok(halifax) = at(Zone("America/Halifax"), TABLE);
 
-        let west = west.ok_or("a place")?;
+    let west = halifax.ok_or("a place")?;
 
-        assert!(west.latitude > 0.0 && west.longitude < 0.0, "{west:?}");
+    assert!(west.latitude.0 > 0.0 && west.longitude.0 < 0.0, "{west:?}");
 
-        let Ok(south) = at(Zone("Pacific/Auckland"), TABLE);
+    let Ok(auckland) = at(Zone("Pacific/Auckland"), TABLE);
 
-        let south = south.ok_or("a place")?;
-        assert!(south.latitude < 0.0 && south.longitude > 0.0, "{south:?}");
+    let south = auckland.ok_or("a place")?;
+    assert!(
+      south.latitude.0 < 0.0 && south.longitude.0 > 0.0,
+      "{south:?}"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_row_written_to_the_second_is_read_to_the_second() -> Result<(), Box<dyn Error>> {
-        let Ok(troll) = at(Zone("Antarctica/Troll"), TABLE);
+  #[test]
+  fn a_row_written_to_the_second_is_read_to_the_second() -> Result<(), Box<dyn Error>> {
+    let Ok(found) = at(Zone("Antarctica/Troll"), TABLE);
 
-        let troll = troll.ok_or("a place")?;
-        assert!((troll.latitude + 72.0114).abs() < 0.001, "{troll:?}");
-        assert!((troll.longitude - 2.5350).abs() < 0.001, "{troll:?}");
+    let troll = found.ok_or("a place")?;
+    assert!((troll.latitude.0 + 72.0114).abs() < 0.001, "{troll:?}");
+    assert!((troll.longitude.0 - 2.5350).abs() < 0.001, "{troll:?}");
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_zone_is_called_by_its_city() {
-        assert_eq!(city(Zone("America/Argentina/Buenos_Aires")), Ok("Buenos Aires".to_string()));
-        assert_eq!(city(Zone("UTC")), Ok("UTC".to_string()));
-    }
+  #[test]
+  fn a_zone_is_called_by_its_city() {
+    assert_eq!(
+      city(Zone("America/Argentina/Buenos_Aires")),
+      Ok("Buenos Aires".to_string())
+    );
+    assert_eq!(city(Zone("UTC")), Ok("UTC".to_string()));
+  }
 
-    #[test]
-    fn every_row_of_the_table_is_a_zone_to_choose() {
-        assert_eq!(
-            zones(TABLE),
-            Ok(vec![
-                "Europe/Andorra".to_string(),
-                "America/Halifax".to_string(),
-                "Pacific/Auckland".to_string(),
-                "Antarctica/Troll".to_string(),
-            ])
-        );
-    }
+  #[test]
+  fn every_row_of_the_table_is_a_zone_to_choose() {
+    assert_eq!(
+      zones(TABLE),
+      Ok(vec![
+        "Europe/Andorra".to_string(),
+        "America/Halifax".to_string(),
+        "Pacific/Auckland".to_string(),
+        "Antarctica/Troll".to_string(),
+      ])
+    );
+  }
 
-    #[test]
-    fn a_zone_the_table_does_not_hold_is_no_place() {
-        assert_eq!(at(Zone("Mars/Olympus"), TABLE), Ok(None));
-    }
+  #[test]
+  fn a_zone_the_table_does_not_hold_is_no_place() {
+    assert_eq!(at(Zone("Mars/Olympus"), TABLE), Ok(None));
+  }
 
-    #[test]
-    fn nothing_readable_is_no_place() {
-        assert_eq!(at(Zone("Europe/Andorra"), ""), Ok(None));
-        assert_eq!(at(Zone("Europe/Andorra"), "not a row at all"), Ok(None));
-        assert_eq!(
-            at(Zone("Europe/Andorra"), "AD\tnot a place\tEurope/Andorra"),
-            Ok(None)
-        );
-    }
+  #[test]
+  fn nothing_readable_is_no_place() {
+    assert_eq!(at(Zone("Europe/Andorra"), ""), Ok(None));
+    assert_eq!(at(Zone("Europe/Andorra"), "not a row at all"), Ok(None));
+    assert_eq!(
+      at(Zone("Europe/Andorra"), "AD\tnot a place\tEurope/Andorra"),
+      Ok(None)
+    );
+  }
 
-    #[test]
-    fn this_machine_says_where_it_is() {
-        let Ok(asking) = locate();
+  #[test]
+  fn this_machine_says_where_it_is() {
+    let Ok(asking) = locate();
 
-        assert!(asking.latitude.abs() <= 90.0);
-        assert!(asking.longitude.abs() <= 180.0);
-    }
+    assert!(asking.latitude.0.abs() <= 90.0);
+    assert!(asking.longitude.0.abs() <= 180.0);
+  }
 
-    #[test]
-    fn an_answer_is_kept_rather_than_asked_for_twice() {
-        let Ok(mut kept) = CachedLocation::none();
-        let now = Instant::now();
+  #[test]
+  fn an_answer_is_kept_rather_than_asked_for_twice() {
+    let Ok(mut kept) = CachedLocation::none();
+    let now = Instant::now();
 
-        assert_eq!(kept.here(now), kept.here(now));
-    }
+    assert_eq!(kept.here(now), kept.here(now));
+  }
 
-    #[test]
-    fn an_answer_old_enough_is_asked_for_again() {
-        let Ok(mut kept) = CachedLocation::none();
-        let now = Instant::now();
-        let Ok(first) = kept.here(now);
+  #[test]
+  fn an_answer_old_enough_is_asked_for_again() {
+    let Ok(mut kept) = CachedLocation::none();
+    let now = Instant::now();
+    let Ok(first) = kept.here(now);
 
-        let later = match now.checked_add(KEEP_FOR) {
-            Some(later) => later,
-            None => now,
-        };
+    let later = match now.checked_add(KEEP_FOR) {
+      Some(later) => later,
+      None => now,
+    };
 
-        assert_eq!(kept.here(later), Ok(first));
-    }
+    assert_eq!(kept.here(later), Ok(first));
+  }
 }

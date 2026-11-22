@@ -11,126 +11,171 @@
 
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::Arc;
 
 use console_core_external_programs::Program;
 use console_core_geometry::Size;
 use console_core_shapes::Pixels;
 
-use crate::{BYTES_A_PIXEL, PictureError, fit_within};
+use console_core_pixel_buffers::BYTES_PER_PIXEL;
+
+use crate::{PictureError, fit_within};
 
 pub(crate) fn measured(at: &Path) -> Result<Option<Size<u32>>, PictureError> {
-    let Ok(mut asking) = Program::Ffprobe.command();
+  let Ok(mut asking) = Program::Ffprobe.command();
 
-    let said = asking
-        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height"])
-        .args(["-of", "csv=p=0"])
-        .arg(at)
-        .output()
-        .map_err(|fault| PictureError::Query("ffprobe", fault))?;
+  let said = asking
+    .args([
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=width,height",
+    ])
+    .args(["-of", "csv=p=0"])
+    .arg(at)
+    .output()
+    .map_err(|fault| PictureError::Query("ffprobe", fault))?;
 
-    match said.status.success() {
-        true => {},
-        false => return Ok(None),
+  match ::core::primitive::bool::then_some(said.status.success(), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => return Ok(None),
+  }
+
+  let stdout = match std::str::from_utf8(&said.stdout) {
+    Ok(text) => text,
+    Err(fault) => {
+      return Err(PictureError::Unmeasured(
+        at.to_path_buf(),
+        fault.to_string(),
+      ));
     }
+  };
+  let printed = stdout.trim();
 
-    let printed = String::from_utf8_lossy(&said.stdout).trim().to_string();
-
-    let (wide, tall) = match (printed.split_once(','), printed.is_empty()) {
-        (Some((wide, tall)), _) => (wide.trim().to_string(), tall.trim().to_string()),
-        (None, true) => return Ok(None),
-        (None, false) => return Err(PictureError::Unmeasured(at.to_path_buf(), printed)),
-    };
-
-    match (wide.parse::<u32>(), tall.parse::<u32>()) {
-        (Ok(wide), Ok(tall)) => Ok(Some(Size { width: wide, height: tall })),
-        (Err(_), _) | (_, Err(_)) => Err(PictureError::Unmeasured(at.to_path_buf(), printed)),
+  let (wide, tall) = match (printed.split_once(','), printed.is_empty()) {
+    (Some((wide, tall)), _) => (wide.trim(), tall.trim()),
+    (None, true) => return Ok(None),
+    (None, false) => {
+      return Err(PictureError::Unmeasured(
+        at.to_path_buf(),
+        printed.to_string(),
+      ));
     }
+  };
+
+  match (wide.parse::<u32>(), tall.parse::<u32>()) {
+    (Ok(wide_2), Ok(tall_2)) => Ok(Some(Size {
+      width: wide_2,
+      height: tall_2,
+    })),
+    (Err(_), _) | (_, Err(_)) => Err(PictureError::Unmeasured(
+      at.to_path_buf(),
+      printed.to_string(),
+    )),
+  }
 }
 
 pub(crate) fn fitted(at: &Path, within: Size<u32>) -> Result<Option<Pixels>, PictureError> {
-    let measured = measured(at)?;
+  let measured = measured(at)?;
 
-    let had = match measured {
-        Some(had) => had,
-        None => return Ok(None),
-    };
+  let had = match measured {
+    Some(had) => had,
+    None => return Ok(None),
+  };
 
-    let Ok(made) = fit_within(had, within);
-    let Size { width: wide, height: tall } = made;
-    let drawn = drawn(at, &format!("scale={wide}:{tall}"))?;
+  let Ok(made) = fit_within(had, within);
+  let Size {
+    width: wide,
+    height: tall,
+  } = made;
+  let drawn = drawn(at, &format!("scale={wide}:{tall}"))?;
 
-    match drawn {
-        Some(bytes) => pixels(at, (made, bytes)),
-        None => Ok(None),
-    }
+  match drawn {
+    Some(bytes) => pixels(at, (made, bytes)),
+    None => Ok(None),
+  }
 }
 
 pub(crate) fn squared(at: &Path, size: Size<u32>) -> Result<Option<Pixels>, PictureError> {
-    let measured = measured(at)?;
+  let measured = measured(at)?;
 
-    let had = match measured {
-        Some(had) => had,
-        None => return Ok(None),
-    };
+  let had = match measured {
+    Some(had) => had,
+    None => return Ok(None),
+  };
 
-    let side = had.width.min(had.height);
-    let left = had.width.saturating_sub(side).saturating_div(2);
-    let top = had.height.saturating_sub(side).saturating_div(2);
-    let Size { width: wide, height: tall } = size;
-    let drawn = drawn(at, &format!("crop={side}:{side}:{left}:{top},scale={wide}:{tall}"))?;
+  let side = had.width.min(had.height);
+  let left = had.width.saturating_sub(side).saturating_div(2);
+  let top = had.height.saturating_sub(side).saturating_div(2);
+  let Size {
+    width: wide,
+    height: tall,
+  } = size;
+  let drawn = drawn(
+    at,
+    &format!("crop={side}:{side}:{left}:{top},scale={wide}:{tall}"),
+  )?;
 
-    match drawn {
-        Some(bytes) => pixels(at, (size, bytes)),
-        None => Ok(None),
-    }
+  match drawn {
+    Some(bytes) => pixels(at, (size, bytes)),
+    None => Ok(None),
+  }
 }
 
 fn drawn(at: &Path, filter: &str) -> Result<Option<Vec<u8>>, PictureError> {
-    let Ok(mut asking) = Program::Ffmpeg.command();
+  let Ok(mut asking) = Program::Ffmpeg.command();
 
-    let said = asking
-        .args(["-v", "error", "-i"])
-        .arg(at)
-        .args(["-vf", filter, "-frames:v", "1"])
-        .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-"])
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|fault| PictureError::Query("ffmpeg", fault))?;
+  let said = asking
+    .args(["-v", "error", "-i"])
+    .arg(at)
+    .args(["-vf", filter, "-frames:v", "1"])
+    .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+    .stderr(Stdio::piped())
+    .output()
+    .map_err(|fault| PictureError::Query("ffmpeg", fault))?;
 
-    Ok(match said.status.success() {
-        true => Some(said.stdout),
-        false => None,
-    })
+  Ok(match ::core::primitive::bool::then_some(said.status.success(), ()) {
+    ::core::option::Option::Some(()) => Some(said.stdout),
+    ::core::option::Option::None => None,
+  })
 }
 
 fn pixels(at: &Path, drawn: (Size<u32>, Vec<u8>)) -> Result<Option<Pixels>, PictureError> {
-    let (made, bytes) = drawn;
-    let wanted = u64::from(made.width).saturating_mul(u64::from(BYTES_A_PIXEL)).saturating_mul(u64::from(made.height));
-    let Ok(got) = console_core_number_conversion::fitted::<_, u64>(bytes.len());
+  let (made, bytes) = drawn;
+  let wanted = u64::from(made.width)
+    .saturating_mul(u64::from(BYTES_PER_PIXEL))
+    .saturating_mul(u64::from(made.height));
+  let Ok(got) = console_core_number_conversion::fitted::<_, u64>(bytes.len());
 
-    match got == wanted {
-        true => {},
-        false => return Err(PictureError::Short { of: at.to_path_buf(), wanted, got }),
+  match ::core::primitive::bool::then_some(got == wanted, ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      return Err(PictureError::Short {
+        of: at.to_path_buf(),
+        wanted,
+        got,
+      });
     }
+  }
 
-    let stride = made.width.saturating_mul(BYTES_A_PIXEL);
+  let Ok(pixels) = Pixels::packed(made, bytes);
 
-    Ok(Some(Pixels { width: made.width, height: made.height, stride, bytes: Arc::new(bytes) }))
+  Ok(Some(pixels))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use console_core_never::Never;
+  use super::*;
+  use console_core_never::Never;
 
-    #[test]
-    fn a_file_ffmpeg_cannot_read_is_no_picture() -> Result<(), Never> {
-        let at = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
-        let measured = measured(&at);
+  #[test]
+  fn a_file_ffmpeg_cannot_read_is_no_picture() -> Result<(), Never> {
+    let at = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    let measured = measured(&at);
 
-        assert!(matches!(measured, Ok(None)), "{measured:?}");
+    assert!(matches!(measured, Ok(None)), "{measured:?}");
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

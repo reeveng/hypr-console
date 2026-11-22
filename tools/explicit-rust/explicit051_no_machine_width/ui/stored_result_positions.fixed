@@ -1,0 +1,48 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_number_conversion.rs
+
+extern crate console_core_number_conversion;
+
+use std::cell::Cell;
+use std::convert::Infallible;
+
+#[allow(explicit051_no_machine_width)]
+type Position = usize;
+#[allow(explicit051_no_machine_width)]
+type Offset = isize;
+
+#[allow(non_upper_case_globals)]
+const native_position: Position = 7;
+
+struct Stamp<'a>(&'a Cell<u8>);
+
+impl Drop for Stamp<'_> {
+    fn drop(&mut self) { self.0.set(self.0.get() * 10 + 2); }
+}
+
+fn last(stamp: &Stamp<'_>) -> Result<Position, Infallible> {
+    stamp.0.set(stamp.0.get() * 10 + 1);
+    Ok(2)
+}
+
+fn prefix<'a>(data: &'a [u8], trace: &Cell<u8>) -> &'a [u8] {
+    let Ok(end) = ::console_core_number_conversion::fixed_index(match last(&Stamp(trace)) { ::core::result::Result::Ok(end) => end });
+    trace.set(trace.get() * 10 + 3);
+    &data[..match ::console_core_number_conversion::index(end) { ::core::result::Result::Ok(native_position_) => native_position_ }]
+}
+
+fn base() -> Result<Offset, Infallible> { Ok(-2) }
+
+fn previous_offset(distance: Offset) -> Offset {
+    let Ok(offset) = ::console_core_number_conversion::fixed_offset(match base() { ::core::result::Result::Ok(offset) => offset });
+    (match ::console_core_number_conversion::wrapped_offset(offset) { ::core::result::Result::Ok(native_position_) => native_position_ }).wrapping_sub(distance)
+}
+
+fn main() {
+    let trace = Cell::new(0);
+    assert_eq!(prefix(&[5, 6, 7], &trace), &[5, 6]);
+    assert_eq!(trace.get(), 123);
+    assert_eq!(previous_offset(3), -5);
+    assert_eq!(native_position, 7);
+}

@@ -1,0 +1,87 @@
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/array_field_read.rs:9:5
+   |
+LL |     glyphs[*at].rect[3] - glyphs[*at].rect[1]
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+note: the lint level is defined here
+  --> $DIR/array_field_read.rs:4:9
+   |
+LL | #![warn(explicit014_no_index_slice)]
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: access the array with an irrefutable pattern
+   |
+LL -     glyphs[*at].rect[3] - glyphs[*at].rect[1]
+LL +     (match glyphs[*at].rect { [_, _, _, _explicit_element, ..] => _explicit_element }) - glyphs[*at].rect[1]
+   |
+
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/array_field_read.rs:9:5
+   |
+LL |     glyphs[*at].rect[3] - glyphs[*at].rect[1]
+   |     ^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/array_field_read.rs:9:27
+   |
+LL |     glyphs[*at].rect[3] - glyphs[*at].rect[1]
+   |                           ^^^^^^^^^^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     glyphs[*at].rect[3] - glyphs[*at].rect[1]
+LL +     glyphs[*at].rect[3] - (match glyphs[*at].rect { [_, _explicit_element, ..] => _explicit_element })
+   |
+
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/array_field_read.rs:9:27
+   |
+LL |     glyphs[*at].rect[3] - glyphs[*at].rect[1]
+   |                           ^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/array_field_read.rs:13:5
+   |
+LL |     blocks[at].1[1].max(7)
+   |     ^^^^^^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     blocks[at].1[1].max(7)
+LL +     (match blocks[at].1 { [_, _explicit_element, ..] => _explicit_element }).max(7)
+   |
+
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/array_field_read.rs:13:5
+   |
+LL |     blocks[at].1[1].max(7)
+   |     ^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/array_field_read.rs:25:5
+   |
+LL |     blocks[at].1[1].address()
+   |     ^^^^^^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     blocks[at].1[1].address()
+LL +     (*match &blocks[at].1 { [_, element, ..] => element }).address()
+   |
+
+warning: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/array_field_read.rs:25:5
+   |
+LL |     blocks[at].1[1].address()
+   |     ^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+warning: 8 warnings emitted
+

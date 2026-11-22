@@ -19,111 +19,138 @@ use console_input_gamepad::finding;
 struct Unread(std::io::Error);
 
 impl std::fmt::Display for Unread {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(to, "its axes would not be read: {}", self.0)
-    }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(to, "its axes would not be read: {}", self.0)
+  }
 }
 
 impl std::error::Error for Unread {}
 
 fn sorted(mut every: Vec<u16>) -> Result<Vec<u16>, Never> {
-    every.sort_unstable();
+  every.sort_unstable();
 
-    Ok(every)
+  Ok(every)
 }
 
 fn describe(device: &Device) -> Result<Descriptor, Unread> {
-    let id = device.id;
-    let axes = device.absolute().map_err(Unread)?;
-    let mut absolute: Vec<Axis> = axes
-        .into_iter()
-        .map(|(AbsoluteAxisCode(code), information)| Axis {
-            code,
-            flat: information.flat,
-            fuzz: information.fuzz,
-            maximum: information.maximum,
-            minimum: information.minimum,
-            resolution: information.resolution,
-        })
-        .collect();
-    absolute.sort_unstable_by_key(|axis| axis.code);
-
-    let Ok(force_feedback) = sorted(device.force_feedback.iter().map(|effect| effect.0).collect());
-    let Ok(key) = sorted(device.keys.iter().map(|key| key.0).collect());
-    let Ok(miscellaneous) = sorted(device.miscellaneous.iter().map(|miscellaneous| miscellaneous.0).collect());
-    let Ok(relative) = sorted(device.relative_axes.iter().map(|axis| axis.0).collect());
-    let Ok(properties) = sorted(device.properties.iter().map(|property| property.0).collect());
-
-    Ok(Descriptor {
-        bustype: id.bus.0,
-        capabilities: Capabilities { absolute, force_feedback, key, miscellaneous, relative },
-        name: {
-            let Ok(name) = finding::device_name(device);
-
-            name
-        },
-        phys: {
-            let Ok(phys) = finding::physical_path(device);
-
-            phys
-        },
-        product: id.product,
-        properties,
-        uniq: String::new(),
-        vendor: id.vendor,
-        version: id.version,
+  let id = device.id;
+  let axes = device.absolute().map_err(Unread)?;
+  let mut absolute: Vec<Axis> = axes
+    .into_iter()
+    .map(|(AbsoluteAxisCode(code), information)| Axis {
+      code,
+      flat: information.flat,
+      fuzz: information.fuzz,
+      maximum: information.maximum,
+      minimum: information.minimum,
+      resolution: information.resolution,
     })
+    .collect();
+  absolute.sort_unstable_by_key(|axis| axis.code);
+
+  let Ok(force_feedback) = sorted(
+    device
+      .force_feedback
+      .iter()
+      .map(|effect| effect.0)
+      .collect(),
+  );
+  let Ok(key) = sorted(device.keys.iter().map(|key| key.0).collect());
+  let Ok(miscellaneous) = sorted(
+    device
+      .miscellaneous
+      .iter()
+      .map(|miscellaneous| miscellaneous.0)
+      .collect(),
+  );
+  let Ok(relative) = sorted(device.relative_axes.iter().map(|axis| axis.0).collect());
+  let Ok(properties) = sorted(
+    device
+      .properties
+      .iter()
+      .map(|property| property.0)
+      .collect(),
+  );
+
+  Ok(Descriptor {
+    bustype: id.bus.0,
+    capabilities: Capabilities {
+      absolute,
+      force_feedback,
+      key,
+      miscellaneous,
+      relative,
+    },
+    name: {
+      let Ok(name) = finding::device_name(device);
+
+      name
+    },
+    phys: {
+      let Ok(phys) = finding::physical_path(device);
+
+      phys
+    },
+    product: id.product,
+    properties,
+    uniq: String::new(),
+    vendor: id.vendor,
+    version: id.version,
+  })
 }
 
 fn main() -> ExitCode {
-    let mut found: BTreeMap<u32, Descriptor> = BTreeMap::new();
+  let mut found: BTreeMap<u32, Descriptor> = BTreeMap::new();
 
-    let Ok(every) = Device::every();
+  let Ok(every) = Device::every();
 
-    for device in every {
-        let Ok(name) = finding::device_name(&device);
+  for device in every {
+    let Ok(name) = finding::device_name(&device);
 
-        let at = match (0_u32..).zip(ROLES.iter()).find(|(_, (wanted, _))| *wanted == name) {
-            Some((at, _)) => at,
-            None => continue,
-        };
+    let at = match (0_u32..)
+      .zip(ROLES.iter())
+      .find(|(_, (wanted, _))| *wanted == name)
+    {
+      Some((at, _)) => at,
+      None => continue,
+    };
 
-        match found.contains_key(&at) {
-            true => continue,
-            false => {},
-        }
-
-        let said = match describe(&device) {
-            Ok(said) => said,
-            Err(why) => {
-                eprintln!("{name} would not be read: {why}");
-                return ExitCode::from(1);
-            },
-        };
-
-        let _ = found.insert(at, said);
+    match ::core::primitive::bool::then_some(found.contains_key(&at), ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
     }
 
-    let missing: Vec<&str> = (0_u32..)
-        .zip(ROLES.iter())
-        .filter(|(at, _)| !found.contains_key(at))
-        .map(|(_, (name, _))| *name)
-        .collect();
+    let said = match describe(&device) {
+      Ok(said) => said,
+      Err(why) => {
+        eprintln!("{name} would not be read: {why}");
+        return ExitCode::from(1);
+      }
+    };
 
-    match missing.is_empty() {
-        true => {},
-        false => eprintln!("not present: {}", missing.join(", ")),
+    let _ = found.insert(at, said);
+  }
+
+  let missing: Vec<&str> = (0_u32..)
+    .zip(ROLES.iter())
+    .filter(|(at, _)| !found.contains_key(at))
+    .map(|(_, (name, _))| *name)
+    .collect();
+
+  match ::core::primitive::bool::then_some(missing.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => eprintln!("not present: {}", missing.join(", ")),
+  }
+
+  let written: Vec<Descriptor> = found.into_values().collect();
+
+  match serde_json::to_string_pretty(&written) {
+    Ok(said) => println!("{said}"),
+    Err(fault) => {
+      eprintln!("the capture would not write: {fault}");
+      return ExitCode::from(1);
     }
+  }
 
-    let written: Vec<Descriptor> = found.into_values().collect();
-
-    match serde_json::to_string_pretty(&written) {
-        Ok(said) => println!("{said}"),
-        Err(fault) => {
-            eprintln!("the capture would not write: {fault}");
-            return ExitCode::from(1);
-        }
-    }
-
-    ExitCode::from(u8::from(!missing.is_empty()))
+  ExitCode::from(u8::from(!missing.is_empty()))
 }

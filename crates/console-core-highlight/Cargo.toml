@@ -1,0 +1,18 @@
+[package]
+name = "console-core-highlight"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_core_highlight"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-geometry.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+
+[lints]
+workspace = true

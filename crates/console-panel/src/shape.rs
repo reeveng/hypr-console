@@ -19,7 +19,6 @@
 //! two places is a number that goes out of step. They all work it out against
 //! what the compositor grants them, and they all get it from here.
 
-
 use console_core_never::Never;
 use console_core_number_conversion::whole_i32;
 
@@ -29,38 +28,38 @@ pub struct Share(pub i32);
 pub const PART: Share = Share(93);
 
 pub fn part_of(room: i32) -> Result<i32, Never> {
-    share(room, PART)
+  share(room, PART)
 }
 
 pub const TALL: Share = Share(80);
 
 pub fn tall_part_of(screen: i32) -> Result<i32, Never> {
-    share(screen, TALL)
+  share(screen, TALL)
 }
 
 fn share(room: i32, of: Share) -> Result<i32, Never> {
-    whole_i32(f64::from(room) * f64::from(of.0) / 100.0)
+  whole_i32(f64::from(room) * f64::from(of.0) / 100.0)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn the_same_share_of_either_way_up() {
-        assert_eq!(part_of(1024), Ok(952));
-        assert_eq!(part_of(640), Ok(595));
-    }
+  #[test]
+  fn the_same_share_of_either_way_up() {
+    assert_eq!(part_of(1024), Ok(952));
+    assert_eq!(part_of(640), Ok(595));
+  }
 
-    #[test]
-    fn no_room_is_no_panel_rather_than_a_negative_one() {
-        assert_eq!(part_of(0), Ok(0));
-        assert_eq!(tall_part_of(0), Ok(0));
-    }
+  #[test]
+  fn no_room_is_no_panel_rather_than_a_negative_one() {
+    assert_eq!(part_of(0), Ok(0));
+    assert_eq!(tall_part_of(0), Ok(0));
+  }
 
-    #[test]
-    fn the_same_height_whatever_is_being_shown() {
-        assert_eq!(tall_part_of(640), Ok(512));
-        assert_eq!(tall_part_of(1024), Ok(819));
-    }
+  #[test]
+  fn the_same_height_whatever_is_being_shown() {
+    assert_eq!(tall_part_of(640), Ok(512));
+    assert_eq!(tall_part_of(1024), Ok(819));
+  }
 }

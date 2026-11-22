@@ -5,6 +5,13 @@ fn thrown_away() {
     let _ = held;
 }
 
+fn ignored_place() {
+    let result: Result<u8, std::convert::Infallible>;
+
+    //~v WARN EXPLICIT060_NO_REASONLESS_DISCARD
+    let _ = result;
+}
+
 #[allow(dead_code)]
 fn kept_quiet() {
     let held = Ok::<u8, u8>(1);
@@ -22,6 +29,7 @@ fn met() -> u8 {
 
 fn main() {
     thrown_away();
+    ignored_place();
 
     let _ = met();
 }

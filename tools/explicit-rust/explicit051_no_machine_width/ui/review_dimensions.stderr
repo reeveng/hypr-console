@@ -1,0 +1,103 @@
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_dimensions.rs:9:5
+   |
+LL |     usize::wrapping_mul(512, 128)
+   |     ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_dimensions.rs:12:20
+   |
+LL |     let _unknown = usize::wrapping_mul(64, 64);
+   |                    ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_dimensions.rs:13:41
+   |
+LL |     let _generic = std::hint::black_box(usize::wrapping_mul(64, 64));
+   |                                         ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_dimensions.rs:14:21
+   |
+LL |     let _receiver = usize::wrapping_mul(16, 16).rotate_left(5);
+   |                     ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_dimensions.rs:20:22
+   |
+LL |         let _pair = (usize::wrapping_mul(row, 8), Position::wrapping_mul(row, 8));
+   |                      ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_dimensions.rs:26:57
+   |
+LL |         let _pair = (|| Position::wrapping_mul(row, 8), usize::wrapping_mul(row, 8));
+   |                                                         ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_dimensions.rs:35:13
+   |
+LL |             usize::wrapping_mul(row, 8),
+   |             ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_dimensions.rs:42:18
+   |
+LL |     with_source!(usize::wrapping_mul(64, 64))
+   |                  ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_dimensions.rs:46:5
+   |
+LL |     usize::wrapping_mul(64, 64).wrapping_add(value)
+   |     ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_dimensions.rs:50:5
+   |
+LL |     usize::wrapping_sub(usize::wrapping_add(64, 7), 3)
+   |     ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     usize::wrapping_sub(usize::wrapping_add(64, 7), 3)
+LL +     usize::wrapping_add(64, 7).wrapping_sub(3)
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_dimensions.rs:50:25
+   |
+LL |     usize::wrapping_sub(usize::wrapping_add(64, 7), 3)
+   |                         ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_dimensions.rs:63:26
+   |
+LL |             trace_input!(usize::wrapping_mul(row, 8)),
+   |                          ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: aborting due to 12 previous errors
+

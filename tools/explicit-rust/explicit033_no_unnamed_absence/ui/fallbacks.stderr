@@ -1,0 +1,179 @@
+error: `unwrap_or` answers a `None` without saying what it meant
+  --> $DIR/fallbacks.rs:5:17
+   |
+LL |     let width = input.unwrap_or(alternate);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit033_no_unnamed_absence)]` on by default
+help: write both outcomes with the same fallback value
+   |
+LL ~     let width = match input {
+LL +         ::core::option::Option::Some(present) => present,
+LL +         ::core::option::Option::None => alternate,
+LL ~     };
+   |
+
+error: `unwrap_or_default` answers a `None` without saying what it meant
+  --> $DIR/fallbacks.rs:10:5
+   |
+LL |     input.unwrap_or_default()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~     match input {
+LL +         ::core::option::Option::Some(present) => present,
+LL +         ::core::option::Option::None => "",
+LL +     }
+   |
+
+error: `unwrap_or` answers a `None` without saying what it meant
+  --> $DIR/fallbacks.rs:14:15
+   |
+LL |     stringify(input.unwrap_or(3))
+   |               ^^^^^^^^^^^^^^^^^^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~     stringify(match input {
+LL +         ::core::option::Option::Some(present) => present,
+LL +         ::core::option::Option::None => 3,
+LL ~     })
+   |
+
+error: `unwrap_or` answers a `None` without saying what it meant
+  --> $DIR/fallbacks.rs:22:5
+   |
+LL |     input.unwrap_or((u32::MAX, true)).0
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~     match input {
+LL +         ::core::option::Option::Some(present) => present,
+LL +         ::core::option::Option::None => (u32::MAX, true),
+LL ~     }.0
+   |
+
+error: `unwrap_or_else` answers a `None` without saying what it meant
+  --> $DIR/fallbacks.rs:26:5
+   |
+LL |     input.unwrap_or_else(|| "untitled")
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~     match input {
+LL +         ::core::option::Option::Some(present) => present,
+LL +         ::core::option::Option::None => "untitled",
+LL +     }
+   |
+
+error: `unwrap_or_else` answers a `None` without saying what it meant
+  --> $DIR/fallbacks.rs:30:5
+   |
+LL | /     input.unwrap_or_else(|| {
+LL | |         let mut title = String::from("untitled");
+LL | |         title.push('!');
+LL | |         title
+LL | |     })
+   | |______^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~     match input {
+LL +         ::core::option::Option::Some(present) => present,
+LL +         ::core::option::Option::None => {
+LL +             let mut title = String::from("untitled");
+LL +             title.push('!');
+LL +             title
+LL +         },
+LL +     }
+   |
+
+error: `unwrap_or_default` answers a `None` without saying what it meant
+  --> $DIR/fallbacks.rs:38:5
+   |
+LL |     input.unwrap_or_default()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~     match input {
+LL +         ::core::option::Option::Some(present) => present,
+LL +         ::core::option::Option::None => &[],
+LL +     }
+   |
+
+error: `unwrap_or_default` answers a `None` without saying what it meant
+  --> $DIR/fallbacks.rs:42:5
+   |
+LL |     input.unwrap_or_default()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~     match input {
+LL +         ::core::option::Option::Some(present) => present,
+LL +         ::core::option::Option::None => &mut [],
+LL +     }
+   |
+
+error: `unwrap_or_default` answers a `None` without saying what it meant
+  --> $DIR/fallbacks.rs:46:5
+   |
+LL |     input.unwrap_or_default()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~     match input {
+LL +         ::core::option::Option::Some(present) => present,
+LL +         ::core::option::Option::None => (::std::vec::Vec::new(), ::std::string::String::new(), [0; 3]),
+LL +     }
+   |
+
+error: `unwrap_or` answers a `None` without saying what it meant
+  --> $DIR/fallbacks.rs:56:20
+   |
+LL |     *destination = input.unwrap_or(Mode::Closed);
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~     *destination = match input {
+LL +         ::core::option::Option::Some(present) => present,
+LL +         ::core::option::Option::None => Mode::Closed,
+LL ~     };
+   |
+
+error: `unwrap_or` answers a `None` without saying what it meant
+  --> $DIR/fallbacks.rs:60:5
+   |
+LL |     input.unwrap_or([alternate.0, 20, 30])
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~     match input {
+LL +         ::core::option::Option::Some(present) => present,
+LL +         ::core::option::Option::None => [alternate.0, 20, 30],
+LL +     }
+   |
+
+error: `unwrap_or` answers a `None` without saying what it meant
+  --> $DIR/fallbacks.rs:64:5
+   |
+LL |     has_value(counter).unwrap_or(compute_fallback(counter))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: write both outcomes with the same fallback value
+   |
+LL ~     match (has_value(counter), compute_fallback(counter)) {
+LL +         (::core::option::Option::Some(present), _) => present,
+LL +         (::core::option::Option::None, fallback_value) => fallback_value,
+LL +     }
+   |
+
+error: aborting due to 12 previous errors
+

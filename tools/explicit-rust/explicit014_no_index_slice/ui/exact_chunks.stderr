@@ -1,0 +1,182 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:9:22
+   |
+LL |         output.push([px[0], px[1], px[2], 255]);
+   |                      ^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: iterate over the elements selected by this loop
+   |
+LL ~     for [px_0, px_1, px_2] in <[_]>::as_chunks::<3>(input).0 {
+LL ~         output.push([*px_0, *px_1, *px_2, 255]);
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:9:29
+   |
+LL |         output.push([px[0], px[1], px[2], 255]);
+   |                             ^^^^^
+   |
+   = help: destructure this fixed-width iterator together with the other elements used by the loop
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:9:36
+   |
+LL |         output.push([px[0], px[1], px[2], 255]);
+   |                                    ^^^^^
+   |
+   = help: destructure this fixed-width iterator together with the other elements used by the loop
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:16:19
+   |
+LL |         data[0] = data[0].wrapping_add(1);
+   |                   ^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for [data_0, data_1, data_2] in <[_]>::as_chunks_mut::<3>(data).0 {
+LL ~         *data_0 = (*data_0).wrapping_add(1);
+LL ~         *data_1 = (*data_1).wrapping_add(2);
+LL ~         *data_2 = (*data_2).wrapping_add(3);
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:16:9
+   |
+LL |         data[0] = data[0].wrapping_add(1);
+   |         ^^^^^^^
+   |
+   = help: destructure this fixed-width iterator together with the other elements used by the loop
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:17:19
+   |
+LL |         data[1] = data[1].wrapping_add(2);
+   |                   ^^^^^^^
+   |
+   = help: destructure this fixed-width iterator together with the other elements used by the loop
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:17:9
+   |
+LL |         data[1] = data[1].wrapping_add(2);
+   |         ^^^^^^^
+   |
+   = help: destructure this fixed-width iterator together with the other elements used by the loop
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:18:19
+   |
+LL |         data[2] = data[2].wrapping_add(3);
+   |                   ^^^^^^^
+   |
+   = help: destructure this fixed-width iterator together with the other elements used by the loop
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:18:9
+   |
+LL |         data[2] = data[2].wrapping_add(3);
+   |         ^^^^^^^
+   |
+   = help: destructure this fixed-width iterator together with the other elements used by the loop
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:24:25
+   |
+LL |         if *component > min_max[1] || *component < min_max[0] {
+   |                         ^^^^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for (component, [min_max_0, min_max_1]) in ::core::iter::Iterator::zip(pixel.iter(), <[_]>::as_chunks::<2>(bounds).0) {
+LL ~         if *component > *min_max_1 || *component < *min_max_0 {
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:24:52
+   |
+LL |         if *component > min_max[1] || *component < min_max[0] {
+   |                                                    ^^^^^^^^^^
+   |
+   = help: destructure this fixed-width iterator together with the other elements used by the loop
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:33:18
+   |
+LL |         dst[0] = src[1];
+   |                  ^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for ([src_0, src_1], [dst_0, dst_1]) in ::core::iter::Iterator::zip(<[_]>::as_chunks::<2>(input).0.iter(), <[_]>::as_chunks_mut::<2>(output).0) {
+LL ~         *dst_0 = *src_1;
+LL ~         *dst_1 = *src_0;
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:33:9
+   |
+LL |         dst[0] = src[1];
+   |         ^^^^^^
+   |
+   = help: destructure this fixed-width iterator together with the other elements used by the loop
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:34:18
+   |
+LL |         dst[1] = src[0];
+   |                  ^^^^^^
+   |
+   = help: destructure this fixed-width iterator together with the other elements used by the loop
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:34:9
+   |
+LL |         dst[1] = src[0];
+   |         ^^^^^^
+   |
+   = help: destructure this fixed-width iterator together with the other elements used by the loop
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:41:21
+   |
+LL |         output.push(pair[1] - pair[0]);
+   |                     ^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for [pair_0, pair_1] in <[_]>::array_windows::<2>(input) {
+LL ~         output.push(*pair_1 - *pair_0);
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:41:31
+   |
+LL |         output.push(pair[1] - pair[0]);
+   |                               ^^^^^^^
+   |
+   = help: destructure this fixed-width iterator together with the other elements used by the loop
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:49:47
+   |
+LL |         output.push((cid, u16::from_be_bytes([gid[0], gid[1]])));
+   |                                               ^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for (cid, [gid_0, gid_1]) in ::core::iter::Iterator::enumerate(<[_]>::as_chunks::<2>(bytes).0.iter()) {
+LL ~         output.push((cid, u16::from_be_bytes([*gid_0, *gid_1])));
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/exact_chunks.rs:49:55
+   |
+LL |         output.push((cid, u16::from_be_bytes([gid[0], gid[1]])));
+   |                                                       ^^^^^^
+   |
+   = help: destructure this fixed-width iterator together with the other elements used by the loop
+
+error: aborting due to 19 previous errors
+

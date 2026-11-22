@@ -1,0 +1,43 @@
+error: `setuid` here, and the group and the groups are still root's: nothing before it puts them down, and after it nothing may
+  --> $DIR/main.rs:15:5
+   |
+LL |     setuid(user)?;
+   |     ^^^^^^^^^^^^
+   |
+   = help: give root up in the one order the kernel allows, in one function: the groups, the group, then the user, each answer met. Where a step really was taken somewhere else first, allow this rule here and let the reason say where
+   = note: `#[deny(explicit092_privilege_dropped_in_order)]` on by default
+
+error: `setgid` here, and the supplementary groups are still root's: nothing before it calls `setgroups` or `initgroups`
+  --> $DIR/main.rs:17:5
+   |
+LL |     setgid(group)?;
+   |     ^^^^^^^^^^^^^
+   |
+   = help: give root up in the one order the kernel allows, in one function: the groups, the group, then the user, each answer met. Where a step really was taken somewhere else first, allow this rule here and let the reason say where
+
+error: `setgid` here, and the supplementary groups are still root's: nothing before it calls `setgroups` or `initgroups`
+  --> $DIR/main.rs:24:5
+   |
+LL |     setgid(group)?;
+   |     ^^^^^^^^^^^^^
+   |
+   = help: give root up in the one order the kernel allows, in one function: the groups, the group, then the user, each answer met. Where a step really was taken somewhere else first, allow this rule here and let the reason say where
+
+error: `setuid` here, and the group and the groups are still root's: nothing before it puts them down, and after it nothing may
+  --> $DIR/main.rs:26:5
+   |
+LL |     setuid(user)?;
+   |     ^^^^^^^^^^^^
+   |
+   = help: give root up in the one order the kernel allows, in one function: the groups, the group, then the user, each answer met. Where a step really was taken somewhere else first, allow this rule here and let the reason say where
+
+error: `setuid` here, and the group is still root's: nothing before it calls `setgid`, and after it nothing may
+  --> $DIR/main.rs:34:5
+   |
+LL |     setuid(user)?;
+   |     ^^^^^^^^^^^^
+   |
+   = help: give root up in the one order the kernel allows, in one function: the groups, the group, then the user, each answer met. Where a step really was taken somewhere else first, allow this rule here and let the reason say where
+
+error: aborting due to 5 previous errors
+

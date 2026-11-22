@@ -1,0 +1,27 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/returned_branch.rs:7:21
+   |
+LL |         false => Ok(read?),
+   |                     ^^^^^
+   |
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+help: return the value directly with the same success and failure types
+   |
+LL -         false => Ok(read?),
+LL +         false => read,
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/returned_branch.rs:12:20
+   |
+LL |     if keep { Some(value?) } else { Some(4) }
+   |                    ^^^^^^
+   |
+help: return the value directly with the same success and failure types
+   |
+LL -     if keep { Some(value?) } else { Some(4) }
+LL +     if keep { value } else { Some(4) }
+   |
+
+error: aborting due to 2 previous errors
+

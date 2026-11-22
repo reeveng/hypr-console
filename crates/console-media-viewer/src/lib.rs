@@ -74,9 +74,11 @@ pub mod film;
 pub mod fitting;
 pub mod index;
 pub mod kinds;
+mod paths;
 pub mod playing;
 pub mod reel;
 pub mod saying;
+pub mod units;
 pub mod waking;
 pub mod watching;
 

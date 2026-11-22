@@ -18,6 +18,16 @@ fn title(of: Option<&str>) -> String {
     of.unwrap_or_else(|| "untitled").to_string()
 }
 
+fn captures(of: Option<String>, other: String) -> String {
+    //~v EXPLICIT033_NO_UNNAMED_ABSENCE
+    of.unwrap_or_else(move || other)
+}
+
+fn early(of: Option<String>) -> String {
+    //~v EXPLICIT033_NO_UNNAMED_ABSENCE
+    of.unwrap_or_else(|| return String::new())
+}
+
 // GOOD — both ways, and the chosen answer written where it is chosen.
 fn chosen(said: Option<u32>) -> u32 {
     match said {

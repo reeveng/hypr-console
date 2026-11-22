@@ -91,109 +91,177 @@ use console_core_never::Never;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Language {
-    English,
+  English,
 }
 
 pub trait Localized {
-    fn english(&self) -> String;
+  fn english(&self) -> String;
 }
 
 pub fn text(what: &impl Localized) -> Result<String, Never> {
-    let Ok(language) = language();
+  let Ok(language) = language();
 
-    Ok(match language {
-        Language::English => what.english(),
-    })
+  Ok(match language {
+    Language::English => what.english(),
+  })
 }
 
 pub fn language() -> Result<Language, Never> {
-    let Ok(asked) = locale_from_environment();
+  let Ok(asked) = locale_from_environment();
 
-    read(&asked)
+  read(&asked)
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit026_env_read_once",
-    allow(
-        explicit026_env_read_once,
-        reason = "the three names the standard gives for what language someone reads, in the crate that is what reading them means"
-    )
+  dylint_lib = "explicit026_env_read_once",
+  allow(
+    explicit026_env_read_once,
+    reason = "the three names the standard gives for what language someone reads, in the crate that is what reading them means"
+  )
 )]
 fn locale_from_environment() -> Result<String, Never> {
-    for name in ["LC_ALL", "LC_MESSAGES", "LANG"] {
-        let said = match std::env::var(name) {
-            Ok(said) => said,
-            Err(std::env::VarError::NotPresent | std::env::VarError::NotUnicode(_)) => continue,
-        };
+  for name in ["LC_ALL", "LC_MESSAGES", "LANG"] {
+    let said = match std::env::var(name) {
+      Ok(said) => said,
+      Err(std::env::VarError::NotPresent | std::env::VarError::NotUnicode(_)) => continue,
+    };
 
-        match said.trim().is_empty() {
-            true => continue,
-            false => return Ok(said),
-        }
+    match said.trim() {
+      "" => continue,
+      _nonempty => return Ok(said),
     }
+  }
 
-    Ok(String::new())
+  Ok(String::new())
+}
+
+#[cfg_attr(
+  dylint_lib = "explicit026_env_read_once",
+  allow(
+    explicit026_env_read_once,
+    reason = "locale environment variables are read by their owning core crate"
+  )
+)]
+pub fn locale() -> Result<String, Never> {
+  let candidates =
+    ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"].map(|name| match std::env::var(name) {
+      Ok(value) => value,
+      Err(std::env::VarError::NotPresent | std::env::VarError::NotUnicode(_)) => String::new(),
+    });
+
+  locale_from_candidates(candidates.iter().map(String::as_str))
+}
+
+fn locale_from_candidates<'a>(
+  candidates: impl IntoIterator<Item = &'a str>,
+) -> Result<String, Never> {
+  for candidate in candidates {
+    'preferred_locales: for preferred in candidate.split(':').filter(|part| !part.is_empty()) {
+      let locale = preferred
+        .chars()
+        .take_while(|character| !matches!(character, '.' | '@'))
+        .map(|character| match character {
+          '_' => '-',
+          other => other,
+        })
+        .collect::<String>();
+
+      match locale.as_str() {
+        "" => continue 'preferred_locales,
+        _nonempty => return Ok(locale),
+      }
+    }
+  }
+
+  Ok(String::from("en-US"))
 }
 
 pub fn read(_locale: &str) -> Result<Language, Never> {
-    Ok(Language::English)
+  Ok(Language::English)
 }
 
 pub fn positional(elapsed: Duration) -> Result<String, Never> {
-    let whole = elapsed.as_secs();
-    let (hours, minutes, seconds) = (
-        whole.saturating_div(3600),
-        whole.saturating_div(60).wrapping_rem(60),
-        whole.wrapping_rem(60),
-    );
+  let whole = elapsed.as_secs();
+  let (hours, minutes, seconds) = (
+    whole.saturating_div(3600),
+    whole.saturating_div(60).wrapping_rem(60),
+    whole.wrapping_rem(60),
+  );
 
-    Ok(match hours {
-        0 => format!("{minutes}:{seconds:02}"),
-        _ => format!("{hours}:{minutes:02}:{seconds:02}"),
-    })
+  Ok(match hours {
+    0 => format!("{minutes}:{seconds:02}"),
+    _ => format!("{hours}:{minutes:02}:{seconds:02}"),
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    enum Word {
-        Hello,
-    }
+  enum Word {
+    Hello,
+  }
 
-    impl Localized for Word {
-        fn english(&self) -> String {
-            "Hello".to_string()
-        }
+  impl Localized for Word {
+    fn english(&self) -> String {
+      "Hello".to_string()
     }
+  }
 
-    #[test]
-    fn words_come_out_in_the_language_of_the_machine() {
-        assert_eq!(text(&Word::Hello), Ok("Hello".to_string()));
-    }
+  #[test]
+  fn words_come_out_in_the_language_of_the_machine() {
+    assert_eq!(text(&Word::Hello), Ok("Hello".to_string()));
+  }
 
-    #[test]
-    fn a_language_no_one_has_written_reads_as_english() {
-        for locale in ["", "C", "C.UTF-8", "nl_BE.UTF-8", "ja_JP", "rubbish"] {
-            assert_eq!(read(locale), Ok(Language::English), "{locale}");
-        }
+  #[test]
+  fn a_language_no_one_has_written_reads_as_english() {
+    for locale in ["", "C", "C.UTF-8", "nl_BE.UTF-8", "ja_JP", "rubbish"] {
+      assert_eq!(read(locale), Ok(Language::English), "{locale}");
     }
+  }
 
-    #[test]
-    fn a_length_is_said_with_hours_only_where_there_are_hours() {
-        for (seconds, said) in [(0, "0:00"), (9, "0:09"), (249, "4:09"), (3600, "1:00:00"), (3849, "1:04:09")] {
-            assert_eq!(positional(Duration::from_secs(seconds)), Ok(said.to_string()), "{seconds}");
-        }
+  #[test]
+  fn a_length_is_said_with_hours_only_where_there_are_hours() {
+    for (seconds, said) in [
+      (0, "0:00"),
+      (9, "0:09"),
+      (249, "4:09"),
+      (3600, "1:00:00"),
+      (3849, "1:04:09"),
+    ] {
+      assert_eq!(
+        positional(Duration::from_secs(seconds)),
+        Ok(said.to_string()),
+        "{seconds}"
+      );
     }
+  }
 
-    #[test]
-    fn a_part_of_a_second_is_not_a_second() {
-        assert_eq!(positional(Duration::from_millis(59_999)), Ok("0:59".to_string()));
-    }
+  #[test]
+  fn a_part_of_a_second_is_not_a_second() {
+    assert_eq!(
+      positional(Duration::from_millis(59_999)),
+      Ok("0:59".to_string())
+    );
+  }
 
-    #[test]
-    fn the_country_and_the_encoding_are_not_part_of_the_answer() {
-        assert_eq!(read("en_GB.UTF-8"), read("en_US"));
-        assert_eq!(read("en"), read("en_IE.UTF-8@euro"));
+  #[test]
+  fn the_country_and_the_encoding_are_not_part_of_the_answer() {
+    assert_eq!(read("en_GB.UTF-8"), read("en_US"));
+    assert_eq!(read("en"), read("en_IE.UTF-8@euro"));
+  }
+
+  #[test]
+  fn font_locale_preserves_preference_order_and_normalizes_posix_names() {
+    for (candidates, expected) in [
+      (["ja_JP:zh_CN", "fr_FR", "de_DE", "en_US"], "ja-JP"),
+      (["", "zh_TW.UTF-8@variant", "ja_JP", "en_US"], "zh-TW"),
+      (["", "", "nl_BE.UTF-8", "en_US"], "nl-BE"),
+      (["", "", "", "en-US"], "en-US"),
+      (["", "", "", ""], "en-US"),
+      (["C.UTF-8", "", "", ""], "C"),
+    ] {
+      assert_eq!(locale_from_candidates(candidates), Ok(expected.to_string()));
     }
+  }
 }

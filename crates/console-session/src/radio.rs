@@ -20,181 +20,292 @@
 //! next boot, so a machine shut down from Game Mode comes up with the radio
 //! off, the way a machine no one has asked yet is supposed to.
 //!
-//! The word `Powered` is bluez's and is spelled in two other crates -- the
-//! settings tab, which offers the row that turns it on, and the bar, which
-//! draws whether anything is connected. Each reads it for its own question and
-//! this one is the third; the fourth is when it moves rather than when it is
-//! copied again.
+//! The word `Powered` was bluez's and was spelled in three crates -- the
+//! settings tab, the bar and this one, each reading `bluetoothctl` or `busctl`
+//! for it a way of its own -- and this file said the fourth would be when it
+//! moved. It moved: whether the radio is on is `console_bluetooth::objects`,
+//! the one reading of what bluez knows, asked over the system bus, and
+//! putting it back is bluez's own property set on each radio rather than
+//! `bluetoothctl power on` run as a step. A program in the middle of a
+//! property was a fault that came back as a line of text; what comes back now
+//! is the bus that would not be reached or bluez's error by name.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use console_core_external_programs::Program;
+use console_bluetooth::adapter::{self, Power};
+use console_bluetooth::errors::Error as Refusal;
+use console_bluetooth::objects::{self, Objects};
+use console_bus::connection::{Bus, ConnectionError};
+use console_bus::properties::ObjectPath;
 use console_core_never::Never;
 use console_core_words::Words;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Radio {
-    #[words(word = "on")]
-    On,
-    #[words(word = "off")]
-    Off,
+  #[words(word = "on")]
+  On,
+  #[words(word = "off")]
+  Off,
 }
 
 pub const EVERY: [Radio; 2] = [Radio::On, Radio::Off];
 
 pub const NAMED: &str = "radio";
 
-const POWERED: &str = "Powered: yes";
-
 impl Radio {
-    pub fn of_word(word: &str) -> Result<Option<Radio>, Never> {
-        Ok(EVERY.into_iter().find(|radio| {
-            let Ok(said) = radio.word();
+  pub fn of_word(word: &str) -> Result<Option<Radio>, Never> {
+    Ok(EVERY.into_iter().find(|radio| {
+      let Ok(said) = radio.word();
 
-            said == word.trim()
-        }))
-    }
+      said == word.trim()
+    }))
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Unkept {
-    Unasked(String),
-    Read(String),
-    Unwritten(String),
+  Unreached(ConnectionError),
+  Unasked(Refusal),
+  Unpowered { power: Power, why: Refusal },
+  Read(String),
+  Unwritten(String),
 }
 
 impl fmt::Display for Unkept {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Unkept::Unasked(why) => write!(to, "bluez would not say whether the radio is on: {why}"),
-            Unkept::Read(why) => write!(to, "what the radio was doing: {why}"),
-            Unkept::Unwritten(why) => write!(to, "writing down what the radio is doing: {why}"),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Unkept::Unreached(why) => write!(to, "bluez could not be reached on the system bus: {why}"),
+      Unkept::Unasked(why) => write!(to, "bluez would not say whether the radio is on: {why}"),
+      Unkept::Unpowered {
+        power: Power::On,
+        why,
+      } => write!(to, "bluez would not turn the radio back on: {why}"),
+      Unkept::Unpowered {
+        power: Power::Off,
+        why,
+      } => write!(to, "bluez would not turn the radio off: {why}"),
+      Unkept::Read(why) => write!(to, "what the radio was doing: {why}"),
+      Unkept::Unwritten(why) => write!(to, "writing down what the radio is doing: {why}"),
     }
+  }
 }
 
 impl std::error::Error for Unkept {}
 
-pub fn shown(said: &str) -> Result<Radio, Never> {
-    Ok(match said.lines().any(|line| line.trim() == POWERED) {
-        true => Radio::On,
-        false => Radio::Off,
-    })
+pub fn shown(objects: &Objects) -> Result<Radio, Never> {
+  let Ok(power) = objects.power();
+
+  Ok(match power {
+    Power::On => Radio::On,
+    Power::Off => Radio::Off,
+  })
 }
 
-pub fn putting_back(before: Option<Radio>, now: Radio) -> Result<Option<Vec<String>>, Never> {
-    let Ok(bluetoothctl) = Program::Bluetoothctl.name();
-
-    Ok(match (before, now) {
-        (Some(Radio::On), Radio::Off) => {
-            Some(vec![bluetoothctl.to_string(), "power".to_string(), "on".to_string()])
-        }
-        (Some(Radio::On), Radio::On) | (Some(Radio::Off), _) | (None, _) => None,
-    })
+pub fn putting_back(before: Option<Radio>, now: Radio) -> Result<Option<Power>, Never> {
+  Ok(match (before, now) {
+    (Some(Radio::On), Radio::Off) => Some(Power::On),
+    (Some(Radio::On), Radio::On) | (Some(Radio::Off), _) | (None, _) => None,
+  })
 }
 
 pub fn beside(runtime: &Path) -> Result<PathBuf, Never> {
-    Ok(runtime.join(NAMED))
+  Ok(runtime.join(NAMED))
+}
+
+fn reached() -> Result<Bus, Unkept> {
+  match Bus::system() {
+    Ok(bus) => Ok(bus),
+    Err(why) => Err(Unkept::Unreached(why)),
+  }
+}
+
+fn asked(bus: &mut Bus) -> Result<Objects, Unkept> {
+  let Ok(asking) = objects::managed();
+
+  let answer = match bus.call(&asking) {
+    Ok(answer) => answer,
+    Err(why) => return Err(Unkept::Unreached(why)),
+  };
+
+  match &answer.fault {
+    Some(_refused) => {
+      let Ok(refusal) = Refusal::of(&answer);
+
+      Err(Unkept::Unasked(refusal))
+    }
+    None => {
+      let Ok(read) = objects::read(&answer);
+
+      Ok(read)
+    }
+  }
 }
 
 pub fn query_radio() -> Result<Radio, Unkept> {
-    let Ok(mut bluetoothctl) = Program::Bluetoothctl.command();
+  let mut bus = reached()?;
+  let read = asked(&mut bus)?;
+  let Ok(radio) = shown(&read);
 
-    let said = match bluetoothctl.arg("show").output() {
-        Ok(said) => said,
-        Err(fault) => return Err(Unkept::Unasked(fault.to_string())),
+  Ok(radio)
+}
+
+pub fn power_radio(power: Power) -> Result<(), Unkept> {
+  let mut bus = reached()?;
+  let read = asked(&mut bus)?;
+
+  for radio in &read.adapters {
+    let Ok(powering) = adapter::power(ObjectPath(&radio.path), power);
+
+    let answer = match bus.call(&powering) {
+      Ok(answer) => answer,
+      Err(why) => return Err(Unkept::Unreached(why)),
     };
 
-    let Ok(shown) = shown(&String::from_utf8_lossy(&said.stdout));
+    match &answer.fault {
+      Some(_refused) => {
+        let Ok(why) = Refusal::of(&answer);
 
-    Ok(shown)
+        return Err(Unkept::Unpowered { power, why });
+      }
+      None => {}
+    }
+  }
+
+  Ok(())
 }
 
 pub fn remember(runtime: &Path, radio: Radio) -> Result<(), Unkept> {
-    let Ok(at) = beside(runtime);
-    let Ok(word) = radio.word();
+  let Ok(at) = beside(runtime);
+  let Ok(word) = radio.word();
 
-    match std::fs::create_dir_all(runtime) {
-        Ok(()) => {},
-        Err(fault) => return Err(Unkept::Unwritten(fault.to_string())),
-    }
+  match std::fs::create_dir_all(runtime) {
+    Ok(()) => {}
+    Err(fault) => return Err(Unkept::Unwritten(fault.to_string())),
+  }
 
-    match console_core_atomic_writes::whole(&at, word.as_bytes()) {
-        Ok(()) => Ok(()),
-        Err(fault) => Err(Unkept::Unwritten(fault.to_string())),
-    }
+  match console_core_atomic_writes::whole(&at, word.as_bytes()) {
+    Ok(()) => Ok(()),
+    Err(fault) => Err(Unkept::Unwritten(fault.to_string())),
+  }
 }
 
 pub fn load_saved(runtime: &Path) -> Result<Option<Radio>, Unkept> {
-    let Ok(at) = beside(runtime);
-    let Ok(held) = console_core_atomic_writes::read(&at);
+  let Ok(at) = beside(runtime);
+  let Ok(held) = console_core_atomic_writes::read(&at);
 
-    match held {
-        console_core_atomic_writes::Stored::Absent => Ok(None),
-        console_core_atomic_writes::Stored::Failed(why) => Err(Unkept::Read(why)),
-        console_core_atomic_writes::Stored::Text(said) => {
-            let Ok(radio) = Radio::of_word(&said);
+  match held {
+    console_core_atomic_writes::Stored::Absent => Ok(None),
+    console_core_atomic_writes::Stored::Failed(why) => Err(Unkept::Read(why)),
+    console_core_atomic_writes::Stored::Text(said) => {
+      let Ok(radio) = Radio::of_word(&said);
 
-            Ok(radio)
-        }
+      Ok(radio)
     }
+  }
 }
 
 pub fn forget(runtime: &Path) -> Result<(), Unkept> {
-    let Ok(at) = beside(runtime);
+  let Ok(at) = beside(runtime);
 
-    match std::fs::remove_file(&at) {
-        Ok(()) => Ok(()),
-        Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
-            true => Ok(()),
-            false => Err(Unkept::Read(fault.to_string())),
-        },
-    }
+  match std::fs::remove_file(&at) {
+    Ok(()) => Ok(()),
+    Err(fault) => match ::core::primitive::bool::then_some(
+      fault.kind() == std::io::ErrorKind::NotFound,
+      (),
+    ) {
+      ::core::option::Option::Some(()) => Ok(()),
+      ::core::option::Option::None => Err(Unkept::Read(fault.to_string())),
+    },
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const ON: &str = "Controller A8:3B:76:91:B7:E2 (public)\n\tPowered: yes\n\tDiscoverable: no\n";
+  use console_bluetooth::adapter::{Adapter, Discovery};
 
-    const OFF: &str = "Controller A8:3B:76:91:B7:E2 (public)\n\tPowered: no\n";
+  fn radios(powers: &[Power]) -> Result<Objects, Never> {
+    let adapters = (0_u8..)
+      .zip(powers)
+      .map(|(number, power)| Adapter {
+        path: format!("/org/bluez/hci{number}"),
+        power: *power,
+        discovery: Discovery::NotSearching,
+      })
+      .collect();
 
-    #[test]
-    fn what_bluez_says_about_the_radio_is_read_off_its_own_word() {
-        assert_eq!(shown(ON), Ok(Radio::On));
-        assert_eq!(shown(OFF), Ok(Radio::Off));
-        assert_eq!(shown(""), Ok(Radio::Off), "a bluez that said nothing is not a radio that is on");
-    }
+    Ok(Objects {
+      adapters,
+      devices: Vec::new(),
+    })
+  }
 
-    #[test]
-    fn a_radio_steam_turned_off_comes_back_and_one_someone_turned_off_does_not() {
-        let Ok(bluetoothctl) = Program::Bluetoothctl.name();
-        let on = vec![bluetoothctl.to_string(), "power".to_string(), "on".to_string()];
+  #[test]
+  fn the_radio_is_on_when_bluez_says_a_radio_is_powered() {
+    let Ok(on) = radios(&[Power::On]);
+    let Ok(off) = radios(&[Power::Off]);
+    let Ok(either) = radios(&[Power::Off, Power::On]);
+    let Ok(none) = radios(&[]);
 
-        assert_eq!(putting_back(Some(Radio::On), Radio::Off), Ok(Some(on)));
-        assert_eq!(putting_back(Some(Radio::Off), Radio::Off), Ok(None), "they turned it off");
-        assert_eq!(putting_back(Some(Radio::Off), Radio::On), Ok(None), "they turned it on there");
-        assert_eq!(putting_back(Some(Radio::On), Radio::On), Ok(None), "nothing took it");
-        assert_eq!(putting_back(None, Radio::Off), Ok(None), "a login is not a return");
-    }
+    assert_eq!(shown(&on), Ok(Radio::On));
+    assert_eq!(shown(&off), Ok(Radio::Off));
+    assert_eq!(
+      shown(&either),
+      Ok(Radio::On),
+      "a second radio switched on is a radio on"
+    );
+    assert_eq!(
+      shown(&none),
+      Ok(Radio::Off),
+      "a machine with no radio is not a radio that is on"
+    );
+  }
 
-    #[test]
-    fn what_was_written_down_is_what_comes_back() -> Result<(), Box<dyn std::error::Error>> {
-        let held = console_core_temporary_directories::fresh("radio")?;
+  #[test]
+  fn a_radio_steam_turned_off_comes_back_and_one_someone_turned_off_does_not() {
+    assert_eq!(
+      putting_back(Some(Radio::On), Radio::Off),
+      Ok(Some(Power::On))
+    );
+    assert_eq!(
+      putting_back(Some(Radio::Off), Radio::Off),
+      Ok(None),
+      "they turned it off"
+    );
+    assert_eq!(
+      putting_back(Some(Radio::Off), Radio::On),
+      Ok(None),
+      "they turned it on there"
+    );
+    assert_eq!(
+      putting_back(Some(Radio::On), Radio::On),
+      Ok(None),
+      "nothing took it"
+    );
+    assert_eq!(
+      putting_back(None, Radio::Off),
+      Ok(None),
+      "a login is not a return"
+    );
+  }
 
-        assert_eq!(load_saved(&held), Ok(None), "nothing has been left here");
+  #[test]
+  fn what_was_written_down_is_what_comes_back() -> Result<(), Box<dyn std::error::Error>> {
+    let held = console_core_temporary_directories::fresh("radio")?;
 
-        remember(&held, Radio::On)?;
+    assert_eq!(load_saved(&held), Ok(None), "nothing has been left here");
 
-        assert_eq!(load_saved(&held), Ok(Some(Radio::On)));
+    remember(&held, Radio::On)?;
 
-        forget(&held)?;
+    assert_eq!(load_saved(&held), Ok(Some(Radio::On)));
 
-        assert_eq!(load_saved(&held), Ok(None));
+    forget(&held)?;
 
-        let _ = std::fs::remove_dir_all(&held);
-        Ok(())
-    }
+    assert_eq!(load_saved(&held), Ok(None));
+
+    std::fs::remove_dir_all(&held)?;
+    Ok(())
+  }
 }

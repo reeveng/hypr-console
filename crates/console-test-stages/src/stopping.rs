@@ -22,61 +22,23 @@
 //! that goes through the same `until`, and a run that has stopped waiting
 //! cannot see whether what it asked for arrived.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use console_core_never::Never;
 
-#[cfg_attr(
-    dylint_lib = "explicit044_no_ambient_value",
-    allow(
-        explicit044_no_ambient_value,
-        reason = "a signal handler is handed nothing and may allocate nothing, and what it has to say -- someone asked this run to stop -- is read by every wait in the run"
-    )
-)]
-static ASKED: AtomicBool = AtomicBool::new(false);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Stop {
-    Requested,
-    No,
-}
+pub use console_signals::{Stop, stop_state};
 
 pub fn caught() -> Result<(), Never> {
-    // SAFETY: the handler stores one flag, and the second time puts the
-    // default back and sends the signal again, all of it through calls that
-    // allocate nothing.
-    let answering = unsafe { console_signals::install_handler(&console_signals::STOPPING, on_signal) };
-
-    match answering {
-        Ok(()) => {},
-        Err(fault) => eprintln!("console-check: an interrupted run will not hand the device back: {fault}"),
+  match console_signals::catch_stops() {
+    Ok(()) => {}
+    Err(fault) => {
+      console_core_logging::warn!(
+        "console-check: an interrupted run will not hand the device back: {fault}"
+      );
     }
+  }
 
-    Ok(())
-}
-
-extern "C" fn on_signal(number: core::ffi::c_int) {
-    match ASKED.swap(true, Ordering::SeqCst) {
-        true => match rustix::process::Signal::from_named_raw(number) {
-            Some(again) => {
-                let _ = console_signals::restore_default(again);
-                let _ = rustix::process::kill_process(rustix::process::getpid(), again);
-            },
-            None => {},
-        },
-        false => {},
-    }
-}
-
-pub fn stop_state() -> Result<Stop, Never> {
-    Ok(match ASKED.load(Ordering::SeqCst) {
-        true => Stop::Requested,
-        false => Stop::No,
-    })
+  Ok(())
 }
 
 pub fn no_longer() -> Result<(), Never> {
-    ASKED.store(false, Ordering::SeqCst);
-
-    Ok(())
+  console_signals::reset_stop()
 }

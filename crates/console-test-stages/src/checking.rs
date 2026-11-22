@@ -14,371 +14,388 @@ use console_core_never::Never;
 use console_core_words::Words;
 
 use crate::desktop::Desktop;
-use crate::device::{Device, Ready, Outcome};
+use crate::device::{Device, DryRun, Outcome, Ready};
 use crate::here::Here;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Why {
-    Cannot(String),
-    Failed(String),
+  Cannot(String),
+  Failed(String),
 }
 
 impl From<String> for Why {
-    fn from(said: String) -> Self {
-        Why::Failed(said)
-    }
+  fn from(said: String) -> Self {
+    Why::Failed(said)
+  }
 }
 
 impl From<crate::Error> for Why {
-    fn from(fault: crate::Error) -> Self {
-        Why::Failed(fault.to_string())
-    }
+  fn from(fault: crate::Error) -> Self {
+    Why::Failed(fault.to_string())
+  }
 }
 
 pub type CheckResult = Result<(), Why>;
 
 pub fn cannot(why: &str) -> CheckResult {
-    Err(Why::Cannot(why.to_string()))
+  Err(Why::Cannot(why.to_string()))
 }
 
 pub fn failed(why: String) -> CheckResult {
-    Err(Why::Failed(why))
+  Err(Why::Failed(why))
 }
 
 pub fn same<T, U>(got: &T, wanted: &U, why: impl FnOnce() -> String) -> CheckResult
 where
-    T: PartialEq<U> + ?Sized,
-    U: ?Sized,
+  T: PartialEq<U> + ?Sized,
+  U: ?Sized,
 {
-    match got == wanted {
-        true => Ok(()),
-        false => failed(why()),
-    }
+  match ::core::primitive::bool::then_some(got == wanted, ()) {
+    ::core::option::Option::Some(()) => Ok(()),
+    ::core::option::Option::None => failed(why()),
+  }
 }
 
 pub fn not_same<T, U>(got: &T, than: &U, why: impl FnOnce() -> String) -> CheckResult
 where
-    T: PartialEq<U> + ?Sized,
-    U: ?Sized,
+  T: PartialEq<U> + ?Sized,
+  U: ?Sized,
 {
-    match got == than {
-        true => failed(why()),
-        false => Ok(()),
-    }
+  match ::core::primitive::bool::then_some(got == than, ()) {
+    ::core::option::Option::Some(()) => failed(why()),
+    ::core::option::Option::None => Ok(()),
+  }
 }
 
 pub fn more_than<T, U>(got: T, than: U, why: impl FnOnce() -> String) -> CheckResult
 where
-    T: PartialOrd<U>,
+  T: PartialOrd<U>,
 {
-    match got > than {
-        true => Ok(()),
-        false => failed(why()),
-    }
+  match ::core::primitive::bool::then_some(got > than, ()) {
+    ::core::option::Option::Some(()) => Ok(()),
+    ::core::option::Option::None => failed(why()),
+  }
 }
 
 pub fn less_than<T, U>(got: T, than: U, why: impl FnOnce() -> String) -> CheckResult
 where
-    T: PartialOrd<U>,
+  T: PartialOrd<U>,
 {
-    match got < than {
-        true => Ok(()),
-        false => failed(why()),
-    }
+  match ::core::primitive::bool::then_some(got < than, ()) {
+    ::core::option::Option::Some(()) => Ok(()),
+    ::core::option::Option::None => failed(why()),
+  }
 }
 
 pub fn empty<T>(things: &[T], why: impl FnOnce() -> String) -> CheckResult {
-    match things.is_empty() {
-        true => Ok(()),
-        false => failed(why()),
-    }
+  match ::core::primitive::bool::then_some(things.is_empty(), ()) {
+    ::core::option::Option::Some(()) => Ok(()),
+    ::core::option::Option::None => failed(why()),
+  }
 }
 
 pub fn not_empty<T>(things: &[T], why: impl FnOnce() -> String) -> CheckResult {
-    match things.is_empty() {
-        true => failed(why()),
-        false => Ok(()),
-    }
+  match ::core::primitive::bool::then_some(things.is_empty(), ()) {
+    ::core::option::Option::Some(()) => failed(why()),
+    ::core::option::Option::None => Ok(()),
+  }
 }
 
 pub fn every<T, U>(things: &[T], wanted: U, why: impl FnOnce() -> String) -> CheckResult
 where
-    T: PartialEq<U>,
-    U: Copy,
+  T: PartialEq<U>,
+  U: Copy,
 {
-    match !things.is_empty() && things.iter().all(|thing| *thing == wanted) {
-        true => Ok(()),
-        false => failed(why()),
-    }
+  match ::core::primitive::bool::then_some(!things.is_empty() && things.iter().all(|thing| *thing == wanted), ()) {
+    ::core::option::Option::Some(()) => Ok(()),
+    ::core::option::Option::None => failed(why()),
+  }
 }
 
 pub fn expect_ready(seen: Ready, why: impl FnOnce() -> String) -> CheckResult {
-    match seen {
-        Ready::Yes => Ok(()),
-        Ready::NotYet => failed(why()),
-    }
+  match seen {
+    Ready::Yes => Ok(()),
+    Ready::NotYet => failed(why()),
+  }
 }
 
 pub fn happened(waited: Outcome, why: impl FnOnce() -> String) -> CheckResult {
-    happened_handed(waited, &mut (), |_nothing| why())
+  happened_handed(waited, &mut (), |_nothing| why())
 }
 
 pub fn happened_handed<M>(
-    waited: Outcome,
-    handed: &mut M,
-    why: impl FnOnce(&mut M) -> String,
+  waited: Outcome,
+  handed: &mut M,
+  why: impl FnOnce(&mut M) -> String,
 ) -> CheckResult {
-    match waited {
-        Outcome::Happened => Ok(()),
-        Outcome::RanOut => failed(why(handed)),
-    }
+  match waited {
+    Outcome::Happened => Ok(()),
+    Outcome::RanOut => failed(why(handed)),
+  }
 }
 
 pub enum Body {
-    Desktop(fn(&mut Desktop) -> CheckResult),
-    Device(fn(&mut Device) -> CheckResult),
-    Here(fn(&mut Here) -> CheckResult),
+  Desktop(fn(&mut Desktop) -> CheckResult),
+  Device(fn(&mut Device) -> CheckResult),
+  Here(fn(&mut Here) -> CheckResult),
 }
 
 pub struct Check {
-    pub name: &'static str,
-    pub about: &'static str,
-    pub feature: &'static str,
-    pub since: &'static str,
-    pub bodies: &'static [Body],
+  pub name: &'static str,
+  pub about: &'static str,
+  pub feature: &'static str,
+  pub since: &'static str,
+  pub bodies: &'static [Body],
 }
 
 impl Check {
-    pub fn number(&self) -> Result<&str, Never> {
-        Ok(match self.name.split('-').next() {
-            Some(number) => number,
-            None => self.name,
-        })
-    }
+  pub fn number(&self) -> Result<&str, Never> {
+    Ok(match self.name.split('-').next() {
+      Some(number) => number,
+      None => self.name,
+    })
+  }
 
-    pub fn rest(&self) -> Result<&str, Never> {
-        Ok(self.name.split_once('-').map_or("", |(_, rest)| rest))
-    }
+  pub fn rest(&self) -> Result<&str, Never> {
+    Ok(self.name.split_once('-').map_or("", |(_, rest)| rest))
+  }
 
-    pub fn named_by(&self, words: &[String]) -> Result<Named, Never> {
-        let any = words.iter().any(|word| self.name.contains(word.as_str()) || word == self.feature);
+  pub fn named_by(&self, words: &[String]) -> Result<Named, Never> {
+    let any = words
+      .iter()
+      .any(|word| self.name.contains(word.as_str()) || word == self.feature);
 
-        Ok(match any {
-            true => Named::Yes,
-            false => Named::No,
-        })
-    }
+    Ok(match ::core::primitive::bool::then_some(any, ()) {
+      ::core::option::Option::Some(()) => Named::Yes,
+      ::core::option::Option::None => Named::No,
+    })
+  }
 
-    pub fn without_the_device(&self) -> Result<Option<Stage>, Never> {
-        let Ok(here) = self.body(Stage::Here);
-        let Ok(desktop) = self.body(Stage::Desktop);
+  pub fn without_the_device(&self) -> Result<Option<Stage>, Never> {
+    let Ok(here) = self.body(Stage::Here);
+    let Ok(desktop) = self.body(Stage::Desktop);
 
-        Ok(here.map(|_| Stage::Here).or_else(|| desktop.map(|_| Stage::Desktop)))
-    }
+    Ok(
+      here
+        .map(|_| Stage::Here)
+        .or_else(|| desktop.map(|_| Stage::Desktop)),
+    )
+  }
 
-    fn body(&self, stage: Stage) -> Result<Option<&Body>, Never> {
-        Ok(self.bodies.iter().find(|body| {
-            matches!(
-                (body, stage),
-                (Body::Desktop(_), Stage::Desktop)
-                    | (Body::Device(_), Stage::Device)
-                    | (Body::Here(_), Stage::Here)
-            )
-        }))
-    }
+  fn body(&self, stage: Stage) -> Result<Option<&Body>, Never> {
+    Ok(self.bodies.iter().find(|body| {
+      matches!(
+        (body, stage),
+        (Body::Desktop(_), Stage::Desktop)
+          | (Body::Device(_), Stage::Device)
+          | (Body::Here(_), Stage::Here)
+      )
+    }))
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Named {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Stage {
-    #[words(name = "desktop")]
-    Desktop,
-    #[words(name = "device")]
-    Device,
-    #[words(name = "here")]
-    Here,
+  #[words(name = "desktop")]
+  Desktop,
+  #[words(name = "device")]
+  Device,
+  #[words(name = "here")]
+  Here,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum How {
-    Ok,
-    Skipped(String),
-    Failed(String),
-    Would,
+  Ok,
+  Skipped(String),
+  Failed(String),
+  Would,
 }
 
 impl How {
-    pub fn name(&self) -> Result<&'static str, Never> {
-        Ok(match self {
-            How::Ok => "ok",
-            How::Skipped(_) => "skipped",
-            How::Failed(_) => "failed",
-            How::Would => "would",
-        })
-    }
+  pub fn name(&self) -> Result<&'static str, Never> {
+    Ok(match self {
+      How::Ok => "ok",
+      How::Skipped(_) => "skipped",
+      How::Failed(_) => "failed",
+      How::Would => "would",
+    })
+  }
 
-    pub fn why(&self) -> Result<&str, Never> {
-        Ok(match self {
-            How::Failed(why) | How::Skipped(why) => why,
-            How::Ok | How::Would => "",
-        })
-    }
+  pub fn why(&self) -> Result<&str, Never> {
+    Ok(match self {
+      How::Failed(why) | How::Skipped(why) => why,
+      How::Ok | How::Would => "",
+    })
+  }
 }
 
 fn ended(done: CheckResult) -> Result<How, Never> {
-    Ok(match done {
-        Ok(()) => How::Ok,
-        Err(Why::Cannot(why)) => How::Skipped(why),
-        Err(Why::Failed(why)) => How::Failed(why),
-    })
+  Ok(match done {
+    Ok(()) => How::Ok,
+    Err(Why::Cannot(why)) => How::Skipped(why),
+    Err(Why::Failed(why)) => How::Failed(why),
+  })
 }
 
 pub fn here(check: &Check, stage: &mut Here) -> Result<How, Never> {
-    let Ok(found) = check.body(Stage::Here);
+  let Ok(found) = check.body(Stage::Here);
 
-    let body = match found {
-        Some(Body::Here(body)) => body,
-        Some(Body::Device(_)) | Some(Body::Desktop(_)) | None => {
-            return Ok(How::Skipped("nothing written for here".to_string()));
-        }
-    };
+  let body = match found {
+    Some(Body::Here(body)) => body,
+    Some(Body::Device(_)) | Some(Body::Desktop(_)) | None => {
+      return Ok(How::Skipped("nothing written for here".to_string()));
+    }
+  };
 
-    let Ok(()) = stage.fresh();
+  let Ok(()) = stage.fresh();
 
-    ended(body(stage))
+  ended(body(stage))
 }
 
 pub fn device(check: &Check, stage: &mut Device) -> Result<How, Never> {
-    let Ok(found) = check.body(Stage::Device);
+  let Ok(found) = check.body(Stage::Device);
 
-    let body = match found {
-        Some(Body::Device(body)) => body,
-        Some(Body::Here(_)) | Some(Body::Desktop(_)) | None => {
-            return Ok(How::Skipped("nothing written for device".to_string()));
-        }
-    };
-
-    let Ok(()) = stage.fresh();
-
-    match (stage.dry_run, body(stage)) {
-        (true, Err(Why::Cannot(why))) => Ok(How::Skipped(why)),
-        (true, _) => Ok(How::Would),
-        (false, done) => ended(done),
+  let body = match found {
+    Some(Body::Device(body)) => body,
+    Some(Body::Here(_)) | Some(Body::Desktop(_)) | None => {
+      return Ok(How::Skipped("nothing written for device".to_string()));
     }
+  };
+
+  let Ok(()) = stage.fresh();
+
+  let Ok(dry_run) = stage.dry_run();
+
+  match (dry_run, body(stage)) {
+    (DryRun::Pretend, Err(Why::Cannot(why))) => Ok(How::Skipped(why)),
+    (DryRun::Pretend, _) => Ok(How::Would),
+    (DryRun::Really, done) => ended(done),
+  }
 }
 
 pub fn desktop(check: &Check, stage: &mut Desktop) -> Result<How, Never> {
-    let Ok(found) = check.body(Stage::Desktop);
+  let Ok(found) = check.body(Stage::Desktop);
 
-    let body = match found {
-        Some(Body::Desktop(body)) => body,
-        Some(Body::Here(_)) | Some(Body::Device(_)) | None => {
-            return Ok(How::Skipped("nothing written for desktop".to_string()));
-        }
-    };
+  let body = match found {
+    Some(Body::Desktop(body)) => body,
+    Some(Body::Here(_)) | Some(Body::Device(_)) | None => {
+      return Ok(How::Skipped("nothing written for desktop".to_string()));
+    }
+  };
 
-    let Ok(()) = stage.fresh();
+  let Ok(()) = stage.fresh();
 
-    ended(body(stage))
+  ended(body(stage))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
-    use crate::device::DryRun;
+  use super::*;
+  use crate::device::DryRun;
+  use std::error::Error;
 
-    const ONE: Check = Check {
-        name: "010-workspaces-right",
-        about: "R1 moves to the next workspace.",
-        feature: "workspaces",
-        since: "2026-08-24",
-        bodies: &[Body::Here(|_| Ok(()))],
+  const ONE: Check = Check {
+    name: "010-workspaces-right",
+    about: "R1 moves to the next workspace.",
+    feature: "workspaces",
+    since: "2026-08-24",
+    bodies: &[Body::Here(|_| Ok(()))],
+  };
+
+  fn named_by(check: &Check, words: &[String]) -> Result<Named, Never> {
+    let Ok(named) = check.named_by(words);
+
+    Ok(named)
+  }
+
+  fn without_the_device(check: &Check) -> Result<Option<Stage>, Never> {
+    let Ok(stage) = check.without_the_device();
+
+    Ok(stage)
+  }
+
+  fn name(how: &How) -> Result<&str, Never> {
+    let Ok(name) = how.name();
+
+    Ok(name)
+  }
+
+  fn new() -> Result<Desktop, Never> {
+    let Ok(desktop) = Desktop::new();
+
+    Ok(desktop)
+  }
+
+  #[test]
+  fn a_check_says_when_it_arrived_and_what_it_is_about() {
+    assert_eq!(ONE.number(), Ok("010"));
+    assert_eq!(ONE.rest(), Ok("workspaces-right"));
+  }
+
+  #[test]
+  fn a_check_is_found_by_its_name_or_by_its_feature() {
+    assert_eq!(named_by(&ONE, &["workspaces".to_string()]), Ok(Named::Yes));
+    assert_eq!(named_by(&ONE, &["010".to_string()]), Ok(Named::Yes));
+    assert_eq!(named_by(&ONE, &["keyboard".to_string()]), Ok(Named::No));
+  }
+
+  #[test]
+  fn a_check_written_for_somewhere_else_is_not_the_machines_business() {
+    const BOTH: Check = Check {
+      bodies: &[Body::Here(|_| Ok(())), Body::Device(|_| Ok(()))],
+      ..ONE
+    };
+    const DRAWN: Check = Check {
+      bodies: &[Body::Desktop(|_| Ok(())), Body::Device(|_| Ok(()))],
+      ..ONE
+    };
+    const THERE: Check = Check {
+      bodies: &[Body::Device(|_| Ok(()))],
+      ..ONE
     };
 
-    fn named_by(check: &Check, words: &[String]) -> Result<Named, Never> {
-        let Ok(named) = check.named_by(words);
+    assert_eq!(without_the_device(&THERE), Ok(None));
 
-        Ok(named)
-    }
+    assert_eq!(without_the_device(&BOTH), Ok(Some(Stage::Here)));
 
-    fn without_the_device(check: &Check) -> Result<Option<Stage>, Never> {
-        let Ok(stage) = check.without_the_device();
+    assert_eq!(without_the_device(&DRAWN), Ok(Some(Stage::Desktop)));
+  }
 
-        Ok(stage)
-    }
+  #[test]
+  fn a_stage_nothing_is_written_for_says_so() {
+    let Ok(mut nowhere) = new();
+    let Ok(how) = desktop(&ONE, &mut nowhere);
+    assert_eq!(name(&how), Ok("skipped"));
+  }
 
-    fn name(how: &How) -> Result<&str, Never> {
-        let Ok(name) = how.name();
+  #[test]
+  fn a_dry_run_would_run_what_it_can_and_skips_what_it_cannot() -> Result<(), Box<dyn Error>> {
+    const CANNOT: Check = Check {
+      name: "010-nothing",
+      about: "Nothing.",
+      feature: "nothing",
+      since: "2026-08-29",
+      bodies: &[Body::Device(|_| cannot("a thumb is wanted"))],
+    };
+    const FAILS: Check = Check {
+      bodies: &[Body::Device(|_| failed("no".to_string()))],
+      ..ONE
+    };
+    let mut dry_run = Device::new("nowhere", DryRun::Pretend)?;
 
-        Ok(name)
-    }
+    assert_eq!(
+      device(&CANNOT, &mut dry_run),
+      Ok(How::Skipped("a thumb is wanted".to_string()))
+    );
+    assert_eq!(device(&FAILS, &mut dry_run), Ok(How::Would));
 
-    fn new() -> Result<Desktop, Never> {
-        let Ok(desktop) = Desktop::new();
-
-        Ok(desktop)
-    }
-
-    #[test]
-    fn a_check_says_when_it_arrived_and_what_it_is_about() {
-        assert_eq!(ONE.number(), Ok("010"));
-        assert_eq!(ONE.rest(), Ok("workspaces-right"));
-    }
-
-    #[test]
-    fn a_check_is_found_by_its_name_or_by_its_feature() {
-        assert_eq!(named_by(&ONE, &["workspaces".to_string()]), Ok(Named::Yes));
-        assert_eq!(named_by(&ONE, &["010".to_string()]), Ok(Named::Yes));
-        assert_eq!(named_by(&ONE, &["keyboard".to_string()]), Ok(Named::No));
-    }
-
-    #[test]
-    fn a_check_written_for_somewhere_else_is_not_the_machines_business() {
-        const BOTH: Check = Check {
-            bodies: &[Body::Here(|_| Ok(())), Body::Device(|_| Ok(()))],
-            ..ONE
-        };
-        const DRAWN: Check = Check {
-            bodies: &[Body::Desktop(|_| Ok(())), Body::Device(|_| Ok(()))],
-            ..ONE
-        };
-        const THERE: Check = Check { bodies: &[Body::Device(|_| Ok(()))], ..ONE };
-
-        assert_eq!(without_the_device(&THERE), Ok(None));
-
-        assert_eq!(without_the_device(&BOTH), Ok(Some(Stage::Here)));
-
-        assert_eq!(without_the_device(&DRAWN), Ok(Some(Stage::Desktop)));
-    }
-
-    #[test]
-    fn a_stage_nothing_is_written_for_says_so() {
-        let Ok(mut nowhere) = new();
-        let Ok(how) = desktop(&ONE, &mut nowhere);
-        assert_eq!(name(&how), Ok("skipped"));
-    }
-
-    #[test]
-    fn a_dry_run_would_run_what_it_can_and_skips_what_it_cannot() -> Result<(), Box<dyn Error>> {
-        const CANNOT: Check = Check {
-            name: "010-nothing",
-            about: "Nothing.",
-            feature: "nothing",
-            since: "2026-08-29",
-            bodies: &[Body::Device(|_| cannot("a thumb is wanted"))],
-        };
-        const FAILS: Check = Check { bodies: &[Body::Device(|_| failed("no".to_string()))], ..ONE };
-        let mut dry_run = Device::new("nowhere", DryRun::Pretend)?;
-
-        assert_eq!(device(&CANNOT, &mut dry_run), Ok(How::Skipped("a thumb is wanted".to_string())));
-        assert_eq!(device(&FAILS, &mut dry_run), Ok(How::Would));
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

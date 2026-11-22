@@ -1,5 +1,6 @@
-// UI test for EXPLICIT046 — a jump out of a nested loop says which loop it
-// leaves.
+// run-rustfix
+#![allow(dead_code)]
+// A jump out of a nested loop says which loop it leaves.
 
 // BAD EXPLICIT046 — two loops, and the `break` names neither.
 fn leaves_something(rows: &[Vec<u32>]) -> u32 {
@@ -69,6 +70,41 @@ fn inside_a_closure(rows: &[Vec<u32>]) {
                 said
             })
             .collect();
+    }
+}
+
+fn grouped_jumps(rows: &[Vec<u32>]) {
+    for row in rows {
+        for at in row {
+            match *at {
+                //~v EXPLICIT046_NO_UNNAMED_JUMP
+                0 => break,
+                //~v EXPLICIT046_NO_UNNAMED_JUMP
+                1 => continue,
+                _ => {}
+            }
+        }
+    }
+}
+
+fn existing_label(rows: &[Vec<u32>]) {
+    for row in rows {
+        'current_row: while !row.is_empty() {
+            match row.len() {
+                //~v EXPLICIT046_NO_UNNAMED_JUMP
+                1 => break,
+                _ => break 'current_row,
+            }
+        }
+    }
+}
+
+fn valued_break(rows: &[Vec<u32>]) {
+    for row in rows {
+        let _count = loop {
+            //~v EXPLICIT046_NO_UNNAMED_JUMP
+            break row.len();
+        };
     }
 }
 

@@ -1,0 +1,46 @@
+error: `as` cast is forbidden
+  --> $DIR/review.rs:3:39
+   |
+LL | const fn in_const(value: u8) -> u32 { value as u32 }
+   |                                       ^^^^^^^^^^^^
+   |
+   = help: use `From` / `TryFrom` for value types; `pointer::cast`, `&raw const`, `&raw mut` for pointers
+   = note: `#[deny(explicit011_no_as_cast)]` on by default
+
+error: `as` cast is forbidden
+  --> $DIR/review.rs:4:31
+   |
+LL | fn signed(value: i8) -> u16 { value as u16 }
+   |                               ^^^^^^^^^^^^
+   |
+   = help: use `From` / `TryFrom` for value types; `pointer::cast`, `&raw const`, `&raw mut` for pointers
+
+error: `as` cast is forbidden
+  --> $DIR/review.rs:5:32
+   |
+LL | fn rounds(value: f64) -> u32 { value as u32 }
+   |                                ^^^^^^^^^^^^
+   |
+   = help: use `From` / `TryFrom` for value types; `pointer::cast`, `&raw const`, `&raw mut` for pointers
+
+error: `as` cast is forbidden
+  --> $DIR/review.rs:6:34
+   |
+LL | fn annotated(value: u8) -> u32 { value /* wire byte */ as u32 }
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `From` / `TryFrom` for value types; `pointer::cast`, `&raw const`, `&raw mut` for pointers
+
+error: `as` cast is forbidden
+  --> $DIR/review.rs:7:37
+   |
+LL | macro_rules! widen { ($v:expr) => { $v as u32 } }
+   |                                     ^^^^^^^^^
+LL | fn expanded(value: u8) -> u32 { widen!(value) }
+   |                                 ------------- in this macro invocation
+   |
+   = help: use `From` / `TryFrom` for value types; `pointer::cast`, `&raw const`, `&raw mut` for pointers
+   = note: this error originates in the macro `widen` (in Nightly b$DIRlds, run with -Z macro-backtrace for more info)
+
+error: aborting due to 5 previous errors
+

@@ -1,0 +1,22 @@
+[package]
+name = "console-core-audio-decoding-opus"
+description = "Clean-room pure-Rust Opus decoder (RFC 6716 / RFC 8251; OpusHead, multistream surround)"
+version = "0.4.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_core_audio_decoding_opus"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-audio-windows.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+
+[dev-dependencies]
+console-core-checksums.workspace = true
+
+[lints]
+workspace = true

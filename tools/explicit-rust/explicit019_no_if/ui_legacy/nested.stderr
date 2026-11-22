@@ -1,0 +1,36 @@
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/nested.rs:4:5
+   |
+LL | /     if outer {
+LL | |         if inner {
+LL | |             return 1;
+...  |
+LL | |     }
+   | |_____^
+   |
+   = note: `#[deny(explicit019_no_if)]` on by default
+help: name both outcomes in a match
+   |
+LL ~     match ::core::primitive::bool::then_some(outer, ()) {
+LL +         ::core::option::Option::Some(()) => {
+LL +             if inner {
+LL +                 return 1;
+LL +             }
+LL +             return 2;
+LL +         },
+LL +         ::core::option::Option::None => {},
+LL +     }
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/nested.rs:5:9
+   |
+LL | /         if inner {
+LL | |             return 1;
+LL | |         }
+   | |_________^
+   |
+   = help: match on an enum that names the outcomes
+
+error: aborting due to 2 previous errors
+

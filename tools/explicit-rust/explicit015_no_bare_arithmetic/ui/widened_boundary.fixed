@@ -1,0 +1,31 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_number_conversion.rs
+
+extern crate console_core_number_conversion;
+
+use console_core_number_conversion::wrapped;
+
+fn glyph_count(glyph: u16) -> u32 {
+    ::core::primitive::u32::wrapping_add({ let Ok(widened) = wrapped::<_, u32>(glyph); widened }, 1)
+}
+
+fn cff_number(first: u8, second: u8) -> i32 {
+    let Ok(second) = wrapped::<_, i32>(second);
+    ::core::primitive::i32::wrapping_sub(i32::wrapping_sub(
+        i32::wrapping_mul(
+            i32::wrapping_neg(i32::wrapping_sub(
+                { let Ok(first) = wrapped::<_, i32>(first); first },
+                251,
+            )),
+            256,
+        ),
+        second,
+    ), 108)
+}
+
+fn main() {
+    assert_eq!(glyph_count(u16::MAX), 65536);
+    assert_eq!(cff_number(251, 0), -108);
+    assert_eq!(cff_number(255, 255), -1387);
+}

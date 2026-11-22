@@ -1,20 +1,34 @@
 #![feature(rustc_private)]
 #![warn(unused_extern_crates)]
 
+extern crate rustc_abi;
+extern crate rustc_errors;
 extern crate rustc_hir;
+extern crate rustc_lexer;
 extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
-use rustc_hir::{FnDecl, PrimTy, QPath, Ty, TyKind, def::Res};
-use rustc_lint::{LateContext, LateLintPass};
+mod decisions;
 
-dylint_linting::declare_late_lint! {
+use clippy_utils::diagnostics::{span_lint_and_help, span_lint_and_then};
+use rustc_errors::Applicability;
+use rustc_hir::{FnDecl, PrimTy, QPath, Ty, TyKind, def::Res};
+use rustc_lint::{LateContext, LateLintPass, LintContext};
+use std::collections::BTreeMap;
+
+dylint_linting::impl_late_lint! {
     /// EXPLICIT008: bool parameters are forbidden. `fn write(2, true)` is
     /// unreadable at the call site. A typed `enum Mode { Append, Truncate }`
     /// makes the choice legible.
     pub EXPLICIT008_NO_BOOL_PARAM,
     Deny,
-    "boolean parameters are forbidden; use an `enum`"
+    "boolean parameters are forbidden; use an `enum`",
+    Explicit008NoBoolParam {
+        decisions: decisions::Decisions::configured(),
+    }
+}
+
+pub struct Explicit008NoBoolParam {
+    decisions: decisions::Decisions,
 }
 
 fn hir_ty_is_bool(ty: &Ty<'_>) -> bool {
@@ -22,7 +36,10 @@ fn hir_ty_is_bool(ty: &Ty<'_>) -> bool {
         ty.kind,
         TyKind::Path(QPath::Resolved(
             _,
-            rustc_hir::Path { res: Res::PrimTy(PrimTy::Bool), .. }
+            rustc_hir::Path {
+                res: Res::PrimTy(PrimTy::Bool),
+                ..
+            }
         ))
     )
 }
@@ -40,6 +57,10 @@ fn implements_a_trait(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefI
 }
 
 impl<'tcx> LateLintPass<'tcx> for Explicit008NoBoolParam {
+    fn check_crate(&mut self, cx: &LateContext<'tcx>) {
+        self.decisions.plan(cx);
+    }
+
     fn check_fn(
         &mut self,
         cx: &LateContext<'tcx>,
@@ -60,6 +81,38 @@ impl<'tcx> LateLintPass<'tcx> for Explicit008NoBoolParam {
         }
         for arg in decl.inputs {
             if hir_ty_is_bool(arg) {
+                if let Some(edits) = self.decisions.take(arg.span) {
+                    // Cargo applies each file independently, then recompiles the crate
+                    // with the complete set of reviewed changes.
+                    let map = cx.sess().source_map();
+                    let declaration = map.lookup_source_file(arg.span.lo()).start_pos;
+                    let mut by_file = BTreeMap::<_, Vec<_>>::new();
+                    for edit in edits {
+                        let file = map.lookup_source_file(edit.0.lo());
+                        by_file.entry(file.start_pos).or_default().push(edit);
+                    }
+                    for (file, edits) in by_file {
+                        let (span, message) = if file == declaration {
+                            (arg.span, "boolean parameter is forbidden")
+                        } else {
+                            (edits[0].0, "use the named enum for this reviewed decision")
+                        };
+                        span_lint_and_then(
+                            cx,
+                            EXPLICIT008_NO_BOOL_PARAM,
+                            span,
+                            message,
+                            |diag| {
+                                diag.multipart_suggestion(
+                                    "propagate the reviewed enum through this function family",
+                                    edits,
+                                    Applicability::MachineApplicable,
+                                );
+                            },
+                        );
+                    }
+                    continue;
+                }
                 span_lint_and_help(
                     cx,
                     EXPLICIT008_NO_BOOL_PARAM,
@@ -77,4 +130,11 @@ impl<'tcx> LateLintPass<'tcx> for Explicit008NoBoolParam {
 #[test]
 fn ui() {
     dylint_testing::ui_test(env!("CARGO_PKG_NAME"), "ui");
+}
+
+#[test]
+fn reviewed_families() {
+    dylint_testing::ui::Test::src_base(env!("CARGO_PKG_NAME"), "ui_reviewed")
+        .dylint_toml(include_str!("../ui_reviewed/reviewed.toml"))
+        .run();
 }

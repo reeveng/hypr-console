@@ -32,11 +32,13 @@
 
 extern crate rustc_ast;
 extern crate rustc_hir;
+extern crate rustc_span;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_ast::LitKind;
 use rustc_hir::{BinOpKind, Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass};
+use rustc_span::sym;
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT032: comparing `.count()` against nothing or one walks the
@@ -49,7 +51,7 @@ dylint_linting::declare_late_lint! {
 
 // A count of an iterator, and whether a `filter` stands in front of it -- which
 // decides whether the answer is `any` or `next`.
-fn counts_a_walk<'tcx>(expr: &'tcx Expr<'tcx>) -> Option<&'static str> {
+fn counts_a_walk<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) -> Option<&'static str> {
     let ExprKind::MethodCall(asked, walked, taken, _) = expr.kind else {
         return None;
     };
@@ -61,6 +63,13 @@ fn counts_a_walk<'tcx>(expr: &'tcx Expr<'tcx>) -> Option<&'static str> {
     match asked.ident.name.as_str() {
         "count" => {}
         _ => return None,
+    }
+
+    let method = cx.typeck_results().type_dependent_def_id(expr.hir_id)?;
+    let iterator = cx.tcx.get_diagnostic_item(sym::Iterator)?;
+
+    if cx.tcx.trait_of_assoc(method) != Some(iterator) {
+        return None;
     }
 
     let filtered = matches!(
@@ -105,9 +114,9 @@ impl<'tcx> LateLintPass<'tcx> for Explicit032NoCountingToAsk {
             return;
         }
 
-        let counted = match (counts_a_walk(lhs), is_nothing_or_one(rhs)) {
+        let counted = match (counts_a_walk(cx, lhs), is_nothing_or_one(rhs)) {
             (Some(instead), true) => Some((lhs, instead)),
-            _ => match (counts_a_walk(rhs), is_nothing_or_one(lhs)) {
+            _ => match (counts_a_walk(cx, rhs), is_nothing_or_one(lhs)) {
                 (Some(instead), true) => Some((rhs, instead)),
                 _ => None,
             },

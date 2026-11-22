@@ -58,282 +58,339 @@ const NAMED: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
-    pub name: String,
-    pub bytes: u64,
+  pub name: String,
+  pub bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Left {
-    Reported(u64),
-    Unknown(String),
+  Reported(u64),
+  Unknown(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Room {
-    Enough,
-    No(String),
+  Enough,
+  No(String),
 }
 
 pub fn words(bytes: u64) -> Result<String, Never> {
-    let whole = match bytes.checked_div(GIGABYTE) {
-        Some(whole) => whole,
-        None => return Ok(format!("{bytes} bytes")),
-    };
+  let whole = match bytes.checked_div(GIGABYTE) {
+    Some(whole) => whole,
+    None => return Ok(format!("{bytes} bytes")),
+  };
 
-    Ok(match whole == 0 {
-        true => "less than a gigabyte".to_string(),
-        false => format!("{whole} GB"),
-    })
+  Ok(match ::core::primitive::bool::then_some(whole == 0, ()) {
+    ::core::option::Option::Some(()) => "less than a gigabyte".to_string(),
+    ::core::option::Option::None => format!("{whole} GB"),
+  })
 }
 
 fn where_it_went(went: &[Place]) -> Result<String, Never> {
-    let mut biggest: Vec<&Place> = went.iter().filter(|place| place.bytes >= GIGABYTE).collect();
-    biggest.sort_by_key(|place| std::cmp::Reverse(place.bytes));
+  let mut biggest: Vec<&Place> = went
+    .iter()
+    .filter(|place| place.bytes >= GIGABYTE)
+    .collect();
+  biggest.sort_by_key(|place| std::cmp::Reverse(place.bytes));
 
-    let Ok(most) = console_core_number_conversion::index(NAMED);
+  let Ok(most) = console_core_number_conversion::index(NAMED);
 
-    let named: Vec<String> = biggest
-        .into_iter()
-        .take(most)
-        .map(|place| {
-            let Ok(size) = words(place.bytes);
+  let named: Vec<String> = biggest
+    .into_iter()
+    .take(most)
+    .map(|place| {
+      let Ok(size) = words(place.bytes);
 
-            format!("{} ({size})", place.name)
-        })
-        .collect();
-
-    Ok(match named.is_empty() {
-        true => String::new(),
-        false => format!(" Most of the room has gone to {}.", named.join(", ")),
+      format!("{} ({size})", place.name)
     })
+    .collect();
+
+  Ok(match ::core::primitive::bool::then_some(named.is_empty(), ()) {
+    ::core::option::Option::Some(()) => String::new(),
+    ::core::option::Option::None => format!(" Most of the room has gone to {}.", named.join(", ")),
+  })
 }
 
 pub fn free_in(said: &str) -> Result<Left, Never> {
-    let last = said.lines().map(str::trim).rfind(|line| !line.is_empty());
+  let last = said.lines().map(str::trim).rfind(|line| !line.is_empty());
 
-    let bytes = match last {
-        Some(bytes) => bytes,
-        None => return Ok(Left::Unknown("nothing was said about how much room is left".to_string())),
-    };
+  let bytes = match last {
+    Some(bytes) => bytes,
+    None => {
+      return Ok(Left::Unknown(
+        "nothing was said about how much room is left".to_string(),
+      ));
+    }
+  };
 
-    Ok(match bytes.parse::<u64>() {
-        Ok(bytes) => Left::Reported(bytes),
-        Err(fault) => Left::Unknown(format!("{bytes:?} is not a number of bytes ({fault})")),
-    })
+  Ok(match bytes.parse::<u64>() {
+    Ok(bytes_2) => Left::Reported(bytes_2),
+    Err(fault) => Left::Unknown(format!("{bytes:?} is not a number of bytes ({fault})")),
+  })
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit028_no_search_in_a_loop",
-    allow(
-        explicit028_no_search_in_a_loop,
-        reason = "the roots are the few places a folder can be measured against, and the lines are what `du` said about one of them"
-    )
+  dylint_lib = "explicit028_no_search_in_a_loop",
+  allow(
+    explicit028_no_search_in_a_loop,
+    reason = "the roots are the few places a folder can be measured against, and the lines are what `du` said about one of them"
+  )
 )]
 pub fn places_in(said: &str, roots: &[String]) -> Result<Vec<Place>, Never> {
-    Ok(said
-        .lines()
-        .filter_map(|line| line.split_once('\t'))
-        .filter(|(_, at)| !roots.iter().any(|root| root == at.trim()))
-        .filter_map(|(size, at)| {
-            let bytes = match size.trim().parse::<u64>() {
-                Ok(bytes) => bytes,
-                Err(_not_a_number) => return None,
-            };
+  Ok(
+    said
+      .lines()
+      .filter_map(|line| line.split_once('\t'))
+      .filter(|(_, at)| !roots.iter().any(|root| root == at.trim()))
+      .filter_map(|(size, at)| {
+        let bytes = match size.trim().parse::<u64>() {
+          Ok(bytes) => bytes,
+          Err(_not_a_number) => return None,
+        };
 
-            let name = at.trim().rsplit('/').next()?;
+        let name = at.trim().rsplit('/').next()?;
 
-            Some((bytes, name))
-        })
-        .filter(|(_, name)| !name.starts_with('.'))
-        .map(|(bytes, name)| Place { name: name.to_string(), bytes })
-        .collect())
+        Some((bytes, name))
+      })
+      .filter(|(_, name)| !name.starts_with('.'))
+      .map(|(bytes, name)| Place {
+        name: name.to_string(),
+        bytes,
+      })
+      .collect(),
+  )
 }
 
 struct Short {
-    left: String,
-    wanted: String,
-    where_to: String,
+  left: String,
+  wanted: String,
+  where_to: String,
 }
 
 struct Enough(u64);
 
-fn short_of(free: u64, Enough(enough): Enough, went: &[Place], said: impl FnOnce(Short) -> String) -> Result<Room, Never> {
-    match free >= enough {
-        true => return Ok(Room::Enough),
-        false => {},
-    }
+fn short_of(
+  free: u64,
+  Enough(enough): Enough,
+  went: &[Place],
+  said: impl FnOnce(Short) -> String,
+) -> Result<Room, Never> {
+  match ::core::primitive::bool::then_some(free >= enough, ()) {
+    ::core::option::Option::Some(()) => return Ok(Room::Enough),
+    ::core::option::Option::None => {}
+  }
 
-    let Ok(left) = words(free);
-    let Ok(wanted) = words(A_BUILD);
-    let Ok(where_to) = where_it_went(went);
+  let Ok(left) = words(free);
+  let Ok(wanted) = words(A_BUILD);
+  let Ok(where_to) = where_it_went(went);
 
-    Ok(Room::No(said(Short { left, wanted, where_to })))
+  Ok(Room::No(said(Short {
+    left,
+    wanted,
+    where_to,
+  })))
 }
 
 pub fn before_an_apply(free: u64, went: &[Place]) -> Result<Room, Never> {
-    short_of(free, Enough(A_BUILD), went, |Short { left, wanted, where_to }| {
-        format!(
-            "there is {left} left on this disk and an apply wants {wanted} to be sure of finishing: it \
+  short_of(
+    free,
+    Enough(A_BUILD),
+    went,
+    |Short {
+       left,
+       wanted,
+       where_to,
+     }| {
+      format!(
+        "there is {left} left on this disk and an apply wants {wanted} to be sure of finishing: it \
              builds the whole desktop before it installs any of it, and a build that runs out of room \
              stops somewhere no one chose.{where_to} Make some room and run it again."
-        )
-    })
+      )
+    },
+  )
 }
 
 pub fn on_a_machine_standing(free: u64, went: &[Place]) -> Result<Room, Never> {
-    short_of(free, Enough(STANDING), went, |Short { left, wanted, where_to }| {
-        format!(
-            "There is {left} left. The next update wants {wanted} of that to itself, and what is over \
+  short_of(
+    free,
+    Enough(STANDING),
+    went,
+    |Short {
+       left,
+       wanted,
+       where_to,
+     }| {
+      format!(
+        "There is {left} left. The next update wants {wanted} of that to itself, and what is over \
              is what there is for anything you save or download.{where_to}"
-        )
-    })
+      )
+    },
+  )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    type Failure = Box<dyn std::error::Error>;
+  type Failure = Box<dyn std::error::Error>;
 
-    const ONE_BYTE_SHORT_OF_A_BUILD: u64 = A_BUILD - 1;
+  const ONE_BYTE_SHORT_OF_A_BUILD: u64 = A_BUILD - 1;
 
-    const ONE_BYTE_SHORT_OF_A_GIGABYTE: u64 = GIGABYTE - 1;
+  const ONE_BYTE_SHORT_OF_A_GIGABYTE: u64 = GIGABYTE - 1;
 
-    const VIDEOS: u64 = 8 * GIGABYTE;
+  const VIDEOS: u64 = 8 * GIGABYTE;
 
-    const STEAM: u64 = 122 * GIGABYTE;
+  const STEAM: u64 = 122 * GIGABYTE;
 
-    fn place(name: &str, bytes: u64) -> Result<Place, Never> {
-        Ok(Place { name: name.to_string(), bytes })
+  fn place(name: &str, bytes: u64) -> Result<Place, Never> {
+    Ok(Place {
+      name: name.to_string(),
+      bytes,
+    })
+  }
+
+  fn said(room: Room) -> Result<String, Failure> {
+    match room {
+      Room::No(said) => Ok(said),
+      Room::Enough => Err(Failure::from("it was allowed")),
     }
+  }
 
-    fn said(room: Room) -> Result<String, Failure> {
-        match room {
-            Room::No(said) => Ok(said),
-            Room::Enough => Err(Failure::from("it was allowed")),
-        }
-    }
+  #[test]
+  fn an_apply_wants_room_for_the_build_it_is_about_to_run() {
+    assert_eq!(before_an_apply(A_BUILD, &[]), Ok(Room::Enough));
+    assert!(matches!(
+      before_an_apply(ONE_BYTE_SHORT_OF_A_BUILD, &[]),
+      Ok(Room::No(_))
+    ));
+  }
 
-    #[test]
-    fn an_apply_wants_room_for_the_build_it_is_about_to_run() {
-        assert_eq!(before_an_apply(A_BUILD, &[]), Ok(Room::Enough));
-        assert!(matches!(before_an_apply(ONE_BYTE_SHORT_OF_A_BUILD, &[]), Ok(Room::No(_))));
-    }
+  #[test]
+  fn a_machine_standing_still_is_asked_for_the_evening_as_well_as_the_apply() {
+    let Ok(room) = on_a_machine_standing(A_BUILD, &[]);
 
-    #[test]
-    fn a_machine_standing_still_is_asked_for_the_evening_as_well_as_the_apply() {
-        let Ok(room) = on_a_machine_standing(A_BUILD, &[]);
+    assert!(
+      matches!(room, Room::No(_)),
+      "room for the apply and nothing after it, and the card waited for the refusal"
+    );
 
-        assert!(
-            matches!(room, Room::No(_)),
-            "room for the apply and nothing after it, and the card waited for the refusal"
-        );
+    let Ok(room_2) = on_a_machine_standing(STANDING, &[]);
 
-        let Ok(room) = on_a_machine_standing(STANDING, &[]);
+    assert_eq!(room_2, Room::Enough);
+  }
 
-        assert_eq!(room, Room::Enough);
-    }
+  #[test]
+  fn the_refusal_says_what_is_wrong_and_what_would_fix_it() -> Result<(), Failure> {
+    let Ok(room) = before_an_apply(GIGABYTE, &[]);
+    let said = said(room)?;
 
-    #[test]
-    fn the_refusal_says_what_is_wrong_and_what_would_fix_it() -> Result<(), Failure> {
-        let Ok(room) = before_an_apply(GIGABYTE, &[]);
-        let said = said(room)?;
+    assert!(said.contains("1 GB left"), "{said}");
+    assert!(said.contains("6 GB"), "{said}");
+    assert!(said.contains("Make some room"), "{said}");
 
-        assert!(said.contains("1 GB left"), "{said}");
-        assert!(said.contains("6 GB"), "{said}");
-        assert!(said.contains("Make some room"), "{said}");
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn a_refusal_names_the_biggest_places_and_the_size_of_each() -> Result<(), Failure> {
+    let Ok(videos) = place("Videos", VIDEOS);
+    let Ok(steam) = place("Steam", STEAM);
+    let Ok(room) = before_an_apply(GIGABYTE, &[videos, steam]);
+    let said = said(room)?;
 
-    #[test]
-    fn a_refusal_names_the_biggest_places_and_the_size_of_each() -> Result<(), Failure> {
-        let Ok(videos) = place("Videos", VIDEOS);
-        let Ok(steam) = place("Steam", STEAM);
-        let Ok(room) = before_an_apply(GIGABYTE, &[videos, steam]);
-        let said = said(room)?;
+    assert!(said.contains("Steam (122 GB), Videos (8 GB)"), "{said}");
 
-        assert!(said.contains("Steam (122 GB), Videos (8 GB)"), "{said}");
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn nothing_worth_clearing_is_nothing_said_about_it() -> Result<(), Failure> {
+    let Ok(downloads) = place("Downloads", 4096);
+    let Ok(room) = before_an_apply(GIGABYTE, &[downloads]);
+    let said = said(room)?;
 
-    #[test]
-    fn nothing_worth_clearing_is_nothing_said_about_it() -> Result<(), Failure> {
-        let Ok(downloads) = place("Downloads", 4096);
-        let Ok(room) = before_an_apply(GIGABYTE, &[downloads]);
-        let said = said(room)?;
+    assert!(!said.contains("Most of the room"), "{said}");
+    assert!(!said.contains("Downloads"), "{said}");
 
-        assert!(!said.contains("Most of the room"), "{said}");
-        assert!(!said.contains("Downloads"), "{said}");
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn only_the_few_worth_naming_are_named() -> Result<(), Failure> {
+    let went: Vec<Place> = (1..8u64)
+      .map(|which| {
+        let Ok(place) = place(&format!("place{which}"), which.saturating_mul(GIGABYTE));
 
-    #[test]
-    fn only_the_few_worth_naming_are_named() -> Result<(), Failure> {
-        let went: Vec<Place> = (1..8u64)
-            .map(|which| {
-                let Ok(place) = place(&format!("place{which}"), which.saturating_mul(GIGABYTE));
+        place
+      })
+      .collect();
+    let Ok(room) = before_an_apply(GIGABYTE, &went);
+    let said = said(room)?;
 
-                place
-            })
-            .collect();
-        let Ok(room) = before_an_apply(GIGABYTE, &went);
-        let said = said(room)?;
+    assert!(
+      said.contains("place7 (7 GB), place6 (6 GB), place5 (5 GB)"),
+      "{said}"
+    );
+    assert!(!said.contains("place4"), "{said}");
 
-        assert!(said.contains("place7 (7 GB), place6 (6 GB), place5 (5 GB)"), "{said}");
-        assert!(!said.contains("place4"), "{said}");
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn what_the_disk_says_is_the_number_under_the_heading() {
+    assert_eq!(
+      free_in("     Avail\n1795046354944\n"),
+      Ok(Left::Reported(1795046354944))
+    );
+  }
 
-    #[test]
-    fn what_the_disk_says_is_the_number_under_the_heading() {
-        assert_eq!(free_in("     Avail\n1795046354944\n"), Ok(Left::Reported(1795046354944)));
-    }
+  #[test]
+  fn a_disk_that_would_not_say_is_not_a_disk_with_no_room() {
+    let Ok(left) = free_in("");
 
-    #[test]
-    fn a_disk_that_would_not_say_is_not_a_disk_with_no_room() {
-        let Ok(left) = free_in("");
+    assert!(matches!(left, Left::Unknown(_)), "{left:?}");
 
-        assert!(matches!(left, Left::Unknown(_)), "{left:?}");
+    let Ok(unreadable) = free_in("df: /nowhere: No such file or directory");
 
-        let Ok(left) = free_in("df: /nowhere: No such file or directory");
+    assert!(matches!(unreadable, Left::Unknown(_)), "{unreadable:?}");
+  }
 
-        assert!(matches!(left, Left::Unknown(_)), "{left:?}");
-    }
-
-    #[test]
-    fn the_places_are_what_is_under_the_ones_asked_about_and_not_the_ones_asked_about() {
-        let roots = vec!["/home/someone".to_string(), "/home/someone/.local/share".to_string()];
-        let said = "\
+  #[test]
+  fn the_places_are_what_is_under_the_ones_asked_about_and_not_the_ones_asked_about() {
+    let roots = vec![
+      "/home/someone".to_string(),
+      "/home/someone/.local/share".to_string(),
+    ];
+    let said = "\
 8000000000\t/home/someone/Videos
 131000000000\t/home/someone
 122000000000\t/home/someone/.local/share/Steam
 123000000000\t/home/someone/.local/share
 ";
-        let Ok(places) = places_in(said, &roots);
-        let Ok(videos) = place("Videos", 8000000000);
-        let Ok(steam) = place("Steam", 122000000000);
+    let Ok(places) = places_in(said, &roots);
+    let Ok(videos) = place("Videos", 8000000000);
+    let Ok(steam) = place("Steam", 122000000000);
 
-        assert_eq!(places, vec![videos, steam]);
-    }
+    assert_eq!(places, vec![videos, steam]);
+  }
 
-    #[test]
-    fn a_folder_the_person_never_made_is_not_one_they_can_be_asked_to_clear() {
-        let roots = vec!["/home/someone".to_string()];
-        let said = "123000000000\t/home/someone/.local\n2000000000\t/home/someone/Music\n";
-        let Ok(places) = places_in(said, &roots);
-        let Ok(music) = place("Music", 2000000000);
+  #[test]
+  fn a_folder_the_person_never_made_is_not_one_they_can_be_asked_to_clear() {
+    let roots = vec!["/home/someone".to_string()];
+    let said = "123000000000\t/home/someone/.local\n2000000000\t/home/someone/Music\n";
+    let Ok(places) = places_in(said, &roots);
+    let Ok(music) = place("Music", 2000000000);
 
-        assert_eq!(places, vec![music]);
-    }
+    assert_eq!(places, vec![music]);
+  }
 
-    #[test]
-    fn a_size_under_a_gigabyte_is_said_in_words_rather_than_as_a_zero() {
-        assert_eq!(words(0), Ok("less than a gigabyte".to_string()));
-        assert_eq!(words(ONE_BYTE_SHORT_OF_A_GIGABYTE), Ok("less than a gigabyte".to_string()));
-        assert_eq!(words(GIGABYTE), Ok("1 GB".to_string()));
-    }
+  #[test]
+  fn a_size_under_a_gigabyte_is_said_in_words_rather_than_as_a_zero() {
+    assert_eq!(words(0), Ok("less than a gigabyte".to_string()));
+    assert_eq!(
+      words(ONE_BYTE_SHORT_OF_A_GIGABYTE),
+      Ok("less than a gigabyte".to_string())
+    );
+    assert_eq!(words(GIGABYTE), Ok("1 GB".to_string()));
+  }
 }

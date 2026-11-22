@@ -1,0 +1,45 @@
+#version 450
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform Dispatch {
+    uint inputs;
+    uint source;
+    uint destination;
+    uint reduce;
+};
+
+layout(set = 0, binding = 0, std430) buffer Batch {
+    uint words[];
+} batch;
+
+void main() {
+    uint block = gl_GlobalInvocationID.x;
+    if (reduce != 0u) {
+        if (block >= (inputs + 1u) / 2u) {
+            return;
+        }
+
+        uint left = block * 2u;
+        uint value = batch.words[source + left];
+        if (left + 1u < inputs) {
+            value += batch.words[source + left + 1u];
+        }
+        batch.words[destination + block] = value;
+        return;
+    }
+
+    if (block >= inputs) {
+        return;
+    }
+
+    uint state = 0x811c9dc5u;
+    for (uint index = 0; index < 64; ++index) {
+        uint word = batch.words[block * 64 + index];
+        for (uint shift = 0; shift < 32; shift += 8) {
+            state = (state ^ ((word >> shift) & 255u)) * 0x01000193u;
+        }
+    }
+
+    batch.words[destination + block] = state;
+}

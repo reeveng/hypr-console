@@ -1,0 +1,83 @@
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_assignment.rs:3:42
+   |
+LL | fn may_overflow(a: u16, b: u16) -> i32 { i32::from(a) * i32::from(b) }
+   |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+   = note: `#[deny(explicit015_no_bare_arithmetic)]` on by default
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_assignment.rs:4:24
+   |
+LL | fn zero(x: &mut i32) { *x /= 0; }
+   |                        ^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_assignment.rs:5:34
+   |
+LL | fn negative(mut x: i32) -> i32 { x /= -1; x }
+   |                                  ^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_assignment.rs:6:34
+   |
+LL | fn wide_shift(mut x: u8) -> u8 { x <<= 8; x }
+   |                                  ^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_assignment.rs:7:55
+   |
+LL | fn evaluates_place(a: &mut [u32], i: fn() -> usize) { a[i()] >>= 1; }
+   |                                                       ^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_assignment.rs:8:55
+   |
+LL | fn evaluates_rhs(mut x: u32, f: fn() -> u32) -> u32 { x %= f(); x }
+   |                                                       ^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_assignment.rs:9:35
+   |
+LL | fn commented(mut x: u32) -> u32 { x /* keep */ /= 2; x }
+   |                                   ^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_assignment.rs:11:49
+   |
+LL | fn large_remainder(value: u32, n: u32) -> u32 { value << n.wrapping_rem(33) }
+   |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_assignment.rs:12:50
+   |
+LL | fn signed_remainder(value: u32, n: i32) -> u32 { value << n.wrapping_rem(32) }
+   |                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review_assignment.rs:13:43
+   |
+LL | fn nested(mut value: u32) -> ((), u32) { (value /= 2, value) }
+   |                                           ^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: aborting due to 10 previous errors
+

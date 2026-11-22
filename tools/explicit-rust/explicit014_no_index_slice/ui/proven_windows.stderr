@@ -1,0 +1,83 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_windows.rs:6:10
+   |
+LL |     &mut values[2..=5]
+   |          ^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: access the array with an irrefutable pattern
+   |
+LL -     &mut values[2..=5]
+LL +     { let [_, _, _explicit_part @ .., _, _] = &mut *values; let _explicit_slice: &mut [_] = _explicit_part; _explicit_slice }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_windows.rs:10:6
+   |
+LL |     &values[..4]
+   |      ^^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     &values[..4]
+LL +     { let [_explicit_part @ .., _, _, _, _] = &*values; let _explicit_slice: &[_] = _explicit_part; _explicit_slice }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_windows.rs:14:6
+   |
+LL |     &values[3..3]
+   |      ^^^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     &values[3..3]
+LL +     { let [_, _, _, _explicit_part @ .., _, _, _, _, _] = &*values; let _explicit_slice: &[_] = _explicit_part; _explicit_slice }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_windows.rs:18:6
+   |
+LL |     &values[62]
+   |      ^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     &values[62]
+LL +     { let [.., _explicit_part, _] = &*values; _explicit_part }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_windows.rs:22:5
+   |
+LL |     block[63][1] = 7;
+   |     ^^^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     block[63][1] = 7;
+LL +     *{ let [.., [_, _explicit_part, ..]] = &mut *block; _explicit_part } = 7;
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_windows.rs:22:5
+   |
+LL |     block[63][1] = 7;
+   |     ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/proven_windows.rs:26:16
+   |
+LL |     let last = values[31];
+   |                ^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     let last = values[31];
+LL +     let [.., last] = values;
+   |
+
+error: aborting due to 7 previous errors
+

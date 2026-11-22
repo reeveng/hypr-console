@@ -5,9 +5,7 @@
 use crate::sweeping::{Migration, Moment, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1790221016),
-    says: "sweeping the viewer panel, which is the viewer app now",
-    steps: &[
-        Step::Attic("/usr/local/bin/viewer-panel"),
-    ],
+  moment: Moment(1790221016),
+  says: "sweeping the viewer panel, which is the viewer app now",
+  steps: &[Step::Attic("/usr/local/bin/viewer-panel")],
 };

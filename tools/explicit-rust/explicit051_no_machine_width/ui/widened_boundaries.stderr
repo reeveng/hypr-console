@@ -1,0 +1,103 @@
+error: `at` holds a `usize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/widened_boundaries.rs:14:9
+   |
+LL |     let at = usize::from(flag);
+   |         ^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/widened_boundaries.rs:14:14
+   |
+LL |     let at = usize::from(flag);
+   |              ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     let at = usize::from(flag);
+LL +     let ::core::result::Result::Ok(at) = ::console_core_number_conversion::index::<::core::primitive::u8>(<::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(flag));
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/widened_boundaries.rs:19:5
+   |
+LL |     usize::from(byte)
+   |     ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     usize::from(byte)
+LL +     match ::console_core_number_conversion::index::<::core::primitive::u8>(byte) { ::core::result::Result::Ok(converted_position) => converted_position }
+   |
+
+error: `offset` holds a `isize`, which is as wide as the machine, and the source never says how wide that is
+  --> $DIR/widened_boundaries.rs:23:9
+   |
+LL |     let mut offset = isize::from(word);
+   |         ^^^^^^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `isize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/widened_boundaries.rs:23:22
+   |
+LL |     let mut offset = isize::from(word);
+   |                      ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     let mut offset = isize::from(word);
+LL +     let ::core::result::Result::Ok(mut offset) = ::console_core_number_conversion::wrapped_offset::<::core::primitive::i16>(word);
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/widened_boundaries.rs:34:5
+   |
+LL |     usize::wrapping_add(usize::wrapping_mul(3, _at), usize::wrapping_shl(1usize, 2))
+   |     ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     usize::wrapping_add(usize::wrapping_mul(3, _at), usize::wrapping_shl(1usize, 2))
+LL +     usize::wrapping_mul(3, _at).wrapping_add(usize::wrapping_shl(1usize, 2))
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/widened_boundaries.rs:34:25
+   |
+LL |     usize::wrapping_add(usize::wrapping_mul(3, _at), usize::wrapping_shl(1usize, 2))
+   |                         ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     usize::wrapping_add(usize::wrapping_mul(3, _at), usize::wrapping_shl(1usize, 2))
+LL +     usize::wrapping_add(_at.wrapping_mul(3), usize::wrapping_shl(1usize, 2))
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/widened_boundaries.rs:34:54
+   |
+LL |     usize::wrapping_add(usize::wrapping_mul(3, _at), usize::wrapping_shl(1usize, 2))
+   |                                                      ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -     usize::wrapping_add(usize::wrapping_mul(3, _at), usize::wrapping_shl(1usize, 2))
+LL +     usize::wrapping_add(usize::wrapping_mul(3, _at), 1usize.wrapping_shl(2))
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/widened_boundaries.rs:35:23
+   |
+LL |         .wrapping_add(usize::wrapping_mul(2, _next))
+   |                       ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -         .wrapping_add(usize::wrapping_mul(2, _next))
+LL +         .wrapping_add(_next.wrapping_mul(2))
+   |
+
+error: aborting due to 9 previous errors
+

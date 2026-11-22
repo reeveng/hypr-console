@@ -32,130 +32,82 @@
 #![feature(rustc_private)]
 #![warn(unused_extern_crates)]
 
+extern crate rustc_errors;
 extern crate rustc_hir;
-extern crate rustc_span;
+extern crate rustc_lexer;
 extern crate rustc_middle;
+extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+mod fixes;
+
+use clippy_utils::diagnostics::span_lint_and_then;
 use rustc_hir::intravisit::{self, Visitor};
-use rustc_hir::{Body, Expr, ExprKind, intravisit::FnKind, Pat, PatKind};
+use rustc_hir::{Body, HirId, LocalSource, Node, Pat, PatKind, intravisit::FnKind};
 use rustc_lint::{LateContext, LateLintPass};
-use rustc_span::Span;
+use rustc_middle::{hir::nested_filter::OnlyBodies, middle::region::ScopeTree, ty::TyCtxt};
+use rustc_span::{Span, Symbol, symbol::Ident};
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
-dylint_linting::declare_late_lint! {
+dylint_linting::impl_late_lint! {
     /// EXPLICIT073: a `let` that reuses a name alive outside it makes one
     /// word mean two values. Name the second value what it is, or bind it
     /// `_`-prefixed if nobody will read it again.
     pub EXPLICIT073_NO_SHADOWING,
     Warn,
-    "a name that means two values in one scope; the new value wants a word of its own"
+    "a name that means two values in one scope; the new value wants a word of its own",
+    Explicit073NoShadowing {
+        expression_macros: dylint_linting::config_or_default("explicit073_expression_macros"),
+        body_macros: dylint_linting::config_or_default("explicit073_body_macros"),
+    }
+}
+
+pub struct Explicit073NoShadowing {
+    expression_macros: Vec<String>,
+    body_macros: Vec<String>,
 }
 
 struct Walker<'tcx> {
-    tcx: rustc_middle::ty::TyCtxt<'tcx>,
-    scopes: Vec<HashSet<String>>,
-    hits: Vec<Span>,
-}
-
-impl<'tcx> Walker<'tcx> {
-    // A binding is a shadow only when the name is alive somewhere outside
-    // the scope being entered. A name reused in a sibling scope -- two arms
-    // of one match -- never meets itself.
-    fn shadows(&self, name: &str) -> bool {
-        self.scopes.iter().any(|scope| scope.contains(name))
-    }
-
-    fn bind(&mut self, name: &str) {
-        match self.scopes.last_mut() {
-            Some(scope) => {
-                scope.insert(name.to_owned());
-            }
-            None => {}
-        }
-    }
+    tcx: TyCtxt<'tcx>,
+    scopes: &'tcx ScopeTree,
+    bindings: HashMap<Symbol, Vec<HirId>>,
+    hits: Vec<(HirId, Ident)>,
 }
 
 impl<'tcx> Visitor<'tcx> for Walker<'tcx> {
+    type MaybeTyCtxt = TyCtxt<'tcx>;
+    type NestedFilter = OnlyBodies;
+
+    fn maybe_tcx(&mut self) -> TyCtxt<'tcx> {
+        self.tcx
+    }
+
     fn visit_pat(&mut self, pat: &'tcx Pat<'tcx>) {
-        // A lowering's own bindings are nobody's names.
-        if pat.span.from_expansion() {
-            return;
-        }
-
-        // Every half of an or-pattern binds the same names, so the first
-        // half says them all and the rest would only say them again.
-        if let PatKind::Or(halves) = pat.kind {
-            if let Some(first) = halves.first() {
-                self.visit_pat(first);
+        if let PatKind::Binding(_, id, ident, _) = pat.kind
+            && id == pat.hir_id
+            && !pat.span.from_expansion()
+            && !ident.as_str().starts_with('_')
+            && !matches!(
+                self.tcx.hir_parent_iter(id).map(|(_, node)| node)
+                    .find(|node| !matches!(node, Node::Pat(_) | Node::PatField(_))),
+                Some(Node::LetStmt(local)) if matches!(local.source, LocalSource::AssignDesugar)
+            )
+            && let Some(scope) = self.scopes.var_scope(id.local_id)
+        {
+            let earlier = self.bindings.entry(ident.name).or_default();
+            if earlier.iter().rev().any(|previous| {
+                previous.owner == id.owner
+                    && self
+                        .scopes
+                        .var_scope(previous.local_id)
+                        .is_some_and(|outer| self.scopes.is_subscope_of(scope, outer))
+            }) {
+                self.hits.push((id, ident));
             }
-
-            return;
-        }
-
-        if let PatKind::Binding(_, _, ident, _) = pat.kind {
-            let name = ident.as_str();
-
-            // The one spelling that says nobody will read the name again.
-            if !name.starts_with('_') {
-                if self.shadows(name) {
-                    self.hits.push(ident.span);
-                }
-
-                self.bind(name);
-            }
+            earlier.push(id);
         }
 
         intravisit::walk_pat(self, pat);
-    }
-
-    fn visit_block(&mut self, block: &'tcx rustc_hir::Block<'tcx>) {
-        self.scopes.push(HashSet::new());
-        intravisit::walk_block(self, block);
-        self.scopes.pop();
-    }
-
-    fn visit_expr(&mut self, expr: &'tcx Expr<'tcx>) {
-        match expr.kind {
-            // Each arm is its own scope: the arms are alternatives, not a
-            // sequence, and the same name in two arms is two values nobody
-            // could confuse.
-            ExprKind::Match(_, arms, _) => {
-                for arm in arms {
-                    self.scopes.push(HashSet::new());
-
-                    self.visit_pat(arm.pat);
-
-                    if let Some(guard) = arm.guard {
-                        self.visit_expr(guard);
-                    }
-
-                    self.visit_expr(arm.body);
-
-                    self.scopes.pop();
-                }
-            }
-
-            // A closure's parameters are a scope of their own. The nested
-            // body is resolved by hand because this visitor carries no
-            // filter: its walk stays inside the function it was started for.
-            ExprKind::Closure(closure) => {
-                self.scopes.push(HashSet::new());
-
-                let body = self.tcx.hir_body(closure.body);
-
-                for param in body.params {
-                    self.visit_pat(param.pat);
-                }
-
-                self.visit_expr(body.value);
-
-                self.scopes.pop();
-            }
-
-            _ => intravisit::walk_expr(self, expr),
-        }
     }
 }
 
@@ -166,8 +118,8 @@ impl<'tcx> LateLintPass<'tcx> for Explicit073NoShadowing {
         kind: FnKind<'tcx>,
         _decl: &'tcx rustc_hir::FnDecl<'tcx>,
         body: &'tcx Body<'tcx>,
-        _span: rustc_span::Span,
-        _def_id: rustc_hir::def_id::LocalDefId,
+        span: Span,
+        def_id: rustc_hir::def_id::LocalDefId,
     ) {
         // Closures inside the function are walked as part of its body; only
         // the function itself starts a walk.
@@ -177,27 +129,49 @@ impl<'tcx> LateLintPass<'tcx> for Explicit073NoShadowing {
 
         let mut walker = Walker {
             tcx: cx.tcx,
-            scopes: vec![HashSet::new()],
+            scopes: cx.tcx.region_scope_tree(def_id),
+            bindings: HashMap::new(),
             hits: Vec::new(),
         };
+        walker.visit_body(body);
 
-        for param in body.params {
-            walker.visit_pat(param.pat);
+        if walker.hits.is_empty() {
+            return;
         }
 
-        walker.visit_expr(body.value);
+        let mut fixes = fixes::Renames::new(
+            cx,
+            body,
+            span,
+            &walker.hits,
+            &self.expression_macros,
+            &self.body_macros,
+        );
 
-        for hit in walker.hits {
-            span_lint_and_help(
+        for (id, ident) in walker.hits {
+            span_lint_and_then(
                 cx,
                 EXPLICIT073_NO_SHADOWING,
-                hit,
+                ident.span,
                 "this name is already bound outside the scope being entered",
-                None,
-                "name the new value what it is -- a conversion names what it becomes, EXPLICIT045's \
-                 own sentence -- or bind it `_`-prefixed if nobody will read it again. Where the \
-                 second binding really is the same value narrowed, allow this rule here and let \
-                 the reason say so",
+                |diagnostic| {
+                    if let Some((name, edits)) =
+                        fixes.as_mut().and_then(|fixes| fixes.take(id, ident))
+                    {
+                        diagnostic.multipart_suggestion(
+                            format!("rename this binding to `{name}`"),
+                            edits,
+                            rustc_errors::Applicability::MachineApplicable,
+                        );
+                    } else {
+                        diagnostic.help(
+                            "name the new value what it is -- a conversion names what it becomes, \
+                             EXPLICIT045's own sentence -- or bind it `_`-prefixed if nobody will \
+                             read it again. Where the second binding really is the same value \
+                             narrowed, allow this rule here and let the reason say so",
+                        );
+                    }
+                },
             );
         }
     }
@@ -206,4 +180,19 @@ impl<'tcx> LateLintPass<'tcx> for Explicit073NoShadowing {
 #[test]
 fn ui() {
     dylint_testing::ui_test_example(env!("CARGO_PKG_NAME"), "main");
+}
+
+#[test]
+fn renames() {
+    dylint_testing::ui_test(env!("CARGO_PKG_NAME"), "ui");
+}
+
+#[test]
+fn reviewed_macros() {
+    dylint_testing::ui::Test::src_base(env!("CARGO_PKG_NAME"), "ui_macros")
+        .dylint_toml(
+            r#"explicit073_expression_macros = ["expressions::twice", "spelling::pass"]
+explicit073_body_macros = ["body_wrapper::keep_body"]"#,
+        )
+        .run();
 }

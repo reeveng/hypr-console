@@ -41,8 +41,8 @@
 //! `palette` compiles without the runtime, so which color every key is can be
 //! asked without building a compositor client to ask it of.
 
-pub mod remote;
 pub mod palette;
+pub mod remote;
 
 #[cfg(feature = "port")]
 pub mod configuration;
@@ -50,6 +50,8 @@ pub mod configuration;
 pub mod drawing;
 #[cfg(feature = "port")]
 pub mod gamepad;
+#[cfg(feature = "port")]
+pub mod key_repeat;
 #[cfg(feature = "port")]
 pub mod keymap;
 #[cfg(feature = "port")]

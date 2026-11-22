@@ -17,29 +17,29 @@
 //! screen with one, and `console-asking` is the card that reads the press.
 
 pub mod card;
-pub mod update;
 pub mod rows;
 pub mod table;
+pub mod update;
 
 pub use card::{COMMAND, WHO, card, door};
 
 #[derive(Debug)]
 pub enum Unmapped {
-    NoOnes,
-    Holding(std::path::PathBuf, std::io::Error),
-    Writing(console_core_atomic_writes::Unwritten),
+  NoOnes,
+  Holding(std::path::PathBuf, std::io::Error),
+  Writing(console_core_atomic_writes::Unwritten),
 }
 
 impl std::fmt::Display for Unmapped {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unmapped::NoOnes => {
-                write!(to, "can't identify this controller")
-            }
-            Unmapped::Holding(at, fault) => write!(to, "{}: {fault}", at.display()),
-            Unmapped::Writing(fault) => write!(to, "{fault}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unmapped::NoOnes => {
+        write!(to, "can't identify this controller")
+      }
+      Unmapped::Holding(at, fault) => write!(to, "{}: {fault}", at.display()),
+      Unmapped::Writing(fault) => write!(to, "{fault}"),
     }
+  }
 }
 
 impl std::error::Error for Unmapped {}

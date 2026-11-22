@@ -10,6 +10,7 @@ name = "bookmarks-index"
 path = "src/bin/bookmarks-index.rs"
 
 [dependencies]
+console-core-bounded-reads.workspace = true
 console-applications.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-external-programs.workspace = true

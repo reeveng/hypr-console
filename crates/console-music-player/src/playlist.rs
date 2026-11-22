@@ -37,224 +37,237 @@ const THE_FRONT_OF_THE_LIST: u32 = 0;
 
 const NOTHING_TO_CHOOSE_FROM: u64 = 0;
 
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Order {
-    Any,
-    #[default]
-    AsListed,
+  Any,
+  #[default]
+  AsListed,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Over {
-    On,
-    Again,
-    #[default]
-    Round,
+  On,
+  Again,
+  #[default]
+  Round,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Moved {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Playlist {
-    songs: Vec<PathBuf>,
-    order: Vec<u32>,
-    at: u32,
-    ordered: Order,
-    over: Over,
+  songs: Vec<PathBuf>,
+  order: Vec<u32>,
+  at: u32,
+  ordered: Order,
+  over: Over,
 }
 
 impl Playlist {
-    pub fn of(songs: Vec<PathBuf>) -> Result<Playlist, Never> {
-        let Ok(many) = fitted::<_, u32>(songs.len());
-        let Ok(order) = listed(many);
+  pub fn of(songs: Vec<PathBuf>) -> Result<Playlist, Never> {
+    let Ok(many) = fitted::<_, u32>(songs.len());
+    let Ok(order) = listed(many);
 
-        Ok(Playlist { songs, order, at: 0, ordered: Order::AsListed, over: Over::default() })
+    Ok(Playlist {
+      songs,
+      order,
+      at: 0,
+      ordered: Order::AsListed,
+      over: Over::default(),
+    })
+  }
+
+  pub fn opened(songs: Vec<PathBuf>, song: &Path) -> Result<Playlist, Never> {
+    let held = Playlist::of(songs)?;
+    let Ok(at) = held.position_of(song);
+
+    Ok(Playlist { at, ..held })
+  }
+
+  pub fn song(&self) -> Result<Option<&Path>, Never> {
+    let Ok(at) = index(self.at);
+
+    Ok(
+      self
+        .order
+        .get(at)
+        .and_then(|held| {
+          let Ok(held_2) = index(*held);
+
+          self.songs.get(held_2)
+        })
+        .map(PathBuf::as_path),
+    )
+  }
+
+  pub fn ordering(&self) -> Result<Order, Never> {
+    Ok(self.ordered)
+  }
+
+  pub fn repeating(&self) -> Result<Over, Never> {
+    Ok(self.over)
+  }
+
+  pub fn onward(&mut self) -> Result<Moved, Never> {
+    match ::core::primitive::bool::then_some(self.order.is_empty(), ()) {
+      ::core::option::Option::Some(()) => return Ok(Moved::No),
+      ::core::option::Option::None => {}
     }
 
-    pub fn opened(songs: Vec<PathBuf>, song: &Path) -> Result<Playlist, Never> {
-        let held = Playlist::of(songs)?;
-        let Ok(at) = held.position_of(song);
+    let Ok(many) = fitted::<_, u32>(self.order.len());
+    let last = many.saturating_sub(1);
 
-        Ok(Playlist { at, ..held })
+    match ::core::primitive::bool::then_some(self.at < last, ()) {
+      ::core::option::Option::Some(()) => {
+        self.at = self.at.saturating_add(1);
+
+        Ok(Moved::Yes)
+      }
+      ::core::option::Option::None => self.round_to(0),
+    }
+  }
+
+  pub fn back(&mut self) -> Result<Moved, Never> {
+    match ::core::primitive::bool::then_some(self.order.is_empty(), ()) {
+      ::core::option::Option::Some(()) => return Ok(Moved::No),
+      ::core::option::Option::None => {}
     }
 
-    pub fn song(&self) -> Result<Option<&Path>, Never> {
-        let Ok(at) = index(self.at);
+    match ::core::primitive::bool::then_some(self.at > 0, ()) {
+      ::core::option::Option::Some(()) => {
+        self.at = self.at.saturating_sub(1);
 
-        Ok(self
-            .order
-            .get(at)
-            .and_then(|held| {
-                let Ok(held) = index(*held);
-
-                self.songs.get(held)
-            })
-            .map(PathBuf::as_path))
-    }
-
-    pub fn ordering(&self) -> Result<Order, Never> {
-        Ok(self.ordered)
-    }
-
-    pub fn repeating(&self) -> Result<Over, Never> {
-        Ok(self.over)
-    }
-
-    pub fn onward(&mut self) -> Result<Moved, Never> {
-        match self.order.is_empty() {
-            true => return Ok(Moved::No),
-            false => {},
-        }
-
+        Ok(Moved::Yes)
+      }
+      ::core::option::Option::None => {
         let Ok(many) = fitted::<_, u32>(self.order.len());
-        let last = many.saturating_sub(1);
 
-        match self.at < last {
-            true => {
-                self.at = self.at.saturating_add(1);
+        self.round_to(many.saturating_sub(1))
+      }
+    }
+  }
 
-                Ok(Moved::Yes)
-            },
-            false => self.round_to(0),
-        }
+  pub fn finished(&mut self) -> Result<Moved, Never> {
+    match ::core::primitive::bool::then_some(self.order.is_empty(), ()) {
+      ::core::option::Option::Some(()) => return Ok(Moved::No),
+      ::core::option::Option::None => {}
     }
 
-    pub fn back(&mut self) -> Result<Moved, Never> {
-        match self.order.is_empty() {
-            true => return Ok(Moved::No),
-            false => {},
-        }
-
-        match self.at > 0 {
-            true => {
-                self.at = self.at.saturating_sub(1);
-
-                Ok(Moved::Yes)
-            },
-            false => {
-                let Ok(many) = fitted::<_, u32>(self.order.len());
-
-                self.round_to(many.saturating_sub(1))
-            },
-        }
+    match self.over {
+      Over::Again => Ok(Moved::Yes),
+      Over::Round | Over::On => self.onward(),
     }
+  }
 
-    pub fn finished(&mut self) -> Result<Moved, Never> {
-        match self.order.is_empty() {
-            true => return Ok(Moved::No),
-            false => {},
-        }
+  pub fn shuffling(&mut self, order: Order, seed: u64) -> Result<(), Never> {
+    let Ok(playing) = self.song();
+    let held = playing.map(Path::to_path_buf);
 
-        match self.over {
-            Over::Again => Ok(Moved::Yes),
-            Over::Round | Over::On => self.onward(),
-        }
-    }
+    let Ok(many) = fitted::<_, u32>(self.songs.len());
+    let Ok(ordered) = match order {
+      Order::AsListed => listed(many),
+      Order::Any => shuffled(many, seed),
+    };
 
-    pub fn shuffling(&mut self, order: Order, seed: u64) -> Result<(), Never> {
-        let Ok(playing) = self.song();
-        let held = playing.map(Path::to_path_buf);
+    self.order = ordered;
+    self.ordered = order;
 
-        let Ok(many) = fitted::<_, u32>(self.songs.len());
-        let Ok(ordered) = match order {
-            Order::AsListed => listed(many),
-            Order::Any => shuffled(many, seed),
-        };
+    let Ok(at) = match held {
+      Some(song) => self.position_of(&song),
+      None => Ok(0),
+    };
 
-        self.order = ordered;
-        self.ordered = order;
+    self.at = at;
 
-        let Ok(at) = match held {
-            Some(song) => self.position_of(&song),
-            None => Ok(0),
-        };
+    Ok(())
+  }
 
+  pub fn repeat(&mut self, over: Over) -> Result<(), Never> {
+    self.over = over;
+
+    Ok(())
+  }
+
+  fn round_to(&mut self, at: u32) -> Result<Moved, Never> {
+    match self.over {
+      Over::Round | Over::Again => {
         self.at = at;
 
-        Ok(())
+        Ok(Moved::Yes)
+      }
+      Over::On => Ok(Moved::No),
     }
+  }
 
-    pub fn repeat(&mut self, over: Over) -> Result<(), Never> {
-        self.over = over;
+  fn position_of(&self, song: &Path) -> Result<u32, Never> {
+    let found = (0..).zip(&self.order).find(|(_, held)| {
+      let Ok(held_2) = index(**held);
 
-        Ok(())
-    }
+      self.songs.get(held_2).map(PathBuf::as_path) == Some(song)
+    });
 
-    fn round_to(&mut self, at: u32) -> Result<Moved, Never> {
-        match self.over {
-            Over::Round | Over::Again => {
-                self.at = at;
-
-                Ok(Moved::Yes)
-            },
-            Over::On => Ok(Moved::No),
-        }
-    }
-
-    fn position_of(&self, song: &Path) -> Result<u32, Never> {
-        let found = (0..).zip(&self.order).find(|(_, held)| {
-            let Ok(held) = index(**held);
-
-            self.songs.get(held).map(PathBuf::as_path) == Some(song)
-        });
-
-        Ok(match found {
-            Some((at, _)) => at,
-            None => THE_FRONT_OF_THE_LIST,
-        })
-    }
+    Ok(match found {
+      Some((at, _)) => at,
+      None => THE_FRONT_OF_THE_LIST,
+    })
+  }
 }
 
 fn listed(songs: u32) -> Result<Vec<u32>, Never> {
-    Ok((0..songs).collect())
+  Ok((0..songs).collect())
 }
 
 fn shuffled(songs: u32, seed: u64) -> Result<Vec<u32>, Never> {
-    let Ok(mut order) = listed(songs);
-    let Ok(mut rolling) = Rolling::from(seed);
+  let Ok(mut order) = listed(songs);
+  let Ok(mut rolling) = Rolling::from(seed);
 
-    for at in (1..songs).rev() {
-        let Ok(other) = rolling.under(at.saturating_add(1));
-        let Ok(here) = index(at);
-        let Ok(there) = index(other);
+  for at in (1..songs).rev() {
+    let Ok(other) = rolling.under(at.saturating_add(1));
+    let Ok(here) = index(at);
+    let Ok(there) = index(other);
 
-        order.swap(here, there);
+    match order.split_at_mut_checked(here) {
+      Some((before, remaining)) => match (before.get_mut(there), remaining.first_mut()) {
+        (Some(other_song), Some(this_song)) => std::mem::swap(other_song, this_song),
+        (None, _) | (_, None) => {}
+      },
+      None => {}
     }
+  }
 
-    Ok(order)
+  Ok(order)
 }
 
 struct Rolling(u64);
 
 impl Rolling {
-    fn from(seed: u64) -> Result<Rolling, Never> {
-        Ok(Rolling(seed | 1))
-    }
+  fn from(seed: u64) -> Result<Rolling, Never> {
+    Ok(Rolling(seed | 1))
+  }
 
-    fn rolled(&mut self) -> Result<u64, Never> {
-        let mut held = self.0;
+  fn rolled(&mut self) -> Result<u64, Never> {
+    let mut held = self.0;
 
-        held ^= held.wrapping_shr(12);
-        held ^= held.wrapping_shl(25);
-        held ^= held.wrapping_shr(27);
-        self.0 = held;
+    held ^= held.wrapping_shr(12);
+    held ^= held.wrapping_shl(25);
+    held ^= held.wrapping_shr(27);
+    self.0 = held;
 
-        Ok(held.wrapping_mul(0x2545_F491_4F6C_DD1D))
-    }
+    Ok(held.wrapping_mul(0x2545_F491_4F6C_DD1D))
+  }
 
-    fn under(&mut self, bound: u32) -> Result<u32, Never> {
-        let Ok(rolled) = self.rolled();
-        let held = u64::from(bound);
-        let under = match rolled.checked_rem(held) {
-            Some(under) => under,
-            None => NOTHING_TO_CHOOSE_FROM,
-        };
+  fn under(&mut self, bound: u32) -> Result<u32, Never> {
+    let Ok(rolled) = self.rolled();
+    let held = u64::from(bound);
+    let under = match rolled.checked_rem(held) {
+      Some(under) => under,
+      None => NOTHING_TO_CHOOSE_FROM,
+    };
 
-        fitted::<u64, u32>(under)
-    }
+    fitted::<u64, u32>(under)
+  }
 }

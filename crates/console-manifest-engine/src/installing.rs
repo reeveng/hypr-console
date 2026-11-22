@@ -27,153 +27,184 @@ use console_how_far::Progress;
 
 pub const FETCHING: f64 = 0.5;
 
-const VERBS: [&str; 5] =
-    ["installing", "upgrading", "reinstalling", "downgrading", "removing"];
+const VERBS: [&str; 5] = [
+  "installing",
+  "upgrading",
+  "reinstalling",
+  "downgrading",
+  "removing",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PacmanOutput {
-    Downloading(String),
-    Installing { done: u32, many: u32, name: String },
-    Other,
+  Downloading(String),
+  Installing { done: u32, many: u32, name: String },
+  Other,
 }
 
 pub fn parse_line(line: &str) -> Result<PacmanOutput, Never> {
-    let Ok(plain) = how_far::plain(line);
-    let said = plain.trim();
+  let Ok(plain) = how_far::plain(line);
+  let said = plain.trim();
 
-    let downloading = match said.strip_suffix("downloading...") {
-        Some(downloading) => downloading,
-        None => return counted(said),
-    };
+  let downloading = match said.strip_suffix("downloading...") {
+    Some(downloading) => downloading,
+    None => return counted(said),
+  };
 
-    Ok(PacmanOutput::Downloading(downloading.trim().to_string()))
+  Ok(PacmanOutput::Downloading(downloading.trim().to_string()))
 }
 
 fn counted(said: &str) -> Result<PacmanOutput, Never> {
-    let rest = match said.strip_prefix('(') {
-        Some(rest) => rest,
-        None => return Ok(PacmanOutput::Other),
-    };
+  let rest = match said.strip_prefix('(') {
+    Some(rest) => rest,
+    None => return Ok(PacmanOutput::Other),
+  };
 
-    let (count, doing) = match rest.split_once(')') {
-        Some((count, doing)) => (count, doing),
-        None => return Ok(PacmanOutput::Other),
-    };
+  let (count, doing) = match rest.split_once(')') {
+    Some((count, doing)) => (count, doing),
+    None => return Ok(PacmanOutput::Other),
+  };
 
-    let (done, many) = match count.split_once('/') {
-        Some((done, many)) => (done, many),
-        None => return Ok(PacmanOutput::Other),
-    };
+  let (done, many) = match count.split_once('/') {
+    Some((done, many)) => (done, many),
+    None => return Ok(PacmanOutput::Other),
+  };
 
-    let done = match done.trim().parse::<u32>() {
-        Ok(done) => done,
-        Err(_not_a_number) => return Ok(PacmanOutput::Other),
-    };
+  let done_3 = match done.trim().parse::<u32>() {
+    Ok(done_2) => done_2,
+    Err(_not_a_number) => return Ok(PacmanOutput::Other),
+  };
 
-    let many = match many.trim().parse::<u32>() {
-        Ok(many) => many,
-        Err(_not_a_number) => return Ok(PacmanOutput::Other),
-    };
+  let many_3 = match many.trim().parse::<u32>() {
+    Ok(many_2) => many_2,
+    Err(_not_a_number) => return Ok(PacmanOutput::Other),
+  };
 
-    let doing = doing.trim();
+  let doing_2 = doing.trim();
 
-    let verb = match VERBS.iter().find(|verb| doing.starts_with(*verb)) {
-        Some(verb) => verb,
-        None => return Ok(PacmanOutput::Other),
-    };
+  let verb = match VERBS.iter().find(|verb| doing_2.starts_with(*verb)) {
+    Some(verb) => verb,
+    None => return Ok(PacmanOutput::Other),
+  };
 
-    Ok(PacmanOutput::Installing {
-        done,
-        many,
-        name: doing.trim_start_matches(*verb).trim().to_string(),
-    })
+  Ok(PacmanOutput::Installing {
+    done: done_3,
+    many: many_3,
+    name: doing_2.trim_start_matches(*verb).trim().to_string(),
+  })
 }
 
 pub fn fetched(far: Progress) -> Result<f64, Never> {
-    let Ok(part) = how_far::fraction(far);
+  let Ok(part) = how_far::fraction(far);
 
-    Ok(part * FETCHING)
+  Ok(part * FETCHING)
 }
 
 pub fn overall_fraction(far: Progress) -> Result<f64, Never> {
-    let Ok(part) = how_far::fraction(far);
+  let Ok(part) = how_far::fraction(far);
 
-    Ok(FETCHING + part * (1.0 - FETCHING))
+  Ok(FETCHING + part * (1.0 - FETCHING))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn the_line_that_names_a_package_being_written_carries_its_own_count() {
-        assert_eq!(
-            parse_line("(2/3) installing console-fonts"),
-            Ok(PacmanOutput::Installing { done: 2, many: 3, name: "console-fonts".to_string() })
-        );
-        assert_eq!(
-            parse_line("( 7/12) upgrading linux-firmware"),
-            Ok(PacmanOutput::Installing { done: 7, many: 12, name: "linux-firmware".to_string() })
-        );
-    }
+  #[test]
+  fn the_line_that_names_a_package_being_written_carries_its_own_count() {
+    assert_eq!(
+      parse_line("(2/3) installing console-fonts"),
+      Ok(PacmanOutput::Installing {
+        done: 2,
+        many: 3,
+        name: "console-fonts".to_string()
+      })
+    );
+    assert_eq!(
+      parse_line("( 7/12) upgrading linux-firmware"),
+      Ok(PacmanOutput::Installing {
+        done: 7,
+        many: 12,
+        name: "linux-firmware".to_string()
+      })
+    );
+  }
 
-    #[test]
-    fn a_count_that_is_not_about_a_package_moves_nothing() {
-        for line in [
-            "(3/3) checking keys in keyring",
-            "(1/3) checking package integrity",
-            "(2/3) loading package files",
-            "(3/3) checking for file conflicts",
-            "(1/1) checking available disk space",
-        ] {
-            assert_eq!(parse_line(line),
-            Ok(PacmanOutput::Other), "{line} was counted");
-        }
+  #[test]
+  fn a_count_that_is_not_about_a_package_moves_nothing() {
+    for line in [
+      "(3/3) checking keys in keyring",
+      "(1/3) checking package integrity",
+      "(2/3) loading package files",
+      "(3/3) checking for file conflicts",
+      "(1/1) checking available disk space",
+    ] {
+      assert_eq!(
+        parse_line(line),
+        Ok(PacmanOutput::Other),
+        "{line} was counted"
+      );
     }
+  }
 
-    #[test]
-    fn the_line_pacman_prints_when_no_one_is_watching_it_names_a_download() {
-        assert_eq!(
-            parse_line(" linux-firmware-20240909.1-1-any downloading..."),
-            Ok(PacmanOutput::Downloading("linux-firmware-20240909.1-1-any".to_string()))
-        );
-    }
+  #[test]
+  fn the_line_pacman_prints_when_no_one_is_watching_it_names_a_download() {
+    assert_eq!(
+      parse_line(" linux-firmware-20240909.1-1-any downloading..."),
+      Ok(PacmanOutput::Downloading(
+        "linux-firmware-20240909.1-1-any".to_string()
+      ))
+    );
+  }
 
-    #[test]
-    fn what_it_says_in_color_is_read_the_same_as_what_it_says_plain() {
-        assert_eq!(
-            parse_line("\u{1b}[0;1m(2/3)\u{1b}[0m installing console-fonts"),
-            Ok(PacmanOutput::Installing { done: 2, many: 3, name: "console-fonts".to_string() })
-        );
-    }
+  #[test]
+  fn what_it_says_in_color_is_read_the_same_as_what_it_says_plain() {
+    assert_eq!(
+      parse_line("\u{1b}[0;1m(2/3)\u{1b}[0m installing console-fonts"),
+      Ok(PacmanOutput::Installing {
+        done: 2,
+        many: 3,
+        name: "console-fonts".to_string()
+      })
+    );
+  }
 
-    #[test]
-    fn everything_else_it_says_is_passed_through_and_counted_as_nothing() {
-        for line in [
-            ":: Retrieving packages...",
-            ":: Processing package changes...",
-            "warning: console-fonts-1.0 is up to date -- reinstalling",
-            "",
-            "(",
-            "(x/3) installing nothing",
-            "(1/) installing nothing",
-        ] {
-            assert_eq!(parse_line(line),
-            Ok(PacmanOutput::Other), "{line:?} was read as progress");
-        }
+  #[test]
+  fn everything_else_it_says_is_passed_through_and_counted_as_nothing() {
+    for line in [
+      ":: Retrieving packages...",
+      ":: Processing package changes...",
+      "warning: console-fonts-1.0 is up to date -- reinstalling",
+      "",
+      "(",
+      "(x/3) installing nothing",
+      "(1/) installing nothing",
+    ] {
+      assert_eq!(
+        parse_line(line),
+        Ok(PacmanOutput::Other),
+        "{line:?} was read as progress"
+      );
     }
+  }
 
-    #[test]
-    fn fetching_has_the_first_half_and_writing_the_second() {
-        assert_eq!(fetched(Progress { done: 0, many: 4 }), Ok(0.0));
-        assert_eq!(fetched(Progress { done: 4, many: 4 }), Ok(FETCHING));
-        assert_eq!(overall_fraction(Progress { done: 0, many: 4 }), Ok(FETCHING));
-        assert_eq!(overall_fraction(Progress { done: 4, many: 4 }), Ok(1.0));
-    }
+  #[test]
+  fn fetching_has_the_first_half_and_writing_the_second() {
+    assert_eq!(fetched(Progress { done: 0, many: 4 }), Ok(0.0));
+    assert_eq!(fetched(Progress { done: 4, many: 4 }), Ok(FETCHING));
+    assert_eq!(
+      overall_fraction(Progress { done: 0, many: 4 }),
+      Ok(FETCHING)
+    );
+    assert_eq!(overall_fraction(Progress { done: 4, many: 4 }), Ok(1.0));
+  }
 
-    #[test]
-    fn a_stage_with_no_packages_in_it_divides_by_nothing_and_says_nothing() {
-        assert_eq!(fetched(Progress { done: 0, many: 0 }), Ok(0.0));
-        assert_eq!(overall_fraction(Progress { done: 0, many: 0 }), Ok(FETCHING));
-    }
+  #[test]
+  fn a_stage_with_no_packages_in_it_divides_by_nothing_and_says_nothing() {
+    assert_eq!(fetched(Progress { done: 0, many: 0 }), Ok(0.0));
+    assert_eq!(
+      overall_fraction(Progress { done: 0, many: 0 }),
+      Ok(FETCHING)
+    );
+  }
 }

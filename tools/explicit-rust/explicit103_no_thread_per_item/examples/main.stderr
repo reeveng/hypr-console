@@ -1,0 +1,27 @@
+warning: a thread is started here once for each turn of the loop, so the list decides how many there are
+  --> $DIR/main.rs:11:22
+   |
+LL |         started.push(thread::spawn(move || one));
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: start a number of workers somebody wrote and hand them the items through one bounded queue, so what does not fit waits. Where the list has a length typed out in the source or was bounded before this loop, allow this rule here and let the reason say by what
+   = note: `#[warn(explicit103_no_thread_per_item)]` on by default
+
+warning: a thread is started here once for each turn of the loop, so the list decides how many there are
+  --> $DIR/main.rs:19:35
+   |
+LL |     arrived.into_iter().map(|one| thread::spawn(move || one)).collect()
+   |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: start a number of workers somebody wrote and hand them the items through one bounded queue, so what does not fit waits. Where the list has a length typed out in the source or was bounded before this loop, allow this rule here and let the reason say by what
+
+warning: a thread is started here once for each turn of the loop, so the list decides how many there are
+  --> $DIR/main.rs:26:21
+   |
+LL |             let _ = scope.spawn(move || *one);
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: start a number of workers somebody wrote and hand them the items through one bounded queue, so what does not fit waits. Where the list has a length typed out in the source or was bounded before this loop, allow this rule here and let the reason say by what
+
+warning: 3 warnings emitted
+

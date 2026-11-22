@@ -1,0 +1,35 @@
+// run-rustfix
+// edition:2024
+// rustc-env:CARGO_PKG_RUST_VERSION=1.88
+// aux-build:console_core_number_conversion.rs
+
+extern crate console_core_number_conversion;
+
+fn update(state: &mut [u8; 4]) {
+    for [state_lane_0, state_lane_1] in <[_]>::iter_mut(<[_]>::as_chunks_mut::<2>(state).0) {
+        let [left, right] = [
+            *state_lane_0,
+            *state_lane_1,
+        ];
+        *state_lane_0 = right;
+        *state_lane_1 = left;
+    }
+}
+
+fn use_position(state: &mut [u8; 4]) -> u64 {
+    let mut observed = 0;
+    for (row, [state_lane_0, _]) in <[_]>::iter_mut(<[_]>::as_chunks_mut::<2>(state).0).enumerate() {
+        let Ok(saved) = ::console_core_number_conversion::fixed_index(usize::wrapping_mul(row, 2));
+        *state_lane_0 = 42;
+        observed += saved;
+    }
+    observed
+}
+
+fn main() {
+    let mut state = [1, 2, 3, 4];
+    update(&mut state);
+    assert_eq!(state, [2, 1, 4, 3]);
+    assert_eq!(use_position(&mut state), 2);
+    assert_eq!(state, [42, 1, 42, 3]);
+}

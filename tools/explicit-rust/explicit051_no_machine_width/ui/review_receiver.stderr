@@ -1,0 +1,51 @@
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_receiver.rs:4:26
+   |
+LL |     std::hint::black_box(usize::wrapping_add(0, 1));
+   |                          ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_receiver.rs:5:26
+   |
+LL |     std::hint::black_box(usize::wrapping_add(make(), 1));
+   |                          ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_receiver.rs:7:26
+   |
+LL |     std::hint::black_box(usize::wrapping_add(_from_context, 1));
+   |                          ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_receiver.rs:9:26
+   |
+LL |     std::hint::black_box(usize::wrapping_add(_still_generic, 1));
+   |                          ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_receiver.rs:10:26
+   |
+LL |     std::hint::black_box(usize::cast_signed(make()));
+   |                          ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/review_receiver.rs:12:26
+   |
+LL |     std::hint::black_box(usize::cast_signed(_unsigned));
+   |                          ^^^^^
+   |
+   = help: say the width: `u32` or `u64` for a count or a position, `i64` for a signed one. Where a library hands a `usize` over or wants one back, meet it there with a named conversion (`console_core_number_conversion::fitted`) and hold the quantity at the width it has
+
+error: aborting due to 6 previous errors
+

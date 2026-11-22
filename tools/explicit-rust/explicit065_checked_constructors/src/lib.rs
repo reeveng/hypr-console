@@ -26,13 +26,15 @@
 #![warn(unused_extern_crates)]
 
 extern crate rustc_hir;
+extern crate rustc_middle;
 extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+use clippy_utils::diagnostics::span_lint_hir_and_then;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::def_id::LocalDefId;
-use rustc_hir::{ImplItem, Item, ItemKind, QPath, TyKind};
+use rustc_hir::{HirId, ImplItem, Item, ItemKind, QPath, TyKind};
 use rustc_lint::{LateContext, LateLintPass};
+use rustc_middle::ty;
 use rustc_span::Span;
 
 use std::collections::HashSet;
@@ -48,7 +50,7 @@ dylint_linting::impl_late_lint! {
 }
 
 struct Explicit065CheckedConstructors {
-    structs: Vec<(LocalDefId, Span, Vec<Span>)>,
+    structs: Vec<(LocalDefId, Span, Vec<(HirId, Span)>)>,
     checked: HashSet<LocalDefId>,
     unchecked: Vec<(LocalDefId, String, Span)>,
 }
@@ -80,24 +82,31 @@ fn self_type_of(item: &Item<'_>) -> Option<LocalDefId> {
     }
 }
 
-// A constructor that refuses: a `try_new`, or a `new` that answers with a
-// `Result`. Read off the name and the signature, not the body, because the
-// rule is about the route other code takes in.
-fn refuses(bound: &ImplItem<'_>) -> bool {
-    let rustc_hir::ImplItemKind::Fn(sig, _) = bound.kind else {
+fn returns_fallible_result(cx: &LateContext<'_>, def_id: LocalDefId) -> bool {
+    let output = cx.tcx.fn_sig(def_id).skip_binder().output().skip_binder();
+    let ty::Adt(result, arguments) = output.kind() else {
         return false;
     };
 
+    if !cx.tcx.is_diagnostic_item(rustc_span::sym::Result, result.did()) {
+        return false;
+    }
+
+    match arguments.type_at(1).kind() {
+        ty::Never => false,
+        ty::Adt(error, _) if error.is_enum() => !error.variants().is_empty(),
+        _ => true,
+    }
+}
+
+fn refuses(cx: &LateContext<'_>, bound: &ImplItem<'_>) -> bool {
+    if !matches!(bound.kind, rustc_hir::ImplItemKind::Fn(..)) {
+        return false;
+    }
+
     match bound.ident.as_str() {
         "try_new" => true,
-        "new" => {
-            let rustc_hir::FnRetTy::Return(written) = sig.decl.output else {
-                return false;
-            };
-
-            matches!(written.kind, TyKind::Path(QPath::Resolved(_, path))
-                if path.segments.last().is_some_and(|last| last.ident.as_str() == "Result"))
-        }
+        "new" => returns_fallible_result(cx, bound.owner_id.def_id),
         _ => false,
     }
 }
@@ -110,7 +119,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit065CheckedConstructors {
                     .fields()
                     .iter()
                     .filter(|field| cx.tcx.visibility(field.def_id.to_def_id()).is_public())
-                    .map(|field| field.ty.span)
+                    .map(|field| (field.hir_id, field.ty.span))
                     .collect();
 
                 self.structs.push((item.owner_id.def_id, item.span, opened));
@@ -128,7 +137,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit065CheckedConstructors {
                 if under
                     .items
                     .iter()
-                    .any(|id| refuses(cx.tcx.hir_impl_item(*id)))
+                    .any(|id| refuses(cx, cx.tcx.hir_impl_item(*id)))
                 {
                     self.checked.insert(owner);
                 }
@@ -151,8 +160,15 @@ impl<'tcx> LateLintPass<'tcx> for Explicit065CheckedConstructors {
                 let named = cx.tcx.def_path_str(id);
                 let last = named.rsplit("::").next().unwrap_or_default();
 
-                if matches!(last, "Default" | "Deserialize") {
-                    self.unchecked.push((owner, last.to_owned(), item.span));
+                match (cx.tcx.crate_name(id.krate).as_str(), last) {
+                    ("core", "TryFrom" | "FromStr") => {
+                        self.checked.insert(owner);
+                    }
+                    ("core", "Default" | "DerefMut" | "AsMut" | "BorrowMut")
+                    | ("serde" | "serde_core", "Deserialize") => {
+                        self.unchecked.push((owner, last.to_owned(), item.span));
+                    }
+                    _ => {}
                 }
             }
 
@@ -178,33 +194,41 @@ impl<'tcx> LateLintPass<'tcx> for Explicit065CheckedConstructors {
             if !routes.is_empty() {
                 let named: Vec<_> = routes.iter().map(|(one, _)| *one).collect();
 
-                span_lint_and_help(
+                span_lint_hir_and_then(
                     cx,
                     EXPLICIT065_CHECKED_CONSTRUCTORS,
+                    cx.tcx.local_def_id_to_hir_id(*def_id),
                     *span,
                     format!(
                         "a type whose constructor refuses, with an `impl {}` beside it -- a route \
                          around the check",
                         named.join(", ")
                     ),
-                    None,
-                    "the constructor refuses what the impl accepts, and anything that can build the \
-                     type without asking is the check undone. Where the type really has no invariant \
-                     the impl can break, allow this rule here and let the reason say so",
+                    |diagnostic| {
+                        diagnostic.help(
+                            "the constructor refuses what the impl accepts, and anything that can build the \
+                             type without asking is the check undone. Where the type really has no invariant \
+                             the impl can break, allow this rule here and let the reason say so",
+                        );
+                    },
                 );
             }
 
-            for field in opened {
-                span_lint_and_help(
+            for (field, span) in opened {
+                span_lint_hir_and_then(
                     cx,
                     EXPLICIT065_CHECKED_CONSTRUCTORS,
                     *field,
+                    *span,
                     "a field anyone can write, on a type whose constructor refuses",
-                    None,
-                    "the field wants to be private, so the invariant is the constructor's to keep \
-                     and a reader outside has to ask for it. Where the type really has no invariant \
-                     -- nothing a writer could set false -- allow this rule here and let the reason \
-                     say so",
+                    |diagnostic| {
+                        diagnostic.help(
+                            "the field wants to be private, so the invariant is the constructor's to keep \
+                             and a reader outside has to ask for it. Where the type really has no invariant \
+                             -- nothing a writer could set false -- allow this rule here and let the reason \
+                             say so",
+                        );
+                    },
                 );
             }
         }

@@ -49,116 +49,134 @@ pub const AT: &str = "at";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bookmark {
-    pub song: PathBuf,
-    pub at: f64,
+  pub song: PathBuf,
+  pub at: crate::Seconds,
 }
 
 pub fn where_() -> Result<Option<PathBuf>, Never> {
-    let ours = Base::State.ours()?;
+  let ours = Base::State.ours()?;
 
-    Ok(ours.map(|ours| ours.join(NOTE)))
+  Ok(ours.map(|ours_2| ours_2.join(NOTE)))
 }
 
-pub fn serialize(song: &Path, at: f64) -> Result<String, Never> {
-    Ok(format!("[{UNDER}]\n{SONG}={}\n{AT}={at}\n", song.display()))
+pub fn serialize(song: &Path, crate::Seconds(at): crate::Seconds) -> Result<String, Never> {
+  Ok(format!("[{UNDER}]\n{SONG}={}\n{AT}={at}\n", song.display()))
 }
 
 pub fn of(said: &str) -> Result<Option<Bookmark>, Never> {
-    let fields = console_core_ini_files::fields(said, console_core_ini_files::Under(UNDER))?;
+  let fields = console_core_ini_files::fields(said, console_core_ini_files::Under(UNDER))?;
 
-    let song = match fields.get(SONG) {
-        Some(song) => PathBuf::from(song),
-        None => return Ok(None),
-    };
+  let song = match fields.get(SONG) {
+    Some(song) => PathBuf::from(song),
+    None => return Ok(None),
+  };
 
-    match song.as_os_str().is_empty() {
-        true => return Ok(None),
-        false => {},
-    }
+  match ::core::primitive::bool::then_some(song.as_os_str().is_empty(), ()) {
+    ::core::option::Option::Some(()) => return Ok(None),
+    ::core::option::Option::None => {}
+  }
 
-    let at = match fields.get(AT).map(|at| at.parse()) {
-        Some(Ok(at)) => at,
-        Some(Err(_that_is_not_a_number)) => 0.0,
-        None => 0.0,
-    };
+  let at = match fields.get(AT).map(|at| at.parse()) {
+    Some(Ok(at)) => at,
+    Some(Err(_that_is_not_a_number)) => 0.0,
+    None => 0.0,
+  };
 
-    Ok(Some(Bookmark { song, at }))
+  Ok(Some(Bookmark {
+    song,
+    at: crate::Seconds(at),
+  }))
 }
 
-pub fn write(song: &Path, at: f64) -> Result<(), Never> {
-    let Ok(where_) = where_();
+pub fn write(song: &Path, at: crate::Seconds) -> Result<(), Never> {
+  let Ok(where_) = where_();
 
-    let at_ = match where_ {
-        Some(at_) => at_,
-        None => return Ok(()),
-    };
+  let at_ = match where_ {
+    Some(at_) => at_,
+    None => return Ok(()),
+  };
 
-    let Ok(said) = serialize(song, at);
+  let Ok(said) = serialize(song, at);
 
-    match console_core_atomic_writes::whole(&at_, said.as_bytes()) {
-        Ok(()) => {},
-        Err(fault) => eprintln!("music-player: {}: {fault}", at_.display()),
-    }
+  match console_core_atomic_writes::whole(&at_, said.as_bytes()) {
+    Ok(()) => {}
+    Err(fault) => eprintln!("music-player: {}: {fault}", at_.display()),
+  }
 
-    Ok(())
+  Ok(())
 }
 
 pub fn read() -> Result<Option<Bookmark>, Never> {
-    let Ok(where_) = where_();
+  let Ok(where_) = where_();
 
-    let at = match where_ {
-        Some(at) => at,
-        None => return Ok(None),
-    };
+  let at = match where_ {
+    Some(at) => at,
+    None => return Ok(None),
+  };
 
-    let Ok(held) = console_core_atomic_writes::read(&at);
+  let Ok(held) = console_core_atomic_writes::read(&at);
 
-    let said = match held {
-        Stored::Text(said) => said,
-        Stored::Absent => return Ok(None),
-        Stored::Failed(fault) => {
-            eprintln!("music-player: {}: {fault}", at.display());
+  let said = match held {
+    Stored::Text(said) => said,
+    Stored::Absent => return Ok(None),
+    Stored::Failed(fault) => {
+      eprintln!("music-player: {}: {fault}", at.display());
 
-            return Ok(None);
-        }
-    };
+      return Ok(None);
+    }
+  };
 
-    of(&said)
+  of(&said)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn what_is_written_is_what_is_read_back() {
-        let song = Path::new("/home/someone/Music/a song.flac");
-        let Ok(said) = serialize(song, 61.5);
+  #[test]
+  fn what_is_written_is_what_is_read_back() {
+    let song = Path::new("/home/someone/Music/a song.flac");
+    let Ok(said) = serialize(song, crate::Seconds(61.5));
 
-        assert_eq!(
-            of(&said),
-            Ok(Some(Bookmark { song: song.to_path_buf(), at: 61.5 }))
-        );
-    }
+    assert_eq!(
+      of(&said),
+      Ok(Some(Bookmark {
+        song: song.to_path_buf(),
+        at: crate::Seconds(61.5)
+      }))
+    );
+  }
 
-    #[test]
-    fn a_note_with_nothing_in_it_is_a_player_that_has_never_run() {
-        assert_eq!(of(""), Ok(None));
-        assert_eq!(of("[playing]\n"), Ok(None));
-        assert_eq!(of("[playing]\nsong=\n"), Ok(None));
-    }
+  #[test]
+  fn a_note_with_nothing_in_it_is_a_player_that_has_never_run() {
+    assert_eq!(of(""), Ok(None));
+    assert_eq!(of("[playing]\n"), Ok(None));
+    assert_eq!(of("[playing]\nsong=\n"), Ok(None));
+  }
 
-    #[test]
-    fn an_offset_no_one_can_read_is_the_start_of_the_song_and_not_a_lost_song() {
-        let kept = of("[playing]\nsong=/a.flac\nat=the middle\n");
+  #[test]
+  fn an_offset_no_one_can_read_is_the_start_of_the_song_and_not_a_lost_song() {
+    let kept = of("[playing]\nsong=/a.flac\nat=the middle\n");
 
-        assert_eq!(kept, Ok(Some(Bookmark { song: PathBuf::from("/a.flac"), at: 0.0 })));
-    }
+    assert_eq!(
+      kept,
+      Ok(Some(Bookmark {
+        song: PathBuf::from("/a.flac"),
+        at: crate::Seconds(0.0)
+      }))
+    );
+  }
 
-    #[test]
-    fn a_song_with_no_offset_beside_it_starts_where_songs_start() {
-        let kept = of("[playing]\nsong=/a.flac\n");
+  #[test]
+  fn a_song_with_no_offset_beside_it_starts_where_songs_start() {
+    let kept = of("[playing]\nsong=/a.flac\n");
 
-        assert_eq!(kept, Ok(Some(Bookmark { song: PathBuf::from("/a.flac"), at: 0.0 })));
-    }
+    assert_eq!(
+      kept,
+      Ok(Some(Bookmark {
+        song: PathBuf::from("/a.flac"),
+        at: crate::Seconds(0.0)
+      }))
+    );
+  }
 }

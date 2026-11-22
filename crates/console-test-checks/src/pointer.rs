@@ -2,70 +2,74 @@
 
 use console_core_geometry::Point;
 use console_input_event_devices::{EventType, KeyCode, RelativeAxisCode};
-use console_test_stages::checking::{Body, Check, CheckResult, cannot, less_than, more_than, same, expect_ready};
+use console_test_stages::checking::{
+  Body, Check, CheckResult, cannot, expect_ready, less_than, more_than, same,
+};
 use console_test_stages::device::Device;
 use console_test_stages::here::{Here, TURNS};
 
 const HELD: u32 = 12;
 
 pub const SCROLL: Check = Check {
-    name: "120-scrolling",
-    about: "The right stick turns the wheel, and how far it is pushed is how fast.",
-    feature: "scroll",
-    since: "2026-08-24",
-    bodies: &[Body::Here(scroll_here), Body::Device(scroll_there)],
+  name: "120-scrolling",
+  about: "The right stick turns the wheel, and how far it is pushed is how fast.",
+  feature: "scroll",
+  since: "2026-08-24",
+  bodies: &[Body::Here(scroll_here), Body::Device(scroll_there)],
 };
 
 pub const TOUCHPAD: Check = Check {
-    name: "130-the-touchpad",
-    about: "A finger on the pad moves the pointer, and a quick touch is a click.",
-    feature: "touchpad",
-    since: "2026-08-27",
-    bodies: &[Body::Here(touch_here), Body::Device(touch_there)],
+  name: "130-the-touchpad",
+  about: "A finger on the pad moves the pointer, and a quick touch is a click.",
+  feature: "touchpad",
+  since: "2026-08-27",
+  bodies: &[Body::Here(touch_here), Body::Device(touch_there)],
 };
 
 fn scroll_here(stage: &mut Here) -> CheckResult {
-    stage.thumbstick("right-stick", Point { x: 0.0, y: -1.0 })?;
+  stage.thumbstick("right-stick", Point { x: 0.0, y: -1.0 })?;
 
-    let Ok(()) = stage.settle(HELD);
-    let Ok(up) = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0);
+  let Ok(()) = stage.settle(HELD);
+  let Ok(up) = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0);
 
-    more_than(up, 0, || "the wheel did not turn".to_string())?;
+  more_than(up, 0, || "the wheel did not turn".to_string())?;
 
-    stage.thumbstick("right-stick", Point { x: 0.0, y: 1.0 })?;
+  stage.thumbstick("right-stick", Point { x: 0.0, y: 1.0 })?;
 
-    let Ok(()) = stage.settle(HELD);
-    let Ok(back) = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0);
+  let Ok(()) = stage.settle(HELD);
+  let Ok(back) = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0);
 
-    less_than(back, up, || "pushing the other way did not turn it back".to_string())
+  less_than(back, up, || {
+    "pushing the other way did not turn it back".to_string()
+  })
 }
 
 fn scroll_there(_stage: &mut Device) -> CheckResult {
-    cannot("nothing on the device can see a page scroll")
+  cannot("nothing on the device can see a page scroll")
 }
 
 fn touch_here(stage: &mut Here) -> CheckResult {
-    let Ok(()) = stage.drag(Point { x: 200, y: 300 }, Point { x: 500, y: 300 });
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(across) = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_X.0);
+  let Ok(()) = stage.drag(Point { x: 200, y: 300 }, Point { x: 500, y: 300 });
+  let Ok(()) = stage.settle(TURNS);
+  let Ok(across) = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_X.0);
 
-    more_than(across, 0, || "the pointer did not move".to_string())?;
+  more_than(across, 0, || "the pointer did not move".to_string())?;
 
-    let Ok(down) = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_Y.0);
+  let Ok(down) = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_Y.0);
 
-    same(&down, &0, || "it moved the other way too".to_string())?;
+  same(&down, &0, || "it moved the other way too".to_string())?;
 
-    let Ok(()) = stage.tap(Point { x: 400, y: 400 });
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(pressed) = stage.check_sent(EventType::KEY, KeyCode::BTN_LEFT.0, 1);
+  let Ok(()) = stage.tap(Point { x: 400, y: 400 });
+  let Ok(()) = stage.settle(TURNS);
+  let Ok(pressed) = stage.check_sent(EventType::KEY, KeyCode::BTN_LEFT.0, 1);
 
-    expect_ready(pressed, || "a tap did not click".to_string())?;
+  expect_ready(pressed, || "a tap did not click".to_string())?;
 
-    let Ok(let_go) = stage.check_sent(EventType::KEY, KeyCode::BTN_LEFT.0, 0);
+  let Ok(let_go) = stage.check_sent(EventType::KEY, KeyCode::BTN_LEFT.0, 0);
 
-    expect_ready(let_go, || "the click was never let go".to_string())
+  expect_ready(let_go, || "the click was never let go".to_string())
 }
 
 fn touch_there(stage: &mut Device) -> CheckResult {
-    stage.tap(Point { x: 512, y: 512 })
+  stage.tap(Point { x: 512, y: 512 })
 }

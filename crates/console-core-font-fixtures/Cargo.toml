@@ -1,0 +1,15 @@
+[package]
+name = "console-core-font-fixtures"
+version = "0.7.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The fonts and tables the font reader, metrics and hinting crates are tested against."
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+font-types = { package = "console-core-font-types", path = "../console-core-font-types" }
+
+[lints]
+workspace = true

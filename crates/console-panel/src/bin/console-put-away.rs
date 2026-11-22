@@ -10,19 +10,18 @@
 //! during that beat and another outside it. Pressed there it closed the window
 //! behind a menu that had just opened.
 
-
 use console_panel::picker;
 
 fn main() {
-    let Ok(away) = picker::console_put_away();
+  let Ok(away) = picker::console_put_away();
 
-    match away == picker::Away::Notified {
-        true => return,
-        false => {},
-    }
+  match ::core::primitive::bool::then_some(away == picker::Away::Notified, ()) {
+    ::core::option::Option::Some(()) => return,
+    ::core::option::Option::None => {}
+  }
 
-    let Ok(_done) = console_compositor::request(
-        console_compositor::Request::Dispatch,
-        console_compositor::CLOSE_WINDOW,
-    );
+  let Ok(_done) = console_compositor::request(
+    console_compositor::Request::Dispatch,
+    console_compositor::CLOSE_WINDOW,
+  );
 }

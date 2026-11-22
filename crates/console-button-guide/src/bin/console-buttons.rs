@@ -14,209 +14,239 @@
 use std::io::IsTerminal;
 use std::process::ExitCode;
 
-use console_core_iteration::{Endless, Step, iterate};
-use console_input_event_devices::{EventType, KeyCode};
-use console_input_controller::actions::Table;
 use console_button_guide::guide::{Section, sections};
 use console_button_guide::printed::{COLORED, COMMAND, IDENTIFY, PLAIN, guide};
 use console_core_arguments::Presence;
 use console_core_atomic_writes::Stored;
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_input_bindings::moved::{Tasks, path_in};
+use console_input_controller::actions::Table;
+use console_input_event_devices::{EventType, KeyCode};
+use console_input_focus::{self as claim, CONTROLLER, Claim, DeviceKind, Direction, InputEvent};
 use console_input_gamepad::vocabulary::{spoken_for, trigger_spoken};
-use console_input_focus::{self as claim, CONTROLLER, Claim, InputEvent, Direction, DeviceKind};
 
 fn read() -> Result<Vec<Section>, Never> {
-    let Ok(table) = table();
+  let Ok(table) = table();
 
-    sections(&table)
+  sections(&table)
 }
 
 fn table() -> Result<Table, Never> {
-    let Ok(home) = console_core_places::home();
+  let Ok(home) = console_core_places::home();
 
-    let at = match home {
-        Some(home) => {
-            let Ok(at) = path_in(&home);
+  let at = match home {
+    Some(home_2) => {
+      let Ok(at) = path_in(&home_2);
 
-            at
-        },
-        None => return Table::of(&Tasks::default()),
-    };
-
-    let Ok(held) = console_core_atomic_writes::read(&at);
-
-    let said = match held {
-        Stored::Text(said) => said,
-        Stored::Absent => String::new(),
-
-        Stored::Failed(fault) => {
-            eprintln!("{}: reading the button table: {fault}", at.display());
-            String::new()
-        }
-    };
-
-    match Tasks::read(&said) {
-        Ok(jobs) => Table::of(&jobs),
-
-        Err(fault) => {
-            eprintln!("{}: {fault}", at.display());
-
-            Table::of(&Tasks::default())
-        }
+      at
     }
+    None => return Table::of(&Tasks::default()),
+  };
+
+  let Ok(held) = console_core_atomic_writes::read(&at);
+
+  let said = match held {
+    Stored::Text(said) => said,
+    Stored::Absent => String::new(),
+
+    Stored::Failed(fault) => {
+      eprintln!("{}: reading the button table: {fault}", at.display());
+      String::new()
+    }
+  };
+
+  match Tasks::read(&said) {
+    Ok(jobs) => Table::of(&jobs),
+
+    Err(fault) => {
+      eprintln!("{}: {fault}", at.display());
+
+      Table::of(&Tasks::default())
+    }
+  }
 }
 
 fn main() -> ExitCode {
-    let asked: Vec<String> = std::env::args().skip(1).collect();
-    let line = match console_core_arguments::read(&COMMAND, &asked) {
-        Ok(line) => line,
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
+  let asked: Vec<String> = std::env::args().skip(1).collect();
+  let line = match console_core_arguments::read(&COMMAND, &asked) {
+    Ok(line) => line,
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
 
-            return ExitCode::from(code);
-        },
-    };
-    let Ok(identifying) = line.presence(IDENTIFY);
-
-    match identifying {
-        Presence::Present => match identify() {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(fault) => {
-                eprintln!("console-buttons: {fault}");
-
-                ExitCode::FAILURE
-            },
-        },
-        Presence::Absent => {
-            let Ok(read) = read();
-            let Ok(ink) = ink();
-            let Ok(guide) = guide(&read, ink);
-
-            print!("{guide}");
-
-            ExitCode::SUCCESS
-        },
+      return ExitCode::from(code);
     }
+  };
+  let Ok(identifying) = line.presence(IDENTIFY);
+
+  match identifying {
+    Presence::Present => match identify() {
+      Ok(()) => ExitCode::SUCCESS,
+      Err(fault) => {
+        eprintln!("console-buttons: {fault}");
+
+        ExitCode::FAILURE
+      }
+    },
+    Presence::Absent => {
+      let Ok(read) = read();
+      let Ok(ink) = ink();
+      let Ok(guide) = guide(&read, ink);
+
+      print!("{guide}");
+
+      ExitCode::SUCCESS
+    }
+  }
 }
 
 #[derive(Debug)]
 enum Unidentified {
-    NoController(String),
+  NoController(String),
 }
 
 impl std::fmt::Display for Unidentified {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Unidentified::NoController(said) => write!(to, "{said}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Unidentified::NoController(said) => write!(to, "{said}"),
     }
+  }
 }
 
 fn ink() -> Result<console_button_guide::printed::Ansi, Never> {
-    Ok(match std::io::stdout().is_terminal() {
-        true => COLORED,
-        false => PLAIN,
-    })
+  Ok(match ::core::primitive::bool::then_some(std::io::stdout().is_terminal(), ()) {
+    ::core::option::Option::Some(()) => COLORED,
+    ::core::option::Option::None => PLAIN,
+  })
 }
 
 fn identify() -> Result<(), Unidentified> {
-    let claim = match Claim::of(&CONTROLLER) {
-        Ok(claim) => claim,
-        Err(refused) => {
-            let Ok(said) = refused.message();
+  let claim = match Claim::of(&CONTROLLER) {
+    Ok(claim) => claim,
+    Err(refused) => {
+      let Ok(said) = refused.message();
 
-            return Err(Unidentified::NoController(said));
-        }
-    };
-
-    println!("Press a button. Ctrl-C to stop.\n");
-    let Ok(ink) = ink();
-
-    let listened = iterate(claim, |mut claim| {
-        let Ok(heard) = claim.receive();
-
-        'over_presses: for (which, event) in heard.events {
-            let Ok(said) = describe_event(which, event.kind, event.code, event.value);
-
-            let said = match said {
-                Some(said) => said,
-                None => continue 'over_presses,
-            };
-
-            println!("  {}{said}{}", ink.bold, ink.off);
-        }
-
-        match heard.unplugged.is_empty() {
-            true => {}
-            false => {
-                eprintln!("console-buttons: the controller was unplugged");
-
-                return Ok(Step::Halt(()));
-            }
-        }
-
-        #[cfg_attr(
-            dylint_lib = "explicit021_no_sleeping",
-            allow(
-                explicit021_no_sleeping,
-                reason = "the pad is read without blocking so a controller that goes away is noticed rather than waited on for ever; between two reads there is nothing to ask and the gap is what keeps the cpu down"
-            )
-        )]
-        std::thread::sleep(WAIT);
-
-        Ok(Step::Again(claim))
-    });
-
-    match listened {
-        Ok(()) => Ok(()),
-        Err(Endless) => Ok(()),
+      return Err(Unidentified::NoController(said));
     }
+  };
+
+  println!("Press a button. Ctrl-C to stop.\n");
+  let Ok(ink) = ink();
+
+  let listened = iterate(claim, |mut controller| {
+    let Ok(heard) = controller.receive();
+
+    'over_presses: for (which, event) in heard.events {
+      let Ok(description) = describe_event(which, event.kind, event.code, event.value);
+
+      let said = match description {
+        Some(text) => text,
+        None => continue 'over_presses,
+      };
+
+      println!("  {}{said}{}", ink.bold, ink.off);
+    }
+
+    match ::core::primitive::bool::then_some(heard.unplugged.is_empty(), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => {
+        eprintln!("console-buttons: the controller was unplugged");
+
+        return Ok(Step::Halt(()));
+      }
+    }
+
+    #[cfg_attr(
+      dylint_lib = "explicit021_no_sleeping",
+      allow(
+        explicit021_no_sleeping,
+        reason = "the pad is read without blocking so a controller that goes away is noticed rather than waited on for ever; between two reads there is nothing to ask and the gap is what keeps the cpu down"
+      )
+    )]
+    std::thread::sleep(WAIT);
+
+    Ok(Step::Again(controller))
+  });
+
+  match listened {
+    Ok(()) => Ok(()),
+    Err(Endless) => Ok(()),
+  }
 }
 
-fn describe_event(which: DeviceKind, kind: EventType, code: u16, value: i32) -> Result<Option<String>, Never> {
-    let Ok(device) = which.said();
+fn describe_event(
+  which: DeviceKind,
+  kind: EventType,
+  code: u16,
+  value: i32,
+) -> Result<Option<String>, Never> {
+  let Ok(device) = which.said();
 
-    let raw = match kind {
-        EventType::KEY => format!("code {code}, {:?}, on the {device}", KeyCode(code)),
-        _ => format!("axis {code} at {value}, on the {device}"),
-    };
+  let raw = match kind {
+    EventType::KEY => format!("code {code}, {:?}, on the {device}", KeyCode(code)),
+    _ => format!("axis {code} at {value}, on the {device}"),
+  };
 
-    let Ok(said) = claim::translate(which, kind, code, value);
+  let Ok(said) = claim::translate(which, kind, code, value);
 
-    Ok(match said {
-        InputEvent::Pressed { button, direction: Direction::Down } => {
-            let Ok(spoken) = spoken_for(button);
+  Ok(match said {
+    InputEvent::Pressed {
+      button,
+      direction: Direction::Down,
+    } => {
+      let Ok(spoken) = spoken_for(button);
 
-            Some(format!("{spoken}  ({raw})"))
-        }
-        InputEvent::Trigger { trigger, direction: Direction::Down } => {
-            let Ok(spoken) = trigger_spoken(trigger);
-            let held = match spoken {
-                Some(spoken) => spoken,
-                None => trigger,
-            };
+      Some(format!("{spoken}  ({raw})"))
+    }
+    InputEvent::Trigger {
+      trigger,
+      direction: Direction::Down,
+    } => {
+      let Ok(trigger_name) = trigger_spoken(trigger);
+      let held = match trigger_name {
+        Some(spoken) => spoken,
+        None => trigger,
+      };
 
-            Some(format!("{held}  ({raw})"))
-        }
-        InputEvent::Typed { code, direction: Direction::Down } => {
-            let Ok(spoken) = console_input_bindings::keys::key_name(KeyCode(code));
+      Some(format!("{held}  ({raw})"))
+    }
+    InputEvent::Typed {
+      code: key,
+      direction: Direction::Down,
+    } => {
+      let Ok(spoken) = console_input_bindings::keys::key_name(KeyCode(key));
 
-            Some(match spoken {
-                Some(word) => format!("{word}  ({raw})"),
-                None => format!("a key with no name here  ({raw})"),
-            })
-        }
-        InputEvent::Unnamed { code: _, direction: Direction::Down } => {
-            Some(format!("a button with no name here  ({raw})"))
-        }
-        InputEvent::Pressed { button: _, direction: Direction::Up }
-        | InputEvent::Trigger { trigger: _, direction: Direction::Up }
-        | InputEvent::Typed { code: _, direction: Direction::Up }
-        | InputEvent::Unnamed { code: _, direction: Direction::Up }
-        | InputEvent::Pulled { trigger: _, value: _ }
-        | InputEvent::None => None,
-    })
+      Some(match spoken {
+        Some(word) => format!("{word}  ({raw})"),
+        None => format!("a key with no name here  ({raw})"),
+      })
+    }
+    InputEvent::Unnamed {
+      code: _,
+      direction: Direction::Down,
+    } => Some(format!("a button with no name here  ({raw})")),
+    InputEvent::Pressed {
+      button: _,
+      direction: Direction::Up,
+    }
+    | InputEvent::Trigger {
+      trigger: _,
+      direction: Direction::Up,
+    }
+    | InputEvent::Typed {
+      code: _,
+      direction: Direction::Up,
+    }
+    | InputEvent::Unnamed {
+      code: _,
+      direction: Direction::Up,
+    }
+    | InputEvent::Pulled {
+      trigger: _,
+      value: _,
+    }
+    | InputEvent::None => None,
+  })
 }
 
 const WAIT: std::time::Duration = std::time::Duration::from_millis(10);

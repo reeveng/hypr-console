@@ -13,7 +13,8 @@ path = "src/lib.rs"
 console-core-never.workspace = true
 console-core-iteration.workspace = true
 console-core-number-conversion.workspace = true
-rustix.workspace = true
+console-core-synchronization.workspace = true
+rustix = { workspace = true, features = ["net"] }
 
 [dev-dependencies]
 console-core-external-programs.workspace = true

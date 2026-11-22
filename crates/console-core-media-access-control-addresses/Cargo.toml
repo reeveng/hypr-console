@@ -1,0 +1,17 @@
+[package]
+name = "console-core-media-access-control-addresses"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_core_media_access_control_addresses"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-never.workspace = true
+console-core-words.workspace = true
+
+[lints]
+workspace = true

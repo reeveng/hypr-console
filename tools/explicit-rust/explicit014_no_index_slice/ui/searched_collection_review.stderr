@@ -1,0 +1,35 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/searched_collection_review.rs:5:49
+   |
+LL |     table.binary_search(&key).ok().map(|index| &other[index])
+   |                                                 ^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/searched_collection_review.rs:9:48
+   |
+LL |     table.binary_search(&key).ok().map(|index| table[index + 1])
+   |                                                ^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/searched_collection_review.rs:13:47
+   |
+LL |     table.binary_search(key).ok().map(|index| table[index].clear())
+   |                                               ^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/searched_collection_review.rs:17:74
+   |
+LL |     table.binary_search(&key).ok().map(|index| (std::hint::black_box(0), table[index]))
+   |                                                                          ^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: aborting due to 4 previous errors
+

@@ -92,333 +92,335 @@ pub const HURRY: &str = "balance_performance";
 
 pub const FOR: Duration = Duration::from_millis(750);
 
-#[cfg_attr(
-    dylint_lib = "explicit048_no_unreal_state",
-    allow(
-        explicit048_no_unreal_state,
-        reason = "`until` is when a hurry ends and `said` is whether the one complaint about a processor that will not take a word has been printed; a machine that cannot be hurried is still one this has already complained about, so the two are answers to different questions"
-    )
-)]
-pub struct HighPowerMode {
-    cpus: PathBuf,
-    note: PathBuf,
-    until: Option<Instant>,
-    was: Vec<(PathBuf, String)>,
-    said: bool,
+enum Complaint {
+  Pending,
+  Reported,
 }
 
-impl Default for HighPowerMode {
-    fn default() -> Self {
-        let Ok(hurrying) = HighPowerMode::of(Path::new(CPUS));
+enum HintWrites {
+  None,
+  Changed,
+}
 
-        hurrying
-    }
+#[cfg_attr(
+  dylint_lib = "explicit048_no_unreal_state",
+  allow(
+    explicit048_no_unreal_state,
+    reason = "`until` is when a hurry ends and `complaint` records whether the one complaint has been printed"
+  )
+)]
+pub struct HighPowerMode {
+  cpus: PathBuf,
+  note: PathBuf,
+  until: Option<Instant>,
+  was: Vec<(PathBuf, String)>,
+  complaint: Complaint,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Boost {
-    On,
-    Off,
+  On,
+  Off,
 }
 
 impl HighPowerMode {
-    pub fn of(cpus: &Path) -> Result<Self, Never> {
-        let Ok(note) = note();
-        let Ok(mut hurrying) = HighPowerMode::new(cpus, &note);
-        let Ok(_left) = hurrying.put_back_what_was_left();
+  pub fn of(cpus: &Path) -> Result<Self, Never> {
+    let Ok(note) = note();
+    let Ok(mut hurrying) = HighPowerMode::new(cpus, &note);
+    let Ok(_left) = hurrying.put_back_what_was_left();
 
-        Ok(hurrying)
-    }
+    Ok(hurrying)
+  }
 
-    pub fn new(cpus: &Path, note: &Path) -> Result<Self, Never> {
-        Ok(HighPowerMode {
-            cpus: cpus.to_path_buf(),
-            note: note.to_path_buf(),
-            until: None,
-            was: Vec::new(),
-            said: false,
-        })
-    }
+  pub fn new(cpus: &Path, note: &Path) -> Result<Self, Never> {
+    Ok(HighPowerMode {
+      cpus: cpus.to_path_buf(),
+      note: note.to_path_buf(),
+      until: None,
+      was: Vec::new(),
+      complaint: Complaint::Pending,
+    })
+  }
 
-    pub fn put_back_what_was_left(&mut self) -> Result<Left, Never> {
-        let Ok(note) = read(&self.note);
+  pub fn put_back_what_was_left(&mut self) -> Result<Left, Never> {
+    let Ok(note) = read(&self.note);
 
-        let held = match note {
-            Stored::Absent => return Ok(Left::None),
-            Stored::Text(held) => held,
-            Stored::Failed(fault) => {
-                eprintln!(
-                    "console-haste: {} is what says which words the processors are holding, and                      it will not be read: {fault}. They may be left at {HURRY}; a reboot is what                      puts them back.",
-                    self.note.display()
-                );
-                let Ok(()) = forget(&self.note);
-
-                return Ok(Left::None);
-            }
-        };
-
-        let Ok((words, torn)) = words_in(&held);
-
-        for (hint, was) in &words {
-            #[cfg_attr(
-                dylint_lib = "explicit040_no_torn_write",
-                allow(
-                    explicit040_no_torn_write,
-                    reason = "a hint is a kernel knob under `/sys` rather than a file: there is nothing beside it to write and nothing to rename over, and what it holds is the word last written to it"
-                )
-            )]
-            match std::fs::write(hint, was) {
-                Ok(()) => {}
-                Err(fault) => eprintln!(
-                    "console-haste: {} was left hurried by a run that did not finish and will                      not take {was} back: {fault}",
-                    hint.display()
-                ),
-            }
-        }
-
-        for line in &torn {
-            eprintln!("console-haste: {} holds a line this cannot read: {line}", self.note.display());
-        }
-
-        let Ok(()) = forget(&self.note);
-
-        Ok(match words.is_empty() {
-            true => Left::None,
-            false => Left::Restore,
-        })
-    }
-
-    pub fn on(&self) -> Result<Boost, Never> {
-        Ok(match self.until.is_some() {
-            true => Boost::On,
-            false => Boost::Off,
-        })
-    }
-
-    pub fn boost(&mut self, now: Instant) -> Result<(), Never> {
-        let ending = now + FOR;
-
-        match self.until {
-            Some(_) => {
-                self.until = Some(ending);
-                return Ok(());
-            }
-            None => {}
-        }
-
-        let mut taking: Entries = Vec::new();
-        let mut unreadable: Option<PathBuf> = None;
-
-        let Ok(hints) = self.hints();
-
-        for hint in hints {
-            let Ok(was) = read(&hint);
-
-            match was {
-                Stored::Text(was) => {
-                    let was = was.trim().to_string();
-
-                    match was == HURRY {
-                        true => {}
-                        false => taking.push((hint, was)),
-                    }
-                }
-                Stored::Absent => {}
-                Stored::Failed(_) => unreadable = Some(hint),
-            }
-        }
-
-        match unreadable {
-            Some(hint) => {
-                let Ok(()) = self.complain(&hint);
-            }
-            None => {}
-        }
-
-        match taking.is_empty() {
-            true => return Ok(()),
-            false => {}
-        }
-
-        match wrote_note(&self.note, &taking) {
-            Ok(()) => {}
-            Err(_unwritten) => {
-                let Ok(()) = self.complain_about_the_note();
-
-                return Ok(());
-            }
-        }
-
-        let mut wrote = false;
-
-        for (hint, was) in taking {
-            #[cfg_attr(
-                dylint_lib = "explicit040_no_torn_write",
-                allow(
-                    explicit040_no_torn_write,
-                    reason = "a hint is a kernel knob under `/sys` rather than a file: there is nothing beside it to write and nothing to rename over, and what it holds is the word last written to it"
-                )
-            )]
-            match std::fs::write(&hint, HURRY) {
-                Ok(()) => {
-                    self.was.push((hint, was));
-                    wrote = true;
-                }
-                Err(_unwritten) => {
-                    let Ok(()) = self.complain(&hint);
-                }
-            }
-        }
-
-        match wrote {
-            true => self.until = Some(ending),
-            false => {}
-        }
-
-        Ok(())
-    }
-
-    pub fn settle(&mut self, now: Instant) -> Result<(), Never> {
-        let until = match self.until {
-            Some(until) => until,
-            None => return Ok(()),
-        };
-
-        match now < until {
-            true => return Ok(()),
-            false => {}
-        }
-
-        for (hint, was) in std::mem::take(&mut self.was) {
-            #[cfg_attr(
-                dylint_lib = "explicit040_no_torn_write",
-                allow(
-                    explicit040_no_torn_write,
-                    reason = "a hint is a kernel knob under `/sys` rather than a file: there is nothing beside it to write and nothing to rename over, and what it holds is the word last written to it"
-                )
-            )]
-            match std::fs::write(&hint, &was) {
-                Ok(()) => {}
-                Err(_unwritten) => {
-                    let Ok(()) = self.complain(&hint);
-                }
-            }
-        }
-
-        let Ok(()) = forget(&self.note);
-
-        self.until = None;
-
-        Ok(())
-    }
-
-    fn hints(&self) -> Result<Vec<PathBuf>, Never> {
-        let reading = match std::fs::read_dir(&self.cpus) {
-            Ok(reading) => reading,
-            Err(_unreadable) => return Ok(Vec::new()),
-        };
-
-        let mut hints: Vec<PathBuf> = reading
-            .filter_map(Result::ok)
-            .map(|one| one.path().join(HINT))
-            .filter(|hint| hint.exists())
-            .collect();
-        hints.sort();
-
-        Ok(hints)
-    }
-
-    fn complain(&mut self, hint: &Path) -> Result<(), Never> {
-        match self.said {
-            true => return Ok(()),
-            false => {}
-        }
-
-        self.said = true;
+    let held = match note {
+      Stored::Absent => return Ok(Left::None),
+      Stored::Text(held) => held,
+      Stored::Failed(fault) => {
         eprintln!(
-            "console-haste: {} will not take a word, so panels open at whatever \
+          "console-haste: {} is what says which words the processors are holding, and                      it will not be read: {fault}. They may be left at {HURRY}; a reboot is what                      puts them back.",
+          self.note.display()
+        );
+        let Ok(()) = forget(&self.note);
+
+        return Ok(Left::None);
+      }
+    };
+
+    let Ok((words, torn)) = words_in(&held);
+
+    for (hint, was) in &words {
+      #[cfg_attr(
+        dylint_lib = "explicit040_no_torn_write",
+        allow(
+          explicit040_no_torn_write,
+          reason = "a hint is a kernel knob under `/sys` rather than a file: there is nothing beside it to write and nothing to rename over, and what it holds is the word last written to it"
+        )
+      )]
+      match std::fs::write(hint, was) {
+        Ok(()) => {}
+        Err(fault) => eprintln!(
+          "console-haste: {} was left hurried by a run that did not finish and will                      not take {was} back: {fault}",
+          hint.display()
+        ),
+      }
+    }
+
+    for line in &torn {
+      eprintln!(
+        "console-haste: {} holds a line this cannot read: {line}",
+        self.note.display()
+      );
+    }
+
+    let Ok(()) = forget(&self.note);
+
+    Ok(match words.as_slice() {
+      [] => Left::None,
+      [_first, ..] => Left::Restore,
+    })
+  }
+
+  pub fn on(&self) -> Result<Boost, Never> {
+    Ok(match self.until {
+      Some(_) => Boost::On,
+      None => Boost::Off,
+    })
+  }
+
+  pub fn boost(&mut self, now: Instant) -> Result<(), Never> {
+    let ending = match now.checked_add(FOR) {
+      Some(ending) => ending,
+      None => return Ok(()),
+    };
+
+    match self.until {
+      Some(_) => {
+        self.until = Some(ending);
+        return Ok(());
+      }
+      None => {}
+    }
+
+    let mut taking: Entries = Vec::new();
+    let mut unreadable: Option<PathBuf> = None;
+
+    let Ok(hints) = self.hints();
+
+    for hint in hints {
+      let Ok(stored) = read(&hint);
+
+      match stored {
+        Stored::Text(previous) => {
+          let was = previous.trim().to_string();
+
+          match was.as_str() {
+            HURRY => {}
+            _previous => taking.push((hint, was)),
+          }
+        }
+        Stored::Absent => {}
+        Stored::Failed(_) => unreadable = Some(hint),
+      }
+    }
+
+    match unreadable {
+      Some(hint) => {
+        let Ok(()) = self.complain(&hint);
+      }
+      None => {}
+    }
+
+    match taking.as_slice() {
+      [] => return Ok(()),
+      [_first, ..] => {}
+    }
+
+    match wrote_note(&self.note, &taking) {
+      Ok(()) => {}
+      Err(_unwritten) => {
+        let Ok(()) = self.complain_about_the_note();
+
+        return Ok(());
+      }
+    }
+
+    let mut writes = HintWrites::None;
+
+    for (hint, was) in taking {
+      #[cfg_attr(
+        dylint_lib = "explicit040_no_torn_write",
+        allow(
+          explicit040_no_torn_write,
+          reason = "a hint is a kernel knob under `/sys` rather than a file: there is nothing beside it to write and nothing to rename over, and what it holds is the word last written to it"
+        )
+      )]
+      match std::fs::write(&hint, HURRY) {
+        Ok(()) => {
+          self.was.push((hint, was));
+          writes = HintWrites::Changed;
+        }
+        Err(_unwritten) => {
+          let Ok(()) = self.complain(&hint);
+        }
+      }
+    }
+
+    match writes {
+      HintWrites::Changed => self.until = Some(ending),
+      HintWrites::None => {}
+    }
+
+    Ok(())
+  }
+
+  pub fn settle(&mut self, now: Instant) -> Result<(), Never> {
+    let until = match self.until {
+      Some(until) => until,
+      None => return Ok(()),
+    };
+
+    match now.cmp(&until) {
+      core::cmp::Ordering::Less => return Ok(()),
+      core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {}
+    }
+
+    for (hint, was) in std::mem::take(&mut self.was) {
+      #[cfg_attr(
+        dylint_lib = "explicit040_no_torn_write",
+        allow(
+          explicit040_no_torn_write,
+          reason = "a hint is a kernel knob under `/sys` rather than a file: there is nothing beside it to write and nothing to rename over, and what it holds is the word last written to it"
+        )
+      )]
+      match std::fs::write(&hint, &was) {
+        Ok(()) => {}
+        Err(_unwritten) => {
+          let Ok(()) = self.complain(&hint);
+        }
+      }
+    }
+
+    let Ok(()) = forget(&self.note);
+
+    self.until = None;
+
+    Ok(())
+  }
+
+  fn hints(&self) -> Result<Vec<PathBuf>, Never> {
+    let reading = match std::fs::read_dir(&self.cpus) {
+      Ok(reading) => reading,
+      Err(_unreadable) => return Ok(Vec::new()),
+    };
+
+    let mut hints: Vec<PathBuf> = reading
+      .filter_map(Result::ok)
+      .map(|one| one.path().join(HINT))
+      .filter(|hint| matches!(std::fs::metadata(hint), Ok(_attributes)))
+      .collect();
+    hints.sort();
+
+    Ok(hints)
+  }
+
+  fn complain(&mut self, hint: &Path) -> Result<(), Never> {
+    match self.complaint {
+      Complaint::Reported => return Ok(()),
+      Complaint::Pending => {}
+    }
+
+    self.complaint = Complaint::Reported;
+    eprintln!(
+      "console-haste: {} will not take a word, so panels open at whatever \
              clock the machine happens to be at",
-            hint.display()
-        );
+      hint.display()
+    );
 
-        Ok(())
+    Ok(())
+  }
+
+  fn complain_about_the_note(&mut self) -> Result<(), Never> {
+    match self.complaint {
+      Complaint::Reported => return Ok(()),
+      Complaint::Pending => {}
     }
 
-    fn complain_about_the_note(&mut self) -> Result<(), Never> {
-        match self.said {
-            true => return Ok(()),
-            false => {}
-        }
-
-        self.said = true;
-        eprintln!(
-            "console-haste: {} cannot be written, so the processors are left alone: hurrying \
+    self.complaint = Complaint::Reported;
+    eprintln!(
+      "console-haste: {} cannot be written, so the processors are left alone: hurrying \
              them without writing down what they held is how they get stuck at {HURRY}",
-            self.note.display()
-        );
+      self.note.display()
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Left {
-    None,
-    Restore,
+  None,
+  Restore,
 }
 
-#[cfg_attr(
-    dylint_lib = "explicit044_no_ambient_value",
-    allow(
-        explicit044_no_ambient_value,
-        reason = "with no runtime directory the mark is left where the next run of this program will look for it, which is a directory shared on purpose and not one of this process's own"
-    )
-)]
 pub fn note() -> Result<PathBuf, Never> {
-    let ours = console_core_places::application_runtime()?;
+  let Ok(runtime) = console_core_places::runtime_or_user();
 
-    Ok(match ours {
-        Some(ours) => ours.join("hurried"),
-        None => std::env::temp_dir().join(console_core_places::APPLICATION).join("hurried"),
-    })
+  Ok(
+    runtime
+      .join(console_core_places::APPLICATION)
+      .join("hurried"),
+  )
 }
 
 #[derive(Debug)]
 pub enum Unnoted {
-    Holding(PathBuf, std::io::Error),
-    Writing(console_core_atomic_writes::Unwritten),
+  Holding(PathBuf, std::io::Error),
+  Writing(console_core_atomic_writes::Unwritten),
 }
 
 impl fmt::Display for Unnoted {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Unnoted::Holding(at, fault) => write!(to, "{}: its directory: {fault}", at.display()),
-            Unnoted::Writing(fault) => write!(to, "{fault}"),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Unnoted::Holding(at, fault) => write!(to, "{}: its directory: {fault}", at.display()),
+      Unnoted::Writing(fault) => write!(to, "{fault}"),
     }
+  }
 }
 
 impl std::error::Error for Unnoted {}
 
 impl From<console_core_atomic_writes::Unwritten> for Unnoted {
-    fn from(fault: console_core_atomic_writes::Unwritten) -> Self {
-        Unnoted::Writing(fault)
-    }
+  fn from(fault: console_core_atomic_writes::Unwritten) -> Self {
+    Unnoted::Writing(fault)
+  }
 }
 
 fn wrote_note(at: &Path, words: &[(PathBuf, String)]) -> Result<(), Unnoted> {
-    match at.parent() {
-        Some(holding) => std::fs::create_dir_all(holding)
-            .map_err(|fault| Unnoted::Holding(at.to_path_buf(), fault))?,
-        None => {}
-    }
+  match at.parent() {
+    Some(holding) => std::fs::create_dir_all(holding)
+      .map_err(|fault| Unnoted::Holding(at.to_path_buf(), fault))?,
+    None => {}
+  }
 
-    let written: String = words
-        .iter()
-        .map(|(hint, was)| format!("{was}\t{}\n", hint.display()))
-        .collect();
+  let written: String = words
+    .iter()
+    .map(|(hint, was)| format!("{was}\t{}\n", hint.display()))
+    .collect();
 
-    console_core_atomic_writes::whole(at, written.as_bytes()).map_err(Unnoted::Writing)
+  console_core_atomic_writes::whole(at, written.as_bytes()).map_err(Unnoted::Writing)
 }
 
 type Entries = Vec<(PathBuf, String)>;
@@ -426,338 +428,405 @@ type Entries = Vec<(PathBuf, String)>;
 type Error = Vec<String>;
 
 fn words_in(held: &str) -> Result<(Entries, Error), Never> {
-    let mut words = Vec::new();
-    let mut torn = Vec::new();
+  let mut words = Vec::new();
+  let mut torn = Vec::new();
 
-    for line in held.lines().filter(|line| !line.is_empty()) {
-        match line.split_once('\t') {
-            Some((was, hint)) => words.push((PathBuf::from(hint), was.to_string())),
-            None => torn.push(line.to_string()),
-        }
+  for line in held.lines().filter(|line| !line.is_empty()) {
+    match line.split_once('\t') {
+      Some((was, hint)) => words.push((PathBuf::from(hint), was.to_string())),
+      None => torn.push(line.to_string()),
     }
+  }
 
-    Ok((words, torn))
+  Ok((words, torn))
 }
 
 fn forget(at: &Path) -> Result<(), Never> {
-    match console_core_atomic_writes::gone(at) {
-        Ok(()) => {}
-        Err(fault) => eprintln!("console-haste: {fault}. The words in it go back at every start until it does."),
+  match console_core_atomic_writes::gone(at) {
+    Ok(()) => {}
+    Err(fault) => {
+      eprintln!("console-haste: {fault}. The words in it go back at every start until it does.")
     }
+  }
 
-    Ok(())
+  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    const NOTE: &str = "hurried";
+  const NOTE: &str = "hurried";
 
-    fn processors(named: &str, cores: u32) -> Result<PathBuf, Box<dyn Error>> {
-        let here = console_core_temporary_directories::fresh(&format!("haste-{named}"))?;
+  struct ProcessorName(String);
 
-        for core in 0..cores {
-            let at = here.join(format!("cpu{core}")).join("cpufreq");
+  impl ProcessorName {
+    fn new(core: u32) -> Result<Self, Never> {
+      Ok(Self(format!("cpu{core}")))
+    }
+  }
 
-            std::fs::create_dir_all(&at)?;
-            console_core_atomic_writes::whole(&at.join("energy_performance_preference"), b"power\n")?;
-        }
+  impl AsRef<Path> for ProcessorName {
+    fn as_ref(&self) -> &Path {
+      Path::new(&self.0)
+    }
+  }
 
-        std::fs::create_dir_all(here.join("cpufreq"))?;
-        std::fs::create_dir_all(here.join("cpuidle"))?;
+  fn time_after(now: Instant, delay: Duration) -> Result<Instant, Box<dyn Error>> {
+    now
+      .checked_add(delay)
+      .ok_or_else(|| Box::from("test deadline is outside the clock's range"))
+  }
 
-        Ok(here)
+  fn processors(named: &str, cores: u32) -> Result<PathBuf, Box<dyn Error>> {
+    let here = console_core_temporary_directories::fresh(&format!("haste-{named}"))?;
+
+    for core in 0..cores {
+      let Ok(processor) = ProcessorName::new(core);
+      let at = here.join(processor).join("cpufreq");
+
+      std::fs::create_dir_all(&at)?;
+      console_core_atomic_writes::whole(&at.join("energy_performance_preference"), b"power\n")?;
     }
 
-    fn said(at: &Path, core: u32) -> Result<String, std::io::Error> {
-        let hint = at.join(format!("cpu{core}")).join(HINT);
-        let written = std::fs::read_to_string(hint)?;
+    std::fs::create_dir_all(here.join("cpufreq"))?;
+    std::fs::create_dir_all(here.join("cpuidle"))?;
 
-        Ok(written.trim().to_string())
+    Ok(here)
+  }
+
+  fn said(at: &Path, core: u32) -> Result<String, std::io::Error> {
+    let Ok(processor) = ProcessorName::new(core);
+    let hint = at.join(processor).join(HINT);
+    let written = std::fs::read_to_string(hint)?;
+
+    Ok(written.trim().to_string())
+  }
+
+  #[test]
+  fn a_press_hurries_the_processors_and_the_moment_after_lets_them_be()
+  -> Result<(), Box<dyn Error>> {
+    let at = processors("press", 4)?;
+    let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
+    let now = Instant::now();
+
+    let Ok(()) = hurrying.boost(now);
+    let Ok(on) = hurrying.on();
+
+    assert_eq!(on, Boost::On);
+
+    for core in 0..4 {
+      let hint = said(&at, core)?;
+
+      assert_eq!(hint, HURRY, "cpu{core} was not hurried");
     }
 
-    #[test]
-    fn a_press_hurries_the_processors_and_the_moment_after_lets_them_be() -> Result<(), Box<dyn Error>> {
-        let at = processors("press", 4)?;
-        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
-        let now = Instant::now();
+    let halfway = time_after(now, FOR / 2)?;
+    let Ok(()) = hurrying.settle(halfway);
+    let hint = said(&at, 0)?;
 
-        let Ok(()) = hurrying.boost(now);
-        let Ok(on) = hurrying.on();
+    assert_eq!(hint, HURRY);
 
-        assert_eq!(on, Boost::On);
+    let deadline = time_after(now, FOR)?;
+    let Ok(()) = hurrying.settle(deadline);
+    let Ok(on_2) = hurrying.on();
 
-        for core in 0..4 {
-            let hint = said(&at, core)?;
+    assert_eq!(on_2, Boost::Off);
 
-            assert_eq!(hint, HURRY, "cpu{core} was not hurried");
-        }
+    for core in 0..4 {
+      let hint_2 = said(&at, core)?;
 
-        let Ok(()) = hurrying.settle(now + FOR / 2);
-        let hint = said(&at, 0)?;
-
-        assert_eq!(hint, HURRY);
-
-        let Ok(()) = hurrying.settle(now + FOR);
-        let Ok(on) = hurrying.on();
-
-        assert_eq!(on, Boost::Off);
-
-        for core in 0..4 {
-            let hint = said(&at, core)?;
-
-            assert_eq!(hint, "power", "cpu{core} was not let be");
-        }
-
-        Ok(())
+      assert_eq!(hint_2, "power", "cpu{core} was not let be");
     }
 
-    #[test]
-    fn asking_again_moves_the_end_rather_than_starting_a_second_one() -> Result<(), Box<dyn Error>> {
-        let at = processors("again", 2)?;
-        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
-        let now = Instant::now();
+    Ok(())
+  }
 
-        let Ok(()) = hurrying.boost(now);
-        let Ok(()) = hurrying.boost(now + FOR / 2);
-        let Ok(()) = hurrying.settle(now + FOR);
-        let Ok(on) = hurrying.on();
+  #[test]
+  fn asking_again_moves_the_end_rather_than_starting_a_second_one() -> Result<(), Box<dyn Error>>
+  {
+    let at = processors("again", 2)?;
+    let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
+    let now = Instant::now();
 
-        assert_eq!(on, Boost::On);
-        let hint = said(&at, 0)?;
+    let Ok(()) = hurrying.boost(now);
+    let halfway = time_after(now, FOR / 2)?;
+    let Ok(()) = hurrying.boost(halfway);
+    let deadline = time_after(now, FOR)?;
+    let Ok(()) = hurrying.settle(deadline);
+    let Ok(on) = hurrying.on();
 
-        assert_eq!(hint, HURRY);
+    assert_eq!(on, Boost::On);
+    let hint = said(&at, 0)?;
 
-        let Ok(()) = hurrying.settle(now + FOR + FOR / 2);
-        let Ok(on) = hurrying.on();
+    assert_eq!(hint, HURRY);
 
-        assert_eq!(on, Boost::Off);
-        let hint = said(&at, 0)?;
+    let extended_deadline = time_after(halfway, FOR)?;
+    let Ok(()) = hurrying.settle(extended_deadline);
+    let Ok(on_2) = hurrying.on();
 
-        assert_eq!(hint, "power");
+    assert_eq!(on_2, Boost::Off);
+    let hint_2 = said(&at, 0)?;
 
-        Ok(())
+    assert_eq!(hint_2, "power");
+
+    Ok(())
+  }
+
+  #[test]
+  fn what_goes_back_is_what_was_there() -> Result<(), Box<dyn Error>> {
+    let at = processors("kept", 1)?;
+    let hint = at.join("cpu0").join(HINT);
+    console_core_atomic_writes::whole(&hint, b"performance\n")?;
+
+    let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
+    let now = Instant::now();
+    let Ok(()) = hurrying.boost(now);
+    let deadline = time_after(now, FOR)?;
+    let Ok(()) = hurrying.settle(deadline);
+    let hint_2 = said(&at, 0)?;
+
+    assert_eq!(hint_2, "performance");
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_processor_that_is_already_hurrying_is_not_written_to() -> Result<(), Box<dyn Error>> {
+    let at = processors("standing", 1)?;
+    let hint = at.join("cpu0").join(HINT);
+    console_core_atomic_writes::whole(&hint, format!("{HURRY}\n").as_bytes())?;
+
+    let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
+    let Ok(()) = hurrying.boost(Instant::now());
+    let Ok(on) = hurrying.on();
+
+    assert_eq!(on, Boost::Off);
+    let hint_2 = said(&at, 0)?;
+
+    assert_eq!(hint_2, HURRY);
+
+    Ok(())
+  }
+
+  #[test]
+  fn processors_that_cannot_be_hurried_are_not_an_error() -> Result<(), Box<dyn Error>> {
+    let here = console_core_temporary_directories::fresh("haste-none")?;
+    let at = here.join("nowhere");
+    let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
+    let now = Instant::now();
+    let Ok(()) = hurrying.boost(now);
+    let Ok(on) = hurrying.on();
+
+    assert_eq!(on, Boost::Off);
+    let deadline = time_after(now, FOR)?;
+    let Ok(()) = hurrying.settle(deadline);
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_run_that_stops_mid_hurry_leaves_its_words_written_down() -> Result<(), Box<dyn Error>> {
+    let at = processors("stopped", 3)?;
+    let Ok(mut dying) = HighPowerMode::new(&at, &at.join(NOTE));
+    let Ok(()) = dying.boost(Instant::now());
+    drop(dying);
+
+    for core in 0..3 {
+      let hint = said(&at, core)?;
+
+      assert_eq!(hint, HURRY, "cpu{core} was not hurried");
     }
 
-    #[test]
-    fn what_goes_back_is_what_was_there() -> Result<(), Box<dyn Error>> {
-        let at = processors("kept", 1)?;
-        let hint = at.join("cpu0").join(HINT);
-        console_core_atomic_writes::whole(&hint, b"performance\n")?;
+    let note = at.join(NOTE);
+    let held = std::fs::read_to_string(&note)?;
+    assert_eq!(
+      held.lines().count(),
+      3,
+      "the note does not cover every processor: {held:?}"
+    );
 
-        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
-        let now = Instant::now();
-        let Ok(()) = hurrying.boost(now);
-        let Ok(()) = hurrying.settle(now + FOR);
-        let hint = said(&at, 0)?;
+    Ok(())
+  }
 
-        assert_eq!(hint, "performance");
+  #[test]
+  fn the_next_daemon_puts_back_what_a_stopped_one_left() -> Result<(), Box<dyn Error>> {
+    let at = processors("nextone", 3)?;
+    let Ok(mut dying) = HighPowerMode::new(&at, &at.join(NOTE));
+    let Ok(()) = dying.boost(Instant::now());
+    drop(dying);
 
-        Ok(())
+    let Ok(mut coming_up) = HighPowerMode::new(&at, &at.join(NOTE));
+    let Ok(left) = coming_up.put_back_what_was_left();
+
+    assert_eq!(left, Left::Restore);
+
+    for core in 0..3 {
+      let hint = said(&at, core)?;
+
+      assert_eq!(hint, "power", "cpu{core} is still hurried");
     }
 
-    #[test]
-    fn a_processor_that_is_already_hurrying_is_not_written_to() -> Result<(), Box<dyn Error>> {
-        let at = processors("standing", 1)?;
-        let hint = at.join("cpu0").join(HINT);
-        console_core_atomic_writes::whole(&hint, format!("{HURRY}\n").as_bytes())?;
+    assert!(
+      matches!(read(&at.join(NOTE)), Ok(Stored::Absent)),
+      "the note outlived the words going back"
+    );
 
-        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
-        let Ok(()) = hurrying.boost(Instant::now());
-        let Ok(on) = hurrying.on();
+    Ok(())
+  }
 
-        assert_eq!(on, Boost::Off);
-        let hint = said(&at, 0)?;
+  #[test]
+  fn a_stopped_run_does_not_leave_the_processors_hurried_for_ever() -> Result<(), Box<dyn Error>>
+  {
+    let at = processors("forever", 2)?;
+    let Ok(mut dying) = HighPowerMode::new(&at, &at.join(NOTE));
+    let Ok(()) = dying.boost(Instant::now());
+    drop(dying);
 
-        assert_eq!(hint, HURRY);
+    let Ok(mut after) = HighPowerMode::new(&at, &at.join(NOTE));
+    let Ok(_left) = after.put_back_what_was_left();
+    let now = Instant::now();
+    let Ok(()) = after.boost(now);
+    let deadline = time_after(now, FOR)?;
+    let Ok(()) = after.settle(deadline);
 
-        Ok(())
+    for core in 0..2 {
+      let hint = said(&at, core)?;
+
+      assert_eq!(hint, "power", "cpu{core} never came back");
     }
 
-    #[test]
-    fn processors_that_cannot_be_hurried_are_not_an_error() -> Result<(), Box<dyn Error>> {
-        let here = console_core_temporary_directories::fresh("haste-none")?;
-        let at = here.join("nowhere");
-        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
-        let now = Instant::now();
-        let Ok(()) = hurrying.boost(now);
-        let Ok(on) = hurrying.on();
+    Ok(())
+  }
 
-        assert_eq!(on, Boost::Off);
-        let Ok(()) = hurrying.settle(now + FOR);
+  #[test]
+  fn a_machine_that_asks_for_the_hurried_word_is_not_written_down() -> Result<(), Box<dyn Error>>
+  {
+    let at = processors("agrees", 2)?;
 
-        Ok(())
+    for core in 0..2 {
+      let Ok(processor) = ProcessorName::new(core);
+      let hint = at.join(processor).join(HINT);
+      console_core_atomic_writes::whole(&hint, format!("{HURRY}\n").as_bytes())?;
     }
 
-    #[test]
-    fn a_run_that_stops_mid_hurry_leaves_its_words_written_down() -> Result<(), Box<dyn Error>> {
-        let at = processors("stopped", 3)?;
-        let Ok(mut dying) = HighPowerMode::new(&at, &at.join(NOTE));
-        let Ok(()) = dying.boost(Instant::now());
-        drop(dying);
+    let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
+    let Ok(()) = hurrying.boost(Instant::now());
 
-        for core in 0..3 {
-            let hint = said(&at, core)?;
+    let Ok(on) = hurrying.on();
 
-            assert_eq!(hint, HURRY, "cpu{core} was not hurried");
-        }
+    assert_eq!(on, Boost::Off, "a hurry was started with nothing to change");
+    assert!(
+      matches!(read(&at.join(NOTE)), Ok(Stored::Absent)),
+      "a word no one overwrote was written down"
+    );
 
-        let note = at.join(NOTE);
-        assert!(note.exists(), "nothing was written down, so nothing can put these back");
-        let held = std::fs::read_to_string(&note)?;
-        assert_eq!(held.lines().count(), 3, "the note does not cover every processor: {held:?}");
+    Ok(())
+  }
 
-        Ok(())
+  #[test]
+  fn settling_takes_the_note_away() -> Result<(), Box<dyn Error>> {
+    let at = processors("settled", 2)?;
+    let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
+    let now = Instant::now();
+
+    let Ok(()) = hurrying.boost(now);
+    assert!(
+      matches!(read(&at.join(NOTE)), Ok(Stored::Text(_))),
+      "nothing was written down during the hurry"
+    );
+
+    let deadline = time_after(now, FOR)?;
+    let Ok(()) = hurrying.settle(deadline);
+    assert!(
+      matches!(read(&at.join(NOTE)), Ok(Stored::Absent)),
+      "the note outlived the hurry"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_note_that_cannot_be_written_stops_the_hurry_rather_than_risking_it()
+  -> Result<(), Box<dyn Error>> {
+    let at = processors("nonote", 2)?;
+    let blocked = at.join("in-the-way");
+    console_core_atomic_writes::whole(&blocked, b"not a directory")?;
+
+    let Ok(mut hurrying) = HighPowerMode::new(&at, &blocked.join("hurried"));
+    let Ok(()) = hurrying.boost(Instant::now());
+
+    let Ok(on) = hurrying.on();
+
+    assert_eq!(
+      on,
+      Boost::Off,
+      "it hurried with nowhere to write the words down"
+    );
+
+    for core in 0..2 {
+      let hint = said(&at, core)?;
+
+      assert_eq!(hint, "power", "cpu{core} was hurried anyway");
     }
 
-    #[test]
-    fn the_next_daemon_puts_back_what_a_stopped_one_left() -> Result<(), Box<dyn Error>> {
-        let at = processors("nextone", 3)?;
-        let Ok(mut dying) = HighPowerMode::new(&at, &at.join(NOTE));
-        let Ok(()) = dying.boost(Instant::now());
-        drop(dying);
+    Ok(())
+  }
 
-        let Ok(mut coming_up) = HighPowerMode::new(&at, &at.join(NOTE));
-        let Ok(left) = coming_up.put_back_what_was_left();
+  #[test]
+  fn a_torn_line_in_a_note_is_kept_rather_than_skipped() {
+    let Ok((words, torn)) = words_in("power\t/sys/cpu0/hint\nhalf a line\n");
+    assert_eq!(
+      words,
+      [(PathBuf::from("/sys/cpu0/hint"), "power".to_string())]
+    );
+    assert_eq!(torn, ["half a line"]);
+  }
 
-        assert_eq!(left, Left::Restore);
+  #[test]
+  fn a_path_with_a_tab_in_it_still_reads_as_one_path() -> Result<(), Box<dyn Error>> {
+    let odd = PathBuf::from("/sys/a\tfolder/hint");
+    let at = console_core_temporary_directories::fresh("haste-tab")?;
+    let note = at.join("hurried");
+    wrote_note(&note, &[(odd.clone(), "power".to_string())])?;
 
-        for core in 0..3 {
-            let hint = said(&at, core)?;
+    let held = std::fs::read_to_string(&note)?;
+    let Ok((words, torn)) = words_in(&held);
+    assert_eq!(words, [(odd, "power".to_string())]);
+    assert!(
+      torn.is_empty(),
+      "a path with a tab in it was read as a torn line"
+    );
 
-            assert_eq!(hint, "power", "cpu{core} is still hurried");
-        }
+    std::fs::remove_dir_all(&at)?;
 
-        assert!(!at.join(NOTE).exists(), "the note outlived the words going back");
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn nothing_to_read_and_cannot_be_read_are_told_apart() -> Result<(), Box<dyn Error>> {
+    let at = console_core_temporary_directories::fresh("haste-held")?;
 
-    #[test]
-    fn a_stopped_run_does_not_leave_the_processors_hurried_for_ever() -> Result<(), Box<dyn Error>> {
-        let at = processors("forever", 2)?;
-        let Ok(mut dying) = HighPowerMode::new(&at, &at.join(NOTE));
-        let Ok(()) = dying.boost(Instant::now());
-        drop(dying);
+    let Ok(nothing) = read(&at.join("nothing-here"));
 
-        let Ok(mut after) = HighPowerMode::new(&at, &at.join(NOTE));
-        let Ok(_left) = after.put_back_what_was_left();
-        let now = Instant::now();
-        let Ok(()) = after.boost(now);
-        let Ok(()) = after.settle(now + FOR);
+    assert_eq!(nothing, Stored::Absent);
 
-        for core in 0..2 {
-            let hint = said(&at, core)?;
+    let Ok(held) = read(&at);
 
-            assert_eq!(hint, "power", "cpu{core} never came back");
-        }
+    let read_as = match held {
+      Stored::Failed(_) => "a fault",
+      Stored::Text(_) => "text",
+      Stored::Absent => "nothing",
+    };
 
-        Ok(())
-    }
+    assert_eq!(
+      read_as, "a fault",
+      "a directory read as something other than a fault"
+    );
 
-    #[test]
-    fn a_machine_that_asks_for_the_hurried_word_is_not_written_down() -> Result<(), Box<dyn Error>> {
-        let at = processors("agrees", 2)?;
+    std::fs::remove_dir_all(&at)?;
 
-        for core in 0..2 {
-            let hint = at.join(format!("cpu{core}")).join(HINT);
-            console_core_atomic_writes::whole(&hint, format!("{HURRY}\n").as_bytes())?;
-        }
-
-        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
-        let Ok(()) = hurrying.boost(Instant::now());
-
-        let Ok(on) = hurrying.on();
-
-        assert_eq!(on, Boost::Off, "a hurry was started with nothing to change");
-        assert!(!at.join(NOTE).exists(), "a word no one overwrote was written down");
-
-        Ok(())
-    }
-
-    #[test]
-    fn settling_takes_the_note_away() -> Result<(), Box<dyn Error>> {
-        let at = processors("settled", 2)?;
-        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
-        let now = Instant::now();
-
-        let Ok(()) = hurrying.boost(now);
-        assert!(at.join(NOTE).exists(), "nothing was written down during the hurry");
-
-        let Ok(()) = hurrying.settle(now + FOR);
-        assert!(!at.join(NOTE).exists(), "the note outlived the hurry");
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_note_that_cannot_be_written_stops_the_hurry_rather_than_risking_it() -> Result<(), Box<dyn Error>> {
-        let at = processors("nonote", 2)?;
-        let blocked = at.join("in-the-way");
-        console_core_atomic_writes::whole(&blocked, b"not a directory")?;
-
-        let Ok(mut hurrying) = HighPowerMode::new(&at, &blocked.join("hurried"));
-        let Ok(()) = hurrying.boost(Instant::now());
-
-        let Ok(on) = hurrying.on();
-
-        assert_eq!(on, Boost::Off, "it hurried with nowhere to write the words down");
-
-        for core in 0..2 {
-            let hint = said(&at, core)?;
-
-            assert_eq!(hint, "power", "cpu{core} was hurried anyway");
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_torn_line_in_a_note_is_kept_rather_than_skipped() {
-        let Ok((words, torn)) = words_in("power\t/sys/cpu0/hint\nhalf a line\n");
-        assert_eq!(words, [(PathBuf::from("/sys/cpu0/hint"), "power".to_string())]);
-        assert_eq!(torn, ["half a line"]);
-    }
-
-    #[test]
-    fn a_path_with_a_tab_in_it_still_reads_as_one_path() -> Result<(), Box<dyn Error>> {
-        let odd = PathBuf::from("/sys/a\tfolder/hint");
-        let at = console_core_temporary_directories::fresh("haste-tab")?;
-        let note = at.join("hurried");
-        wrote_note(&note, &[(odd.clone(), "power".to_string())])?;
-
-        let held = std::fs::read_to_string(&note)?;
-        let Ok((words, torn)) = words_in(&held);
-        assert_eq!(words, [(odd, "power".to_string())]);
-        assert!(torn.is_empty(), "a path with a tab in it was read as a torn line");
-
-        let _ = std::fs::remove_dir_all(&at);
-
-        Ok(())
-    }
-
-    #[test]
-    fn nothing_to_read_and_cannot_be_read_are_told_apart() -> Result<(), Box<dyn Error>> {
-        let at = console_core_temporary_directories::fresh("haste-held")?;
-
-        let Ok(nothing) = read(&at.join("nothing-here"));
-
-        assert_eq!(nothing, Stored::Absent);
-
-        let Ok(held) = read(&at);
-
-        let read_as = match held {
-            Stored::Failed(_) => "a fault",
-            Stored::Text(_) => "text",
-            Stored::Absent => "nothing",
-        };
-
-        assert_eq!(read_as, "a fault", "a directory read as something other than a fault");
-
-        let _ = std::fs::remove_dir_all(&at);
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

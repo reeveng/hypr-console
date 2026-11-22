@@ -18,57 +18,63 @@
 use console_core_never::Never;
 use console_input_bindings::bound::Input;
 
+use crate::actions::{ButtonPress, Table, Task};
 use crate::effect::Effect;
-use crate::actions::{Task, ButtonPress, Table};
 use crate::mode::{InputHandling, Mode};
 
 pub fn job_for(
-    table: &Table,
-    mode: Mode,
-    held: &[&str],
-    pressed: &str,
+  table: &Table,
+  mode: Mode,
+  held: &[&str],
+  pressed: &str,
 ) -> Result<Option<&'static Task>, Never> {
-    let Ok(handling) = mode.input_handling();
+  let Ok(handling) = mode.input_handling();
 
-    match handling {
-        InputHandling::Enabled => table.what(Input::Pad, held, pressed, mode),
-        InputHandling::Disabled => Ok(None),
-    }
+  match handling {
+    InputHandling::Enabled => table.what(Input::Pad, held, pressed, mode),
+    InputHandling::Disabled => Ok(None),
+  }
 }
 
 pub fn acted(job: &Task, down: ButtonPress) -> Result<Option<Effect>, Never> {
-    job.action.does(down)
+  job.action.does(down)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::actions::Action;
+  use super::*;
+  use crate::actions::Action;
 
-    fn what(mode: Mode, button: &str) -> Result<Option<Action>, Never> {
-        let Ok(table) = Table::ours();
-        let Ok(found) = job_for(&table, mode, &[], button);
+  fn what(mode: Mode, button: &str) -> Result<Option<Action>, Never> {
+    let Ok(table) = Table::ours();
+    let Ok(found) = job_for(&table, mode, &[], button);
 
-        Ok(found.map(|job| job.action))
+    Ok(found.map(|job| job.action))
+  }
+
+  #[test]
+  fn a_back_button_runs_what_it_is_for() {
+    assert_eq!(
+      what(Mode::Desktop, "left-paddle-top"),
+      Ok(Some(Action::Menu))
+    );
+    assert_eq!(
+      what(Mode::Desktop, "legion-right"),
+      Ok(Some(Action::Settings))
+    );
+  }
+
+  #[test]
+  fn nothing_is_acted_on_where_this_daemon_is_not_the_one_reading() {
+    for mode in [Mode::Keyboard, Mode::Prompt] {
+      assert_eq!(what(mode, "left-paddle-top"), Ok(None), "{mode:?}");
+      assert_eq!(what(mode, "a"), Ok(None), "{mode:?}");
     }
+  }
 
-    #[test]
-    fn a_back_button_runs_what_it_is_for() {
-        assert_eq!(what(Mode::Desktop, "left-paddle-top"), Ok(Some(Action::Menu)));
-        assert_eq!(what(Mode::Desktop, "legion-right"), Ok(Some(Action::Settings)));
-    }
-
-    #[test]
-    fn nothing_is_acted_on_where_this_daemon_is_not_the_one_reading() {
-        for mode in [Mode::Keyboard, Mode::Prompt] {
-            assert_eq!(what(mode, "left-paddle-top"), Ok(None), "{mode:?}");
-            assert_eq!(what(mode, "a"), Ok(None), "{mode:?}");
-        }
-    }
-
-    #[test]
-    fn a_button_with_nothing_on_it_does_nothing() {
-        assert_eq!(what(Mode::Desktop, "l3"), Ok(None));
-        assert_eq!(what(Mode::Desktop, "right-paddle-3"), Ok(None));
-    }
+  #[test]
+  fn a_button_with_nothing_on_it_does_nothing() {
+    assert_eq!(what(Mode::Desktop, "l3"), Ok(None));
+    assert_eq!(what(Mode::Desktop, "right-paddle-3"), Ok(None));
+  }
 }

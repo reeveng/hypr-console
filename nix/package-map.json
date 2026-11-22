@@ -1,0 +1,406 @@
+{
+  "hyprland": {
+    "role": "runtime",
+    "nix": [
+      "hyprland"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "alacritty": {
+    "role": "runtime",
+    "nix": [
+      "alacritty"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "hyprland-guiutils": {
+    "role": "runtime",
+    "nix": [
+      "hyprland-guiutils"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "xkeyboard-config": {
+    "role": "runtime",
+    "nix": [
+      "xkeyboard_config"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "iso-codes": {
+    "role": "runtime",
+    "nix": [
+      "isocodes"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "libpulse": {
+    "role": "runtime",
+    "nix": [
+      "pulseaudio"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "grim": {
+    "role": "runtime",
+    "nix": [
+      "grim"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "hypridle": {
+    "role": "runtime",
+    "nix": [
+      "hypridle"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "hyprsunset": {
+    "role": "runtime",
+    "nix": [
+      "hyprsunset"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "polkit-kde-agent": {
+    "role": "runtime",
+    "nix": [
+      "kdePackages.polkit-kde-agent-1"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "7zip": {
+    "role": "runtime",
+    "nix": [
+      "_7zz"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "xdg-utils": {
+    "role": "runtime",
+    "nix": [
+      "xdg-utils"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "awww": {
+    "role": "runtime",
+    "nix": [
+      "awww"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "papirus-icon-theme": {
+    "role": "runtime",
+    "nix": [
+      "papirus-icon-theme"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "plasma-integration": {
+    "role": "runtime",
+    "nix": [
+      "kdePackages.plasma-integration"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "bluez": {
+    "role": "runtime",
+    "nix": [
+      "bluez"
+    ],
+    "explanation": "Bluetooth daemon enabled by hardware.bluetooth.enable in the NixOS module."
+  },
+  "bluez-utils": {
+    "role": "runtime",
+    "nix": [
+      "bluez"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "networkmanager": {
+    "role": "runtime",
+    "nix": [
+      "networkmanager"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "wireplumber": {
+    "role": "runtime",
+    "nix": [
+      "wireplumber"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "iw": {
+    "role": "runtime",
+    "nix": [
+      "iw"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "curl": {
+    "role": "runtime",
+    "nix": [
+      "curl"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "ffmpeg": {
+    "role": "runtime",
+    "nix": [
+      "ffmpeg"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "shared-mime-info": {
+    "role": "runtime",
+    "nix": [
+      "shared-mime-info"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "glib2": {
+    "role": "runtime",
+    "nix": [
+      "glib"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "pipewire-audio": {
+    "role": "runtime",
+    "nix": [
+      "pipewire"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "whisper-cpp": {
+    "role": "runtime",
+    "nix": [
+      "whisper-cpp"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "wtype": {
+    "role": "runtime",
+    "nix": [
+      "wtype"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "libnotify": {
+    "role": "runtime",
+    "nix": [
+      "libnotify"
+    ],
+    "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "tesseract": {
+    "role": "runtime",
+    "nix": [
+      "tesseract"
+    ],
+    "explanation": "OCR executable; the runtime adapter selects the declared language data."
+  },
+  "inputplumber": {
+    "role": "handheld",
+    "nix": [
+      "inputplumber"
+    ],
+    "explanation": "Provided by the optional handheld hardware module, not required for a laptop without a controller."
+  },
+  "chromium": {
+    "role": "application",
+    "nix": [
+      "chromium"
+    ],
+    "explanation": "Optional user application; chosen by the host rather than required to compile the Rust desktop."
+  },
+  "librewolf": {
+    "role": "application",
+    "nix": [
+      "librewolf"
+    ],
+    "explanation": "Optional user application; chosen by the host rather than required to compile the Rust desktop."
+  },
+  "localsend": {
+    "role": "application",
+    "nix": [
+      "localsend"
+    ],
+    "explanation": "Optional user application; chosen by the host rather than required to compile the Rust desktop."
+  },
+  "signal-desktop": {
+    "role": "application",
+    "nix": [
+      "signal-desktop"
+    ],
+    "explanation": "Optional user application; chosen by the host rather than required to compile the Rust desktop."
+  },
+  "syncthing": {
+    "role": "application",
+    "nix": [
+      "syncthing"
+    ],
+    "explanation": "Optional user application; chosen by the host rather than required to compile the Rust desktop."
+  },
+  "krita": {
+    "role": "application",
+    "nix": [
+      "krita"
+    ],
+    "explanation": "Optional user application; chosen by the host rather than required to compile the Rust desktop."
+  },
+  "kate": {
+    "role": "application",
+    "nix": [
+      "kdePackages.kate"
+    ],
+    "explanation": "Text and HTML editor; the staged NixOS host selects user applications."
+  },
+  "yt-dlp": {
+    "role": "application",
+    "nix": [
+      "yt-dlp"
+    ],
+    "explanation": "Optional user application; chosen by the host rather than required to compile the Rust desktop."
+  },
+  "flatpak": {
+    "role": "application",
+    "nix": [
+      "flatpak"
+    ],
+    "explanation": "Optional user application; chosen by the host rather than required to compile the Rust desktop."
+  },
+  "python-mutagen": {
+    "role": "application",
+    "nix": [
+      "python3Packages.mutagen"
+    ],
+    "explanation": "Optional Python media library; not part of the Rust toolchain."
+  },
+  "cmake": {
+    "role": "build-tool",
+    "nix": [
+      "cmake"
+    ],
+    "explanation": "Used by optional external programs; not required to compile the current Console workspace."
+  },
+  "vulkan-headers": {
+    "role": "build-tool",
+    "nix": [
+      "vulkan-headers"
+    ],
+    "explanation": "Used by optional external programs; not required to compile the current Console workspace."
+  },
+  "glslang": {
+    "role": "build-tool",
+    "nix": [
+      "glslang"
+    ],
+    "explanation": "Used by optional external programs; not required to compile the current Console workspace."
+  },
+  "spirv-headers": {
+    "role": "build-tool",
+    "nix": [
+      "spirv-headers"
+    ],
+    "explanation": "Used by optional external programs; not required to compile the current Console workspace."
+  },
+  "spirv-tools": {
+    "role": "build-tool",
+    "nix": [
+      "spirv-tools"
+    ],
+    "explanation": "Used by optional external programs; not required to compile the current Console workspace."
+  },
+  "rust": {
+    "role": "development",
+    "nix": [
+      "rustc",
+      "cargo"
+    ],
+    "explanation": "Development tools; Nix selects a Rust toolchain meeting Cargo.toml."
+  },
+  "git": {
+    "role": "development",
+    "nix": [
+      "git"
+    ],
+    "explanation": "Development tools; Nix selects a Rust toolchain meeting Cargo.toml."
+  },
+  "power-profiles-daemon": {
+    "role": "system",
+    "nix": [],
+    "explanation": "Configure through NixOS modules; do not install Arch services or snapshot hooks."
+  },
+  "sudo": {
+    "role": "system",
+    "nix": [],
+    "explanation": "Configure through NixOS modules; do not install Arch services or snapshot hooks."
+  },
+  "snapper": {
+    "role": "system",
+    "nix": [],
+    "explanation": "Configure through NixOS modules; do not install Arch services or snapshot hooks."
+  },
+  "noto-fonts": {
+    "role": "font",
+    "nix": [
+      "noto-fonts"
+    ],
+    "explanation": "Installed through fonts.packages."
+  },
+  "ttf-fantasque-nerd": {
+    "role": "font",
+    "nix": [
+      "nerd-fonts.fantasque-sans-mono"
+    ],
+    "explanation": "Installed through fonts.packages."
+  },
+  "tesseract-data-osd": {
+    "role": "ocr-data",
+    "nix": [],
+    "explanation": "Selected by the Tesseract runtime override."
+  },
+  "tesseract-data-eng": {
+    "role": "ocr-data",
+    "nix": [],
+    "explanation": "Selected by the Tesseract runtime override."
+  },
+  "tesseract-data-nld": {
+    "role": "ocr-data",
+    "nix": [],
+    "explanation": "Selected by the Tesseract runtime override."
+  },
+  "tesseract-data-fra": {
+    "role": "ocr-data",
+    "nix": [],
+    "explanation": "Selected by the Tesseract runtime override."
+  },
+  "tesseract-data-jpn": {
+    "role": "ocr-data",
+    "nix": [],
+    "explanation": "Selected by the Tesseract runtime override."
+  },
+  "tesseract-data-jpn_vert": {
+    "role": "ocr-data",
+    "nix": [],
+    "explanation": "Selected by the Tesseract runtime override."
+  },
+  "tesseract-data-kor": {
+    "role": "ocr-data",
+    "nix": [],
+    "explanation": "Selected by the Tesseract runtime override."
+  },
+  "tesseract-data-kor_vert": {
+    "role": "ocr-data",
+    "nix": [],
+    "explanation": "Selected by the Tesseract runtime override."
+  },
+  "tesseract-data-tha": {
+    "role": "ocr-data",
+    "nix": [],
+    "explanation": "Selected by the Tesseract runtime override."
+  }
+}

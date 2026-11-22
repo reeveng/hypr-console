@@ -47,183 +47,213 @@ pub const SPENT: &str = "usr/local/lib/console/palette.sh";
 pub const BIN: &str = "usr/local/bin";
 
 pub fn beside(program: &Path) -> Result<PathBuf, Never> {
-    let mut root = program.parent();
+  let mut root = program.parent();
 
-    for _ in Path::new(BIN).components() {
-        root = root.and_then(Path::parent);
-    }
+  for _ in Path::new(BIN).components() {
+    root = root.and_then(Path::parent);
+  }
 
-    Ok(match root {
-        Some(root) => root.join(SPENT),
-        None => Path::new("/").join(SPENT),
-    })
+  Ok(match root {
+    Some(root_2) => root_2.join(SPENT),
+    None => Path::new("/").join(SPENT),
+  })
 }
 
 pub fn read(said: &str) -> Result<BTreeMap<String, String>, Never> {
-    Ok(said.lines()
-        .filter_map(|line| line.trim_end().split_once('='))
-        .filter(|(name, _)| !name.is_empty() && name.chars().all(|letter| letter.is_alphanumeric() || letter == '_'))
-        .filter(|(_, color)| color.len() == 6 && color.chars().all(|letter| letter.is_ascii_hexdigit()))
-        .map(|(name, color)| (name.to_string(), color.to_lowercase()))
-        .collect())
+  Ok(
+    said
+      .lines()
+      .filter_map(|line| line.trim_end().split_once('='))
+      .filter(|(name, _)| {
+        !name.is_empty()
+          && name
+            .chars()
+            .all(|letter| letter.is_alphanumeric() || letter == '_')
+      })
+      .filter(|(_, color)| {
+        color.len() == 6 && color.chars().all(|letter| letter.is_ascii_hexdigit())
+      })
+      .map(|(name, color)| (name.to_string(), color.to_lowercase()))
+      .collect(),
+  )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PaletteError {
-    Absent(&'static str),
-    Invalid { color: &'static str, value: String },
+  Absent(&'static str),
+  Invalid { color: &'static str, value: String },
 }
 
 impl std::fmt::Display for PaletteError {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PaletteError::Absent(color) => {
-                write!(to, "the palette this desktop spends has no {color}")
-            }
-            PaletteError::Invalid { color, value } => {
-                write!(to, "the palette spends {color} as {value}, which is not a color")
-            }
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      PaletteError::Absent(color) => {
+        write!(to, "the palette this desktop spends has no {color}")
+      }
+      PaletteError::Invalid { color, value } => {
+        write!(
+          to,
+          "the palette spends {color} as {value}, which is not a color"
+        )
+      }
     }
+  }
 }
 
 impl std::error::Error for PaletteError {}
 
 #[derive(Debug)]
 pub enum WearingError {
-    Lost(std::io::Error),
-    Unread { at: PathBuf, why: std::io::Error },
-    Palette(PaletteError),
+  Lost(std::io::Error),
+  Unread { at: PathBuf, why: std::io::Error },
+  Palette(PaletteError),
 }
 
 impl std::fmt::Display for WearingError {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WearingError::Lost(why) => write!(to, "this program cannot find itself: {why}"),
-            WearingError::Unread { at, why } => write!(to, "no palette at {}: {why}", at.display()),
-            WearingError::Palette(why) => write!(to, "{why}"),
-        }
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      WearingError::Lost(why) => write!(to, "this program cannot find itself: {why}"),
+      WearingError::Unread { at, why } => write!(to, "no palette at {}: {why}", at.display()),
+      WearingError::Palette(why) => write!(to, "{why}"),
     }
+  }
 }
 
 impl std::error::Error for WearingError {}
 
 impl From<PaletteError> for WearingError {
-    fn from(why: PaletteError) -> WearingError {
-        WearingError::Palette(why)
-    }
+  fn from(why: PaletteError) -> WearingError {
+    WearingError::Palette(why)
+  }
 }
 
 pub fn spent() -> Result<BTreeMap<String, String>, WearingError> {
-    let me = std::env::current_exe().map_err(WearingError::Lost)?;
-    let Ok(at) = beside(&me);
-    let held = std::fs::read_to_string(&at).map_err(|why| WearingError::Unread { at: at.clone(), why })?;
-    let Ok(spent) = read(&held);
+  let me = std::env::current_exe().map_err(WearingError::Lost)?;
+  let Ok(at) = beside(&me);
+  let held = std::fs::read_to_string(&at).map_err(|why| WearingError::Unread {
+    at: at.clone(),
+    why,
+  })?;
+  let Ok(spent) = read(&held);
 
-    Ok(spent)
+  Ok(spent)
 }
 
 pub const SPENDS: [&str; 7] = ["panel", "text", "edge", "soft", "coral", "ground", "fill"];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Wearing {
-    pub panel: Oklch,
-    pub text: Oklch,
-    pub edge: Oklch,
-    pub soft: Oklch,
-    pub coral: Oklch,
-    pub ground: Oklch,
-    pub fill: Oklch,
-    pub night: Oklch,
-    pub pink: Oklch,
+  pub panel: Oklch,
+  pub text: Oklch,
+  pub edge: Oklch,
+  pub soft: Oklch,
+  pub coral: Oklch,
+  pub ground: Oklch,
+  pub fill: Oklch,
+  pub night: Oklch,
+  pub pink: Oklch,
 }
 
 impl Wearing {
-    pub fn out_of(spent: &BTreeMap<String, String>) -> Result<Wearing, PaletteError> {
-        let panel = find_color(spent, "panel")?;
-        let text = find_color(spent, "text")?;
-        let edge = find_color(spent, "edge")?;
-        let soft = find_color(spent, "soft")?;
-        let coral = find_color(spent, "coral")?;
-        let ground = find_color(spent, "ground")?;
-        let fill = find_color(spent, "fill")?;
-        let night = find_color(spent, "night")?;
-        let pink = find_color(spent, "pink")?;
+  pub fn out_of(spent: &BTreeMap<String, String>) -> Result<Wearing, PaletteError> {
+    let panel = find_color(spent, "panel")?;
+    let text = find_color(spent, "text")?;
+    let edge = find_color(spent, "edge")?;
+    let soft = find_color(spent, "soft")?;
+    let coral = find_color(spent, "coral")?;
+    let ground = find_color(spent, "ground")?;
+    let fill = find_color(spent, "fill")?;
+    let night = find_color(spent, "night")?;
+    let pink = find_color(spent, "pink")?;
 
-        Ok(Wearing { panel, text, edge, soft, coral, ground, fill, night, pink })
-    }
+    Ok(Wearing {
+      panel,
+      text,
+      edge,
+      soft,
+      coral,
+      ground,
+      fill,
+      night,
+      pink,
+    })
+  }
 
-    pub fn worn() -> Result<Wearing, WearingError> {
-        let spent = spent()?;
-        let wearing = Wearing::out_of(&spent)?;
+  pub fn worn() -> Result<Wearing, WearingError> {
+    let spent = spent()?;
+    let wearing = Wearing::out_of(&spent)?;
 
-        Ok(wearing)
-    }
+    Ok(wearing)
+  }
 }
 
 pub fn find_color(
-    spent: &BTreeMap<String, String>,
-    what: &'static str,
+  spent: &BTreeMap<String, String>,
+  what: &'static str,
 ) -> Result<Oklch, PaletteError> {
-    let said = match spent.get(what) {
-        Some(said) => said,
-        None => return Err(PaletteError::Absent(what)),
-    };
-    let channels = Rgba::of(said)
-        .map_err(|_| PaletteError::Invalid { color: what, value: said.clone() })?;
-    let Ok(oklch) = Oklch::of(channels);
+  let said = match spent.get(what) {
+    Some(said) => said,
+    None => return Err(PaletteError::Absent(what)),
+  };
+  let channels = Rgba::of(said).map_err(|_| PaletteError::Invalid {
+    color: what,
+    value: said.clone(),
+  })?;
+  let Ok(oklch) = Oklch::of(channels);
 
-    Ok(oklch)
+  Ok(oklch)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_color_is_a_word_and_six_digits() {
-        let Ok(found) = read("pink=FF7BAC\nnight=191724\nsomething=else\n# ground=000000\n");
+  #[test]
+  fn a_color_is_a_word_and_six_digits() {
+    let Ok(found) = read("pink=FF7BAC\nnight=191724\nsomething=else\n# ground=000000\n");
 
-        assert_eq!(found.get("pink").map(String::as_str), Some("ff7bac"));
-        assert_eq!(found.get("night").map(String::as_str), Some("191724"));
-        assert!(!found.contains_key("something"), "that is not a color");
-    }
+    assert_eq!(found.get("pink").map(String::as_str), Some("ff7bac"));
+    assert_eq!(found.get("night").map(String::as_str), Some("191724"));
+    assert!(!found.contains_key("something"), "that is not a color");
+  }
 
-    #[test]
-    fn what_has_been_commented_out_is_not_a_color() {
-        let Ok(found) = read("# pink=ff7bac\n");
+  #[test]
+  fn what_has_been_commented_out_is_not_a_color() {
+    let Ok(found) = read("# pink=ff7bac\n");
 
-        assert!(found.is_empty());
-    }
+    assert!(found.is_empty());
+  }
 
-    #[test]
-    fn nothing_in_an_empty_file_is_a_color() {
-        let Ok(found) = read("");
+  #[test]
+  fn nothing_in_an_empty_file_is_a_color() {
+    let Ok(found) = read("");
 
-        assert!(found.is_empty());
-    }
+    assert!(found.is_empty());
+  }
 
-    #[test]
-    fn a_program_installed_at_the_root_spends_the_palette_at_the_root() {
-        assert_eq!(
-            beside(Path::new("/usr/local/bin/console-keyboard")),
-            Ok(PathBuf::from("/usr/local/lib/console/palette.sh"))
-        );
-    }
+  #[test]
+  fn a_program_installed_at_the_root_spends_the_palette_at_the_root() {
+    assert_eq!(
+      beside(Path::new("/usr/local/bin/console-keyboard")),
+      Ok(PathBuf::from("/usr/local/lib/console/palette.sh"))
+    );
+  }
 
-    #[test]
-    fn a_program_installed_in_a_staged_tree_spends_that_trees_palette() {
-        assert_eq!(
-            beside(Path::new("/s/session-1/usr/local/bin/console-keyboard")),
-            Ok(PathBuf::from("/s/session-1/usr/local/lib/console/palette.sh"))
-        );
-    }
+  #[test]
+  fn a_program_installed_in_a_staged_tree_spends_that_trees_palette() {
+    assert_eq!(
+      beside(Path::new("/s/session-1/usr/local/bin/console-keyboard")),
+      Ok(PathBuf::from(
+        "/s/session-1/usr/local/lib/console/palette.sh"
+      ))
+    );
+  }
 
-    #[test]
-    fn a_program_nowhere_near_a_tree_falls_back_to_the_root() {
-        assert_eq!(
-            beside(Path::new("console-keyboard")),
-            Ok(PathBuf::from("/usr/local/lib/console/palette.sh"))
-        );
-    }
+  #[test]
+  fn a_program_nowhere_near_a_tree_falls_back_to_the_root() {
+    assert_eq!(
+      beside(Path::new("console-keyboard")),
+      Ok(PathBuf::from("/usr/local/lib/console/palette.sh"))
+    );
+  }
 }

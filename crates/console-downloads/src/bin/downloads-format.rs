@@ -17,322 +17,401 @@
 //! and what they asked about; a tree is a thing that runs for an hour over
 //! places they were not thinking of.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Output};
 
 use console_core_arguments::{Operands, read};
 
-use console_downloads::getting;
-use console_downloads::same::{self, Wants};
-use console_downloads::store::Kind;
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_downloads::getting;
+use console_downloads::same::{self, Wants};
+use console_downloads::store::{self, Kind};
 use console_panel::running::{Notification, say};
 
 const THERE: &str = "there";
-
 
 const KIND: &str = "downloads-format";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Made {
-    It,
-    None,
+  It,
+  None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Ran {
-    Fine,
-    Badly,
+  Fine,
+  Badly,
 }
 
 const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
-    name: "downloads-format",
-    about: "make everything in FOLDER the one format this device keeps; with no FOLDER, the music folder and the videos folder",
-    flags: &[],
-    operands: Operands::Optional("FOLDER"),
+  name: "downloads-format",
+  about: "make everything in FOLDER the one format this device keeps; with no FOLDER, the music folder and the videos folder",
+  flags: &[],
+  operands: Operands::Optional("FOLDER"),
 };
 
 fn main() -> ExitCode {
-    let words: Vec<String> = std::env::args().skip(1).collect();
+  let native: Vec<OsString> = std::env::args_os().skip(1).collect();
+  let folder = match native.as_slice() {
+    [path] => {
+      (path.to_str().is_none() && !path.as_encoded_bytes().starts_with(b"--")).then_some(path)
+    }
+    [end, path] => (end == "--" && path.to_str().is_none()).then_some(path),
+    _ => None,
+  };
 
-    let line = match read(&COMMAND, &words) {
-        Ok(line) => line,
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
+  match folder {
+    Some(path) => {
+      let Ok(()) = format(Some(Path::new(path)));
 
-            return ExitCode::from(code);
-        }
-    };
-    let Ok(operands) = line.operands();
-    let Ok(()) = format(operands.first());
+      return ExitCode::SUCCESS;
+    }
+    None => {}
+  }
 
-    ExitCode::SUCCESS
+  let words = match native
+    .into_iter()
+    .map(OsString::into_string)
+    .collect::<Result<Vec<_>, _>>()
+  {
+    Ok(words) => words,
+    Err(word) => {
+      eprintln!("invalid downloads-format argument {word:?}");
+
+      return ExitCode::from(2);
+    }
+  };
+
+  let line = match read(&COMMAND, &words) {
+    Ok(line) => line,
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
+
+      return ExitCode::from(code);
+    }
+  };
+  let Ok(operands) = line.operands();
+  let Ok(()) = format(operands.first().map(Path::new));
+
+  ExitCode::SUCCESS
 }
 
-fn format(folder: Option<&String>) -> Result<(), Never> {
-    let where_: Vec<PathBuf> = match folder {
-        Some(folder) => vec![PathBuf::from(folder)],
-        None => Kind::BOTH
-            .iter()
-            .map(|kind| {
-                let Ok(into) = getting::into(*kind);
+fn format(folder: Option<&Path>) -> Result<(), Never> {
+  let where_: Vec<PathBuf> = match folder {
+    Some(chosen) => vec![chosen.to_path_buf()],
+    None => Kind::BOTH
+      .iter()
+      .map(|kind| {
+        let Ok(into) = getting::into(*kind);
 
-                into
-            })
-            .collect(),
-    };
-    let mut made: u32 = 0;
-    let mut left: u32 = 0;
+        into
+      })
+      .collect(),
+  };
+  let mut made: u32 = 0;
+  let mut left: u32 = 0;
 
-    for folder in &where_ {
-        let Ok(wanting) = wanting(folder);
+  for folder_2 in &where_ {
+    let Ok(wanting) = wanting(folder_2);
 
-        for path in wanting {
-            let Ok(made_one) = made_one(&path);
+    for path in wanting {
+      let Ok(made_one) = made_one(&path);
 
-            match made_one {
-                Made::It => made = made.saturating_add(1),
-                Made::None => left = left.saturating_add(1),
-            }
-        }
+      match made_one {
+        Made::It => made = made.saturating_add(1),
+        Made::None => left = left.saturating_add(1),
+      }
     }
+  }
 
-    let Ok(()) = notify(Converted { made, left }, &where_);
+  let Ok(()) = notify(Converted { made, left }, &where_);
 
-    Ok(())
+  Ok(())
 }
 
 fn wanting(folder: &Path) -> Result<Vec<PathBuf>, Never> {
-    let reading = match std::fs::read_dir(folder) {
-        Ok(reading) => reading,
-        Err(_unreadable) => return Ok(Vec::new()),
-    };
+  let reading = match std::fs::read_dir(folder) {
+    Ok(reading) => reading,
+    Err(_unreadable) => return Ok(Vec::new()),
+  };
 
-    let mut found: Vec<PathBuf> = reading
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_file())
-        .filter(|path| {
-            let Ok(named) = wants_for(path);
+  let mut found: Vec<PathBuf> = reading
+    .flatten()
+    .filter_map(|entry| {
+      let path = entry.path();
+      let metadata = match std::fs::metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(fault) => {
+          eprintln!("examining {}: {fault}", path.display());
 
-            !matches!(named, Wants::None | Wants::Leave)
-        })
-        .collect();
-    found.sort();
-    Ok(found)
-}
+          return None;
+        }
+      };
+      let Ok(wanted) = same::wants_at(&path);
 
-fn wants_for(path: &Path) -> Result<Wants, Never> {
-    let named = match path.file_name() {
-        Some(named) => named.to_string_lossy().to_string(),
-        None => String::new(),
-    };
-
-    same::wants(&named)
+      (metadata.is_file() && !matches!(wanted, Wants::None | Wants::Leave)).then_some(path)
+    })
+    .collect();
+  found.sort();
+  Ok(found)
 }
 
 fn what(path: &Path) -> Result<Option<Kind>, Never> {
-    let Ok(named) = wants_for(path);
+  let Ok(named) = same::wants_at(path);
 
-    Ok(match named {
-        Wants::Made(kind) => Some(kind),
-        Wants::Ask => {
-            let Ok(about) = same::about(path);
-            let Ok(said) = run_output(&about);
-            let Ok(inside) = same::inside(&said);
+  Ok(match named {
+    Wants::Made(kind) => Some(kind),
+    Wants::Ask => {
+      let Ok(about) = same::about(path);
+      let Ok(said) = run_output(&about);
+      let Ok(inside) = same::inside(&said);
 
-            Some(inside)
-        },
-        Wants::None | Wants::Leave => None,
-    })
+      Some(inside)
+    }
+    Wants::None | Wants::Leave => None,
+  })
 }
 
 fn made_one(path: &Path) -> Result<Made, Never> {
-    let kind = match what(path) {
-        Ok(Some(kind)) => kind,
-        Ok(None) | Err(_) => return Ok(Made::None),
-    };
+  let Ok(kind) = what(path);
+  let conversion = match kind {
+    Some(kind_2) => kind_2,
+    None => return Ok(Made::None),
+  };
+  let Ok(to) = same::beside(path, conversion);
 
-    let Ok(to) = same::beside(path, kind);
+  match std::fs::symlink_metadata(&to) {
+    Ok(_existing) => return Ok(Made::None),
+    Err(fault) => match (fault.kind() == std::io::ErrorKind::NotFound).then_some(()) {
+      Some(()) => {}
+      None => {
+        eprintln!("checking {}: {fault}", to.display());
 
-    match to.exists() {
-        true => return Ok(Made::None),
-        false => {},
+        return Ok(Made::None);
+      }
+    },
+  }
+
+  let parent = match path
+    .parent()
+    .filter(|parent| !parent.as_os_str().is_empty())
+  {
+    Some(parent) => parent,
+    None => Path::new("."),
+  };
+  let work = match store::Scratch::beside(parent, "conversion") {
+    Ok(work) => work,
+    Err(fault) => {
+      eprintln!(
+        "preparing conversion scratch beside {}: {fault}",
+        path.display()
+      );
+
+      return Ok(Made::None);
     }
+  };
+  let Ok(folder) = work.path();
+  let part = match conversion {
+    Kind::Film => folder.join("converted.mkv"),
+    Kind::Sound => folder.join("converted.opus"),
+    Kind::Book => return Ok(Made::None),
+  };
+  let files = Conversion {
+    original: path,
+    prepared: &part,
+    destination: &to,
+  };
+  let Ok(converted) = convert(&files, conversion);
 
-    let Ok(ending) = ending(kind);
-    let part = to.with_extension(format!("part.{ending}"));
-    let Ok(done) = match kind {
-        Kind::Film => {
-            let Ok(film) = same::film(path, &part);
-
-            ran(&film)
-        },
-        Kind::Sound => {
-            let Ok(cover) = cover(path);
-            let Ok(sound) = same::sound(path, &part, cover.as_deref());
-
-            ran(&sound)
-        },
-        Kind::Book => return Ok(Made::None),
-    };
-
-    match done == Ran::Badly || !part.exists() {
-        true => {
-            let _ = std::fs::remove_file(&part);
-            return Ok(Made::None);
-        }
-        false => {},
-    }
-
-    match std::fs::rename(&part, &to) {
-        Ok(()) => {},
-        Err(fault) => {
-            eprintln!("putting the converted file where the old one is: {fault}");
-            let _ = std::fs::remove_file(&part);
-            return Ok(Made::None);
-        }
-    }
-
-    let Ok(console_put_away) = ran(&[
-        "gio".to_string(),
-        "trash".to_string(),
-        "--".to_string(),
-        path.to_string_lossy().to_string(),
-    ]);
-
-    match console_put_away {
-        Ran::Badly => {
-            let _ = std::fs::remove_file(&to);
-            return Ok(Made::None);
-        }
-        Ran::Fine => {},
-    }
-
-    Ok(Made::It)
+  match converted {
+    Ran::Fine => put_in_place(&files),
+    Ran::Badly => Ok(Made::None),
+  }
 }
 
-fn ending(kind: Kind) -> Result<&'static str, Never> {
-    Ok(match kind {
-        Kind::Sound => getting::SOUND,
-        Kind::Film => getting::FILM,
-        Kind::Book => getting::BOOK,
-    })
+struct Conversion<'a> {
+  original: &'a Path,
+  prepared: &'a Path,
+  destination: &'a Path,
 }
 
-fn cover(path: &Path) -> Result<Option<String>, Never> {
-    let Ok(ours) = console_core_places::Base::Cache.ours();
+fn convert(files: &Conversion<'_>, kind: Kind) -> Result<Ran, Never> {
+  match kind {
+    Kind::Film => {
+      let Ok(film) = same::film(files.original, files.prepared);
 
-    let jpg = match ours {
-        Some(ours) => ours.join("download/cover.jpg"),
-        None => return Ok(None),
-    };
-
-    match jpg.parent() {
-        Some(holding) => {
-            let _ = std::fs::create_dir_all(holding);
-        }
-        None => {},
+      ran(&film)
     }
+    Kind::Sound => {
+      let Ok(image) = cover(files);
+      let Ok(sound) = same::sound(files.original, files.prepared, image.as_deref());
 
-    let _ = std::fs::remove_file(&jpg);
-
-    let Ok(arguments) = same::cover(path, &jpg);
-    let Ok(ran) = ran(&arguments);
-
-    match ran {
-        Ran::Badly => return Ok(None),
-        Ran::Fine => {},
+      ran(&sound)
     }
-
-    let held = match std::fs::read(&jpg) {
-        Ok(held) => held,
-        Err(fault) => {
-            eprintln!("reading back the cover ffmpeg wrote: {fault}");
-            return Ok(None);
-        },
-    };
-    let _ = std::fs::remove_file(&jpg);
-
-    Ok(match held.is_empty() {
-        true => None,
-        false => {
-            let Ok(block) = same::block("image/jpeg", &held);
-
-            Some(block)
-        },
-    })
+    Kind::Book => Ok(Ran::Badly),
+  }
 }
 
-fn ran(arguments: &[String]) -> Result<Ran, Never> {
-    let (program, rest) = match arguments.split_first() {
-        Some((program, rest)) => (program, rest),
-        None => return Ok(Ran::Badly),
-    };
+fn put_in_place(files: &Conversion<'_>) -> Result<Made, Never> {
+  let to = files.destination;
 
-    let worked =
-        Command::new(program).args(rest).output().is_ok_and(|done| done.status.success());
+  match console_core_atomic_writes::rename_without_overwriting(files.prepared, to) {
+    Ok(()) => {}
+    Err(fault) => {
+      eprintln!("putting {} in place: {fault}", to.display());
 
-    Ok(match worked {
-        true => Ran::Fine,
-        false => Ran::Badly,
-    })
+      return Ok(Made::None);
+    }
+  }
+
+  let Ok(trashed) = ran(&[
+    OsString::from("gio"),
+    OsString::from("trash"),
+    OsString::from("--"),
+    files.original.as_os_str().to_owned(),
+  ]);
+
+  match trashed {
+    Ran::Badly => {
+      match store::remove_if_present(to) {
+        Ok(()) => {}
+        Err(fault) => eprintln!("removing the converted copy {}: {fault}", to.display()),
+      }
+
+      Ok(Made::None)
+    }
+    Ran::Fine => Ok(Made::It),
+  }
 }
 
-fn run_output(arguments: &[String]) -> Result<String, Never> {
-    Ok(match console_core_external_programs::capture_output(arguments) {
-        Ok(said) => said,
-        Err(_unprinted) => String::new(),
-    })
+fn cover(files: &Conversion<'_>) -> Result<Option<String>, Never> {
+  let jpg = files.prepared.with_file_name("cover.jpg");
+  let Ok(arguments) = same::cover(files.original, &jpg);
+  let Ok(read) = ran(&arguments);
+
+  match read {
+    Ran::Badly => return Ok(None),
+    Ran::Fine => {}
+  }
+
+  let held = match console_core_atomic_writes::read_bytes(&jpg) {
+    Ok(held) => held,
+    Err(fault) => {
+      eprintln!("reading back the cover ffmpeg wrote: {fault}");
+
+      return Ok(None);
+    }
+  };
+
+  Ok(match held.is_empty().then_some(()) {
+    Some(()) => None,
+    None => {
+      let Ok(block) = same::block("image/jpeg", &held);
+
+      Some(block)
+    }
+  })
+}
+
+fn invoke(arguments: &[OsString]) -> std::io::Result<Output> {
+  let (program, rest) = arguments
+    .split_first()
+    .ok_or_else(|| std::io::Error::other("missing program"))?;
+
+  Command::new(program).args(rest).output()
+}
+
+fn ran(arguments: &[OsString]) -> Result<Ran, Never> {
+  Ok(match invoke(arguments) {
+    Ok(done) => match done.status.success().then_some(()) {
+      Some(()) => Ran::Fine,
+      None => Ran::Badly,
+    },
+    Err(fault) => {
+      eprintln!("the conversion tool could not start: {fault}");
+
+      Ran::Badly
+    }
+  })
+}
+
+fn run_output(arguments: &[OsString]) -> Result<String, Never> {
+  Ok(match invoke(arguments) {
+    Ok(done) => match String::from_utf8(done.stdout) {
+      Ok(text) => text,
+      Err(fault) => {
+        eprintln!("the format probe returned output that is not UTF-8: {fault}");
+
+        String::new()
+      }
+    },
+    Err(fault) => {
+      eprintln!("the format probe could not start: {fault}");
+
+      String::new()
+    }
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Converted {
-    made: u32,
-    left: u32,
+  made: u32,
+  left: u32,
 }
 
 fn notify(converted: Converted, where_: &[PathBuf]) -> Result<(), Never> {
-    let Converted { made, left } = converted;
-    let folders: Vec<String> = where_
-        .iter()
-        .map(|at| match at.file_name() {
-            Some(name) => name.to_string_lossy().to_string(),
-            None => THERE.to_string(),
-        })
-        .collect();
-    let said = match (made, left) {
-        (0, 0) => "Already converted".to_string(),
-        (0, left) => format!("Couldn't convert {left} files"),
-        (made, 0) => format!("Converted {made} files"),
-        (made, left) => format!("Converted {made} files, skipped {left}"),
-    };
-    let Ok(mut notifysend) = Program::NotifySend.command();
+  let Converted { made, left } = converted;
+  let folders: Vec<String> = where_
+    .iter()
+    .map(|at| match at.file_name() {
+      Some(name) => match name.to_str() {
+        Some(text) => text.to_string(),
+        None => format!("{name:?}"),
+      },
+      None => THERE.to_string(),
+    })
+    .collect();
+  let said = match (made, left) {
+    (0, 0) => "Already converted".to_string(),
+    (0, left_2) => format!("Couldn't convert {left} files", left = left_2),
+    (made_2, 0) => format!("Converted {made} files", made = made_2),
+    (made_3, left_3) => format!(
+      "Converted {made} files, skipped {left}",
+      left = left_3,
+      made = made_3
+    ),
+  };
+  let Ok(mut notifysend) = Program::NotifySend.command();
 
-    let started = notifysend
-        .args(["--app-name=Console", "--icon=folder-music", "--"])
-        .arg(folders.join(" and "))
-        .arg(&said)
-        .status();
+  let started = notifysend
+    .args(["--app-name=Console", "--icon=folder-music", "--"])
+    .arg(folders.join(" and "))
+    .arg(&said)
+    .status();
 
-    match started {
-        Ok(_) => {},
-        Err(fault) => {
-            eprintln!("telling someone the folder is one format: {fault}");
-            println!("{} {said}", folders.join(" and "));
-        }
+  match started {
+    Ok(_) => {}
+    Err(fault) => {
+      eprintln!("telling someone the folder is one format: {fault}");
+      println!("{} {said}", folders.join(" and "));
     }
+  }
 
-    match left > 0 && made == 0 {
-        true => {
-            let Ok(()) = say(KIND, Notification {
-                summary: &format!("Couldn't convert {}", folders.join(" and ")),
-                body: &said,
-            });
-        }
-        false => {},
+  match ::core::primitive::bool::then_some(left > 0 && made == 0, ()) {
+    ::core::option::Option::Some(()) => {
+      let Ok(()) = say(
+        KIND,
+        Notification {
+          summary: &format!("Couldn't convert {}", folders.join(" and ")),
+          body: &said,
+        },
+      );
     }
+    ::core::option::Option::None => {}
+  }
 
-    Ok(())
+  Ok(())
 }

@@ -1,0 +1,75 @@
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/partial_order.rs:6:43
+   |
+LL | fn equal(left: f64, right: f64) -> bool { left == right }
+   |                                           ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(explicit071_no_float_pitfalls)]` on by default
+help: compare the partial ordering explicitly, keeping the unordered NaN case
+   |
+LL - fn equal(left: f64, right: f64) -> bool { left == right }
+LL + fn equal(left: f64, right: f64) -> bool { <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&left, &right) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) }
+   |
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/partial_order.rs:7:55
+   |
+LL | fn unequal(left: &mut f32, right: &mut f32) -> bool { left != right }
+   |                                                       ^^^^^^^^^^^^^
+   |
+help: compare the partial ordering explicitly, keeping the unordered NaN case
+   |
+LL - fn unequal(left: &mut f32, right: &mut f32) -> bool { left != right }
+LL + fn unequal(left: &mut f32, right: &mut f32) -> bool { <::core::primitive::f32 as ::core::cmp::PartialOrd>::partial_cmp(left, right) != ::core::option::Option::Some(::core::cmp::Ordering::Equal) }
+   |
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/partial_order.rs:8:48
+   |
+LL | fn same_column(a: &Point, b: &Point) -> bool { a.x == b.x }
+   |                                                ^^^^^^^^^^
+   |
+help: compare the partial ordering explicitly, keeping the unordered NaN case
+   |
+LL - fn same_column(a: &Point, b: &Point) -> bool { a.x == b.x }
+LL + fn same_column(a: &Point, b: &Point) -> bool { <::core::primitive::f32 as ::core::cmp::PartialOrd>::partial_cmp(&a.x, &b.x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) }
+   |
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/partial_order.rs:9:32
+   |
+LL | fn is_min(a: &Point) -> bool { a.x == f32::MIN }
+   |                                ^^^^^^^^^^^^^^^
+   |
+help: compare the partial ordering explicitly, keeping the unordered NaN case
+   |
+LL - fn is_min(a: &Point) -> bool { a.x == f32::MIN }
+LL + fn is_min(a: &Point) -> bool { <::core::primitive::f32 as ::core::cmp::PartialOrd>::partial_cmp(&a.x, &f32::MIN) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) }
+   |
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/partial_order.rs:10:51
+   |
+LL | fn same_member(a: &(f32, f32), b: &f32) -> bool { a.1 == *b }
+   |                                                   ^^^^^^^^^
+   |
+help: compare the partial ordering explicitly, keeping the unordered NaN case
+   |
+LL - fn same_member(a: &(f32, f32), b: &f32) -> bool { a.1 == *b }
+LL + fn same_member(a: &(f32, f32), b: &f32) -> bool { <::core::primitive::f32 as ::core::cmp::PartialOrd>::partial_cmp(&a.1, &*b) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) }
+   |
+
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/partial_order.rs:11:31
+   |
+LL | fn whole(a: &Point) -> bool { a.x == a.x.trunc() }
+   |                               ^^^^^^^^^^^^^^^^^^
+   |
+help: compare the partial ordering explicitly, keeping the unordered NaN case
+   |
+LL - fn whole(a: &Point) -> bool { a.x == a.x.trunc() }
+LL + fn whole(a: &Point) -> bool { <::core::primitive::f32 as ::core::cmp::PartialOrd>::partial_cmp(&a.x, &a.x.trunc()) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) }
+   |
+
+warning: 6 warnings emitted
+

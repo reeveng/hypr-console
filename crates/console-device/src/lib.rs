@@ -1,11 +1,9 @@
 //! The handheld, reached from this checkout.
 //!
-//! Three programs live here and all are run on a laptop rather than on the
-//! device: one puts this checkout onto the machine and brings it to match, one
+//! Three programs run on a laptop: one puts this checkout onto the machine and brings it to match, one
 //! takes back what `console save` committed there, and one moves a machine that
-//! still carries the old names over to the new ones. None is part of the
-//! desktop and none is in `[build]` -- the device never runs them, it is what
-//! they are pointed at.
+//! still carries the old names over to the new ones. The Legion Go's
+//! `console-update` binary fetches published releases on the device itself.
 //!
 //! They are together because they are one subject. What travels between here
 //! and the device is a history: `console apply` on the machine and `console

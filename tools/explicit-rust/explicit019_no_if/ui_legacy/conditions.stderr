@@ -1,0 +1,47 @@
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/conditions.rs:21:5
+   |
+LL | /     if *state.borrow() {
+LL | |         *state.borrow_mut() = false;
+LL | |     }
+   | |_____^
+   |
+   = note: `#[deny(explicit019_no_if)]` on by default
+help: name both outcomes in a match
+   |
+LL ~     match {
+LL +         let _explicit_decision = ::core::primitive::bool::then_some(*state.borrow(), ());
+LL +         _explicit_decision
+LL +     } {
+LL +         ::core::option::Option::Some(()) => {
+LL +             *state.borrow_mut() = false;
+LL +         },
+LL +         ::core::option::Option::None => {},
+LL +     }
+   |
+
+error: `if` leaves an outcome implicit: the path not taken has no name here
+  --> $DIR/conditions.rs:26:20
+   |
+LL |       let saw_drop = if let Ok(answer) = FAILED {
+   |  ____________________^
+LL | |         answer
+LL | |     } else {
+LL | |         DROPPED.load(Ordering::Relaxed)
+LL | |     };
+   | |_____^
+   |
+help: name both outcomes in a match
+   |
+LL ~     let saw_drop = match FAILED {
+LL +         Ok(answer) => {
+LL +             answer
+LL +         },
+LL +         ::core::result::Result::Err(_) => {
+LL +             DROPPED.load(Ordering::Relaxed)
+LL +         },
+LL ~     };
+   |
+
+error: aborting due to 2 previous errors
+

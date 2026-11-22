@@ -1,0 +1,27 @@
+// run-rustfix
+// edition:2024
+
+fn method() -> [u8; 3] {
+    let mut shifted = [0; 3];
+
+    for (position, item) in [3, 5].into_iter().enumerate() {
+        shifted[usize::wrapping_add(position, 1)] = item;
+    }
+
+    shifted
+}
+
+fn qualified() -> [u8; 2] {
+    let mut shifted = [0; 2];
+
+    for (position, item) in Iterator::enumerate([7, 9].into_iter()) {
+        shifted[usize::wrapping_shl(position, 0)] = item;
+    }
+
+    shifted
+}
+
+fn main() {
+    assert_eq!(method(), [0, 3, 5]);
+    assert_eq!(qualified(), [7, 9]);
+}

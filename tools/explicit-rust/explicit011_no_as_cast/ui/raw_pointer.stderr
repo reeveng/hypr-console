@@ -1,0 +1,16 @@
+error: `as` cast is forbidden
+  --> $DIR/raw_pointer.rs:6:5
+   |
+LL |     from as *const u8
+   |     ^^^^^^^^^^^^^^^^^ help: name the raw pointer cast: `from.cast::<u8>()`
+   |
+   = note: `#[deny(explicit011_no_as_cast)]` on by default
+
+error: `as` cast is forbidden
+  --> $DIR/raw_pointer.rs:10:5
+   |
+LL |     from as *mut u32
+   |     ^^^^^^^^^^^^^^^^ help: name the raw pointer cast: `from.cast::<u32>()`
+
+error: aborting due to 2 previous errors
+

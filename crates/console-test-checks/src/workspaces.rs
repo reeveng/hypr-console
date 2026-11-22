@@ -26,6 +26,7 @@ use console_compositor::Window;
 use console_core_external_programs::Program;
 use console_core_geometry::Point;
 use console_core_never::Never;
+use console_input_controller::effect::{CompositorAction, Payload, WorkspaceTarget};
 use console_test_stages::checking::{Body, Check, CheckResult, Why, cannot, not_same, same};
 use console_test_stages::desktop::{Desktop, Installed};
 use console_test_stages::device::{Device, PATIENCE};
@@ -33,35 +34,35 @@ use console_test_stages::here::{Here, TURNS};
 use console_test_stages::palette::palette;
 
 pub const RIGHT: Check = Check {
-    name: "010-workspaces-right",
-    about: "R1 moves to the next workspace.",
-    feature: "workspaces",
-    since: "2026-08-24",
-    bodies: &[Body::Here(right_here), Body::Device(right_there)],
+  name: "010-workspaces-right",
+  about: "R1 moves to the next workspace.",
+  feature: "workspaces",
+  since: "2026-08-24",
+  bodies: &[Body::Here(right_here), Body::Device(right_there)],
 };
 
 pub const LEFT: Check = Check {
-    name: "011-workspaces-left",
-    about: "L1 moves to the workspace before.",
-    feature: "workspaces",
-    since: "2026-08-24",
-    bodies: &[Body::Here(left_here), Body::Device(left_there)],
+  name: "011-workspaces-left",
+  about: "L1 moves to the workspace before.",
+  feature: "workspaces",
+  since: "2026-08-24",
+  bodies: &[Body::Here(left_here), Body::Device(left_there)],
 };
 
 pub const TAPPED: Check = Check {
-    name: "012-a-workspace-on-the-bar-is-tapped",
-    about: "A tap on a workspace along the bar moves to it.",
-    feature: "workspaces",
-    since: "2026-09-19",
-    bodies: &[Body::Desktop(tapped_here)],
+  name: "012-a-workspace-on-the-bar-is-tapped",
+  about: "A tap on a workspace along the bar moves to it.",
+  feature: "workspaces",
+  since: "2026-09-19",
+  bodies: &[Body::Desktop(tapped_here)],
 };
 
 pub const ANOTHER: Check = Check {
-    name: "013-the-plus-on-the-bar-opens-a-workspace",
-    about: "A tap on the + past the workspaces moves to one that was not there.",
-    feature: "workspaces",
-    since: "2026-09-20",
-    bodies: &[Body::Desktop(another_here)],
+  name: "013-the-plus-on-the-bar-opens-a-workspace",
+  about: "A tap on the + past the workspaces moves to one that was not there.",
+  feature: "workspaces",
+  since: "2026-09-20",
+  bodies: &[Body::Desktop(another_here)],
 };
 
 const WINDOWS: u32 = 2;
@@ -71,212 +72,241 @@ const ROW: u32 = 4;
 const ALONG: u32 = 400;
 
 fn right_here(stage: &mut Here) -> CheckResult {
-    stage.press("r1")?;
+  stage.press("r1")?;
 
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(asked) = stage.dispatches();
+  let Ok(()) = stage.settle(TURNS);
+  let Ok(asked) = stage.dispatches();
 
-    same(&asked, &[r#"hl.dsp.focus({workspace = "+1"})"#], || format!("R1 asked for {asked:?}"))
+  same(
+    &asked,
+    &[CompositorAction::MoveWorkspace {
+      target: WorkspaceTarget::Relative(1),
+      carrying: Payload::None,
+    }],
+    || format!("R1 asked for {asked:?}"),
+  )
 }
 
 struct Moved {
-    was: String,
-    now: String,
+  was: String,
+  now: String,
 }
 
 fn moved_by(stage: &mut Device, button: &str) -> Result<Moved, Never> {
-    let Ok(was) = stage.workspace();
-    let Ok(()) = stage.press(button);
-    let Ok(_) = stage.changed(Device::workspace, &was, PATIENCE);
-    let Ok(now) = stage.workspace();
+  let Ok(was) = stage.workspace();
+  let Ok(()) = stage.press(button);
+  let Ok(_) = stage.changed(Device::workspace, &was, PATIENCE);
+  let Ok(now) = stage.workspace();
 
-    Ok(Moved { was, now })
+  Ok(Moved { was, now })
 }
 
 fn right_there(stage: &mut Device) -> CheckResult {
-    let Ok(Moved { was, now }) = moved_by(stage, "r1");
+  let Ok(Moved { was, now }) = moved_by(stage, "r1");
 
-    not_same(&now, &was, || format!("still on workspace {was}"))
+  not_same(&now, &was, || format!("still on workspace {was}"))
 }
 
 fn left_here(stage: &mut Here) -> CheckResult {
-    stage.press("l1")?;
+  stage.press("l1")?;
 
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(asked) = stage.dispatches();
+  let Ok(()) = stage.settle(TURNS);
+  let Ok(asked) = stage.dispatches();
 
-    same(&asked, &[r#"hl.dsp.focus({workspace = "-1"})"#], || format!("L1 asked for {asked:?}"))
+  same(
+    &asked,
+    &[CompositorAction::MoveWorkspace {
+      target: WorkspaceTarget::Relative(-1),
+      carrying: Payload::None,
+    }],
+    || format!("L1 asked for {asked:?}"),
+  )
 }
 
 fn left_there(stage: &mut Device) -> CheckResult {
-    let Ok(Moved { was, now: there }) = moved_by(stage, "l1");
-    let Ok(_) = moved_by(stage, "r1");
+  let Ok(Moved { was, now: there }) = moved_by(stage, "l1");
+  let Ok(_) = moved_by(stage, "r1");
 
-    not_same(&there, &was, || format!("L1 left us on {was}"))
+  not_same(&there, &was, || format!("L1 left us on {was}"))
 }
 
 fn another_here(stage: &mut Desktop) -> CheckResult {
-    let Ok(window) = Program::Alacritty.name();
-    let Ok(installed) = stage.installed(window);
+  let Ok(window) = Program::Alacritty.name();
+  let Ok(installed) = stage.installed(window);
 
-    match installed {
-        Installed::No => return cannot("there is no window to open on this machine"),
-        Installed::Yes => {},
-    }
+  match installed {
+    Installed::No => return cannot("there is no window to open on this machine"),
+    Installed::Yes => {}
+  }
 
-    let wearing = pink()?;
+  let wearing = pink()?;
 
-    two_workspaces(stage)?;
+  two_workspaces(stage)?;
 
-    let windows = both_opened(stage)?;
-    let front = stage.front()?;
-    let Ok(past) =
-        console_core_number_conversion::fitted::<_, u32>(windows.iter().filter(|window| window.workspace > front.id).count());
+  let windows = both_opened(stage)?;
+  let front = stage.front()?;
+  let Ok(past) = console_core_number_conversion::fitted::<_, u32>(
+    windows
+      .iter()
+      .filter(|window_2| window_2.workspace > front.id)
+      .count(),
+  );
 
-    let (from, wide) = lit(stage, &wearing)?;
-    let half = wide.saturating_div(2);
-    let at = from
-        .saturating_add(wide.saturating_mul(past.saturating_add(1)))
-        .saturating_add(half);
-    let room = stage.logical()?;
+  let (from, wide) = lit(stage, &wearing)?;
+  let half = wide.saturating_div(2);
+  let at = from
+    .saturating_add(wide.saturating_mul(past.saturating_add(1)))
+    .saturating_add(half);
+  let room = stage.logical()?;
 
-    stage.click_in(console_onscreen::BAR, (at, ROW))?;
-    stage.point((room.width.saturating_div(2), room.height.saturating_div(2)))?;
+  stage.click_in(console_onscreen::BAR, (at, ROW))?;
+  stage.point((room.width.saturating_div(2), room.height.saturating_div(2)))?;
 
-    let now = stage.front()?;
-    let opened = windows.iter().any(|window| window.workspace == now.id);
+  let now = stage.front()?;
+  let opened = windows.iter().any(|window_3| window_3.workspace == now.id);
 
-    match opened {
-        true => Err(Why::Failed(format!(
-            "the + left workspace {} in front, which is one a window was already on",
-            now.id
-        ))),
-        false => Ok(()),
-    }
+  match ::core::primitive::bool::then_some(opened, ()) {
+    ::core::option::Option::Some(()) => Err(Why::Failed(format!(
+      "the + left workspace {} in front, which is one a window was already on",
+      now.id
+    ))),
+    ::core::option::Option::None => Ok(()),
+  }
 }
 
 fn pink() -> Result<String, Why> {
-    let Ok(wanted) = palette();
+  let Ok(wanted) = palette();
 
-    wanted
-        .get("pink")
-        .cloned()
-        .ok_or_else(|| Why::Cannot("the palette says no pink".to_string()))
+  wanted
+    .get("pink")
+    .cloned()
+    .ok_or_else(|| Why::Cannot("the palette says no pink".to_string()))
 }
 
 fn two_workspaces(stage: &mut Desktop) -> Result<(), Why> {
-    let Ok(window) = Program::Alacritty.name();
+  let Ok(window) = Program::Alacritty.name();
 
-    stage.open(window)?;
-    stage.open(window)?;
+  stage.open(window)?;
+  stage.open(window)?;
 
-    Ok(())
+  Ok(())
 }
 
 fn both_opened(stage: &mut Desktop) -> Result<Vec<Window>, Why> {
-    let windows = stage.windows()?;
+  let windows = stage.windows()?;
 
-    let Ok(opened) = console_core_number_conversion::fitted::<_, u32>(windows.len());
+  let Ok(opened) = console_core_number_conversion::fitted::<_, u32>(windows.len());
 
-    match opened {
-        WINDOWS => Ok(windows),
-        _ => Err(Why::Cannot(format!(
-            "{} windows opened rather than {WINDOWS}, so there was no second workspace to tap",
-            windows.len()
-        ))),
-    }
+  match opened {
+    WINDOWS => Ok(windows),
+    _ => Err(Why::Cannot(format!(
+      "{} windows opened rather than {WINDOWS}, so there was no second workspace to tap",
+      windows.len()
+    ))),
+  }
 }
 
 fn lit(stage: &mut Desktop, wearing: &str) -> Result<(u32, u32), Why> {
-    let room = stage.logical()?;
-    let along = ALONG.min(room.width);
-    let mut widest: (u32, u32) = (0, 0);
-    let mut from: u32 = 0;
-    let mut wide: u32 = 0;
+  let room = stage.logical()?;
+  let along = ALONG.min(room.width);
+  let mut widest: (u32, u32) = (0, 0);
+  let mut from: u32 = 0;
+  let mut wide: u32 = 0;
 
-    for across in 0..along {
-        let read = stage.color(Point { x: f64::from(across), y: f64::from(ROW) })?;
+  for across in 0..along {
+    let read = stage.color(Point {
+      x: f64::from(across),
+      y: f64::from(ROW),
+    })?;
 
-        match read == wearing {
-            true => {
-                from = match wide {
-                    0 => across,
-                    _ => from,
-                };
-                wide = wide.saturating_add(1);
-            }
-            false => wide = 0,
-        }
-
-        match wide > widest.1 {
-            true => widest = (from, wide),
-            false => {},
-        }
+    match ::core::primitive::bool::then_some(read == wearing, ()) {
+      ::core::option::Option::Some(()) => {
+        from = match wide {
+          0 => across,
+          _ => from,
+        };
+        wide = wide.saturating_add(1);
+      }
+      ::core::option::Option::None => wide = 0,
     }
 
-    match widest.1 {
-        0 => Err(Why::Failed(
-            "no workspace along the bar was lit, so there was nothing beside it to tap"
-                .to_string(),
-        )),
-        _ => Ok(widest),
+    match ::core::primitive::bool::then_some(wide > widest.1, ()) {
+      ::core::option::Option::Some(()) => widest = (from, wide),
+      ::core::option::Option::None => {}
     }
+  }
+
+  match widest.1 {
+    0 => Err(Why::Failed(
+      "no workspace along the bar was lit, so there was nothing beside it to tap".to_string(),
+    )),
+    _ => Ok(widest),
+  }
 }
 
 fn tapped_here(stage: &mut Desktop) -> CheckResult {
-    let Ok(window) = Program::Alacritty.name();
-    let Ok(installed) = stage.installed(window);
+  let Ok(window) = Program::Alacritty.name();
+  let Ok(installed) = stage.installed(window);
 
-    match installed {
-        Installed::No => return cannot("there is no window to open on this machine"),
-        Installed::Yes => {},
-    }
+  match installed {
+    Installed::No => return cannot("there is no window to open on this machine"),
+    Installed::Yes => {}
+  }
 
-    let wearing = pink()?;
+  let wearing = pink()?;
 
-    two_workspaces(stage)?;
+  two_workspaces(stage)?;
 
-    let windows = both_opened(stage)?;
-    let front = stage.front()?;
-    let beside = windows
-        .iter()
-        .map(|window| window.workspace)
-        .find(|workspace| *workspace != front.id)
-        .ok_or_else(|| {
-            Why::Cannot("both windows opened on one workspace, so there is only one slab".to_string())
-        })?;
-
-    let (from, wide) = lit(stage, &wearing)?;
-    let half = wide.saturating_div(2);
-    let at = match beside < front.id {
-        true => from.saturating_sub(half),
-        false => from.saturating_add(wide).saturating_add(half),
-    };
-
-    let quiet = stage.color(Point { x: f64::from(at), y: f64::from(ROW) })?;
-
-    not_same(&quiet, &wearing, || {
-        format!("the workspace at {at} is lit as well as the one in front")
+  let windows = both_opened(stage)?;
+  let front = stage.front()?;
+  let beside = windows
+    .iter()
+    .map(|window_2| window_2.workspace)
+    .find(|workspace| *workspace != front.id)
+    .ok_or_else(|| {
+      Why::Cannot("both windows opened on one workspace, so there is only one slab".to_string())
     })?;
 
-    let room = stage.logical()?;
+  let (from, wide) = lit(stage, &wearing)?;
+  let half = wide.saturating_div(2);
+  let at = match ::core::primitive::bool::then_some(beside < front.id, ()) {
+    ::core::option::Option::Some(()) => from.saturating_sub(half),
+    ::core::option::Option::None => from.saturating_add(wide).saturating_add(half),
+  };
 
-    let Ok(()) = stage.fresh();
+  let quiet = stage.color(Point {
+    x: f64::from(at),
+    y: f64::from(ROW),
+  })?;
 
-    two_workspaces(stage)?;
-    stage.click_in(console_onscreen::BAR, (at, ROW))?;
-    stage.point((room.width.saturating_div(2), room.height.saturating_div(2)))?;
+  not_same(&quiet, &wearing, || {
+    format!("the workspace at {at} is lit as well as the one in front")
+  })?;
 
-    let _both = both_opened(stage)?;
-    let now = stage.front()?;
+  let room = stage.logical()?;
 
-    same(&now.id, &beside, || {
-        format!("a tap on workspace {beside} left workspace {} in front", now.id)
-    })?;
+  let Ok(()) = stage.fresh();
 
-    let lit_now = stage.color(Point { x: f64::from(at), y: f64::from(ROW) })?;
+  two_workspaces(stage)?;
+  stage.click_in(console_onscreen::BAR, (at, ROW))?;
+  stage.point((room.width.saturating_div(2), room.height.saturating_div(2)))?;
 
-    same(&lit_now, &wearing, || {
-        format!("workspace {beside} is in front and its slab is {lit_now} rather than {wearing}")
-    })
+  let _both = both_opened(stage)?;
+  let now = stage.front()?;
+
+  same(&now.id, &beside, || {
+    format!(
+      "a tap on workspace {beside} left workspace {} in front",
+      now.id
+    )
+  })?;
+
+  let lit_now = stage.color(Point {
+    x: f64::from(at),
+    y: f64::from(ROW),
+  })?;
+
+  same(&lit_now, &wearing, || {
+    format!("workspace {beside} is in front and its slab is {lit_now} rather than {wearing}")
+  })
 }

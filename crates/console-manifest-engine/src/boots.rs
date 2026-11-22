@@ -41,219 +41,265 @@ pub const TRIES: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OneShot {
-    Snapshot(SnapshotNumber),
-    Clear,
-    Leave,
+  Snapshot(SnapshotNumber),
+  Clear,
+  Leave,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Decided {
-    pub generation: Option<Generation>,
-    pub one_shot: OneShot,
+  pub generation: Option<Generation>,
+  pub one_shot: OneShot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Event {
-    Started,
-    Complete,
-    Failed,
+  Started,
+  Complete,
+  Failed,
 }
 
 pub fn decide(event: Event, kept: &[Generation]) -> Result<Decided, Never> {
-    match event {
-        Event::Started => started(kept),
-        Event::Complete => completed(kept),
-        Event::Failed => failed(kept),
-    }
+  match event {
+    Event::Started => started(kept),
+    Event::Complete => completed(kept),
+    Event::Failed => failed(kept),
+  }
 }
 
-const NOTHING: Decided = Decided { generation: None, one_shot: OneShot::Leave };
+const NOTHING: Decided = Decided {
+  generation: None,
+  one_shot: OneShot::Leave,
+};
 
 fn way_back(kept: &[Generation]) -> Result<Option<SnapshotNumber>, Never> {
-    let mut newest_first: Vec<&Generation> = kept.iter().collect();
+  let mut newest_first: Vec<&Generation> = kept.iter().collect();
 
-    newest_first.sort_by_key(|one| std::cmp::Reverse(one.number));
+  newest_first.sort_by_key(|one| std::cmp::Reverse(one.number));
 
-    Ok(newest_first.into_iter().take_while(|one| one.boot == Boot::Pending).filter_map(|one| one.before).last())
+  Ok(
+    newest_first
+      .into_iter()
+      .take_while(|one| one.boot == Boot::Pending)
+      .filter_map(|one| one.before)
+      .last(),
+  )
 }
 
 fn armed(kept: &[Generation], tries: u32) -> Result<OneShot, Never> {
-    let Ok(back) = way_back(kept);
+  let Ok(back) = way_back(kept);
 
-    Ok(match (tries.cmp(&TRIES), back) {
-        (Ordering::Less, Some(_) | None) => OneShot::Leave,
-        (Ordering::Equal | Ordering::Greater, Some(number)) => OneShot::Snapshot(number),
-        (Ordering::Equal | Ordering::Greater, None) => OneShot::Leave,
-    })
+  Ok(match (tries.cmp(&TRIES), back) {
+    (Ordering::Less, Some(_) | None) => OneShot::Leave,
+    (Ordering::Equal | Ordering::Greater, Some(number)) => OneShot::Snapshot(number),
+    (Ordering::Equal | Ordering::Greater, None) => OneShot::Leave,
+  })
 }
 
 pub fn started(kept: &[Generation]) -> Result<Decided, Never> {
-    let Ok(newest) = generations::newest(kept);
-    let newest = match newest {
-        Some(newest) => newest,
-        None => return Ok(NOTHING),
-    };
+  let Ok(newest) = generations::newest(kept);
+  let newest_3 = match newest {
+    Some(newest_2) => newest_2,
+    None => return Ok(NOTHING),
+  };
 
-    match newest.boot {
-        Boot::Good => Ok(NOTHING),
-        Boot::Pending => {
-            let tries = newest.tries.saturating_add(1);
-            let Ok(one_shot) = armed(kept, tries);
+  match newest_3.boot {
+    Boot::Good => Ok(NOTHING),
+    Boot::Pending => {
+      let tries = newest_3.tries.saturating_add(1);
+      let Ok(one_shot) = armed(kept, tries);
 
-            Ok(Decided { generation: Some(Generation { tries, ..newest.clone() }), one_shot })
-        }
+      Ok(Decided {
+        generation: Some(Generation {
+          tries,
+          ..newest_3.clone()
+        }),
+        one_shot,
+      })
     }
+  }
 }
 
 pub fn completed(kept: &[Generation]) -> Result<Decided, Never> {
-    let Ok(newest) = generations::newest(kept);
-    let newest = match newest {
-        Some(newest) => newest,
-        None => return Ok(NOTHING),
-    };
+  let Ok(newest) = generations::newest(kept);
+  let newest_3 = match newest {
+    Some(newest_2) => newest_2,
+    None => return Ok(NOTHING),
+  };
 
-    match newest.boot {
-        Boot::Good => Ok(NOTHING),
-        Boot::Pending => {
-            let one_shot = match newest.tries.cmp(&TRIES) {
-                Ordering::Less => OneShot::Leave,
-                Ordering::Equal | Ordering::Greater => OneShot::Clear,
-            };
+  match newest_3.boot {
+    Boot::Good => Ok(NOTHING),
+    Boot::Pending => {
+      let one_shot = match newest_3.tries.cmp(&TRIES) {
+        Ordering::Less => OneShot::Leave,
+        Ordering::Equal | Ordering::Greater => OneShot::Clear,
+      };
 
-            Ok(Decided { generation: Some(Generation { boot: Boot::Good, ..newest.clone() }), one_shot })
-        }
+      Ok(Decided {
+        generation: Some(Generation {
+          boot: Boot::Good,
+          ..newest_3.clone()
+        }),
+        one_shot,
+      })
     }
+  }
 }
 
 pub fn failed(kept: &[Generation]) -> Result<Decided, Never> {
-    let Ok(newest) = generations::newest(kept);
-    let newest = match newest {
-        Some(newest) => newest,
-        None => return Ok(NOTHING),
-    };
-    let pending = Generation { boot: Boot::Pending, ..newest.clone() };
-    let taken_back: Vec<Generation> =
-        kept.iter().map(|one| match one.number == newest.number {
-            true => pending.clone(),
-            false => one.clone(),
-        }).collect();
-    let Ok(one_shot) = armed(&taken_back, newest.tries);
+  let Ok(newest) = generations::newest(kept);
+  let newest_3 = match newest {
+    Some(newest_2) => newest_2,
+    None => return Ok(NOTHING),
+  };
+  let pending = Generation {
+    boot: Boot::Pending,
+    ..newest_3.clone()
+  };
+  let taken_back: Vec<Generation> = kept
+    .iter()
+    .map(|one| match ::core::primitive::bool::then_some(one.number == newest_3.number, ()) {
+      ::core::option::Option::Some(()) => pending.clone(),
+      ::core::option::Option::None => one.clone(),
+    })
+    .collect();
+  let Ok(one_shot) = armed(&taken_back, newest_3.tries);
 
-    Ok(Decided { generation: Some(pending), one_shot })
+  Ok(Decided {
+    generation: Some(pending),
+    one_shot,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::generations::State;
+  use super::*;
+  use crate::generations::State;
 
-    struct Tries(u32);
+  struct Tries(u32);
 
-    fn applied(number: u32, before: Option<u32>, Tries(tries): Tries, boot: Boot) -> Result<Generation, Never> {
-        Ok(Generation {
-            number,
-            commit: format!("c{number}"),
-            state: State::Finished,
-            before: before.map(SnapshotNumber),
-            tries,
-            boot,
-        })
-    }
+  fn applied(
+    number: u32,
+    before: Option<u32>,
+    Tries(tries): Tries,
+    boot: Boot,
+  ) -> Result<Generation, Never> {
+    Ok(Generation {
+      number,
+      commit: format!("c{number}"),
+      state: State::Finished,
+      before: before.map(SnapshotNumber),
+      tries,
+      boot,
+    })
+  }
 
-    fn tried(kept: &[Generation], times: u32) -> Result<(Vec<Generation>, Vec<OneShot>), Never> {
-        Ok((0..times).fold((kept.to_vec(), Vec::new()), |(kept, mut said), _| {
-            let Ok(decided) = started(&kept);
-            let kept: Vec<Generation> = match decided.generation {
-                Some(counted) => kept.into_iter().map(|one| match one.number == counted.number {
-                    true => counted.clone(),
-                    false => one,
-                }).collect(),
-                None => kept,
-            };
+  fn tried(kept: &[Generation], times: u32) -> Result<(Vec<Generation>, Vec<OneShot>), Never> {
+    Ok(
+      (0..times).fold((kept.to_vec(), Vec::new()), |(kept_2, mut said), _| {
+        let Ok(decided) = started(&kept_2);
+        let kept_3: Vec<Generation> = match decided.generation {
+          Some(counted) => kept_2
+            .into_iter()
+            .map(|one| match ::core::primitive::bool::then_some(one.number == counted.number, ()) {
+              ::core::option::Option::Some(()) => counted.clone(),
+              ::core::option::Option::None => one,
+            })
+            .collect(),
+          None => kept_2,
+        };
 
-            said.push(decided.one_shot);
+        said.push(decided.one_shot);
 
-            (kept, said)
-        }))
-    }
+        (kept_3, said)
+      }),
+    )
+  }
 
-    #[test]
-    fn a_machine_that_never_applied_counts_nothing() {
-        let Ok(decided) = started(&[]);
+  #[test]
+  fn a_machine_that_never_applied_counts_nothing() {
+    let Ok(decided) = started(&[]);
 
-        assert_eq!(decided, NOTHING);
-    }
+    assert_eq!(decided, NOTHING);
+  }
 
-    #[test]
-    fn the_third_boot_that_does_not_come_up_arms_the_snapshot_before_the_apply() {
-        let Ok(good) = applied(4, Some(170), Tries(1), Boot::Good);
-        let Ok(fresh) = applied(5, Some(184), Tries(0), Boot::Pending);
-        let Ok((_, said)) = tried(&[good, fresh], 3);
+  #[test]
+  fn the_third_boot_that_does_not_come_up_arms_the_snapshot_before_the_apply() {
+    let Ok(good) = applied(4, Some(170), Tries(1), Boot::Good);
+    let Ok(fresh) = applied(5, Some(184), Tries(0), Boot::Pending);
+    let Ok((_, said)) = tried(&[good, fresh], 3);
 
-        assert_eq!(said, vec![OneShot::Leave, OneShot::Leave, OneShot::Snapshot(SnapshotNumber(184))]);
-    }
+    assert_eq!(
+      said,
+      vec![
+        OneShot::Leave,
+        OneShot::Leave,
+        OneShot::Snapshot(SnapshotNumber(184))
+      ]
+    );
+  }
 
-    #[test]
-    fn a_generation_that_came_up_once_is_never_gone_back_from() {
-        let Ok(good) = applied(5, Some(184), Tries(1), Boot::Good);
-        let Ok((kept, said)) = tried(std::slice::from_ref(&good), 5);
+  #[test]
+  fn a_generation_that_came_up_once_is_never_gone_back_from() {
+    let Ok(good) = applied(5, Some(184), Tries(1), Boot::Good);
+    let Ok((kept, said)) = tried(std::slice::from_ref(&good), 5);
 
-        assert_eq!(said, vec![OneShot::Leave; 5]);
-        assert_eq!(kept, vec![good]);
-    }
+    assert_eq!(said, vec![OneShot::Leave; 5]);
+    assert_eq!(kept, vec![good]);
+  }
 
-    #[test]
-    fn two_applies_with_no_restart_between_go_back_past_both() {
-        let Ok(good) = applied(4, Some(170), Tries(1), Boot::Good);
-        let Ok(first) = applied(5, Some(184), Tries(0), Boot::Pending);
-        let Ok(second) = applied(6, Some(185), Tries(0), Boot::Pending);
-        let Ok((_, said)) = tried(&[good, first, second], 3);
+  #[test]
+  fn two_applies_with_no_restart_between_go_back_past_both() {
+    let Ok(good) = applied(4, Some(170), Tries(1), Boot::Good);
+    let Ok(first) = applied(5, Some(184), Tries(0), Boot::Pending);
+    let Ok(second) = applied(6, Some(185), Tries(0), Boot::Pending);
+    let Ok((_, said)) = tried(&[good, first, second], 3);
 
-        assert_eq!(said.last(), Some(&OneShot::Snapshot(SnapshotNumber(184))));
-    }
+    assert_eq!(said.last(), Some(&OneShot::Snapshot(SnapshotNumber(184))));
+  }
 
-    #[test]
-    fn a_generation_with_no_snapshot_only_counts() {
-        let Ok(fresh) = applied(5, None, Tries(0), Boot::Pending);
-        let Ok((kept, said)) = tried(&[fresh], 4);
+  #[test]
+  fn a_generation_with_no_snapshot_only_counts() {
+    let Ok(fresh) = applied(5, None, Tries(0), Boot::Pending);
+    let Ok((kept, said)) = tried(&[fresh], 4);
 
-        assert_eq!(said, vec![OneShot::Leave; 4]);
-        assert_eq!(kept.first().map(|one| one.tries), Some(4));
-    }
+    assert_eq!(said, vec![OneShot::Leave; 4]);
+    assert_eq!(kept.first().map(|one| one.tries), Some(4));
+  }
 
-    #[test]
-    fn a_boot_that_comes_up_on_the_last_try_takes_the_way_back_back() {
-        let Ok(armed) = applied(5, Some(184), Tries(3), Boot::Pending);
-        let Ok(decided) = completed(&[armed]);
+  #[test]
+  fn a_boot_that_comes_up_on_the_last_try_takes_the_way_back_back() {
+    let Ok(armed) = applied(5, Some(184), Tries(3), Boot::Pending);
+    let Ok(decided) = completed(&[armed]);
 
-        assert_eq!(decided.one_shot, OneShot::Clear);
-        assert_eq!(decided.generation.map(|one| one.boot), Some(Boot::Good));
-    }
+    assert_eq!(decided.one_shot, OneShot::Clear);
+    assert_eq!(decided.generation.map(|one| one.boot), Some(Boot::Good));
+  }
 
-    #[test]
-    fn a_boot_that_comes_up_early_leaves_the_one_shot_alone() {
-        let Ok(fresh) = applied(5, Some(184), Tries(1), Boot::Pending);
-        let Ok(decided) = completed(&[fresh]);
+  #[test]
+  fn a_boot_that_comes_up_early_leaves_the_one_shot_alone() {
+    let Ok(fresh) = applied(5, Some(184), Tries(1), Boot::Pending);
+    let Ok(decided) = completed(&[fresh]);
 
-        assert_eq!(decided.one_shot, OneShot::Leave);
-    }
+    assert_eq!(decided.one_shot, OneShot::Leave);
+  }
 
-    #[test]
-    fn a_login_window_that_fell_on_the_last_try_arms_the_way_back_again() {
-        let Ok(good) = applied(4, Some(170), Tries(1), Boot::Good);
-        let Ok(said_good) = applied(5, Some(184), Tries(3), Boot::Good);
-        let Ok(decided) = failed(&[good, said_good]);
+  #[test]
+  fn a_login_window_that_fell_on_the_last_try_arms_the_way_back_again() {
+    let Ok(good) = applied(4, Some(170), Tries(1), Boot::Good);
+    let Ok(said_good) = applied(5, Some(184), Tries(3), Boot::Good);
+    let Ok(decided) = failed(&[good, said_good]);
 
-        assert_eq!(decided.one_shot, OneShot::Snapshot(SnapshotNumber(184)));
-        assert_eq!(decided.generation.map(|one| one.boot), Some(Boot::Pending));
-    }
+    assert_eq!(decided.one_shot, OneShot::Snapshot(SnapshotNumber(184)));
+    assert_eq!(decided.generation.map(|one| one.boot), Some(Boot::Pending));
+  }
 
-    #[test]
-    fn a_login_window_that_fell_early_only_takes_the_word_back() {
-        let Ok(said_good) = applied(5, Some(184), Tries(1), Boot::Good);
-        let Ok(decided) = failed(&[said_good]);
+  #[test]
+  fn a_login_window_that_fell_early_only_takes_the_word_back() {
+    let Ok(said_good) = applied(5, Some(184), Tries(1), Boot::Good);
+    let Ok(decided) = failed(&[said_good]);
 
-        assert_eq!(decided.one_shot, OneShot::Leave);
-        assert_eq!(decided.generation.map(|one| one.boot), Some(Boot::Pending));
-    }
+    assert_eq!(decided.one_shot, OneShot::Leave);
+    assert_eq!(decided.generation.map(|one| one.boot), Some(Boot::Pending));
+  }
 }

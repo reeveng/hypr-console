@@ -1,0 +1,12 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_number_conversion.rs
+extern crate console_core_number_conversion;
+
+fn main() {
+    let x = -1_i32;
+    let Ok(position) = console_core_number_conversion::index(7_u8);
+    assert_eq!(match ::console_core_number_conversion::wrapped_index(x) { ::core::result::Result::Ok(converted_position) => converted_position }, !0);
+    assert_eq!(match ::console_core_number_conversion::wrapped_offset(255_u8) { ::core::result::Result::Ok(converted_position) => converted_position }, 255);
+    assert_eq!(position, 7);
+}

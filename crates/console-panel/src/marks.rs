@@ -42,15 +42,18 @@ pub const HIDE: &str = "Hide Password";
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn no_two_marks_are_the_same_mark() {
-        let mut every = [BEFORE, AFTER, SHUT, LESS, MORE, ELSE, HIDDEN].to_vec();
-        every.sort_unstable();
-        let mut once = every.clone();
-        once.dedup();
+  #[test]
+  fn no_two_marks_are_the_same_mark() {
+    let mut every = [BEFORE, AFTER, SHUT, LESS, MORE, ELSE, HIDDEN].to_vec();
+    every.sort_unstable();
+    let mut once = every.clone();
+    once.dedup();
 
-        assert_eq!(once, every, "two things a hand is offered drawn with one glyph");
-    }
+    assert_eq!(
+      once, every,
+      "two things a hand is offered drawn with one glyph"
+    );
+  }
 }

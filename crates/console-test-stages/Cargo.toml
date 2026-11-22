@@ -10,6 +10,7 @@ name = "console_test_stages"
 path = "src/lib.rs"
 
 [dependencies]
+console-operating-system-linux.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-directory-listing.workspace = true
 console-device-name.workspace = true
@@ -18,17 +19,17 @@ console-core-external-programs.workspace = true
 console-core-ini-files.workspace = true
 console-core-geometry.workspace = true
 console-core-never.workspace = true
+console-core-logging.workspace = true
 console-core-internal-programs.workspace = true
 console-manifest-migrations.workspace = true
 console-core-walking.workspace = true
 console-core-places.workspace = true
 console-core-words.workspace = true
 console-waiting.workspace = true
-console-program-lifetime.workspace = true
 console-onscreen.workspace = true
 console-core-number-conversion.workspace = true
 console-how-far.workspace = true
-cairo-rs = { version = "0.22", features = ["png"] }
+console-core-png-files.workspace = true
 console-input-event-devices.workspace = true
 console-core-color.workspace = true
 console-input-bindings.workspace = true
@@ -37,6 +38,7 @@ console-input-gamepad = { workspace = true, features = ["read"] }
 console-screen.workspace = true
 console-panel.workspace = true
 console-response-times.workspace = true
+console-repository.workspace = true
 console-notifications.workspace = true
 serde_json = "1"
 console-signals = { path = "../console-signals" }

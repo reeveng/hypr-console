@@ -1,0 +1,44 @@
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/counted_guard.rs:9:5
+   |
+LL | /     while count < bound && {
+LL | |         reads += 1;
+LL | |         remaining.next().unwrap_or_default()
+LL | |     } == 1 {
+LL | |         count = count.wrapping_add(1);
+LL | |     }
+   | |_____^
+   |
+   = note: `#[deny(explicit053_no_while)]` on by default
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL ~     for _ in (::core::ops::Range { start: count, end: bound }) {
+LL +         match {
+LL +         reads += 1;
+LL +         remaining.next().unwrap_or_default()
+LL +     } {
+LL +             1 => {},
+LL +             _ => break,
+LL +         };
+   |
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/counted_guard.rs:20:5
+   |
+LL | /     while n < limit && '!' != next() {
+LL | |         n += 1;
+LL | |     }
+   | |_____^
+   |
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL ~     for _ in (::core::ops::Range { start: n, end: limit }) {
+LL +         match next() {
+LL +             '!' => break,
+LL +             _ => {},
+LL +         };
+LL ~         n = (::core::num::Wrapping(n) + ::core::num::Wrapping(1)).0;
+   |
+
+error: aborting due to 2 previous errors
+

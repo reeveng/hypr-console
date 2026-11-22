@@ -1,0 +1,16 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_paths.rs
+extern crate console_core_paths;
+use console_core_paths::{PathBuilder, Point};
+
+fn append(path: &mut PathBuilder, point: Point) {
+    let Ok(()) = ::console_core_paths::PathBuilder::quad_to_pt(&mut *path, point, ::console_core_paths::Point { x: 8.0, y: -1.0 });
+}
+fn main() {
+    let mut path = PathBuilder::default();
+    let Ok(()) = ::console_core_paths::PathBuilder::move_to_pt(&mut path, ::console_core_paths::Point { x: 1.0, y: 2.0 });
+    append(&mut path, Point { x: 3.0, y: 4.0 });
+    let Ok(()) = path.move_to(path.0.len() as f32, 9.0);
+    assert_eq!(path.0, [(1.0, 2.0), (3.0, 4.0), (8.0, -1.0), (3.0, 9.0)]);
+}

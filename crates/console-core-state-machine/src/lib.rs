@@ -11,6 +11,8 @@
 //! machine carries it out. That is what lets a recorded run replay on a laptop
 //! with no compositor and reach the state the device reached, and it is the
 //! split `console-program-contract` was already written on.
+//! Work that can block belongs in an effect. The driver delivers its outcome
+//! as another request.
 //!
 //! **A handler cannot fail.** A request that means nothing in the state it
 //! arrives in is a transition back to the same state, written as an arm; a
@@ -32,12 +34,14 @@
 //! was -- is asked again, because a reading restored after a reboot is one that
 //! is confidently wrong.
 //!
-//! `docs/state-machines.md` is the rest of the argument.
+//! The `state-machines.md` note in Orbit is the rest of the argument.
 
+mod interleavings;
 mod schema;
 mod snapshot;
 mod transcript;
 
+pub use interleavings::{ExplorationError, interleavings};
 pub use schema::{Decoder, Encoder, ParseError, Serializable};
 pub use snapshot::{SerializableMachine, Version, restore, snapshot};
 pub use transcript::{Step, Trace, Transcript, run, run_from};
@@ -45,89 +49,98 @@ pub use transcript::{Step, Trace, Transcript, run, run_from};
 pub use console_core_never::Never;
 
 pub trait Machine {
-    type Input;
-    type State;
-    type Request;
-    type Effect;
+  type Input;
+  type State;
+  type Request;
+  type Effect;
 
-    fn initialize(
-        input: &Self::Input,
-        previous: Option<Self::State>,
-        effects: &mut Queue<Self::Effect>,
-    ) -> Result<Self::State, Never>;
+  fn initialize(
+    input: &Self::Input,
+    previous: Option<Self::State>,
+    effects: &mut Queue<Self::Effect>,
+  ) -> Result<Self::State, Never>;
 
-    fn handle(
-        state: Self::State,
-        request: Self::Request,
-        effects: &mut Queue<Self::Effect>,
-    ) -> Result<Self::State, Never>;
+  fn handle(
+    state: Self::State,
+    request: Self::Request,
+    effects: &mut Queue<Self::Effect>,
+  ) -> Result<Self::State, Never>;
 
-    fn initial_transition(
-        input: &Self::Input,
-        previous: Option<Self::State>,
-    ) -> Result<Transition<Self::State, Self::Effect>, Never> {
-        let Ok(mut effects) = Queue::unbounded();
-        let Ok(state) = Self::initialize(input, previous, &mut effects);
-        let Ok(effects) = effects.take_all();
+  fn initial_transition(
+    input: &Self::Input,
+    previous: Option<Self::State>,
+  ) -> Result<Transition<Self::State, Self::Effect>, Never> {
+    let Ok(mut queued) = Queue::unbounded();
+    let Ok(state) = Self::initialize(input, previous, &mut queued);
+    let Ok(effects) = queued.take_all();
 
-        Ok(Transition { state, effects })
-    }
+    Ok(Transition { state, effects })
+  }
 
-    fn transition(state: Self::State, request: Self::Request) -> Result<Transition<Self::State, Self::Effect>, Never> {
-        let Ok(mut effects) = Queue::unbounded();
-        let Ok(state) = Self::handle(state, request, &mut effects);
-        let Ok(effects) = effects.take_all();
+  fn transition(
+    state: Self::State,
+    request: Self::Request,
+  ) -> Result<Transition<Self::State, Self::Effect>, Never> {
+    let Ok(mut queued) = Queue::unbounded();
+    let Ok(next) = Self::handle(state, request, &mut queued);
+    let Ok(effects) = queued.take_all();
 
-        Ok(Transition { state, effects })
-    }
+    Ok(Transition {
+      state: next,
+      effects,
+    })
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transition<S, E> {
-    pub state: S,
-    pub effects: Vec<E>,
+  pub state: S,
+  pub effects: Vec<E>,
 }
 
 impl<S, E> Transition<S, E> {
-    pub fn new(state: S, effects: Vec<E>) -> Result<Self, Never> {
-        Ok(Transition { state, effects })
-    }
+  pub fn new(state: S, effects: Vec<E>) -> Result<Self, Never> {
+    Ok(Transition { state, effects })
+  }
 
-    pub fn without_effects(state: S) -> Result<Self, Never> {
-        Ok(Transition { state, effects: Vec::new() })
-    }
+  pub fn without_effects(state: S) -> Result<Self, Never> {
+    Ok(Transition {
+      state,
+      effects: Vec::new(),
+    })
+  }
 
-    pub fn offered(self, to: &mut Queue<E>) -> Result<S, Never> {
-        let Transition { state, effects } = self;
-        let Ok(()) = to.offer_all(effects);
+  pub fn offered(self, to: &mut Queue<E>) -> Result<S, Never> {
+    let Transition { state, effects } = self;
+    let Ok(()) = to.offer_all(effects);
 
-        Ok(state)
-    }
+    Ok(state)
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Queue<T> {
-    items: Vec<T>,
+  items: Vec<T>,
 }
 
 impl<T> Queue<T> {
-    pub fn unbounded() -> Result<Self, Never> {
-        Ok(Queue { items: Vec::new() })
-    }
+  pub fn unbounded() -> Result<Self, Never> {
+    Ok(Queue { items: Vec::new() })
+  }
 
-    pub fn offer(&mut self, item: T) -> Result<(), Never> {
-        self.items.push(item);
+  pub fn offer(&mut self, item: T) -> Result<(), Never> {
+    self.items.push(item);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    pub fn offer_all(&mut self, items: impl IntoIterator<Item = T>) -> Result<(), Never> {
-        self.items.extend(items);
+  pub fn offer_all(&mut self, items: impl IntoIterator<Item = T>) -> Result<(), Never> {
+    self.items.extend(items);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    pub fn take_all(&mut self) -> Result<Vec<T>, Never> {
-        Ok(std::mem::take(&mut self.items))
-    }
+  pub fn take_all(&mut self) -> Result<Vec<T>, Never> {
+    Ok(std::mem::take(&mut self.items))
+  }
 }

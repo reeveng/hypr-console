@@ -54,189 +54,197 @@
 
 use console_core_never::Never;
 use console_test_stages::checking::{Body, Check, CheckResult, failed, happened};
-use console_test_stages::device::{Device, Ready, Outcome};
+use console_test_stages::device::{Device, Outcome, Ready};
 
 use console_input_bindings::bound::{Binding, Input};
-use console_input_controller::binds::{self, KeyBinding, desired_binds};
 use console_input_controller::actions::Table;
+use console_input_controller::binds::{self, KeyBinding, desired_binds};
 
 const PATIENCE: f64 = 4.0;
 
 const THE_SETTINGS: &str = "settings";
 
 pub const HANDED: Check = Check {
-    name: "400-the-keys-the-compositor-was-handed",
-    about: "Every job on a key is a bind the compositor is holding, and is holding once.",
-    feature: "typing",
-    since: "2026-09-08",
-    bodies: &[Body::Device(handed)],
+  name: "400-the-keys-the-compositor-was-handed",
+  about: "Every job on a key is a bind the compositor is holding, and is holding once.",
+  feature: "typing",
+  since: "2026-09-08",
+  bodies: &[Body::Device(handed)],
 };
 
 pub const A_KEY: Check = Check {
-    name: "410-a-key-opens-what-the-button-opens",
-    about: "Super and I opens the settings, the same card the settings button opens.",
-    feature: "typing",
-    since: "2026-09-08",
-    bodies: &[Body::Device(a_key)],
+  name: "410-a-key-opens-what-the-button-opens",
+  about: "Super and I opens the settings, the same card the settings button opens.",
+  feature: "typing",
+  since: "2026-09-08",
+  bodies: &[Body::Device(a_key)],
 };
 
 pub const LAST_PRESS: Check = Check {
-    name: "420-the-hand-that-was-last-used",
-    about: "A press on the pad leaves the machine saying the pad.",
-    feature: "typing",
-    since: "2026-09-08",
-    bodies: &[Body::Device(last_press)],
+  name: "420-the-hand-that-was-last-used",
+  about: "A press on the pad leaves the machine saying the pad.",
+  feature: "typing",
+  since: "2026-09-08",
+  bodies: &[Body::Device(last_press)],
 };
 
 fn ours() -> Result<Vec<KeyBinding>, Never> {
-    let Ok(table) = Table::ours();
+  let Ok(table) = Table::ours();
 
-    desired_binds(&table)
+  desired_binds(&table)
 }
 
 fn handed(stage: &mut Device) -> CheckResult {
-    let Ok(said) = stage.hypr("binds -j");
+  let Ok(said) = stage.hypr("binds -j");
 
-    let holding = match console_compositor::read(console_compositor::Binds, &said) {
-        Ok(holding) => holding,
-        Err(fault) => return failed(fault.to_string()),
-    };
-    let Ok(wanted) = ours();
-    let Ok(standing) = binds::compare(&wanted, &binds::Holding::These(holding.clone()));
+  let holding = match console_compositor::read(console_compositor::Binds, &said) {
+    Ok(holding) => holding,
+    Err(fault) => return failed(fault.to_string()),
+  };
+  let Ok(wanted) = ours();
+  let Ok(standing) = binds::compare(&wanted, &binds::Holding::These(holding.clone()));
 
-    match standing.missing {
-        0 => {},
-        many => {
-            return failed(format!(
-                "the table says {} keys and the compositor is holding {}, {many} of ours among \
+  match standing.missing {
+    0 => {}
+    many => {
+      return failed(format!(
+        "the table says {} keys and the compositor is holding {}, {many} of ours among \
                  them reaching it from nowhere. Is the daemon up, and did the compositor take \
                  what it was sent?",
-                wanted.len(),
-                holding.len()
-            ));
-        }
+        wanted.len(),
+        holding.len()
+      ));
     }
+  }
 
-    match standing.over {
-        0 => Ok(()),
-        many => failed(format!(
-            "{many} of the {} keys are bound more than once, out of {} the compositor holds \
+  match standing.over {
+    0 => Ok(()),
+    many => failed(format!(
+      "{many} of the {} keys are bound more than once, out of {} the compositor holds \
              altogether: every copy fires on one press, so the rocker steps twice and the card \
              comes up twice. The daemon pushed the table on top of a compositor already holding \
              it -- which is what a restart under a live session used to do.",
-            wanted.len(),
-            holding.len()
-        )),
-    }
+      wanted.len(),
+      holding.len()
+    )),
+  }
 }
 
 fn describe_binding(row: &Binding) -> Result<String, Never> {
-    Ok(row.held.iter().map(String::as_str).chain([row.pressed.as_str()]).collect::<Vec<_>>().join(" and "))
+  Ok(
+    row
+      .held
+      .iter()
+      .map(String::as_str)
+      .chain([row.pressed.as_str()])
+      .collect::<Vec<_>>()
+      .join(" and "),
+  )
 }
 
 fn settings_open(seen: &mut Device) -> Result<Ready, Never> {
-    let Ok(where_) = seen.layer(console_settings::WHO);
+  let Ok(where_) = seen.layer(console_settings::WHO);
 
-    Ok(match where_ {
-        Some(_) => Ready::Yes,
-        None => Ready::NotYet,
-    })
+  Ok(match where_ {
+    Some(_) => Ready::Yes,
+    None => Ready::NotYet,
+  })
 }
 
 fn away(seen: &mut Device) -> Result<Ready, Never> {
-    let Ok(up) = settings_open(seen);
+  let Ok(up) = settings_open(seen);
 
-    up.flipped()
+  up.flipped()
 }
 
 fn console_put_away(stage: &mut Device) -> Result<Outcome, Never> {
-    let Ok(()) = stage.press("b");
+  let Ok(()) = stage.press("b");
 
-    stage.until(away, PATIENCE)
+  stage.until(away, PATIENCE)
 }
 
 fn a_key(stage: &mut Device) -> CheckResult {
-    let Ok(already) = settings_open(stage);
+  let Ok(already) = settings_open(stage);
 
-    match already {
-        Ready::Yes => {
-            let Ok(_) = console_put_away(stage);
-        },
-        Ready::NotYet => {},
+  match already {
+    Ready::Yes => {
+      let Ok(_) = console_put_away(stage);
     }
+    Ready::NotYet => {}
+  }
 
-    let Ok(table) = Table::ours();
-    let Ok(bound) = table.bindings(THE_SETTINGS);
+  let Ok(table) = Table::ours();
+  let Ok(bound) = table.bindings(THE_SETTINGS);
 
-    let row = match bound.iter().find(|binding| binding.on == Input::Keyboard) {
-        Some(row) => row,
-        None => {
-            return failed(format!(
-                "the table puts no key on {THE_SETTINGS}, so there is nothing here to press"
-            ));
-        },
-    };
+  let row = match bound.iter().find(|binding| binding.on == Input::Keyboard) {
+    Some(row) => row,
+    None => {
+      return failed(format!(
+        "the table puts no key on {THE_SETTINGS}, so there is nothing here to press"
+      ));
+    }
+  };
 
-    let held: Vec<&str> = row.held.iter().map(String::as_str).collect();
+  let held: Vec<&str> = row.held.iter().map(String::as_str).collect();
 
-    stage.press_chord(&held, &row.pressed)?;
+  stage.press_chord(&held, &row.pressed)?;
 
-    let Ok(came) = stage.until(settings_open, PATIENCE);
+  let Ok(came) = stage.until(settings_open, PATIENCE);
 
-    match came {
-        Outcome::Happened => {},
-        Outcome::RanOut => {
-            let Ok(said) = describe_binding(row);
+  match came {
+    Outcome::Happened => {}
+    Outcome::RanOut => {
+      let Ok(said) = describe_binding(row);
 
-            return failed(format!(
-                "{said} opened nothing. The bind is the table's, so either it was never handed \
+      return failed(format!(
+        "{said} opened nothing. The bind is the table's, so either it was never handed \
                  over or what it runs is not what the row says"
-            ));
-        },
+      ));
     }
+  }
 
-    let Ok(gone) = console_put_away(stage);
+  let Ok(gone) = console_put_away(stage);
 
-    happened(gone, || "the settings would not close again".to_string())
+  happened(gone, || "the settings would not close again".to_string())
 }
 
 fn last_press(stage: &mut Device) -> CheckResult {
-    let Ok(home) = stage.home();
-    let Ok(at) = console_input_bindings::active::path_in(std::path::Path::new(&home));
-    let at = at.display().to_string();
-    let reading = format!("cat {at} 2>/dev/null");
+  let Ok(home) = stage.home();
+  let Ok(at) = console_input_bindings::active::path_in(std::path::Path::new(&home));
+  let at_2 = at.display().to_string();
+  let reading = format!("cat {at} 2>/dev/null", at = at_2);
 
-    let Ok(was) = stage.user(&reading);
-    let was = was.trim().to_string();
+  let Ok(was) = stage.user(&reading);
+  let was_2 = was.trim().to_string();
 
-    let Ok(word) = Input::Pad.word();
-    let Ok(()) = stage.press("b");
+  let Ok(word) = Input::Pad.word();
+  let Ok(()) = stage.press("b");
 
-    let asking = reading.clone();
-    let Ok(said) = stage.until(
-        move |stage: &mut Device| -> Result<Ready, Never> {
-            let Ok(now) = stage.user(&asking);
+  let asking = reading.clone();
+  let Ok(said) = stage.until(
+    move |stage_2: &mut Device| -> Result<Ready, Never> {
+      let Ok(now) = stage_2.user(&asking);
 
-            Ok(match now.trim() == word {
-                true => Ready::Yes,
-                false => Ready::NotYet,
-            })
-        },
-        PATIENCE,
-    );
+      Ok(match ::core::primitive::bool::then_some(now.trim() == word, ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      })
+    },
+    PATIENCE,
+  );
 
-    let Ok(pad) = stage.user(&reading);
+  let Ok(pad) = stage.user(&reading);
 
-    let done = happened(said, || {
-        format!("a button was pressed and the machine says the hand is {pad:?}")
-    });
+  let done = happened(said, || {
+    format!("a button was pressed and the machine says the hand is {pad:?}")
+  });
 
-    match was.is_empty() {
-        true => {},
-        false => {
-            let _ = stage.user(&format!("printf %s {was} > {at}"));
-        }
+  match ::core::primitive::bool::then_some(was_2.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => {
+      let ::core::result::Result::Ok(_) = stage.user(&format!("printf %s {was} > {at}", was = was_2, at = at_2));
     }
+  }
 
-    done
+  done
 }

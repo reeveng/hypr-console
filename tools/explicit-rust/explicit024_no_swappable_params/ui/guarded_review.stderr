@@ -1,0 +1,35 @@
+error: a second parameter of type `usize`: the compiler takes these two in either order and says nothing
+  --> $DIR/guarded_review.rs:10:28
+   |
+LL |     fn render(x: usize, y: usize) -> usize { x + y }
+   |                            ^^^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+   = note: `#[deny(explicit024_no_swappable_params)]` on by default
+
+error: a second parameter of type `usize`: the compiler takes these two in either order and says nothing
+  --> $DIR/guarded_review.rs:11:27
+   |
+LL |     fn gated(x: usize, y: usize) -> usize { x * y }
+   |                           ^^^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: a second parameter of type `usize`: the compiler takes these two in either order and says nothing
+  --> $DIR/guarded_review.rs:19:27
+   |
+LL |     fn check(x: usize, y: usize) -> usize { x + y }
+   |                           ^^^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: a second parameter of type `usize`: the compiler takes these two in either order and says nothing
+  --> $DIR/guarded_review.rs:24:25
+   |
+LL |     fn sum(a: usize, b: usize) -> usize { a + b }
+   |                         ^^^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: aborting due to 4 previous errors
+

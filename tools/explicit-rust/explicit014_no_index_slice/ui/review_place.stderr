@@ -1,0 +1,111 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_place.rs:3:5
+   |
+LL |     a[0] = 2;
+   |     ^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: access the array with an irrefutable pattern
+   |
+LL -     a[0] = 2;
+LL +     *{ let [_explicit_part, ..] = &mut *a; _explicit_part } = 2;
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_place.rs:4:23
+   |
+LL |     let borrow = &mut a[1];
+   |                       ^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     let borrow = &mut a[1];
+LL +     let borrow = { let [_, _explicit_part, ..] = &mut *a; _explicit_part };
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_place.rs:6:19
+   |
+LL |     let dynamic = a[i];
+   |                   ^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_place.rs:7:20
+   |
+LL |     let unproven = slice[0];
+   |                    ^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_place.rs:8:19
+   |
+LL |     let exceeds = a[2];
+   |                   ^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_place.rs:9:24
+   |
+LL |     let bounded_end = &a[..1];
+   |                        ^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     let bounded_end = &a[..1];
+LL +     let bounded_end = { let [_explicit_part @ .., _] = &*a; let _explicit_slice: &[_] = _explicit_part; _explicit_slice };
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_place.rs:11:22
+   |
+LL |     let configured = a[OFFSET];
+   |                      ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_place.rs:12:21
+   |
+LL |     let effectful = a[{ std::hint::black_box(()); 0 }];
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_place.rs:19:7
+   |
+LL |     (&values[32], &values[..33])
+   |       ^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_place.rs:19:20
+   |
+LL |     (&values[32], &values[..33])
+   |                    ^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_place.rs:27:5
+   |
+LL |     values[32]
+   |     ^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/review_place.rs:34:16
+   |
+LL |         sum += values[index];
+   |                ^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: aborting due to 12 previous errors
+

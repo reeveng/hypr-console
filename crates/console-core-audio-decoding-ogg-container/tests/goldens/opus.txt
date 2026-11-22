@@ -1,0 +1,208 @@
+== opus
+-- gapless Disabled
+track 0xab14ed3e CodecParameters { codec: CodecType(4101), sample_rate: Some(48000), time_base: Some(TimeBase { numer: 1, denom: 48000 }), n_frames: Some(53760), start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: Some(FRONT_LEFT), channel_layout: None, delay: Some(312), padding: Some(648), max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: None } extra Some((19, 23781161))
+ended after 56 packets: end of stream
+packet 0xab14ed3e ts 0 dur 960 trim 0 0 len 76 crc 0xa0b0518a
+packet 0xab14ed3e ts 960 dur 960 trim 0 0 len 53 crc 0x49a04d36
+packet 0xab14ed3e ts 1920 dur 960 trim 0 0 len 48 crc 0xe30d76b8
+packet 0xab14ed3e ts 2880 dur 960 trim 0 0 len 51 crc 0x5cb6d951
+packet 0xab14ed3e ts 3840 dur 960 trim 0 0 len 45 crc 0xdfa197ec
+packet 0xab14ed3e ts 4800 dur 960 trim 0 0 len 51 crc 0xaf4e056b
+packet 0xab14ed3e ts 5760 dur 960 trim 0 0 len 50 crc 0xe5bea79f
+packet 0xab14ed3e ts 6720 dur 960 trim 0 0 len 49 crc 0x9fe4df69
+packet 0xab14ed3e ts 7680 dur 960 trim 0 0 len 47 crc 0x34a6ba24
+packet 0xab14ed3e ts 8640 dur 960 trim 0 0 len 40 crc 0x18ef9268
+packet 0xab14ed3e ts 9600 dur 960 trim 0 0 len 42 crc 0x2ac6af57
+packet 0xab14ed3e ts 10560 dur 960 trim 0 0 len 37 crc 0x19a9bab9
+packet 0xab14ed3e ts 11520 dur 960 trim 0 0 len 39 crc 0xfb8e388
+packet 0xab14ed3e ts 12480 dur 960 trim 0 0 len 39 crc 0xef3b251a
+packet 0xab14ed3e ts 13440 dur 960 trim 0 0 len 37 crc 0x6a29ea64
+packet 0xab14ed3e ts 14400 dur 960 trim 0 0 len 34 crc 0x21170c84
+packet 0xab14ed3e ts 15360 dur 960 trim 0 0 len 30 crc 0x14bf1caa
+packet 0xab14ed3e ts 16320 dur 960 trim 0 0 len 26 crc 0xfd7a6d64
+packet 0xab14ed3e ts 17280 dur 960 trim 0 0 len 25 crc 0xf859124a
+packet 0xab14ed3e ts 18240 dur 960 trim 0 0 len 50 crc 0x79f75b10
+packet 0xab14ed3e ts 19200 dur 960 trim 0 0 len 34 crc 0x5faf62f0
+packet 0xab14ed3e ts 20160 dur 960 trim 0 0 len 33 crc 0x7631f94a
+packet 0xab14ed3e ts 21120 dur 960 trim 0 0 len 34 crc 0x9b5dec20
+packet 0xab14ed3e ts 22080 dur 960 trim 0 0 len 33 crc 0xaab256db
+packet 0xab14ed3e ts 23040 dur 960 trim 0 0 len 33 crc 0x4d267b5e
+packet 0xab14ed3e ts 24000 dur 960 trim 0 0 len 34 crc 0x31e39dbe
+packet 0xab14ed3e ts 24960 dur 960 trim 0 0 len 34 crc 0xa29b36c2
+packet 0xab14ed3e ts 25920 dur 960 trim 0 0 len 35 crc 0xbb1b413e
+packet 0xab14ed3e ts 26880 dur 960 trim 0 0 len 35 crc 0x1905823d
+packet 0xab14ed3e ts 27840 dur 960 trim 0 0 len 34 crc 0xe3ca67d2
+packet 0xab14ed3e ts 28800 dur 960 trim 0 0 len 36 crc 0xc7bdb8e
+packet 0xab14ed3e ts 29760 dur 960 trim 0 0 len 37 crc 0xa9150aa2
+packet 0xab14ed3e ts 30720 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 31680 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 32640 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 33600 dur 960 trim 0 0 len 37 crc 0x7a460a0c
+packet 0xab14ed3e ts 34560 dur 960 trim 0 0 len 37 crc 0x5a045ae
+packet 0xab14ed3e ts 35520 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 36480 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 37440 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 38400 dur 960 trim 0 0 len 37 crc 0x7a460a0c
+packet 0xab14ed3e ts 39360 dur 960 trim 0 0 len 37 crc 0xa9150aa2
+packet 0xab14ed3e ts 40320 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 41280 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 42240 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 43200 dur 960 trim 0 0 len 37 crc 0x7a460a0c
+packet 0xab14ed3e ts 44160 dur 960 trim 0 0 len 37 crc 0x5a045ae
+packet 0xab14ed3e ts 45120 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 46080 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 47040 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 48000 dur 960 trim 0 0 len 37 crc 0x7a460a0c
+packet 0xab14ed3e ts 48960 dur 960 trim 0 0 len 37 crc 0xa9150aa2
+packet 0xab14ed3e ts 49920 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 50880 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 51840 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 52800 dur 960 trim 0 0 len 70 crc 0xffccbb3b
+seek 0xab14ed3e 0 -> Ok(SeekedTo { track_id: 2870275390, required_ts: 0, actual_ts: 0 }) then Ok((0, 960))
+seek 0xab14ed3e 1 -> Ok(SeekedTo { track_id: 2870275390, required_ts: 1, actual_ts: 0 }) then Ok((0, 960))
+seek 0xab14ed3e 700 -> Ok(SeekedTo { track_id: 2870275390, required_ts: 700, actual_ts: 0 }) then Ok((0, 960))
+seek 0xab14ed3e 4096 -> Ok(SeekedTo { track_id: 2870275390, required_ts: 4096, actual_ts: 3840 }) then Ok((3840, 960))
+seek 0xab14ed3e 10000 -> Ok(SeekedTo { track_id: 2870275390, required_ts: 10000, actual_ts: 9600 }) then Ok((9600, 960))
+seek 0xab14ed3e 22050 -> Ok(SeekedTo { track_id: 2870275390, required_ts: 22050, actual_ts: 21120 }) then Ok((21120, 960))
+seek 0xab14ed3e 100000 -> Err(SeekError(OutOfRange)) then Ok((22080, 960))
+seek 0xab14ed3e 400000 -> Err(SeekError(OutOfRange)) then Ok((23040, 960))
+seek 0xab14ed3e 1000000000 -> Err(SeekError(OutOfRange)) then Ok((24000, 960))
+seek 0 s -> Ok(SeekedTo { track_id: 2870275390, required_ts: 0, actual_ts: 0 })
+seek 0.25 s -> Ok(SeekedTo { track_id: 2870275390, required_ts: 12000, actual_ts: 11520 })
+seek 0.5 s -> Ok(SeekedTo { track_id: 2870275390, required_ts: 24000, actual_ts: 23040 })
+seek 3.5 s -> Err(SeekError(OutOfRange))
+seek 9 s -> Err(SeekError(OutOfRange))
+seek on no track -> Err(SeekError(InvalidTrack))
+-- gapless Enabled
+track 0xab14ed3e CodecParameters { codec: CodecType(4101), sample_rate: Some(48000), time_base: Some(TimeBase { numer: 1, denom: 48000 }), n_frames: Some(53112), start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: Some(FRONT_LEFT), channel_layout: None, delay: Some(312), padding: Some(648), max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: None } extra Some((19, 23781161))
+ended after 56 packets: end of stream
+packet 0xab14ed3e ts 0 dur 960 trim 0 0 len 76 crc 0xa0b0518a
+packet 0xab14ed3e ts 960 dur 960 trim 0 0 len 53 crc 0x49a04d36
+packet 0xab14ed3e ts 1920 dur 960 trim 0 0 len 48 crc 0xe30d76b8
+packet 0xab14ed3e ts 2880 dur 960 trim 0 0 len 51 crc 0x5cb6d951
+packet 0xab14ed3e ts 3840 dur 960 trim 0 0 len 45 crc 0xdfa197ec
+packet 0xab14ed3e ts 4800 dur 960 trim 0 0 len 51 crc 0xaf4e056b
+packet 0xab14ed3e ts 5760 dur 960 trim 0 0 len 50 crc 0xe5bea79f
+packet 0xab14ed3e ts 6720 dur 960 trim 0 0 len 49 crc 0x9fe4df69
+packet 0xab14ed3e ts 7680 dur 960 trim 0 0 len 47 crc 0x34a6ba24
+packet 0xab14ed3e ts 8640 dur 960 trim 0 0 len 40 crc 0x18ef9268
+packet 0xab14ed3e ts 9600 dur 960 trim 0 0 len 42 crc 0x2ac6af57
+packet 0xab14ed3e ts 10560 dur 960 trim 0 0 len 37 crc 0x19a9bab9
+packet 0xab14ed3e ts 11520 dur 960 trim 0 0 len 39 crc 0xfb8e388
+packet 0xab14ed3e ts 12480 dur 960 trim 0 0 len 39 crc 0xef3b251a
+packet 0xab14ed3e ts 13440 dur 960 trim 0 0 len 37 crc 0x6a29ea64
+packet 0xab14ed3e ts 14400 dur 960 trim 0 0 len 34 crc 0x21170c84
+packet 0xab14ed3e ts 15360 dur 960 trim 0 0 len 30 crc 0x14bf1caa
+packet 0xab14ed3e ts 16320 dur 960 trim 0 0 len 26 crc 0xfd7a6d64
+packet 0xab14ed3e ts 17280 dur 960 trim 0 0 len 25 crc 0xf859124a
+packet 0xab14ed3e ts 18240 dur 960 trim 0 0 len 50 crc 0x79f75b10
+packet 0xab14ed3e ts 19200 dur 960 trim 0 0 len 34 crc 0x5faf62f0
+packet 0xab14ed3e ts 20160 dur 960 trim 0 0 len 33 crc 0x7631f94a
+packet 0xab14ed3e ts 21120 dur 960 trim 0 0 len 34 crc 0x9b5dec20
+packet 0xab14ed3e ts 22080 dur 960 trim 0 0 len 33 crc 0xaab256db
+packet 0xab14ed3e ts 23040 dur 960 trim 0 0 len 33 crc 0x4d267b5e
+packet 0xab14ed3e ts 24000 dur 960 trim 0 0 len 34 crc 0x31e39dbe
+packet 0xab14ed3e ts 24960 dur 960 trim 0 0 len 34 crc 0xa29b36c2
+packet 0xab14ed3e ts 25920 dur 960 trim 0 0 len 35 crc 0xbb1b413e
+packet 0xab14ed3e ts 26880 dur 960 trim 0 0 len 35 crc 0x1905823d
+packet 0xab14ed3e ts 27840 dur 960 trim 0 0 len 34 crc 0xe3ca67d2
+packet 0xab14ed3e ts 28800 dur 960 trim 0 0 len 36 crc 0xc7bdb8e
+packet 0xab14ed3e ts 29760 dur 960 trim 0 0 len 37 crc 0xa9150aa2
+packet 0xab14ed3e ts 30720 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 31680 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 32640 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 33600 dur 960 trim 0 0 len 37 crc 0x7a460a0c
+packet 0xab14ed3e ts 34560 dur 960 trim 0 0 len 37 crc 0x5a045ae
+packet 0xab14ed3e ts 35520 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 36480 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 37440 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 38400 dur 960 trim 0 0 len 37 crc 0x7a460a0c
+packet 0xab14ed3e ts 39360 dur 960 trim 0 0 len 37 crc 0xa9150aa2
+packet 0xab14ed3e ts 40320 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 41280 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 42240 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 43200 dur 960 trim 0 0 len 37 crc 0x7a460a0c
+packet 0xab14ed3e ts 44160 dur 960 trim 0 0 len 37 crc 0x5a045ae
+packet 0xab14ed3e ts 45120 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 46080 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 47040 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 48000 dur 960 trim 0 0 len 37 crc 0x7a460a0c
+packet 0xab14ed3e ts 48960 dur 960 trim 0 0 len 37 crc 0xa9150aa2
+packet 0xab14ed3e ts 49920 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 50880 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 51840 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 52800 dur 312 trim 0 648 len 70 crc 0xffccbb3b
+seek 0xab14ed3e 0 -> Ok(SeekedTo { track_id: 2870275390, required_ts: 0, actual_ts: 0 }) then Ok((0, 960))
+seek 0xab14ed3e 1 -> Ok(SeekedTo { track_id: 2870275390, required_ts: 1, actual_ts: 0 }) then Ok((0, 960))
+seek 0xab14ed3e 700 -> Ok(SeekedTo { track_id: 2870275390, required_ts: 700, actual_ts: 0 }) then Ok((0, 960))
+seek 0xab14ed3e 4096 -> Ok(SeekedTo { track_id: 2870275390, required_ts: 4096, actual_ts: 3840 }) then Ok((3840, 960))
+seek 0xab14ed3e 10000 -> Ok(SeekedTo { track_id: 2870275390, required_ts: 10000, actual_ts: 9600 }) then Ok((9600, 960))
+seek 0xab14ed3e 22050 -> Ok(SeekedTo { track_id: 2870275390, required_ts: 22050, actual_ts: 21120 }) then Ok((21120, 960))
+seek 0xab14ed3e 100000 -> Err(SeekError(OutOfRange)) then Ok((22080, 960))
+seek 0xab14ed3e 400000 -> Err(SeekError(OutOfRange)) then Ok((23040, 960))
+seek 0xab14ed3e 1000000000 -> Err(SeekError(OutOfRange)) then Ok((24000, 960))
+seek 0 s -> Ok(SeekedTo { track_id: 2870275390, required_ts: 0, actual_ts: 0 })
+seek 0.25 s -> Ok(SeekedTo { track_id: 2870275390, required_ts: 12000, actual_ts: 11520 })
+seek 0.5 s -> Ok(SeekedTo { track_id: 2870275390, required_ts: 24000, actual_ts: 23040 })
+seek 3.5 s -> Err(SeekError(OutOfRange))
+seek 9 s -> Err(SeekError(OutOfRange))
+seek on no track -> Err(SeekError(InvalidTrack))
+-- forward only
+track 0xab14ed3e CodecParameters { codec: CodecType(4101), sample_rate: Some(48000), time_base: Some(TimeBase { numer: 1, denom: 48000 }), n_frames: None, start_ts: 0, sample_format: None, bits_per_sample: None, bits_per_coded_sample: None, channels: Some(FRONT_LEFT), channel_layout: None, delay: Some(312), padding: None, max_frames_per_packet: None, packet_data_integrity: Unspecified, verification_check: None, frames_per_block: None, extra_data: None } extra Some((19, 23781161))
+ended after 56 packets: end of stream
+packet 0xab14ed3e ts 0 dur 960 trim 0 0 len 76 crc 0xa0b0518a
+packet 0xab14ed3e ts 960 dur 960 trim 0 0 len 53 crc 0x49a04d36
+packet 0xab14ed3e ts 1920 dur 960 trim 0 0 len 48 crc 0xe30d76b8
+packet 0xab14ed3e ts 2880 dur 960 trim 0 0 len 51 crc 0x5cb6d951
+packet 0xab14ed3e ts 3840 dur 960 trim 0 0 len 45 crc 0xdfa197ec
+packet 0xab14ed3e ts 4800 dur 960 trim 0 0 len 51 crc 0xaf4e056b
+packet 0xab14ed3e ts 5760 dur 960 trim 0 0 len 50 crc 0xe5bea79f
+packet 0xab14ed3e ts 6720 dur 960 trim 0 0 len 49 crc 0x9fe4df69
+packet 0xab14ed3e ts 7680 dur 960 trim 0 0 len 47 crc 0x34a6ba24
+packet 0xab14ed3e ts 8640 dur 960 trim 0 0 len 40 crc 0x18ef9268
+packet 0xab14ed3e ts 9600 dur 960 trim 0 0 len 42 crc 0x2ac6af57
+packet 0xab14ed3e ts 10560 dur 960 trim 0 0 len 37 crc 0x19a9bab9
+packet 0xab14ed3e ts 11520 dur 960 trim 0 0 len 39 crc 0xfb8e388
+packet 0xab14ed3e ts 12480 dur 960 trim 0 0 len 39 crc 0xef3b251a
+packet 0xab14ed3e ts 13440 dur 960 trim 0 0 len 37 crc 0x6a29ea64
+packet 0xab14ed3e ts 14400 dur 960 trim 0 0 len 34 crc 0x21170c84
+packet 0xab14ed3e ts 15360 dur 960 trim 0 0 len 30 crc 0x14bf1caa
+packet 0xab14ed3e ts 16320 dur 960 trim 0 0 len 26 crc 0xfd7a6d64
+packet 0xab14ed3e ts 17280 dur 960 trim 0 0 len 25 crc 0xf859124a
+packet 0xab14ed3e ts 18240 dur 960 trim 0 0 len 50 crc 0x79f75b10
+packet 0xab14ed3e ts 19200 dur 960 trim 0 0 len 34 crc 0x5faf62f0
+packet 0xab14ed3e ts 20160 dur 960 trim 0 0 len 33 crc 0x7631f94a
+packet 0xab14ed3e ts 21120 dur 960 trim 0 0 len 34 crc 0x9b5dec20
+packet 0xab14ed3e ts 22080 dur 960 trim 0 0 len 33 crc 0xaab256db
+packet 0xab14ed3e ts 23040 dur 960 trim 0 0 len 33 crc 0x4d267b5e
+packet 0xab14ed3e ts 24000 dur 960 trim 0 0 len 34 crc 0x31e39dbe
+packet 0xab14ed3e ts 24960 dur 960 trim 0 0 len 34 crc 0xa29b36c2
+packet 0xab14ed3e ts 25920 dur 960 trim 0 0 len 35 crc 0xbb1b413e
+packet 0xab14ed3e ts 26880 dur 960 trim 0 0 len 35 crc 0x1905823d
+packet 0xab14ed3e ts 27840 dur 960 trim 0 0 len 34 crc 0xe3ca67d2
+packet 0xab14ed3e ts 28800 dur 960 trim 0 0 len 36 crc 0xc7bdb8e
+packet 0xab14ed3e ts 29760 dur 960 trim 0 0 len 37 crc 0xa9150aa2
+packet 0xab14ed3e ts 30720 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 31680 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 32640 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 33600 dur 960 trim 0 0 len 37 crc 0x7a460a0c
+packet 0xab14ed3e ts 34560 dur 960 trim 0 0 len 37 crc 0x5a045ae
+packet 0xab14ed3e ts 35520 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 36480 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 37440 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 38400 dur 960 trim 0 0 len 37 crc 0x7a460a0c
+packet 0xab14ed3e ts 39360 dur 960 trim 0 0 len 37 crc 0xa9150aa2
+packet 0xab14ed3e ts 40320 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 41280 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 42240 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 43200 dur 960 trim 0 0 len 37 crc 0x7a460a0c
+packet 0xab14ed3e ts 44160 dur 960 trim 0 0 len 37 crc 0x5a045ae
+packet 0xab14ed3e ts 45120 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 46080 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 47040 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 47352 dur 960 trim 0 0 len 37 crc 0x7a460a0c
+packet 0xab14ed3e ts 48312 dur 960 trim 0 0 len 37 crc 0xa9150aa2
+packet 0xab14ed3e ts 49272 dur 960 trim 0 0 len 38 crc 0xd136588
+packet 0xab14ed3e ts 50232 dur 960 trim 0 0 len 36 crc 0x2bd161d4
+packet 0xab14ed3e ts 51192 dur 960 trim 0 0 len 36 crc 0x76af2381
+packet 0xab14ed3e ts 52152 dur 960 trim 0 0 len 70 crc 0xffccbb3b

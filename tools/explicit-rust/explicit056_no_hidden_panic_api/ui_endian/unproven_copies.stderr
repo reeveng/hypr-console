@@ -1,0 +1,21 @@
+warning: `copy_from_slice` answers two lengths that do not agree with a panic
+  --> $DIR/unproven_copies.rs:4:5
+   |
+LL | /     (*<[_]>::get_mut(&mut *dst, start..start + 2).ok_or(())?)
+LL | |         .copy_from_slice(&12_u16.to_le_bytes());
+   | |_______________________________________________^
+   |
+   = help: `split_at_checked` returns the halves as a value, and a length is checked once where it is read rather than trusted twice here
+   = note: `#[warn(explicit056_no_hidden_panic_api)]` on by default
+
+warning: `copy_from_slice` answers two lengths that do not agree with a panic
+  --> $DIR/unproven_copies.rs:10:5
+   |
+LL | /     (*<[_]>::get_mut(&mut *dst, start..start.wrapping_add(1)).ok_or(())?)
+LL | |         .copy_from_slice(&12_u16.to_le_bytes());
+   | |_______________________________________________^
+   |
+   = help: `split_at_checked` returns the halves as a value, and a length is checked once where it is read rather than trusted twice here
+
+warning: 2 warnings emitted
+

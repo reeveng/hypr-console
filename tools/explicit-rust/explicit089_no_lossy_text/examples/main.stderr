@@ -1,0 +1,19 @@
+warning: `to_string_lossy` answers what was not text with a character nobody chose
+  --> $DIR/main.rs:5:5
+   |
+LL |     at.to_string_lossy().into_owned()
+   |     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `to_str` or `from_utf8` and meet the answer, or keep the path a path and the bytes bytes where nothing reads them as text. Where the result is only ever shown to a person, allow this rule here and let the reason say that nothing decides from it
+   = note: `#[warn(explicit089_no_lossy_text)]` on by default
+
+warning: `from_utf8_lossy` answers what was not text with a character nobody chose
+  --> $DIR/main.rs:10:5
+   |
+LL |     String::from_utf8_lossy(bytes).into_owned()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `to_str` or `from_utf8` and meet the answer, or keep the path a path and the bytes bytes where nothing reads them as text. Where the result is only ever shown to a person, allow this rule here and let the reason say that nothing decides from it
+
+warning: 2 warnings emitted
+

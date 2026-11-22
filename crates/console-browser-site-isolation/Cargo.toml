@@ -1,0 +1,17 @@
+[package]
+name = "console-browser-site-isolation"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_browser_site_isolation"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-never.workspace = true
+console-kernel-handles.workspace = true
+
+[lints]
+workspace = true

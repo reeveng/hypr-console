@@ -1,11 +1,15 @@
 #![feature(rustc_private)]
 #![warn(unused_extern_crates)]
 
+#[path = "../../shared/infallible_discard.rs"]
+mod infallible_discard;
+
+extern crate rustc_errors;
 extern crate rustc_hir;
 extern crate rustc_middle;
 extern crate rustc_span;
 
-use clippy_utils::diagnostics::span_lint_and_help;
+use clippy_utils::diagnostics::span_lint_and_then;
 use rustc_hir::{Stmt, StmtKind};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::Ty;
@@ -24,9 +28,9 @@ dylint_linting::declare_late_lint! {
 // than the spelling is what makes an alias answer the same as `std`'s own.
 fn is_result(cx: &LateContext<'_>, ty: Ty<'_>) -> bool {
     match ty.peel_refs().kind() {
-        rustc_middle::ty::Adt(adt, _) => {
-            cx.tcx.is_diagnostic_item(rustc_span::sym::Result, adt.did())
-        }
+        rustc_middle::ty::Adt(adt, _) => cx
+            .tcx
+            .is_diagnostic_item(rustc_span::sym::Result, adt.did()),
         _ => false,
     }
 }
@@ -40,13 +44,28 @@ impl<'tcx> LateLintPass<'tcx> for Explicit005HandleFallible {
         if !is_result(cx, ty) {
             return;
         }
-        span_lint_and_help(
+        span_lint_and_then(
             cx,
             EXPLICIT005_HANDLE_FALLIBLE,
             stmt.span,
             "a `Result` is being dropped where it stands",
-            None,
-            "handle it with `match`, propagate it with `?`, or write `let _ = …` to say the failure does not matter",
+            |diagnostic| {
+                if !stmt.span.from_expansion()
+                    && !expr.span.from_expansion()
+                    && stmt.span.lo() == expr.span.lo()
+                    && infallible_discard::is_call(expr)
+                    && let Some(pattern) = infallible_discard::discard_pattern(cx, ty)
+                {
+                    diagnostic.span_suggestion(
+                        expr.span.shrink_to_lo(),
+                        "acknowledge the only possible result",
+                        format!("let {pattern} = "),
+                        rustc_errors::Applicability::MachineApplicable,
+                    );
+                } else {
+                    diagnostic.help("handle it with `match`, propagate it with `?`, or write `let _ = …` to say the failure does not matter");
+                }
+            },
         );
     }
 }

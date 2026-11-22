@@ -6,12 +6,12 @@
 use console_session::{GAME_TARGET, Session, here, run};
 
 fn main() {
-    let Ok(here) = here(GAME_TARGET);
+  let Ok(here) = here(GAME_TARGET);
 
-    match here {
-        Session::Desktop => {}
-        Session::Game => {
-            let Ok(()) = run(Session::Game, Session::Desktop);
-        }
+  match here {
+    Session::Desktop => {}
+    Session::Game => {
+      let Ok(()) = run(Session::Game, Session::Desktop);
     }
+  }
 }

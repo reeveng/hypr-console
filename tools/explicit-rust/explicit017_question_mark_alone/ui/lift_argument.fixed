@@ -1,0 +1,20 @@
+// run-rustfix
+// edition:2024
+
+fn combine(left: u8, right: u8) -> [u8; 2] {
+    [left, right]
+}
+
+fn build(mut next: impl FnMut() -> Option<u8>) -> Option<([u8; 2], u8)> {
+    let checked_value = next()?;
+    let packed = combine(1, checked_value);
+    let checked_value_2 = next()?;
+    let (previous, following) = (checked_value_2, 3u8);
+    Some((packed, previous * following))
+}
+
+fn main() {
+    let mut input = [7, 8].into_iter();
+    assert_eq!(build(|| input.next()), Some(([1, 7], 24)));
+    assert_eq!(build(|| None), None);
+}

@@ -1,0 +1,27 @@
+warning: `starts_with("/home/someone")` on text is also true of whatever merely begins with those characters
+  --> $DIR/main.rs:5:11
+   |
+LL |     match at.starts_with("/home/someone") {
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask `Path::starts_with` or `Path::strip_prefix`, which compare whole components, or parse the address and compare its host. Where the text really is being asked about characters, allow this rule here and let the reason say so
+   = note: `#[warn(explicit099_no_path_as_text)]` on by default
+
+warning: `strip_prefix("/usr/local")` on text is also true of whatever merely begins with those characters
+  --> $DIR/main.rs:13:5
+   |
+LL |     at.strip_prefix("/usr/local")
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask `Path::starts_with` or `Path::strip_prefix`, which compare whole components, or parse the address and compare its host. Where the text really is being asked about characters, allow this rule here and let the reason say so
+
+warning: `starts_with("https://example.com")` on text is also true of whatever merely begins with those characters
+  --> $DIR/main.rs:18:11
+   |
+LL |     match address.starts_with("https://example.com") {
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask `Path::starts_with` or `Path::strip_prefix`, which compare whole components, or parse the address and compare its host. Where the text really is being asked about characters, allow this rule here and let the reason say so
+
+warning: 3 warnings emitted
+

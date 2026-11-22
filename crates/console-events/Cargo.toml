@@ -14,13 +14,17 @@ name = "console-events"
 path = "src/bin/console-events.rs"
 
 [dependencies]
-console-core-places = { workspace = true }
+console-operating-system-linux.workspace = true
+console-bluetooth.workspace = true
+console-bus.workspace = true
 console-program-contract.workspace = true
 console-core-never.workspace = true
 console-core-iteration.workspace = true
 console-core-directory-listing.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
 console-onscreen.workspace = true
 console-core-reconnect.workspace = true
+console-core-text-encodings.workspace = true
 console-core-external-programs.workspace = true
 console-program-lifetime.workspace = true
 console-core-number-conversion.workspace = true

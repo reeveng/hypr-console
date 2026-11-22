@@ -1,0 +1,83 @@
+warning: `with_capacity` is handed a length nothing here wrote, measured or put a ceiling on
+  --> $DIR/main.rs:9:5
+   |
+LL |     Vec::with_capacity(header.declared)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: refuse a declared length over a `const` that says what the most is, or pass it through `min` beside one, and let the buffer grow as the bytes really arrive. Where the number was bounded before it was handed in, allow this rule here and let the reason say where
+   = note: `#[warn(explicit088_no_arriving_length)]` on by default
+
+warning: `vec![_; n]` is handed a length nothing here wrote, measured or put a ceiling on
+  --> $DIR/main.rs:14:5
+   |
+LL |     vec![0; declared]
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = help: refuse a declared length over a `const` that says what the most is, or pass it through `min` beside one, and let the buffer grow as the bytes really arrive. Where the number was bounded before it was handed in, allow this rule here and let the reason say where
+
+warning: `reserve` is handed a length nothing here wrote, measured or put a ceiling on
+  --> $DIR/main.rs:19:5
+   |
+LL |     held.reserve(declared);
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: refuse a declared length over a `const` that says what the most is, or pass it through `min` beside one, and let the buffer grow as the bytes really arrive. Where the number was bounded before it was handed in, allow this rule here and let the reason say where
+
+warning: `with_capacity` is handed a length nothing here wrote, measured or put a ceiling on
+  --> $DIR/main.rs:26:5
+   |
+LL |     Vec::with_capacity(wanted)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: refuse a declared length over a `const` that says what the most is, or pass it through `min` beside one, and let the buffer grow as the bytes really arrive. Where the number was bounded before it was handed in, allow this rule here and let the reason say where
+
+warning: `with_capacity` is handed a length nothing here wrote, measured or put a ceiling on
+  --> $DIR/main.rs:59:13
+   |
+LL |     let _ = Vec::<u8>::with_capacity(header.len());
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: refuse a declared length over a `const` that says what the most is, or pass it through `min` beside one, and let the buffer grow as the bytes really arrive. Where the number was bounded before it was handed in, allow this rule here and let the reason say where
+
+warning: `with_capacity` is handed a length nothing here wrote, measured or put a ceiling on
+  --> $DIR/main.rs:60:13
+   |
+LL |     let _ = Vec::<u8>::with_capacity(header.declared.clamp(0, upper));
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: refuse a declared length over a `const` that says what the most is, or pass it through `min` beside one, and let the buffer grow as the bytes really arrive. Where the number was bounded before it was handed in, allow this rule here and let the reason say where
+
+warning: `with_capacity` is handed a length nothing here wrote, measured or put a ceiling on
+  --> $DIR/main.rs:64:13
+   |
+LL |     let _ = Vec::<u8>::with_capacity(count);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: refuse a declared length over a `const` that says what the most is, or pass it through `min` beside one, and let the buffer grow as the bytes really arrive. Where the number was bounded before it was handed in, allow this rule here and let the reason say where
+
+warning: `try_reserve` is handed a length nothing here wrote, measured or put a ceiling on
+  --> $DIR/main.rs:70:13
+   |
+LL |     let _ = buf.try_reserve(header.declared);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: refuse a declared length over a `const` that says what the most is, or pass it through `min` beside one, and let the buffer grow as the bytes really arrive. Where the number was bounded before it was handed in, allow this rule here and let the reason say where
+
+warning: `try_reserve_exact` is handed a length nothing here wrote, measured or put a ceiling on
+  --> $DIR/main.rs:71:13
+   |
+LL |     let _ = Vec::try_reserve_exact(buf, header.declared);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: refuse a declared length over a `const` that says what the most is, or pass it through `min` beside one, and let the buffer grow as the bytes really arrive. Where the number was bounded before it was handed in, allow this rule here and let the reason say where
+
+warning: `resize_with` is handed a length nothing here wrote, measured or put a ceiling on
+  --> $DIR/main.rs:72:5
+   |
+LL |     buf.resize_with(header.declared, u8::default);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: refuse a declared length over a `const` that says what the most is, or pass it through `min` beside one, and let the buffer grow as the bytes really arrive. Where the number was bounded before it was handed in, allow this rule here and let the reason say where
+
+warning: 10 warnings emitted
+

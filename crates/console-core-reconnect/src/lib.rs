@@ -42,158 +42,184 @@ pub const STOOD: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Round {
-    Another,
-    Finished,
+  Another,
+  Finished,
 }
 
 pub fn schedule() -> Result<Schedule, Never> {
-    let Ok(growing) = Schedule::exponential(FIRST, LONGEST);
+  let Ok(growing) = Schedule::exponential(FIRST, LONGEST);
 
-    growing.reset_after(STOOD)
+  growing.reset_after(STOOD)
 }
 
 pub fn keep(once: impl FnMut() -> Round + Send + 'static) -> Result<(), Never> {
+  #[cfg_attr(
+    dylint_lib = "explicit035_no_loose_thread",
+    allow(
+      explicit035_no_loose_thread,
+      reason = "this crate is what a subscription made again is, and the thread is the making: it runs until the caller's own round says Halt or the program ends, which is what `keep` is asked for. There is nothing above it to hold a handle, and the word this rule asks for is the name of the function"
+    )
+  )]
+  let _ = std::thread::spawn(move || {
+    let Ok(schedule) = schedule();
+    let Ok(mut driver) = schedule.driver();
+    let Ok(started) = now();
+    let Ok(mut began) = now();
     #[cfg_attr(
-        dylint_lib = "explicit035_no_loose_thread",
-        allow(
-            explicit035_no_loose_thread,
-            reason = "this crate is what a subscription made again is, and the thread is the making: it runs until the caller's own round says Halt or the program ends, which is what `keep` is asked for. There is nothing above it to hold a handle, and the word this rule asks for is the name of the function"
-        )
+      dylint_lib = "explicit055_no_unbounded_loop",
+      expect(
+        explicit055_no_unbounded_loop,
+        reason = "a subscription may retry for the lifetime of its caller; the next round starts after the scheduled pause and the caller ends the iterator by returning Finished"
+      )
     )]
-    let _ = std::thread::spawn(move || {
-        let Ok(schedule) = schedule();
-        let Ok(mut driver) = schedule.driver();
-        let Ok(started) = now();
-        let Ok(mut began) = now();
-        let rounds = std::iter::repeat_with(once).map_while(|round| match round {
-            Round::Another => Some(()),
-            Round::Finished => None,
-        });
-
-        for () in rounds {
-            let Ok(decided) = driver.next(Elapsed { total: started.elapsed(), this_try: began.elapsed() });
-
-            let again = match decided {
-                Decision::Continue(again) => again,
-                Decision::Finished => break,
-            };
-
-            #[cfg_attr(
-                dylint_lib = "explicit021_no_sleeping",
-                allow(
-                    explicit021_no_sleeping,
-                    reason = "the waiting between two tries is what this crate is: the far end is not there, nothing will say when it comes back, and asking without a gap is a handheld warm in someone hands"
-                )
-            )]
-            std::thread::sleep(again);
-
-            let Ok(after_the_gap) = now();
-
-            began = after_the_gap;
-        }
+    let rounds = std::iter::repeat_with(once).map_while(|round| match round {
+      Round::Another => Some(()),
+      Round::Finished => None,
     });
 
-    Ok(())
+    for () in rounds {
+      let Ok(decided) = driver.next(Elapsed {
+        total: started.elapsed(),
+        this_try: began.elapsed(),
+      });
+
+      let again = match decided {
+        Decision::Continue(again) => again,
+        Decision::Finished => break,
+      };
+
+      #[cfg_attr(
+        dylint_lib = "explicit021_no_sleeping",
+        allow(
+          explicit021_no_sleeping,
+          reason = "the waiting between two tries is what this crate is: the far end is not there, nothing will say when it comes back, and asking without a gap is a handheld warm in someone hands"
+        )
+      )]
+      std::thread::sleep(again);
+
+      let Ok(after_the_gap) = now();
+
+      began = after_the_gap;
+    }
+  });
+
+  Ok(())
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit039_no_reading_the_clock",
-    allow(
-        explicit039_no_reading_the_clock,
-        reason = "the gap before the next try is measured from how long the last one took, which is this crate measuring its own waiting rather than deciding anything from the clock"
-    )
+  dylint_lib = "explicit039_no_reading_the_clock",
+  allow(
+    explicit039_no_reading_the_clock,
+    reason = "the gap before the next try is measured from how long the last one took, which is this crate measuring its own waiting rather than deciding anything from the clock"
+  )
 )]
 fn now() -> Result<Instant, Never> {
-    Ok(Instant::now())
+  Ok(Instant::now())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::sync::mpsc::RecvTimeoutError;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
+  use std::sync::mpsc::RecvTimeoutError;
 
-    const FELL_OVER: Elapsed = Elapsed { total: Duration::ZERO, this_try: Duration::ZERO };
+  const FELL_OVER: Elapsed = Elapsed {
+    total: Duration::ZERO,
+    this_try: Duration::ZERO,
+  };
 
-    #[test]
-    fn the_first_wait_is_short_enough_to_be_a_blink() {
-        let Ok(schedule) = schedule();
-        let Ok(mut driver) = schedule.driver();
-        let Ok(first) = driver.next(FELL_OVER);
+  #[test]
+  fn the_first_wait_is_short_enough_to_be_a_blink() {
+    let Ok(schedule) = schedule();
+    let Ok(mut driver) = schedule.driver();
+    let Ok(first) = driver.next(FELL_OVER);
 
-        assert!(FIRST <= Duration::from_secs(1));
-        assert_eq!(first, Decision::Continue(FIRST));
+    assert!(FIRST <= Duration::from_secs(1));
+    assert_eq!(first, Decision::Continue(FIRST));
+  }
+
+  #[test]
+  fn a_far_end_that_never_answers_is_left_alone_for_longer_and_never_longer_than_the_longest() {
+    let Ok(schedule) = schedule();
+    let Ok(mut driver) = schedule.driver();
+    let mut waits: Vec<Decision> = Vec::new();
+
+    for _ in 0..10 {
+      let Ok(decided) = driver.next(FELL_OVER);
+
+      waits.push(decided);
     }
 
-    #[test]
-    fn a_far_end_that_never_answers_is_left_alone_for_longer_and_never_longer_than_the_longest() {
-        let Ok(schedule) = schedule();
-        let Ok(mut driver) = schedule.driver();
-        let mut waits: Vec<Decision> = Vec::new();
+    assert_eq!(waits.last(), Some(&Decision::Continue(LONGEST)));
+    assert!(
+      waits.iter().all(|wait| *wait != Decision::Finished),
+      "a subscription is made again forever"
+    );
+  }
 
-        for _ in 0..10 {
-            let Ok(decided) = driver.next(FELL_OVER);
+  #[test]
+  fn a_subscription_that_stood_starts_the_waiting_over() {
+    let Ok(schedule) = schedule();
+    let Ok(mut driver) = schedule.driver();
 
-            waits.push(decided);
-        }
-
-        assert_eq!(waits.last(), Some(&Decision::Continue(LONGEST)));
-        assert!(waits.iter().all(|wait| *wait != Decision::Finished), "a subscription is made again forever");
+    for _ in 0..5 {
+      let Ok(_growing) = driver.next(FELL_OVER);
     }
 
-    #[test]
-    fn a_subscription_that_stood_starts_the_waiting_over() {
-        let Ok(schedule) = schedule();
-        let Ok(mut driver) = schedule.driver();
+    let Ok(after_it_stood) = driver.next(Elapsed {
+      total: Duration::ZERO,
+      this_try: STOOD,
+    });
 
-        for _ in 0..5 {
-            let Ok(_growing) = driver.next(FELL_OVER);
-        }
+    assert_eq!(after_it_stood, Decision::Continue(FIRST));
+  }
 
-        let Ok(after_it_stood) = driver.next(Elapsed { total: Duration::ZERO, this_try: STOOD });
+  #[test]
+  fn a_try_that_failed_at_once_keeps_the_wait_growing() {
+    let Ok(schedule) = schedule();
+    let Ok(mut driver) = schedule.driver();
+    let Ok(_first) = driver.next(FELL_OVER);
+    let Ok(nearly) = driver.next(Elapsed {
+      total: Duration::ZERO,
+      this_try: Duration::from_millis(4_999),
+    });
 
-        assert_eq!(after_it_stood, Decision::Continue(FIRST));
+    assert_eq!(nearly, Decision::Continue(FIRST.saturating_mul(2)));
+  }
+
+  #[test]
+  fn something_that_ends_is_done_again() -> Result<(), Box<dyn Error>> {
+    let (say, heard) = std::sync::mpsc::sync_channel(1);
+    let Ok(()) = keep(move || match say.send(()) {
+      Ok(()) => Round::Another,
+      Err(_nobody_is_listening) => Round::Finished,
+    });
+
+    for turn in 1..=3 {
+      heard
+        .recv_timeout(Duration::from_secs(10))
+        .map_err(|_| format!("turn {turn} of 3"))?;
     }
 
-    #[test]
-    fn a_try_that_failed_at_once_keeps_the_wait_growing() {
-        let Ok(schedule) = schedule();
-        let Ok(mut driver) = schedule.driver();
-        let Ok(_first) = driver.next(FELL_OVER);
-        let Ok(nearly) = driver.next(Elapsed { total: Duration::ZERO, this_try: Duration::from_millis(4_999) });
+    Ok(())
+  }
 
-        assert_eq!(nearly, Decision::Continue(FIRST.saturating_mul(2)));
+  #[test]
+  fn something_that_says_it_is_done_is_left_alone() -> Result<(), Box<dyn Error>> {
+    let (say, heard) = std::sync::mpsc::sync_channel(1);
+    let Ok(()) = keep(move || {
+      let _heard_or_gone = say.send(());
+
+      Round::Finished
+    });
+
+    heard
+      .recv_timeout(Duration::from_secs(5))
+      .map_err(|_| "the one turn")?;
+
+    match heard.recv_timeout(Duration::from_secs(3)) {
+      Ok(()) => Err(Box::from("it went round again after saying it was done")),
+      Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => Ok(()),
     }
-
-    #[test]
-    fn something_that_ends_is_done_again() -> Result<(), Box<dyn Error>> {
-        let (say, heard) = std::sync::mpsc::channel();
-        let Ok(()) = keep(move || match say.send(()) {
-            Ok(()) => Round::Another,
-            Err(_nobody_is_listening) => Round::Finished,
-        });
-
-        for turn in 1..=3 {
-            heard.recv_timeout(Duration::from_secs(10)).map_err(|_| format!("turn {turn} of 3"))?;
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn something_that_says_it_is_done_is_left_alone() -> Result<(), Box<dyn Error>> {
-        let (say, heard) = std::sync::mpsc::channel();
-        let Ok(()) = keep(move || {
-            let _heard_or_gone = say.send(());
-
-            Round::Finished
-        });
-
-        heard.recv_timeout(Duration::from_secs(5)).map_err(|_| "the one turn")?;
-
-        match heard.recv_timeout(Duration::from_secs(3)) {
-            Ok(()) => Err(Box::from("it went round again after saying it was done")),
-            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => Ok(()),
-        }
-    }
+  }
 }

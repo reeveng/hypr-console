@@ -18,21 +18,21 @@ use std::process::ExitCode;
 use console_events::{place, serving, sources};
 
 fn main() -> ExitCode {
-    let socket = match place::socket() {
-        Ok(socket) => socket,
-        Err(fault) => {
-            eprintln!("console-events: {fault}, so there is nowhere to put the socket");
+  let socket = match place::socket() {
+    Ok(socket) => socket,
+    Err(fault) => {
+      eprintln!("console-events: {fault}, so there is nowhere to put the socket");
 
-            return ExitCode::FAILURE;
-        }
-    };
-
-    match serving::serve(&socket, sources::hold) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(fault) => {
-            eprintln!("console-events: {fault}");
-
-            ExitCode::FAILURE
-        }
+      return ExitCode::FAILURE;
     }
+  };
+
+  match serving::serve(&socket, sources::hold) {
+    Ok(()) => ExitCode::SUCCESS,
+    Err(fault) => {
+      eprintln!("console-events: {fault}");
+
+      ExitCode::FAILURE
+    }
+  }
 }

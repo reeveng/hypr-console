@@ -8,9 +8,17 @@ use std::process::ExitCode;
 use console_panel::card::{Panel, opened};
 
 fn main() -> ExitCode {
-    let asked: Vec<String> = std::env::args().skip(1).collect();
+  let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(code) = opened(&asked, Panel { who: console_input_mapping::WHO, command: console_input_mapping::COMMAND, door: console_input_mapping::door, card: console_input_mapping::card });
+  let Ok(code) = opened(
+    &asked,
+    Panel {
+      who: console_input_mapping::WHO,
+      command: console_input_mapping::COMMAND,
+      door: console_input_mapping::door,
+      card: console_input_mapping::card,
+    },
+  );
 
-    code
+  code
 }

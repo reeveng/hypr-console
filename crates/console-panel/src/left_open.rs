@@ -19,93 +19,98 @@
 
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
-use console_program_lifetime::{in_a_scope_of_its_own, let_go};
+use console_operating_system_linux::program_runtime::commands::{Linux, Timing};
+use console_program_contract::{Command, Executable};
+use console_program_runtime::commands::{self as execution_commands, Launch, Streams};
 
 use crate::notes::{self, Note};
 
-pub const NOTE: Note<'static> = Note { program: "panels", called: "left-open" };
+pub const NOTE: Note<'static> = Note {
+  program: "panels",
+  called: "left-open",
+};
 
 const BETWEEN: char = '\0';
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeftOpen {
-    pub who: String,
-    pub arguments: Vec<String>,
+  pub who: String,
+  pub arguments: Vec<String>,
 }
 
 pub fn serialize(open: &LeftOpen) -> Result<String, Never> {
-    let words: Vec<&str> = std::iter::once(open.who.as_str()).chain(open.arguments.iter().map(String::as_str)).collect();
+  let words: Vec<&str> = std::iter::once(open.who.as_str())
+    .chain(open.arguments.iter().map(String::as_str))
+    .collect();
 
-    Ok(words.join(&BETWEEN.to_string()))
+  Ok(words.join(&BETWEEN.to_string()))
 }
 
 pub fn read(said: &str) -> Result<Option<LeftOpen>, Never> {
-    let mut words = said.split(BETWEEN);
+  let mut words = said.split(BETWEEN);
 
-    Ok(match words.next() {
-        Some("") | None => None,
-        Some(who) => Some(LeftOpen { who: who.to_string(), arguments: words.map(str::to_string).collect() }),
-    })
+  Ok(match words.next() {
+    Some("") | None => None,
+    Some(who) => Some(LeftOpen {
+      who: who.to_string(),
+      arguments: words.map(str::to_string).collect(),
+    }),
+  })
 }
 
 pub fn opened(open: &LeftOpen) -> Result<(), Never> {
-    let Ok(said) = serialize(open);
+  let Ok(said) = serialize(open);
 
-    notes::write(NOTE, &said)
+  notes::write(NOTE, &said)
 }
 
 pub fn put_away() -> Result<(), Never> {
-    notes::write(NOTE, "")
+  notes::write(NOTE, "")
 }
 
 pub fn load() -> Result<Option<LeftOpen>, Never> {
-    let Ok(said) = notes::read(NOTE);
+  let Ok(said) = notes::read(NOTE);
 
-    match said {
-        Some(said) => read(&said),
-        None => Ok(None),
-    }
+  match said {
+    Some(said_2) => read(&said_2),
+    None => Ok(None),
+  }
 }
 
 pub fn started(program: InternalProgram, arguments: Vec<String>) -> Result<(), Never> {
-    let Ok(at) = program.at();
-    let whole: Vec<String> = std::iter::once(at.to_string_lossy().into_owned()).chain(arguments).collect();
-    let Ok((_either_way_it_starts, arguments)) = in_a_scope_of_its_own(None, &whole);
+  let command = Command {
+    program: Executable::Internal(program),
+    arguments,
+  };
+  let mut platform = Linux {
+    timing: Timing::Background,
+  };
 
-    let (named, rest) = match arguments.split_first() {
-        Some((named, rest)) => (named, rest),
-        None => return Ok(()),
-    };
+  match execution_commands::spawn(&mut platform, &command, Streams::QUIET, Launch::Application) {
+    Ok(()) => {}
+    Err(fault) => console_core_logging::warn!("console-panels: putting a panel back: {fault}"),
+  }
 
-    let mut starting = std::process::Command::new(named);
-    starting.args(rest).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-
-    let Ok(()) = console_response_times::not_a_press(&mut starting);
-
-    match let_go(&mut starting) {
-        Ok(started) => crate::running::reap_in_background(started),
-        Err(fault) => {
-            eprintln!("console-panels: putting {} back: {fault}", at.display());
-
-            Ok(())
-        }
-    }
+  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_panel_and_its_arguments_come_back_as_they_went_in() {
-        let open = LeftOpen { who: "settings-panel".to_string(), arguments: vec!["Sound".to_string(), "two words".to_string(), String::new()] };
-        let Ok(said) = serialize(&open);
+  #[test]
+  fn a_panel_and_its_arguments_come_back_as_they_went_in() {
+    let open = LeftOpen {
+      who: "settings-panel".to_string(),
+      arguments: vec!["Sound".to_string(), "two words".to_string(), String::new()],
+    };
+    let Ok(said) = serialize(&open);
 
-        assert_eq!(read(&said), Ok(Some(open)));
-    }
+    assert_eq!(read(&said), Ok(Some(open)));
+  }
 
-    #[test]
-    fn a_panel_put_away_leaves_nothing_to_put_back() {
-        assert_eq!(read(""), Ok(None));
-    }
+  #[test]
+  fn a_panel_put_away_leaves_nothing_to_put_back() {
+    assert_eq!(read(""), Ok(None));
+  }
 }

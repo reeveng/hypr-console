@@ -4,9 +4,9 @@
 //! way a person does -- across programs, across crates -- and asks at every
 //! step what that person would see, because most of what goes wrong on this
 //! machine goes wrong *between* features: a mode that lingered, a picker
-//! that stacked, a button that was kept. `docs/flows.md` is the strategy and
-//! the promises; the tests beside this library are the flows themselves, run
-//! at the fast stage on every `just test`.
+//! that stacked, a button that was kept. The `flows.md` note in Orbit is the
+//! strategy and the promises; the tests beside this library are the flows
+//! themselves, run at the fast stage on every `just test`.
 //!
 //! What is in the library is only what every flow needs said once: the
 //! compositor's answers, as `hyprctl layers -j` would give them, for the
@@ -16,25 +16,25 @@
 //! is being checked is the reading and not a second opinion about it.
 
 pub mod screens {
-    pub const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
+  pub const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
         "0":[{"namespace":"awww-daemon","h":1600}],
         "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
-    pub const THE_HOME_SCREEN: &str = r#"{"eDP-1":{"levels":{
+  pub const THE_HOME_SCREEN: &str = r#"{"eDP-1":{"levels":{
         "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1600}],
         "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
-    pub const A_PICKER: &str = r#"{"eDP-1":{"levels":{
+  pub const A_PICKER: &str = r#"{"eDP-1":{"levels":{
         "0":[{"namespace":"awww-daemon","h":1600}],
         "2":[{"namespace":"console-bar","h":40}],
         "3":[{"namespace":"settings-panel","h":1562}]}}}"#;
 
-    pub const A_PICKER_OVER_THE_HOME_SCREEN: &str = r#"{"eDP-1":{"levels":{
+  pub const A_PICKER_OVER_THE_HOME_SCREEN: &str = r#"{"eDP-1":{"levels":{
         "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1600}],
         "2":[{"namespace":"console-bar","h":40}],
         "3":[{"namespace":"settings-panel","h":1562}]}}}"#;
 
-    pub const THE_KEYBOARD: &str = r#"{"eDP-1":{"levels":{
+  pub const THE_KEYBOARD: &str = r#"{"eDP-1":{"levels":{
         "0":[{"namespace":"awww-daemon","h":1600}],
         "2":[{"namespace":"console-bar","h":40}],
         "3":[{"namespace":"console-keyboard","h":520}]}}}"#;

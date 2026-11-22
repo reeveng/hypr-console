@@ -14,9 +14,7 @@
 use crate::sweeping::{Migration, Moment, Step};
 
 pub const MIGRATION: Migration = Migration {
-    moment: Moment(1790200080),
-    says: "sweeping the thumbnail maker under its old name",
-    steps: &[
-        Step::Attic("/usr/local/bin/files-thumbs"),
-    ],
+  moment: Moment(1790200080),
+  says: "sweeping the thumbnail maker under its old name",
+  steps: &[Step::Attic("/usr/local/bin/files-thumbs")],
 };

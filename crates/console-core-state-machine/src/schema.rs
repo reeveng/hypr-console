@@ -13,7 +13,9 @@
 //! a bad disk.
 
 use std::fmt;
+#[cfg(unix)]
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
+#[cfg(unix)]
 use std::path::PathBuf;
 
 use console_core_never::Never;
@@ -23,123 +25,143 @@ use crate::snapshot::Version;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseError {
-    Truncated,
-    NotASnapshot,
-    Corrupt,
-    Trailing,
-    UnknownTag(u8),
-    NotText,
-    Version(Version),
+  Truncated,
+  NotASnapshot,
+  Corrupt,
+  Trailing,
+  UnknownTag(u8),
+  NotText,
+  Version(Version),
 }
 
 impl fmt::Display for ParseError {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ParseError::Truncated => to.write_str("the snapshot ends before the state does"),
-            ParseError::NotASnapshot => to.write_str("this is not a snapshot of a machine"),
-            ParseError::Corrupt => to.write_str("the snapshot's sum does not match what it holds"),
-            ParseError::Trailing => to.write_str("the snapshot goes on after the state has ended"),
-            ParseError::UnknownTag(tag) => write!(to, "the snapshot names a case, {tag}, that this layout does not have"),
-            ParseError::NotText => to.write_str("the snapshot holds text that is not UTF-8"),
-            ParseError::Version(Version(found)) => write!(to, "the snapshot was written by layout {found}, which nothing here reads"),
-        }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      ParseError::Truncated => to.write_str("the snapshot ends before the state does"),
+      ParseError::NotASnapshot => to.write_str("this is not a snapshot of a machine"),
+      ParseError::Corrupt => to.write_str("the snapshot's sum does not match what it holds"),
+      ParseError::Trailing => to.write_str("the snapshot goes on after the state has ended"),
+      ParseError::UnknownTag(tag) => write!(
+        to,
+        "the snapshot names a case, {tag}, that this layout does not have"
+      ),
+      ParseError::NotText => to.write_str("the snapshot holds text that is not UTF-8"),
+      ParseError::Version(Version(found)) => write!(
+        to,
+        "the snapshot was written by layout {found}, which nothing here reads"
+      ),
     }
+  }
 }
 
 impl std::error::Error for ParseError {}
 
 pub trait Serializable: Sized {
-    fn encode(&self, encoder: &mut Encoder) -> Result<(), Never>;
+  fn encode(&self, encoder: &mut Encoder) -> Result<(), Never>;
 
-    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError>;
+  fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError>;
 }
 
 #[derive(Debug)]
 pub struct Encoder {
-    bytes: Vec<u8>,
+  bytes: Vec<u8>,
 }
 
 impl Encoder {
-    pub(crate) fn new() -> Result<Self, Never> {
-        Ok(Encoder { bytes: Vec::new() })
-    }
+  pub(crate) fn new() -> Result<Self, Never> {
+    Ok(Encoder { bytes: Vec::new() })
+  }
 
-    pub fn byte(&mut self, byte: u8) -> Result<(), Never> {
-        self.bytes.push(byte);
+  pub fn byte(&mut self, byte: u8) -> Result<(), Never> {
+    self.bytes.push(byte);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    pub fn bytes(&mut self, bytes: &[u8]) -> Result<(), Never> {
-        self.bytes.extend_from_slice(bytes);
+  pub fn bytes(&mut self, bytes: &[u8]) -> Result<(), Never> {
+    self.bytes.extend_from_slice(bytes);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    pub fn counted(&mut self, bytes: &[u8]) -> Result<(), Never> {
-        let Ok(count): Result<u64, Never> = fitted(bytes.len());
-        let Ok(()) = count.encode(self);
+  pub fn counted(&mut self, bytes: &[u8]) -> Result<(), Never> {
+    let Ok(count): Result<u64, Never> = fitted(bytes.len());
+    let Ok(()) = count.encode(self);
 
-        self.bytes(bytes)
-    }
+    self.bytes(bytes)
+  }
 
-    pub(crate) fn finish(self) -> Result<Vec<u8>, Never> {
-        Ok(self.bytes)
-    }
+  pub(crate) fn finish(self) -> Result<Vec<u8>, Never> {
+    Ok(self.bytes)
+  }
 }
 
 #[derive(Debug)]
 pub struct Decoder<'a> {
-    rest: &'a [u8],
+  rest: &'a [u8],
 }
 
 impl<'a> Decoder<'a> {
-    pub(crate) fn new(bytes: &'a [u8]) -> Result<Self, Never> {
-        Ok(Decoder { rest: bytes })
+  pub(crate) fn new(bytes: &'a [u8]) -> Result<Self, Never> {
+    Ok(Decoder { rest: bytes })
+  }
+
+  pub fn byte(&mut self) -> Result<u8, ParseError> {
+    match self.rest.split_first() {
+      Some((byte, rest)) => {
+        self.rest = rest;
+
+        Ok(*byte)
+      }
+      None => Err(ParseError::Truncated),
     }
+  }
 
-    pub fn byte(&mut self) -> Result<u8, ParseError> {
-        match self.rest.split_first() {
-            Some((byte, rest)) => {
-                self.rest = rest;
+  pub fn bytes(&mut self) -> Result<Vec<u8>, ParseError> {
+    let count = u64::decode(self)?;
+    let split = match ::console_core_number_conversion::checked_index(count) { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }
+      .and_then(|size| self.rest.split_at_checked(size));
 
-                Ok(*byte)
-            }
-            None => Err(ParseError::Truncated),
-        }
+    match split {
+      Some((bytes, tail)) => {
+        self.rest = tail;
+
+        Ok(bytes.to_vec())
+      }
+      None => {
+
+        self.rest = &[];
+
+        Err(ParseError::Truncated)
+      }
     }
+  }
 
-    pub fn bytes(&mut self) -> Result<Vec<u8>, ParseError> {
-        let count = u64::decode(self)?;
-        let mut bytes = Vec::new();
-
-        for _ in 0..count {
-            let byte = self.byte()?;
-
-            bytes.push(byte);
-        }
-
-        Ok(bytes)
+  pub(crate) fn finish(self) -> Result<(), ParseError> {
+    match self.rest {
+      [] => Ok(()),
+      [_, ..] => Err(ParseError::Trailing),
     }
-
-    pub(crate) fn finish(self) -> Result<(), ParseError> {
-        match self.rest.is_empty() {
-            true => Ok(()),
-            false => Err(ParseError::Trailing),
-        }
-    }
+  }
 }
 
 impl Serializable for u8 {
-    fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
-        encoder.byte(*self)
-    }
+  fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
+    encoder.byte(*self)
+  }
 
-    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
-        decoder.byte()
-    }
+  fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
+    decoder.byte()
+  }
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit080_macro_budget",
+  expect(
+    explicit080_macro_budget,
+    reason = "one implementation template supplies five integer types with matching big-endian encoding and checked fixed-width decoding, keeping the wire format and truncation handling identical"
+  )
+)]
 macro_rules! numbers {
     ($($number:ty),*) => {
         $(
@@ -166,77 +188,82 @@ macro_rules! numbers {
 numbers!(u16, u32, u64, i32, i64);
 
 impl Serializable for String {
-    fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
-        encoder.counted(self.as_bytes())
-    }
+  fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
+    encoder.counted(self.as_bytes())
+  }
 
-    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
-        let bytes = decoder.bytes()?;
+  fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
+    let bytes = decoder.bytes()?;
 
-        String::from_utf8(bytes).map_err(|_not_text| ParseError::NotText)
-    }
+    String::from_utf8(bytes).map_err(|_not_text| ParseError::NotText)
+  }
 }
 
+#[cfg(unix)]
 impl Serializable for PathBuf {
-    fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
-        encoder.counted(self.as_os_str().as_bytes())
-    }
+  fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
+    encoder.counted(self.as_os_str().as_bytes())
+  }
 
-    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
-        let bytes = decoder.bytes()?;
+  fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
+    let bytes = decoder.bytes()?;
 
-        Ok(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
-    }
+    Ok(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
+  }
 }
 
 const NONE: u8 = 0;
 const SOME: u8 = 1;
 
 impl<T: Serializable> Serializable for Option<T> {
-    fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
-        match self {
-            None => encoder.byte(NONE),
-            Some(value) => {
-                let Ok(()) = encoder.byte(SOME);
+  fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
+    match self {
+      None => encoder.byte(NONE),
+      Some(value) => {
+        let Ok(()) = encoder.byte(SOME);
 
-                value.encode(encoder)
-            }
-        }
+        value.encode(encoder)
+      }
     }
+  }
 
-    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
-        let tag = decoder.byte()?;
+  fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
+    let tag = decoder.byte()?;
 
-        match tag {
-            NONE => Ok(None),
-            SOME => T::decode(decoder).map(Some),
-            unknown => Err(ParseError::UnknownTag(unknown)),
-        }
+    match tag {
+      NONE => Ok(None),
+      SOME => T::decode(decoder).map(Some),
+      unknown => Err(ParseError::UnknownTag(unknown)),
     }
+  }
 }
 
 impl<T: Serializable> Serializable for Vec<T> {
-    fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
-        let Ok(count): Result<u64, Never> = fitted(self.len());
-        let Ok(()) = count.encode(encoder);
+  fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
+    let Ok(count): Result<u64, Never> = fitted(self.len());
+    let Ok(()) = count.encode(encoder);
 
-        for item in self {
-            let Ok(()) = item.encode(encoder);
-        }
-
-        Ok(())
+    for item in self {
+      let Ok(()) = item.encode(encoder);
     }
 
-    fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
-        let count = u64::decode(decoder)?;
-        let mut items = Vec::new();
+    Ok(())
+  }
 
-        for _ in 0..count {
-            let item = T::decode(decoder)?;
+  fn decode(decoder: &mut Decoder<'_>) -> Result<Self, ParseError> {
+    let count = u64::decode(decoder)?;
+    let mut items = Vec::new();
 
-            items.push(item);
-        }
+    for _ in 0..count {
+      let item = T::decode(decoder)?;
 
-        Ok(items)
+      items.push(item);
     }
+
+    Ok(items)
+  }
 }
+
+#[cfg(kani)]
+#[path = "../proofs/schema.rs"]
+mod proofs;

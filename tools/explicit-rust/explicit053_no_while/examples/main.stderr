@@ -6,18 +6,24 @@ LL | |         n = n.saturating_sub(1);
 LL | |     }
    | |_____^
    |
-   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
    = note: `#[deny(explicit053_no_while)]` on by default
+help: iterate over the remaining positions and preserve the counter on exit
+   |
+LL -     while n > 0 {
+LL +     for _ in (::core::ops::Range { start: 0, end: n }).rev() {
+   |
 
 error: `while` ends the loop on a false answer that has no name here
   --> $DIR/main.rs:14:5
    |
-LL | /     while let Some(one) = held.pop() {
+LL |       while let Some(one) = held.pop() {
+   |       ^-------------------------------
+   |       |
+   |  _____help: iterate until this iterator returns no more items: `for one in ::core::iter::from_fn(|| held.pop())`
+   | |
 LL | |         sum = sum.saturating_add(one);
 LL | |     }
    | |_____^
-   |
-   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
 
 error: aborting due to 2 previous errors
 

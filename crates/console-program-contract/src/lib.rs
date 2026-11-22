@@ -1,7 +1,8 @@
 //! What a program on this device speaks: the events it can be told and the
 //! effects it can ask for.
 //!
-//! `docs/programs.md` is the argument and this is the contract it arrives at.
+//! The `programs.md` note in Orbit is the argument and this is the contract it
+//! arrives at.
 //! A program here is a `console_core_state_machine::Machine` whose input is
 //! what it was started to do -- a host, a profile, whether to go once --
 //! which its `main` reads off the command line against what it declares,
@@ -29,14 +30,14 @@
 //! loop, and a crate that promised the second would have been wrong for every
 //! panel.
 //!
-//! **Drawing.** `docs/programs.md` listed "draw these pages" as an effect and
-//! also gave the trait a `showing`, which is the same thing said twice. Only
-//! one of them can be the truth about what is on the screen, and it is
-//! `showing`: the runtime redraws from the state, which is the whole reason a
-//! program's state is compared rather than told. So there is no `Effect::Show`
-//! here, and `showing` is not on the machine either -- most programs here
-//! never draw, and a `Vec<Page>` they all have to return empty is the
-//! ceremony that document is against. A program that draws says so by
+//! **Drawing.** The `programs.md` note in Orbit listed "draw these pages" as an
+//! effect and also gave the trait a `showing`, which is the same thing said
+//! twice. Only one of them can be the truth about what is on the screen, and it
+//! is `showing`: the runtime redraws from the state, which is the whole reason
+//! a program's state is compared rather than told. So there is no
+//! `Effect::Show` here, and `showing` is not on the machine either -- most
+//! programs here never draw, and a `Vec<Page>` they all have to return empty is
+//! the ceremony that document is against. A program that draws says so by
 //! implementing a second trait, in the crate whose vocabulary a page is.
 //!
 //! **`offers()`.** Stage 6, and conditional on two programs wanting it. A
@@ -70,9 +71,14 @@
 //! that knows what it means.
 
 pub mod effect;
-pub mod subscription;
 pub mod event;
+pub mod subscription;
 
-pub use effect::{Effect, Exit, Executable, Prompt, Command, Notification, FileWrite};
+pub use effect::{
+  Command, Effect, Executable, Exit, FileWrite, Fork, Job, JobId, JobOwner, Notification, Prompt,
+};
+pub use event::{
+  Answer, Change, Choice, Elapsed, Event, EventGroup, ExitStatus, WriteAnswer, WriteFailure,
+  WriteStage,
+};
 pub use subscription::{Subscription, Timer};
-pub use event::{Answer, Change, Choice, Elapsed, EventGroup, ExitStatus, Event};

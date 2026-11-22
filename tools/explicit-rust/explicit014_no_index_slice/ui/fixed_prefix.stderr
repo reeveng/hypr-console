@@ -1,0 +1,203 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:5:6
+   |
+LL |     (bytes[2 + 3], bytes[6])
+   |      ^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+help: access the array with an irrefutable pattern
+   |
+LL -     (bytes[2 + 3], bytes[6])
+LL +     (match bytes { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, bytes[6])
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:5:20
+   |
+LL |     (bytes[2 + 3], bytes[6])
+   |                    ^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     (bytes[2 + 3], bytes[6])
+LL +     (bytes[2 + 3], match bytes { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element })
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:9:5
+   |
+LL |     bytes[4]
+   |     ^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     bytes[4]
+LL +     match bytes { &[_, _, _, _, _explicit_element, ..] => _explicit_element }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:13:10
+   |
+LL |     &mut bytes[1]
+   |          ^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     &mut bytes[1]
+LL +     { let [_, _explicit_part, ..] = &mut *bytes; _explicit_part }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:17:5
+   |
+LL |     words[0] = replacement(words);
+   |     ^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     words[0] = replacement(words);
+LL +     *{ let [_explicit_part, ..] = &mut *words; _explicit_part } = replacement(words);
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:21:6
+   |
+LL |     &bytes[2 * 3..]
+   |      ^^^^^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     &bytes[2 * 3..]
+LL +     { let [_, _, _, _, _, _, _explicit_part @ ..] = &**bytes; let _explicit_slice: &[_] = _explicit_part; _explicit_slice }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:25:10
+   |
+LL |     &mut bytes[7..]
+   |          ^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     &mut bytes[7..]
+LL +     { let [_, _, _, _, _, _, _, _explicit_part @ ..] = &mut *bytes; let _explicit_slice: &mut [_] = _explicit_part; _explicit_slice }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:29:6
+   |
+LL |     &bytes[..]
+   |      ^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     &bytes[..]
+LL +     { let _explicit_part = &*bytes; let _explicit_slice: &[_] = _explicit_part; _explicit_slice }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:33:6
+   |
+LL |     &bytes[8..]
+   |      ^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     &bytes[8..]
+LL +     { let [_, _, _, _, _, _, _, _, _explicit_part @ ..] = &*bytes; let _explicit_slice: &[_] = _explicit_part; _explicit_slice }
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:37:19
+   |
+LL |     grid[1][2] += grid[0][1];
+   |                   ^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     grid[1][2] += grid[0][1];
+LL +     grid[1][2] += match grid { [[_, _explicit_element, ..], ..] => _explicit_element };
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:37:19
+   |
+LL |     grid[1][2] += grid[0][1];
+   |                   ^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:37:5
+   |
+LL |     grid[1][2] += grid[0][1];
+   |     ^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     grid[1][2] += grid[0][1];
+LL +     *{ let [_, [_, _, _explicit_part, ..], ..] = &mut grid; _explicit_part } += grid[0][1];
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:37:5
+   |
+LL |     grid[1][2] += grid[0][1];
+   |     ^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:38:19
+   |
+LL |     let updated = grid[1][2];
+   |                   ^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     let updated = grid[1][2];
+LL +     let [_, [_, _, updated, ..], ..] = grid;
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:38:19
+   |
+LL |     let updated = grid[1][2];
+   |                   ^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:39:15
+   |
+LL |     (updated, grid[1][3])
+   |               ^^^^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     (updated, grid[1][3])
+LL +     (updated, match grid { [_, [_, _, _, _explicit_element, ..], ..] => _explicit_element })
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:39:15
+   |
+LL |     (updated, grid[1][3])
+   |               ^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/fixed_prefix.rs:43:5
+   |
+LL |     grid[1]
+   |     ^^^^^^^
+   |
+help: access the array with an irrefutable pattern
+   |
+LL -     grid[1]
+LL +     match grid { &[_, _explicit_element, ..] => _explicit_element }
+   |
+
+error: aborting due to 18 previous errors
+

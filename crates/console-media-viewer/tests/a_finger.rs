@@ -48,226 +48,258 @@ use std::path::PathBuf;
 use console_core_never::Never;
 use console_panel::description::{Description, Heading, Offers, Output, Standing};
 use console_test_stages::panels::{
-    Panel, a_way_out_is_drawn, every_mark_reachable, every_offer_answered, one_mark_for_one_subject,
+  Panel, a_way_out_is_drawn, every_mark_reachable, every_offer_answered, one_mark_for_one_subject,
 };
 
 type Rule = fn(&Description) -> Result<(), console_test_stages::Error>;
 
 fn a_picture(named: &str) -> Result<PathBuf, Box<dyn Error>> {
-    let here = console_core_temporary_directories::fresh(&format!("viewer-a-finger-{named}"))?;
-    let at = here.join("beach.png");
-    let bytes = [
-        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
-        0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
-        0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x08,
-        0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xdd, 0x8d,
-        0xb0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
-    ];
+  let here = console_core_temporary_directories::fresh(&format!("viewer-a-finger-{named}"))?;
+  let at = here.join("beach.png");
+  let bytes = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+    0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90,
+    0x77, 0x53, 0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x08, 0xd7, 0x63, 0xf8,
+    0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xdd, 0x8d, 0xb0, 0x00, 0x00, 0x00,
+    0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+  ];
 
-    console_core_atomic_writes::whole(&at, &bytes)?;
+  console_core_atomic_writes::whole(&at, &bytes)?;
 
-    Ok(at)
+  Ok(at)
+}
+
+fn argument(at: &std::path::Path) -> Result<&str, Box<dyn Error>> {
+  at.to_str()
+    .ok_or_else(|| Box::<dyn Error>::from("the fixture path should be text"))
 }
 
 fn describe(arguments: &[&str]) -> Result<Vec<Description>, console_test_stages::Error> {
-    let Ok(mut panel) = Panel::opening("viewer", arguments);
+  let Ok(mut panel) = Panel::opening("viewer", arguments);
 
-    panel.descriptions()
+  panel.descriptions()
 }
 
 fn holds(every: &[Description], rule: Rule) -> Result<(), console_test_stages::Error> {
-    for card in every {
-        rule(card)?;
-    }
+  for card in every {
+    rule(card)?;
+  }
 
-    Ok(())
+  Ok(())
 }
 
 fn holds_somewhere(every: &[Description], rule: Rule) -> Result<(), Box<dyn Error>> {
-    let mut why = None;
+  let mut why = None;
 
-    for card in every {
-        match rule(card) {
-            Ok(()) => return Ok(()),
-            Err(said) => why = Some(said),
-        }
+  for card in every {
+    match rule(card) {
+      Ok(()) => return Ok(()),
+      Err(said) => why = Some(said),
     }
+  }
 
-    match why {
-        Some(said) => Err(Box::from(format!("in none of the {} draws: {said}", every.len()))),
-        None => Err(Box::from("the card drew nothing at all")),
-    }
+  match why {
+    Some(said) => Err(Box::from(format!(
+      "in none of the {} draws: {said}",
+      every.len()
+    ))),
+    None => Err(Box::from("the card drew nothing at all")),
+  }
 }
 
 fn says_anywhere(every: &[Description], said: &str) -> Result<Found, Never> {
-    let anywhere = every.iter().flat_map(|card| card.lines.iter()).any(|line| line.says.contains(said));
+  let anywhere = every
+    .iter()
+    .flat_map(|card| card.lines.iter())
+    .any(|line| line.says.contains(said));
 
-    Ok(match anywhere {
-        true => Found::Yes,
-        false => Found::No,
-    })
+  Ok(match ::core::primitive::bool::then_some(anywhere, ()) {
+    ::core::option::Option::Some(()) => Found::Yes,
+    ::core::option::Option::None => Found::No,
+  })
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum Found {
-    Yes,
-    No,
+  Yes,
+  No,
 }
-
 
 #[test]
 fn the_card_a_hand_is_given() -> Result<(), Box<dyn Error>> {
-    let at = a_picture("hand")?;
-    let every = describe(&[&at.to_string_lossy()])?;
+  let at = a_picture("hand")?;
+  let path = argument(&at)?;
+  let every = describe(&[path])?;
 
-    holds(&every, every_offer_answered)?;
-    holds(&every, every_mark_reachable)?;
-    holds_somewhere(&every, one_mark_for_one_subject)?;
-    holds_somewhere(&every, a_way_out_is_drawn)?;
+  holds(&every, every_offer_answered)?;
+  holds(&every, every_mark_reachable)?;
+  holds_somewhere(&every, one_mark_for_one_subject)?;
+  holds_somewhere(&every, a_way_out_is_drawn)?;
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn a_picture_opened_over_the_whole_screen_can_still_be_left() -> Result<(), Box<dyn Error>> {
-    let at = a_picture("whole-screen")?;
-    let Ok(mut panel) = Panel::opening("viewer", &[&at.to_string_lossy()]);
+  let at = a_picture("whole-screen")?;
+  let path = argument(&at)?;
+  let Ok(mut panel) = Panel::opening("viewer", &[path]);
 
-    panel.key("space")?;
+  panel.key("space")?;
 
-    let every = panel.descriptions()?;
+  let every = panel.descriptions()?;
 
-    let out: Vec<Description> = every
-        .iter()
-        .filter(|card| card.out == Output::Yes)
-        .cloned()
-        .collect();
+  let out: Vec<Description> = every
+    .iter()
+    .filter(|card| card.out == Output::Yes)
+    .cloned()
+    .collect();
 
-    assert!(!out.is_empty(), "A on the picture never opened it out; the card drew {} times", every.len());
+  assert!(
+    !out.is_empty(),
+    "A on the picture never opened it out; the card drew {} times",
+    every.len()
+  );
 
-    holds(&out, every_mark_reachable)?;
-    holds_somewhere(&out, a_way_out_is_drawn)?;
+  holds(&out, every_mark_reachable)?;
+  holds_somewhere(&out, a_way_out_is_drawn)?;
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
-fn every_row_of_the_media_page_offers_what_else_there_is_to_do_with_it() -> Result<(), Box<dyn Error>> {
-    let at = a_picture("media-page")?;
-    let folder = at.parent().ok_or("the picture was made in no folder")?;
-    let Ok(mut panel) = Panel::opening("viewer", &[&folder.to_string_lossy()]);
+fn every_row_of_the_media_page_offers_what_else_there_is_to_do_with_it()
+-> Result<(), Box<dyn Error>> {
+  let at = a_picture("media-page")?;
+  let folder = at.parent().ok_or("the picture was made in no folder")?;
+  let path = argument(folder)?;
+  let Ok(mut panel) = Panel::opening("viewer", &[path]);
 
-    panel.key("Page_Down")?;
+  panel.key("Page_Down")?;
 
-    let every = panel.descriptions()?;
+  let every = panel.descriptions()?;
 
-    let media: Vec<&Description> =
-        every.iter().filter(|card| card.tab == "Media").collect();
+  let media: Vec<&Description> = every.iter().filter(|card| card.tab == "Media").collect();
 
-    assert!(
-        !media.is_empty(),
-        "the shoulder never reached the Media page; the card drew {} times",
-        every.len()
-    );
+  assert!(
+    !media.is_empty(),
+    "the shoulder never reached the Media page; the card drew {} times",
+    every.len()
+  );
 
-    let offered = media.iter().any(|card| {
-        let mut stood = card.lines.iter().filter(|line| line.heading == Heading::No).peekable();
+  let offered = media.iter().any(|card| {
+    let mut stood = card
+      .lines
+      .iter()
+      .filter(|line| line.heading == Heading::No)
+      .peekable();
 
-        stood.peek().is_some() && stood.all(|line| line.offers == Offers::Yes)
-    });
+    stood.peek().is_some() && stood.all(|line| line.offers == Offers::Yes)
+  });
 
-    assert!(
-        offered,
-        "in none of the {} draws of the Media page did every row offer anything behind Y",
-        media.len()
-    );
+  assert!(
+    offered,
+    "in none of the {} draws of the Media page did every row offer anything behind Y",
+    media.len()
+  );
 
-    for card in &media {
-        every_offer_answered(card)?;
-        every_mark_reachable(card)?;
-    }
+  for card in &media {
+    every_offer_answered(card)?;
+    every_mark_reachable(card)?;
+  }
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn right_off_a_row_stands_on_what_else_it_offers() -> Result<(), Box<dyn Error>> {
-    let at = a_picture("right-off")?;
-    let folder = at.parent().ok_or("the picture was made in no folder")?;
-    let Ok(mut panel) = Panel::opening("viewer", &[&folder.to_string_lossy()]);
+  let at = a_picture("right-off")?;
+  let folder = at.parent().ok_or("the picture was made in no folder")?;
+  let path = argument(folder)?;
+  let Ok(mut panel) = Panel::opening("viewer", &[path]);
 
-    for key in ["Page_Down", "Down", "Right"] {
-        panel.key(key)?;
-    }
+  for key in ["Page_Down", "Down", "Right"] {
+    panel.key(key)?;
+  }
 
-    let every = panel.descriptions()?;
+  let every = panel.descriptions()?;
 
-    let beside = every
-        .iter()
-        .flat_map(|card| card.lines.iter())
-        .any(|line| line.standing == Standing::Beside);
+  let beside = every
+    .iter()
+    .flat_map(|card| card.lines.iter())
+    .any(|line| line.standing == Standing::Beside);
 
-    assert!(
-        beside,
-        "right off a row never reached what else it offers; the card drew {} times",
-        every.len()
-    );
+  assert!(
+    beside,
+    "right off a row never reached what else it offers; the card drew {} times",
+    every.len()
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn a_folder_with_nothing_to_show_opens_and_says_so() -> Result<(), Box<dyn Error>> {
-    let here = console_core_temporary_directories::fresh("viewer-nothing")?;
-    let every = describe(&[&here.to_string_lossy()])?;
+  let here = console_core_temporary_directories::fresh("viewer-nothing")?;
+  let path = argument(&here)?;
+  let every = describe(&[path])?;
 
-    assert!(
-        !every.is_empty(),
-        "the viewer drew no card at all for a folder with no picture and no film in it"
-    );
+  assert!(
+    !every.is_empty(),
+    "the viewer drew no card at all for a folder with no picture and no film in it"
+  );
 
-    let Ok(said) = says_anywhere(&every, "No Pictures or Videos");
+  let Ok(said) = says_anywhere(&every, "No Pictures or Videos");
 
-    assert_eq!(
-        said,
-        Found::Yes,
-        "the card came up with nothing anywhere and in none of its {} draws said so",
-        every.len()
-    );
+  assert_eq!(
+    said,
+    Found::Yes,
+    "the card came up with nothing anywhere and in none of its {} draws said so",
+    every.len()
+  );
 
-    holds(&every, every_mark_reachable)?;
-    holds_somewhere(&every, a_way_out_is_drawn)?;
+  holds(&every, every_mark_reachable)?;
+  holds_somewhere(&every, a_way_out_is_drawn)?;
 
-    Ok(())
+  Ok(())
 }
 
 fn a_folder_with_the_film_further_in() -> Result<PathBuf, Box<dyn Error>> {
-    let here = console_core_temporary_directories::fresh("viewer-further")?;
+  let here = console_core_temporary_directories::fresh("viewer-further")?;
 
-    console_core_atomic_writes::whole_with_folders(&here.join("last summer").join("holiday.mkv"), &[])?;
+  console_core_atomic_writes::whole_with_folders(
+    &here.join("last summer").join("holiday.mkv"),
+    &[],
+  )?;
 
-    Ok(here)
+  Ok(here)
 }
 
 #[test]
 fn a_folder_holding_nothing_itself_opens_on_what_the_shelf_found() -> Result<(), Box<dyn Error>> {
-    let here = a_folder_with_the_film_further_in()?;
-    let every = describe(&[&here.to_string_lossy()])?;
+  let here = a_folder_with_the_film_further_in()?;
+  let path = argument(&here)?;
+  let every = describe(&[path])?;
 
-    assert!(!every.is_empty(), "the viewer drew no card at all");
+  assert!(!every.is_empty(), "the viewer drew no card at all");
 
-    let Ok(gave_up) = says_anywhere(&every, "No Pictures or Videos");
+  let Ok(gave_up) = says_anywhere(&every, "No Pictures or Videos");
 
-    assert_eq!(
-        gave_up,
-        Found::No,
-        "the folder it was handed held nothing itself and it said the device had nothing, \
+  assert_eq!(
+    gave_up,
+    Found::No,
+    "the folder it was handed held nothing itself and it said the device had nothing, \
          with a film one folder further in"
-    );
+  );
 
-    let Ok(found) = says_anywhere(&every, "holiday.mkv");
+  let Ok(found) = says_anywhere(&every, "holiday.mkv");
 
-    assert_eq!(found, Found::Yes, "the shelf never named the one film there is; it drew {} times", every.len());
+  assert_eq!(
+    found,
+    Found::Yes,
+    "the shelf never named the one film there is; it drew {} times",
+    every.len()
+  );
 
-    Ok(())
+  Ok(())
 }

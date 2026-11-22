@@ -1,0 +1,16 @@
+warning: `rustix::pipe::pipe` takes no flags, so what it makes is open in every program started after it; `pipe_with` is the call that can say otherwise
+  --> $DIR/owned_pipe.rs:6:25
+   |
+LL |     let (read, write) = rustix::pipe::pipe()?;
+   |                         ^^^^^^^^^^^^^^^^^^^^ help: close both ends of this process-local pipe on exec: `rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)`
+   |
+   = note: `#[warn(explicit091_closes_on_exec)]` on by default
+
+warning: `rustix::pipe::pipe` takes no flags, so what it makes is open in every program started after it; `pipe_with` is the call that can say otherwise
+  --> $DIR/owned_pipe.rs:18:30
+   |
+LL |         let (read, _write) = rustix::pipe::pipe()?;
+   |                              ^^^^^^^^^^^^^^^^^^^^ help: close both ends of this process-local pipe on exec: `rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)`
+
+warning: 2 warnings emitted
+

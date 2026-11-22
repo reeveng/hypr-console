@@ -1,0 +1,54 @@
+// run-rustfix
+// edition:2024
+#![feature(try_blocks)]
+use core::convert::Infallible;
+
+#[allow(explicit051_no_machine_width)]
+type Position = usize;
+
+fn stride(row: &[u8]) -> Result<Position, Infallible> { Ok(row.len()) }
+
+fn direct(row: &[u8]) -> Result<Position, Infallible> {
+    let Ok(pixel_stride) = stride(row);
+    Ok(pixel_stride)
+}
+
+fn multiply(row: &[u8]) -> Result<Position, Infallible> {
+    Ok(3_u8.count_ones() as Position * {
+        let Ok(pixel_stride) = stride(row);
+        pixel_stride
+    })
+}
+
+struct Guard<'a>(&'a std::cell::Cell<bool>);
+impl Guard<'_> {
+    fn size(&self) -> Result<Position, Infallible> { Ok(7) }
+}
+impl Drop for Guard<'_> {
+    fn drop(&mut self) { self.0.set(true); }
+}
+
+fn check_drop_order() -> (Position, bool) {
+    let dropped = std::cell::Cell::new(false);
+    ({
+        let Ok(size) = Guard(&dropped).size();
+        size
+    }, dropped.get())
+}
+
+fn nested_try() -> Result<Option<Position>, Infallible> {
+    let value: Option<Position> = try {
+        1 + {
+            let Ok(size) = stride(&[2, 3]);
+            size
+        }
+    };
+    Ok(value)
+}
+
+fn main() {
+    assert_eq!(direct(&[1, 2]), Ok(2));
+    assert_eq!(multiply(&[1, 2, 3]), Ok(6));
+    assert_eq!(check_drop_order(), (7, true));
+    assert_eq!(nested_try(), Ok(Some(3)));
+}

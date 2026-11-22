@@ -39,183 +39,227 @@
 
 use console_core_never::Never;
 use console_core_words::Words;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Words)]
 pub enum Urgency {
-    #[words(says = "", wearing = "soft", sent = "low")]
-    Low,
-    #[default]
-    #[words(says = "", wearing = "", sent = "normal")]
-    Normal,
-    #[words(says = "Urgent", wearing = "wrong", sent = "critical")]
-    Critical,
+  #[words(says = "", wearing = "soft", sent = "low")]
+  Low,
+  #[default]
+  #[words(says = "", wearing = "", sent = "normal")]
+  Normal,
+  #[words(says = "Urgent", wearing = "wrong", sent = "critical")]
+  Critical,
 }
 
 impl Urgency {
-    fn parse(said: Option<&str>) -> Result<Self, Never> {
-        Ok(match said {
-            Some("low") => Urgency::Low,
-            Some("critical") => Urgency::Critical,
-            Some(_) | None => Urgency::Normal,
-        })
-    }
+  fn parse(said: Option<&str>) -> Result<Self, Never> {
+    Ok(match said {
+      Some("low") => Urgency::Low,
+      Some("critical") => Urgency::Critical,
+      Some(_) | None => Urgency::Normal,
+    })
+  }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Notification {
-    pub id: u32,
-    pub application: String,
-    pub summary: String,
-    pub body: String,
-    pub urgency: Urgency,
+  pub id: u32,
+  pub application: String,
+  pub summary: String,
+  pub body: String,
+  pub urgency: Urgency,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Error {
-    Yes,
-    #[default]
-    No,
+  Yes,
+  #[default]
+  No,
 }
 
 impl Notification {
-    pub fn wrong(&self) -> Result<Error, Never> {
-        Ok(match self.urgency == Urgency::Critical {
-            true => Error::Yes,
-            false => Error::No,
-        })
+  pub fn wrong(&self) -> Result<Error, Never> {
+    Ok(match ::core::primitive::bool::then_some(self.urgency == Urgency::Critical, ()) {
+      ::core::option::Option::Some(()) => Error::Yes,
+      ::core::option::Option::None => Error::No,
+    })
+  }
+
+  pub fn says(&self) -> Result<String, Never> {
+    for said in [&self.summary, &self.body] {
+      match ::core::primitive::bool::then_some(said.trim().is_empty(), ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => return Ok(said.trim().to_string()),
+      }
     }
 
-    pub fn says(&self) -> Result<String, Never> {
-        for said in [&self.summary, &self.body] {
-            match said.trim().is_empty() {
-                true => {}
-                false => return Ok(said.trim().to_string()),
-            }
-        }
-
-        Ok(format!("Notification {}", self.id))
-    }
+    Ok(format!("Notification {}", self.id))
+  }
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct StoredNotification {
-    id: u32,
-    #[serde(rename = "app_name")]
-    application_name: Option<String>,
-    summary: Option<String>,
-    body: Option<String>,
-    urgency: Option<String>,
+  id: u32,
+  #[serde(rename = "app_name")]
+  application_name: Option<String>,
+  summary: Option<String>,
+  body: Option<String>,
+  urgency: Option<String>,
+  #[serde(rename = "app_icon", skip_serializing)]
+  _app_icon: Option<serde::de::IgnoredAny>,
+  #[serde(rename = "category", skip_serializing)]
+  _category: Option<serde::de::IgnoredAny>,
+  #[serde(rename = "desktop_entry", skip_serializing)]
+  _desktop_entry: Option<serde::de::IgnoredAny>,
+  #[serde(rename = "actions", skip_serializing)]
+  _actions: Option<serde::de::IgnoredAny>,
 }
 
 #[derive(Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
 struct StoredInbox {
-    waiting: Vec<StoredNotification>,
-    earlier: Vec<StoredNotification>,
-    #[serde(rename = "quiet")]
-    do_not_disturb: Option<String>,
+  waiting: Box<[StoredNotification]>,
+  earlier: Box<[StoredNotification]>,
+  #[serde(rename = "quiet")]
+  do_not_disturb: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Inbox {
-    pub waiting: Vec<Notification>,
-    pub earlier: Vec<Notification>,
-    pub do_not_disturb: DoNotDisturb,
+  pub waiting: Vec<Notification>,
+  pub earlier: Vec<Notification>,
+  pub do_not_disturb: DoNotDisturb,
 }
 
 pub fn whole(said: &str) -> Result<Inbox, Never> {
-    let kept = match serde_json::from_str::<StoredInbox>(said) {
-        Ok(kept) => kept,
-        Err(_not_json) => return Ok(Inbox::default()),
-    };
+  let Ok(parsed) = read_stored::<StoredInbox>(said);
+  let kept = match parsed {
+    Some(kept) => kept,
+    None => return Ok(Inbox::default()),
+  };
 
-    let Ok(waiting) = every(kept.waiting);
-    let Ok(earlier) = every(kept.earlier);
+  let Ok(waiting) = every(kept.waiting.into_vec());
+  let Ok(earlier) = every(kept.earlier.into_vec());
 
-    let do_not_disturb = match kept.do_not_disturb.as_deref() {
-        Some("held-back") => DoNotDisturb::On,
-        Some(_) | None => DoNotDisturb::Off,
-    };
+  let do_not_disturb = match kept.do_not_disturb.as_deref() {
+    Some("held-back") => DoNotDisturb::On,
+    Some(_) | None => DoNotDisturb::Off,
+  };
 
-    Ok(Inbox { waiting, earlier, do_not_disturb })
+  Ok(Inbox {
+    waiting,
+    earlier,
+    do_not_disturb,
+  })
 }
 
 pub fn serialize(whole: &Inbox) -> Result<String, Never> {
-    let Ok(waiting) = to_stored(&whole.waiting);
-    let Ok(earlier) = to_stored(&whole.earlier);
-    let Ok(do_not_disturb) = whole.do_not_disturb.said();
+  let Ok(waiting) = to_stored(&whole.waiting);
+  let Ok(earlier) = to_stored(&whole.earlier);
+  let Ok(do_not_disturb) = whole.do_not_disturb.said();
 
-    let kept = StoredInbox { waiting, earlier, do_not_disturb: Some(do_not_disturb.to_string()) };
+  let kept = StoredInbox {
+    waiting: waiting.into_boxed_slice(),
+    earlier: earlier.into_boxed_slice(),
+    do_not_disturb: Some(do_not_disturb.to_string()),
+  };
 
-    Ok(match serde_json::to_string(&kept) {
-        Ok(said) => said,
-        Err(_unserializable) => String::new(),
-    })
+  Ok(match serde_json::to_string(&kept) {
+    Ok(said) => said,
+    Err(_unserializable) => String::new(),
+  })
 }
 
 fn to_stored(held: &[Notification]) -> Result<Vec<StoredNotification>, Never> {
-    let mut every: Vec<StoredNotification> = Vec::new();
+  let mut every: Vec<StoredNotification> = Vec::new();
 
-    for notification in held {
-        let Ok(urgency) = notification.urgency.sent();
+  for notification in held {
+    let Ok(urgency) = notification.urgency.sent();
 
-        every.push(StoredNotification {
-            id: notification.id,
-            application_name: Some(notification.application.clone()),
-            summary: Some(notification.summary.clone()),
-            body: Some(notification.body.clone()),
-            urgency: Some(urgency.to_string()),
-        });
-    }
+    every.push(StoredNotification {
+      id: notification.id,
+      application_name: Some(notification.application.clone()),
+      summary: Some(notification.summary.clone()),
+      body: Some(notification.body.clone()),
+      urgency: Some(urgency.to_string()),
+      _app_icon: None,
+      _category: None,
+      _desktop_entry: None,
+      _actions: None,
+    });
+  }
 
-    Ok(every)
+  Ok(every)
 }
 
 pub fn read(said: &str) -> Result<Vec<Notification>, Never> {
-    let held = match serde_json::from_str::<Vec<StoredNotification>>(said) {
-        Ok(held) => held,
-        Err(_not_json) => return Ok(Vec::new()),
-    };
+  let Ok(parsed) = read_stored::<Vec<StoredNotification>>(said);
+  let held = match parsed {
+    Some(held) => held,
+    None => return Ok(Vec::new()),
+  };
 
-    every(held)
+  every(held)
+}
+
+fn read_stored<T: DeserializeOwned>(said: &str) -> Result<Option<T>, Never> {
+  let Ok(bytes) = console_core_number_conversion::fitted::<_, u64>(said.len());
+
+  match ::core::primitive::bool::then_some(bytes <= u64::from(console_core_atomic_writes::MAX_TEXT_BYTES), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => return Ok(None),
+  }
+
+  Ok(match serde_json::from_str(said) {
+    Ok(parsed) => Some(parsed),
+    Err(_not_json) => None,
+  })
 }
 
 fn every(held: Vec<StoredNotification>) -> Result<Vec<Notification>, Never> {
-    let mut every: Vec<Notification> = Vec::new();
+  let mut every: Vec<Notification> = Vec::new();
 
-    for said in held {
-        let Ok(application) = word(said.application_name);
-        let Ok(summary) = word(said.summary);
-        let Ok(body) = word(said.body);
-        let Ok(urgency) = Urgency::parse(said.urgency.as_deref());
+  for said in held {
+    let Ok(application) = word(said.application_name);
+    let Ok(summary) = word(said.summary);
+    let Ok(body) = word(said.body);
+    let Ok(urgency) = Urgency::parse(said.urgency.as_deref());
 
-        every.push(Notification { id: said.id, application, summary, body, urgency });
-    }
+    every.push(Notification {
+      id: said.id,
+      application,
+      summary,
+      body,
+      urgency,
+    });
+  }
 
-    Ok(every)
+  Ok(every)
 }
 
 fn word(said: Option<String>) -> Result<String, Never> {
-    Ok(match said {
-        Some(said) => said,
-        None => String::new(),
-    })
+  Ok(match said {
+    Some(said_2) => said_2,
+    None => String::new(),
+  })
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Words)]
 pub enum DoNotDisturb {
-    #[words(said = "held-back")]
-    On,
-    #[default]
-    #[words(said = "coming")]
-    Off,
+  #[words(said = "held-back")]
+  On,
+  #[default]
+  #[words(said = "coming")]
+  Off,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    const TWO: &str = r#"[
+  const TWO: &str = r#"[
   {
     "id": 4,
     "app_name": "Console",
@@ -240,118 +284,134 @@ mod tests {
   }
 ]"#;
 
-    const NONE: &str = "[\n]";
+  const NONE: &str = "[\n]";
 
-    #[test]
-    fn what_is_being_held_is_read_whole() -> Result<(), &'static str> {
-        let Ok(held) = read(TWO);
-        let fell_over = held.first().ok_or("nothing was read")?;
+  #[test]
+  fn what_is_being_held_is_read_whole() -> Result<(), &'static str> {
+    let Ok(held) = read(TWO);
+    let fell_over = held.first().ok_or("nothing was read")?;
 
-        assert_eq!(held.len(), 2);
-        assert_eq!(fell_over.id, 4);
-        assert_eq!(fell_over.summary, "Notifications fell over");
-        assert_eq!(fell_over.body, "console-notify.service stopped");
-        assert_eq!(fell_over.application, "Console");
+    assert_eq!(held.len(), 2);
+    assert_eq!(fell_over.id, 4);
+    assert_eq!(fell_over.summary, "Notifications fell over");
+    assert_eq!(fell_over.body, "console-notify.service stopped");
+    assert_eq!(fell_over.application, "Console");
 
-        Ok(())
+    Ok(())
+  }
+
+  #[test]
+  fn the_order_is_left_as_it_was_written() {
+    let Ok(held) = read(TWO);
+
+    assert_eq!(
+      held.iter().map(|held_2| held_2.id).collect::<Vec<_>>(),
+      [4, 3]
+    );
+  }
+
+  #[test]
+  fn a_fault_says_it_is_one_and_nothing_else_does() -> Result<(), &'static str> {
+    let Ok(held) = read(TWO);
+    let [fault, listening] = held.first_chunk::<2>().ok_or("two were not read")?;
+
+    assert_eq!(fault.wrong(), Ok(Error::Yes));
+    assert_eq!(listening.wrong(), Ok(Error::No));
+    assert_eq!(fault.urgency.says(), Ok("Urgent"));
+
+    Ok(())
+  }
+
+  #[test]
+  fn only_a_fault_says_anything_beside_itself() {
+    assert_eq!(Urgency::Normal.says(), Ok(""));
+    assert_eq!(Urgency::Low.says(), Ok(""));
+    assert_eq!(Urgency::Critical.says(), Ok("Urgent"));
+  }
+
+  #[test]
+  fn a_notification_with_nothing_in_it_is_still_one() -> Result<(), &'static str> {
+    let bare = r#"[{"id":9,"app_name":null,"summary":null,"body":null,"urgency":null}]"#;
+    let Ok(held) = read(bare);
+    let one = held.first().ok_or("nothing was read")?;
+
+    assert_eq!(held.len(), 1);
+    assert_eq!(one.urgency, Urgency::Normal);
+    assert_eq!(one.says(), Ok("Notification 9".to_string()));
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_notification_with_no_summary_is_named_by_its_body() -> Result<(), &'static str> {
+    let Ok(held) = read(r#"[{"id":2,"summary":"","body":"the microphone is on"}]"#);
+    let one = held.first().ok_or("nothing was read")?;
+
+    assert_eq!(one.says(), Ok("the microphone is on".to_string()));
+
+    Ok(())
+  }
+
+  #[test]
+  fn an_answer_that_is_not_a_list_is_no_notifications() {
+    for said in ["", NONE, "\n", "no", "{}", "[{}]", "  Urgency: critical"] {
+      let Ok(held) = read(said);
+
+      assert!(held.is_empty(), "{said:?}");
     }
+  }
 
-    #[test]
-    fn the_order_is_left_as_it_was_written() {
-        let Ok(held) = read(TWO);
-
-        assert_eq!(held.iter().map(|held| held.id).collect::<Vec<_>>(), [4, 3]);
-    }
-
-    #[test]
-    fn a_fault_says_it_is_one_and_nothing_else_does() -> Result<(), &'static str> {
-        let Ok(held) = read(TWO);
-        let [fault, listening] = held.first_chunk::<2>().ok_or("two were not read")?;
-
-        assert_eq!(fault.wrong(), Ok(Error::Yes));
-        assert_eq!(listening.wrong(), Ok(Error::No));
-        assert_eq!(fault.urgency.says(), Ok("Urgent"));
-
-        Ok(())
-    }
-
-    #[test]
-    fn only_a_fault_says_anything_beside_itself() {
-        assert_eq!(Urgency::Normal.says(), Ok(""));
-        assert_eq!(Urgency::Low.says(), Ok(""));
-        assert_eq!(Urgency::Critical.says(), Ok("Urgent"));
-    }
-
-    #[test]
-    fn a_notification_with_nothing_in_it_is_still_one() -> Result<(), &'static str> {
-        let bare = r#"[{"id":9,"app_name":null,"summary":null,"body":null,"urgency":null}]"#;
-        let Ok(held) = read(bare);
-        let one = held.first().ok_or("nothing was read")?;
-
-        assert_eq!(held.len(), 1);
-        assert_eq!(one.urgency, Urgency::Normal);
-        assert_eq!(one.says(), Ok("Notification 9".to_string()));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_notification_with_no_summary_is_named_by_its_body() -> Result<(), &'static str> {
-        let Ok(held) = read(r#"[{"id":2,"summary":"","body":"the microphone is on"}]"#);
-        let one = held.first().ok_or("nothing was read")?;
-
-        assert_eq!(one.says(), Ok("the microphone is on".to_string()));
-
-        Ok(())
-    }
-
-    #[test]
-    fn an_answer_that_is_not_a_list_is_no_notifications() {
-        for said in ["", NONE, "\n", "no", "{}", "[{}]", "  Urgency: critical"] {
-            let Ok(held) = read(said);
-
-            assert!(held.is_empty(), "{said:?}");
-        }
-    }
-
-    #[test]
-    fn what_the_daemon_is_holding_is_read_whole_and_in_one_go() {
-        let Ok(whole) = whole(
-            r#"{"waiting":[{"id":4,"app_name":"Console","summary":"One","body":"and its body","urgency":"critical"}],
+  #[test]
+  fn what_the_daemon_is_holding_is_read_whole_and_in_one_go() {
+    let Ok(whole) = whole(
+      r#"{"waiting":[{"id":4,"app_name":"Console","summary":"One","body":"and its body","urgency":"critical"}],
                 "earlier":[{"id":2,"summary":"Two"}],"quiet":"held-back"}"#,
-        );
+    );
 
-        assert_eq!(whole.waiting.len(), 1);
-        assert_eq!(whole.waiting.first().map(|one| one.body.as_str()), Some("and its body"));
-        assert_eq!(whole.earlier.len(), 1);
-        assert_eq!(whole.do_not_disturb, DoNotDisturb::On);
+    assert_eq!(whole.waiting.len(), 1);
+    assert_eq!(
+      whole.waiting.first().map(|one| one.body.as_str()),
+      Some("and its body")
+    );
+    assert_eq!(whole.earlier.len(), 1);
+    assert_eq!(whole.do_not_disturb, DoNotDisturb::On);
+  }
+
+  #[test]
+  fn what_is_written_is_what_is_read_back() {
+    let Ok(held) = read(TWO);
+    let whole = Inbox {
+      waiting: held.clone(),
+      earlier: Vec::new(),
+      do_not_disturb: DoNotDisturb::Off,
+    };
+    let Ok(written) = serialize(&whole);
+    let Ok(back) = super::whole(&written);
+
+    assert_eq!(
+      back.waiting.first().map(|one| one.urgency),
+      Some(Urgency::Critical)
+    );
+    assert_eq!(back, whole);
+  }
+
+  #[test]
+  fn a_file_that_is_not_there_is_no_notifications_and_not_a_fault() {
+    for said in ["", "no", "{}", "[]", "null"] {
+      let Ok(whole) = whole(said);
+
+      assert_eq!(whole, Inbox::default(), "{said:?}");
     }
+  }
 
-    #[test]
-    fn what_is_written_is_what_is_read_back() {
-        let Ok(held) = read(TWO);
-        let whole = Inbox { waiting: held.clone(), earlier: Vec::new(), do_not_disturb: DoNotDisturb::Off };
-        let Ok(written) = serialize(&whole);
-        let Ok(back) = super::whole(&written);
+  #[test]
+  fn a_daemon_that_is_quiet_says_so_in_the_file() {
+    let quiet = Inbox {
+      do_not_disturb: DoNotDisturb::On,
+      ..Inbox::default()
+    };
+    let Ok(written) = serialize(&quiet);
 
-        assert_eq!(back.waiting.first().map(|one| one.urgency), Some(Urgency::Critical));
-        assert_eq!(back, whole);
-    }
-
-    #[test]
-    fn a_file_that_is_not_there_is_no_notifications_and_not_a_fault() {
-        for said in ["", "no", "{}", "[]", "null"] {
-            let Ok(whole) = whole(said);
-
-            assert_eq!(whole, Inbox::default(), "{said:?}");
-        }
-    }
-
-    #[test]
-    fn a_daemon_that_is_quiet_says_so_in_the_file() {
-        let quiet = Inbox { do_not_disturb: DoNotDisturb::On, ..Inbox::default() };
-        let Ok(written) = serialize(&quiet);
-
-        assert!(written.contains("held-back"), "{written}");
-    }
+    assert!(written.contains("held-back"), "{written}");
+  }
 }

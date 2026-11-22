@@ -1,0 +1,11 @@
+warning: float equality and inequality have an unordered case when either operand is NaN
+  --> $DIR/custom_comparison.rs:9:51
+   |
+LL | const fn unknown(left: f64, right: f64) -> bool { left != right }
+   |                                                   ^^^^^^^^^^^^^
+   |
+   = help: ask with `total_cmp`, which is total over every value the type holds, or -- where the comparison is about the bit pattern -- compare `to_bits()` on purpose. Where both sides are known good by construction, allow this rule here and let the reason say so
+   = note: `#[warn(explicit071_no_float_pitfalls)]` on by default
+
+warning: 1 warning emitted
+

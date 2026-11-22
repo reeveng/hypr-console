@@ -5,14 +5,14 @@
 
 use std::process::ExitCode;
 
-use console_input_keyboard::remote::{Toggle, Sending};
+use console_input_keyboard::remote::{Sending, Toggle};
 
 fn main() -> ExitCode {
-    let Ok(code) = console_program_runtime::run::<Toggle, Sending>(
-        "keyboard-toggle",
-        &(),
-        &mut Sending,
-    );
+  let Ok(code) = console_operating_system_linux::program_runtime::run::<Toggle, Sending>(
+    "keyboard-toggle",
+    &(),
+    &mut Sending,
+  );
 
-    code
+  code
 }

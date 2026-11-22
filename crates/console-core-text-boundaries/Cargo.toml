@@ -1,0 +1,22 @@
+[package]
+name = "console-core-text-boundaries"
+version = "1.13.3"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors = ["kwantam <kwantam@gmail.com>", "Manish Goregaokar <manishsmail@gmail.com>"]
+autotests = false
+autobenches = false
+autoexamples = false
+description = "Unicode 17 extended and legacy grapheme boundaries for contiguous UTF-8 text"
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion = { path = "../console-core-number-conversion", default-features = false }
+
+[[test]]
+name = "the_graphemes"
+path = "tests/the_graphemes.rs"
+
+[lints]
+workspace = true

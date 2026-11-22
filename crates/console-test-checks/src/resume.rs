@@ -81,14 +81,15 @@ use std::time::Duration;
 
 use console_compositor::Window;
 use console_core_never::Never;
-use console_program_lifetime::{BoundToParent, Still};
+use console_operating_system_linux::program_lifetime::BoundToParent;
+use console_program_lifetime::Still;
 use console_resume::SAVE_EVERY;
 use console_test_stages::checking::{Body, Check, CheckResult, cannot, failed, same};
 use console_test_stages::desktop::{Desktop, Installed};
 use console_test_stages::here::Here;
-use console_waiting::{Schedule, Ready, Outcome};
+use console_waiting::{Outcome, Ready, Schedule};
 
-use crate::Unchecked;
+use crate::{Unchecked, after_removal};
 
 const TERMINAL: &str = "alacritty";
 
@@ -115,312 +116,349 @@ const REFUSING: Duration = Duration::from_secs(5);
 const ASKING: Duration = Duration::from_millis(50);
 
 pub const REFUSED: Check = Check {
-    name: "360-a-word-the-session-keeper-does-not-know",
-    about: "A word the session keeper does not know is refused rather than read as no word at all.",
-    feature: "resume",
-    since: "2026-09-07",
-    bodies: &[Body::Here(refused)],
+  name: "360-a-word-the-session-keeper-does-not-know",
+  about: "A word the session keeper does not know is refused rather than read as no word at all.",
+  feature: "resume",
+  since: "2026-09-07",
+  bodies: &[Body::Here(refused)],
 };
 
 pub const AGAIN: Check = Check {
-    name: "370-the-windows-that-were-open",
-    about: "A window open when the desktop went away is open again when it comes back.",
-    feature: "resume",
-    since: "2026-09-07",
-    bodies: &[Body::Desktop(again)],
+  name: "370-the-windows-that-were-open",
+  about: "A window open when the desktop went away is open again when it comes back.",
+  feature: "resume",
+  since: "2026-09-07",
+  bodies: &[Body::Desktop(again)],
 };
 
 pub const NOT_TWICE: Check = Check {
-    name: "380-a-restart-is-not-a-desktop-starting",
-    about: "The session keeper started again leaves the windows that are on the screen.",
-    feature: "resume",
-    since: "2026-09-07",
-    bodies: &[Body::Desktop(not_twice)],
+  name: "380-a-restart-is-not-a-desktop-starting",
+  about: "The session keeper started again leaves the windows that are on the screen.",
+  feature: "resume",
+  since: "2026-09-07",
+  bodies: &[Body::Desktop(not_twice)],
 };
 
 fn ours(name: &str) -> Result<PathBuf, Unchecked> {
-    console_core_temporary_directories::fresh(&format!("resume-{name}")).map_err(Unchecked::Temporary)
+  console_core_temporary_directories::fresh(&format!("resume-{name}"))
+    .map_err(Unchecked::Temporary)
 }
 
 fn resume_command(at: &Path, how_often: Duration) -> Result<String, Never> {
-    Ok(format!("CONSOLE_RESUME_PATH={} {KEEPER} {} {}", at.display(), SAVE_EVERY.spelling, how_often.as_secs()))
+  Ok(format!(
+    "CONSOLE_RESUME_PATH={} {KEEPER} {} {}",
+    at.display(),
+    SAVE_EVERY.spelling,
+    how_often.as_secs()
+  ))
 }
 
 fn logged_resume_command(at: &Path, how_often: Duration, said: &Path) -> Result<String, Never> {
-    let Ok(keeping) = resume_command(at, how_often);
+  let Ok(keeping) = resume_command(at, how_often);
 
-    Ok(format!("{keeping} >> {} 2>&1", said.display()))
+  Ok(format!("{keeping} >> {} 2>&1", said.display()))
 }
 
 fn after_file(there: &Path, then: &str) -> Result<String, Never> {
-    Ok(format!("until [ -s {} ]; do sleep {ASKING_AGAIN}; done; {then}", there.display()))
+  Ok(format!(
+    "until [ -s {} ]; do sleep {ASKING_AGAIN}; done; {then}",
+    there.display()
+  ))
 }
 
 fn marked() -> Result<PathBuf, Unchecked> {
-    let Ok(runtime) = console_core_places::runtime();
+  let Ok(runtime) = console_core_places::runtime();
 
-    let runtime = match runtime {
-        Some(runtime) => runtime,
-        None => return Err(Unchecked::NoRuntime),
-    };
+  let runtime_3 = match runtime {
+    Some(runtime_2) => runtime_2,
+    None => return Err(Unchecked::NoRuntime),
+  };
 
-    Ok(runtime.join(console_resume::APPLICATION))
+  Ok(runtime_3.join(console_resume::APPLICATION))
 }
 
 fn marks() -> Result<BTreeSet<PathBuf>, Unchecked> {
-    let at = marked()?;
+  let at = marked()?;
 
-    let read = match std::fs::read_dir(&at) {
-        Ok(read) => read,
-        Err(_nothing_has_been_put_back_here) => return Ok(BTreeSet::new()),
-    };
+  let read = match std::fs::read_dir(&at) {
+    Ok(read) => read,
+    Err(_nothing_has_been_put_back_here) => return Ok(BTreeSet::new()),
+  };
 
-    Ok(read.flatten().map(|entry| entry.path()).collect())
+  Ok(read.flatten().map(|entry| entry.path()).collect())
 }
 
-fn unmark(before: &BTreeSet<PathBuf>) -> Result<(), Never> {
-    let after = match marks() {
-        Ok(after) => after,
-        Err(_nothing_says_where_the_marks_are) => return Ok(()),
-    };
+fn unmark(before: &BTreeSet<PathBuf>, checked: CheckResult) -> CheckResult {
+  let after = match marks() {
+    Ok(after) => after,
+    Err(_nothing_says_where_the_marks_are) => return checked,
+  };
+  let mut cleared = checked;
 
-    for at in after.difference(before) {
-        let _ = std::fs::remove_file(at);
-    }
+  for at in after.difference(before) {
+    cleared = after_removal(cleared, at, std::fs::remove_file(at));
+  }
 
-    Ok(())
+  cleared
 }
 
 fn refused(_stage: &mut Here) -> CheckResult {
-    let Ok(keeper) = console_core_internal_programs::beside_this_program(KEEPER);
-    let at = ours("refused")?;
+  let Ok(keeper) = console_core_internal_programs::beside_this_program(KEEPER);
+  let at = ours("refused")?;
 
-    let mut command = Command::new(&keeper);
+  let mut command = Command::new(&keeper);
 
-    command
-        .arg(UNKNOWN)
-        .env("CONSOLE_RESUME_PATH", at.join("sessions"))
-        .env("XDG_RUNTIME_DIR", &at)
-        .env_remove("HYPRLAND_INSTANCE_SIGNATURE")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+  command
+    .arg(UNKNOWN)
+    .env("CONSOLE_RESUME_PATH", at.join("sessions"))
+    .env("XDG_RUNTIME_DIR", &at)
+    .env_remove("HYPRLAND_INSTANCE_SIGNATURE")
+    .stdout(Stdio::null())
+    .stderr(Stdio::null());
 
-    let mut running = match console_program_lifetime::alongside(&mut command) {
-        Ok(running) => running,
-        Err(fault) => return failed(format!("{}: {fault}", keeper.display())),
+  let mut running =
+    match console_operating_system_linux::program_lifetime::alongside(&mut command) {
+      Ok(running) => running,
+      Err(fault) => return failed(format!("{}: {fault}", keeper.display())),
     };
 
-    let Ok(patience) = Schedule::asking_every(REFUSING, ASKING);
+  let Ok(patience) = Schedule::asking_every(REFUSING, ASKING);
 
-    let Ok(waited) = console_waiting::until_handed(patience, &mut running, |running| {
-        let Ok(still) = running.still();
+  let Ok(waited) = console_waiting::until_handed(patience, &mut running, |running_2| {
+    let Ok(still) = running_2.still();
 
-        Ok(match still {
-            Still::Ended => Ready::Yes,
-            Still::Running => Ready::NotYet,
-        })
-    });
+    Ok(match still {
+      Still::Ended => Ready::Yes,
+      Still::Running => Ready::NotYet,
+    })
+  });
 
-    let done = ended(running, waited);
+  let done = ended(running, waited);
 
-    let _ = std::fs::remove_dir_all(&at);
-
-    done
+  after_removal(done, &at, std::fs::remove_dir_all(&at))
 }
 
 fn ended(mut running: BoundToParent, waited: Outcome) -> CheckResult {
-    match waited {
-        Outcome::RanOut => failed(format!(
-            "{KEEPER} {UNKNOWN} was still running after {}s, so the word was read as no word at \
+  match waited {
+    Outcome::RanOut => failed(format!(
+      "{KEEPER} {UNKNOWN} was still running after {}s, so the word was read as no word at \
              all -- and no word at all is the mode that closes every window",
-            REFUSING.as_secs()
-        )),
-        Outcome::Happened => {
-            let how = match running.wait() {
-                Ok(how) => how,
-                Err(fault) => return failed(format!("what {KEEPER} ended as: {fault}")),
-            };
+      REFUSING.as_secs()
+    )),
+    Outcome::Happened => {
+      let how = match running.wait() {
+        Ok(how) => how,
+        Err(fault) => return failed(format!("what {KEEPER} ended as: {fault}")),
+      };
 
-            match how.success() {
-                true => failed(format!(
-                    "{KEEPER} {UNKNOWN} ended saying all was well, so a word no one wrote it \
+      match ::core::primitive::bool::then_some(how.success(), ()) {
+        ::core::option::Option::Some(()) => failed(format!(
+          "{KEEPER} {UNKNOWN} ended saying all was well, so a word no one wrote it \
                      for is a word it takes"
-                )),
-                false => Ok(()),
-            }
-        },
+        )),
+        ::core::option::Option::None => Ok(()),
+      }
     }
+  }
 }
 
 fn terminal(saying: &Path) -> Result<String, Never> {
-    Ok(format!("{TERMINAL} -e sh -c 'echo up > {}; exec sh'", saying.display()))
+  Ok(format!(
+    "{TERMINAL} -e sh -c 'echo up > {}; exec sh'",
+    saying.display()
+  ))
 }
 
 fn terminals(open: &[Window]) -> Result<u32, Never> {
-    console_core_number_conversion::fitted(open.iter().filter(|window| window.first_class == CLASS).count())
+  console_core_number_conversion::fitted(
+    open
+      .iter()
+      .filter(|window| window.first_class == CLASS)
+      .count(),
+  )
 }
 
 fn saving(stage: &mut Desktop, at: &Path) -> CheckResult {
-    let Ok(keeping) = resume_command(at, SAVING);
+  let Ok(keeping) = resume_command(at, SAVING);
 
-    stage.open(TERMINAL)?;
-    stage.open(&keeping)?;
-    stage.not_before(&at.join(SAVED).join("exec.conf"))?;
+  stage.open(TERMINAL)?;
+  stage.open(&keeping)?;
+  stage.not_before(&at.join(SAVED).join("exec.conf"))?;
 
-    let open = stage.windows()?;
-    let Ok(many) = terminals(&open);
+  let open = stage.windows()?;
+  let Ok(many) = terminals(&open);
 
-    same(&many, &ONE, || {
-        format!(
-            "the session was saved with {many} terminals in it, so what it is about to be asked \
+  same(&many, &ONE, || {
+    format!(
+      "the session was saved with {many} terminals in it, so what it is about to be asked \
              to put back is not what this check opened"
-        )
-    })
+    )
+  })
 }
 
-fn with_a_terminal(stage: &mut Desktop, named: &str, then: fn(&mut Desktop, &Path) -> CheckResult) -> CheckResult {
-    let Ok(installed) = stage.installed(TERMINAL);
+fn with_a_terminal(
+  stage: &mut Desktop,
+  named: &str,
+  then: fn(&mut Desktop, &Path) -> CheckResult,
+) -> CheckResult {
+  let Ok(installed) = stage.installed(TERMINAL);
 
-    match installed {
-        Installed::No => return cannot("alacritty is not installed on this machine"),
-        Installed::Yes => {},
-    }
+  match installed {
+    Installed::No => return cannot("alacritty is not installed on this machine"),
+    Installed::Yes => {}
+  }
 
-    let at = ours(named)?;
-    let before = marks()?;
+  let at = ours(named)?;
+  let before = marks()?;
 
-    let done = then(stage, &at);
+  let done = then(stage, &at);
+  let cleared = unmark(&before, done);
 
-    let Ok(()) = unmark(&before);
-    let _ = std::fs::remove_dir_all(&at);
-
-    done
+  after_removal(cleared, &at, std::fs::remove_dir_all(&at))
 }
 
 fn again(stage: &mut Desktop) -> CheckResult {
-    with_a_terminal(stage, "came-back", saved_and_put_back)
+  with_a_terminal(stage, "came-back", saved_and_put_back)
 }
 
 fn saved_and_put_back(stage: &mut Desktop, at: &Path) -> CheckResult {
-    saving(stage, at)?;
+  saving(stage, at)?;
 
-    let Ok(keeping) = resume_command(at, NOT_SAVING_AGAIN);
-    let Ok(()) = stage.fresh();
+  let Ok(keeping) = resume_command(at, NOT_SAVING_AGAIN);
+  let Ok(()) = stage.fresh();
 
-    stage.open(&keeping)?;
+  stage.open(&keeping)?;
 
-    let open = stage.windows()?;
-    let Ok(many) = terminals(&open);
+  let open = stage.windows()?;
+  let Ok(many) = terminals(&open);
 
-    same(&many, &ONE, || {
-        format!(
-            "a desktop that came up with nothing on it has {many} terminals on it after the \
+  same(&many, &ONE, || {
+    format!(
+      "a desktop that came up with nothing on it has {many} terminals on it after the \
              session keeper ran, where the session it was handed has one"
-        )
-    })
+    )
+  })
 }
 
 fn not_twice(stage: &mut Desktop) -> CheckResult {
-    with_a_terminal(stage, "not-twice", put_back_and_started_again)
+  with_a_terminal(stage, "not-twice", put_back_and_started_again)
 }
 
 fn put_back_and_started_again(stage: &mut Desktop, at: &Path) -> CheckResult {
-    saving(stage, at)?;
+  saving(stage, at)?;
 
-    let put_back = at.join("put-back");
-    let opened = at.join("opened");
-    let again = at.join("again");
+  let put_back = at.join("put-back");
+  let opened = at.join("opened");
+  let again = at.join("again");
 
-    let Ok(first) = logged_resume_command(at, NOT_SAVING_AGAIN, &put_back);
-    let Ok(second) = logged_resume_command(at, NOT_SAVING_AGAIN, &again);
-    let Ok(terminal) = terminal(&opened);
-    let Ok(no_one_saved_it) = after_file(&put_back, &terminal);
-    let Ok(started_again) = after_file(&opened, &second);
+  let Ok(first) = logged_resume_command(at, NOT_SAVING_AGAIN, &put_back);
+  let Ok(second) = logged_resume_command(at, NOT_SAVING_AGAIN, &again);
+  let Ok(terminal) = terminal(&opened);
+  let Ok(no_one_saved_it) = after_file(&put_back, &terminal);
+  let Ok(started_again) = after_file(&opened, &second);
 
-    let Ok(()) = stage.fresh();
+  let Ok(()) = stage.fresh();
 
-    stage.open(&first)?;
-    stage.open(&no_one_saved_it)?;
-    stage.open(&started_again)?;
-    stage.not_before(&again)?;
+  stage.open(&first)?;
+  stage.open(&no_one_saved_it)?;
+  stage.open(&started_again)?;
+  stage.not_before(&again)?;
 
-    let open = stage.windows()?;
-    let Ok(many) = terminals(&open);
+  let open = stage.windows()?;
+  let Ok(many) = terminals(&open);
 
-    same(&many, &TWO, || {
-        format!(
-            "the session keeper started a second time on a desktop it had already put back, and \
+  same(&many, &TWO, || {
+    format!(
+      "the session keeper started a second time on a desktop it had already put back, and \
              the screen went from two terminals to {many}. The one it opened itself was in the \
              session; the other was not, so a screen swept and rebuilt out of the file comes \
              back with only the first"
-        )
-    })
+    )
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use console_compositor::{Filling, Floating, Pinned};
+  use super::*;
+  use console_compositor::{Filling, Floating, Pinned};
 
-    fn windows(classes: &[&str]) -> Result<Vec<Window>, Never> {
-        Ok(classes.iter().map(|class| Window {
-            address: "0x1".to_string(),
-            title: "a shell".to_string(),
-            first_class: class.to_string(),
-            first_title: "a shell".to_string(),
-            workspace: 1,
-            workspace_named: "1".to_string(),
-            monitor: Some(0),
-            floating: Floating::No,
-            pinned: Pinned::No,
-            filling: Filling::None,
-            at: (0, 0),
-            size: (800, 600),
-            pid: 42,
-        }).collect())
-    }
+  fn windows(classes: &[&str]) -> Result<Vec<Window>, Never> {
+    Ok(
+      classes
+        .iter()
+        .map(|class| Window {
+          address: "0x1".to_string(),
+          title: "a shell".to_string(),
+          first_class: class.to_string(),
+          first_title: "a shell".to_string(),
+          workspace: 1,
+          workspace_named: "1".to_string(),
+          monitor: Some(0),
+          floating: Floating::No,
+          pinned: Pinned::No,
+          filling: Filling::None,
+          at: (0, 0),
+          size: (800, 600),
+          pid: 42,
+        })
+        .collect(),
+    )
+  }
 
-    #[test]
-    fn the_terminals_are_counted_and_nothing_else_is() {
-        let Ok(open) = windows(&[CLASS, "org.kde.dolphin", CLASS]);
+  #[test]
+  fn the_terminals_are_counted_and_nothing_else_is() {
+    let Ok(open) = windows(&[CLASS, "org.kde.dolphin", CLASS]);
 
-        assert_eq!(terminals(&open), Ok(2));
-        assert_eq!(terminals(&[]), Ok(0));
-    }
+    assert_eq!(terminals(&open), Ok(2));
+    assert_eq!(terminals(&[]), Ok(0));
+  }
 
-    #[test]
-    fn the_keeper_is_told_where_to_keep_the_session_and_how_often() {
-        let Ok(keeping) = resume_command(Path::new("/tmp/somewhere"), SAVING);
+  #[test]
+  fn the_keeper_is_told_where_to_keep_the_session_and_how_often() {
+    let Ok(keeping) = resume_command(Path::new("/home/console-test/somewhere"), SAVING);
 
-        assert!(keeping.starts_with("CONSOLE_RESUME_PATH=/tmp/somewhere "), "{keeping}");
-        assert!(keeping.ends_with(&format!("{KEEPER} {} 1", SAVE_EVERY.spelling)), "{keeping}");
-    }
+    assert!(
+      keeping.starts_with("CONSOLE_RESUME_PATH=/home/console-test/somewhere "),
+      "{keeping}"
+    );
+    assert!(
+      keeping.ends_with(&format!("{KEEPER} {} 1", SAVE_EVERY.spelling)),
+      "{keeping}"
+    );
+  }
 
-    #[test]
-    fn the_keeper_that_is_putting_back_is_not_the_one_that_saves() {
-        let Ok(saving) = resume_command(Path::new("/tmp/somewhere"), SAVING);
-        let Ok(putting_back) = resume_command(Path::new("/tmp/somewhere"), NOT_SAVING_AGAIN);
+  #[test]
+  fn the_keeper_that_is_putting_back_is_not_the_one_that_saves() {
+    let Ok(saving) = resume_command(Path::new("/home/console-test/somewhere"), SAVING);
+    let Ok(putting_back) =
+      resume_command(Path::new("/home/console-test/somewhere"), NOT_SAVING_AGAIN);
 
-        assert_ne!(
-            saving, putting_back,
-            "a keeper that goes on saving while the check presses it saves the window the check \
+    assert_ne!(
+      saving, putting_back,
+      "a keeper that goes on saving while the check presses it saves the window the check \
              opened next, and the second start then has two to put back"
-        );
-    }
+    );
+  }
 
-    #[test]
-    fn nothing_is_started_until_the_thing_it_waits_for_is_there() {
-        let Ok(waited) = after_file(Path::new("/tmp/said"), "alacritty");
+  #[test]
+  fn nothing_is_started_until_the_thing_it_waits_for_is_there() {
+    let Ok(waited) = after_file(Path::new("/home/console-test/said"), "alacritty");
 
-        assert!(waited.starts_with("until [ -s /tmp/said ];"), "{waited}");
-        assert!(waited.ends_with("; alacritty"), "{waited}");
-    }
+    assert!(
+      waited.starts_with("until [ -s /home/console-test/said ];"),
+      "{waited}"
+    );
+    assert!(waited.ends_with("; alacritty"), "{waited}");
+  }
 
-    #[test]
-    fn the_second_terminal_says_when_its_shell_is_up_rather_than_when_it_was_asked_for() {
-        let Ok(terminal) = terminal(Path::new("/tmp/two"));
+  #[test]
+  fn the_second_terminal_says_when_its_shell_is_up_rather_than_when_it_was_asked_for() {
+    let Ok(terminal) = terminal(Path::new("/home/console-test/two"));
 
-        assert!(terminal.contains("echo up > /tmp/two"), "{terminal}");
-        assert!(terminal.starts_with(TERMINAL), "{terminal}");
-    }
+    assert!(
+      terminal.contains("echo up > /home/console-test/two"),
+      "{terminal}"
+    );
+    assert!(terminal.starts_with(TERMINAL), "{terminal}");
+  }
 }

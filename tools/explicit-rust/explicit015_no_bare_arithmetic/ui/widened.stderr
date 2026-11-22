@@ -1,0 +1,58 @@
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/widened.rs:4:38
+   |
+LL | fn multiply(a: i16, b: i16) -> i32 { i32::from(a) * i32::from(b) }
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::i32::wrapping_mul(i32::from(a), i32::from(b))`
+   |
+   = note: `#[deny(explicit015_no_bare_arithmetic)]` on by default
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/widened.rs:5:38
+   |
+LL | fn subtract(a: i16, b: u16) -> i32 { a as i32 - i32::from(b) }
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::i32::wrapping_sub(a as i32, i32::from(b))`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/widened.rs:6:24
+   |
+LL | fn add(a: i8) -> i32 { i32::from(a) + 128 }
+   |                        ^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::i32::wrapping_add(i32::from(a), 128)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/widened.rs:8:43
+   |
+LL | fn shift(value: u32, index: u32) -> u32 { value << index.wrapping_rem(32) }
+   |                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_shl(value, index.wrapping_rem(32))`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/widened.rs:9:33
+   |
+LL | fn rounded(value: u32) -> u32 { value.wrapping_div(2) + 1 }
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `::core::primitive::u32::wrapping_add(value.wrapping_div(2), 1)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/widened.rs:12:5
+   |
+LL |     value /= 3;
+   |     ^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `value = ::core::primitive::i32::wrapping_div(value, 3)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/widened.rs:13:5
+   |
+LL |     value %= 13;
+   |     ^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `value = ::core::primitive::i32::wrapping_rem(value, 13)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/widened.rs:14:5
+   |
+LL |     value <<= 1_u8;
+   |     ^^^^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `value = ::core::primitive::i32::wrapping_shl(value, 1_u32)`
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/widened.rs:15:5
+   |
+LL |     value >>= 2;
+   |     ^^^^^^^^^^^ help: the operand bounds preserve this operation in every profile: `value = ::core::primitive::i32::wrapping_shr(value, 2_u32)`
+
+error: aborting due to 9 previous errors
+

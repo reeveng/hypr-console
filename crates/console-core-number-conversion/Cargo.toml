@@ -5,6 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+# Float rounding uses std. Width, byte and duration conversions also work in no_std.
+[features]
+default = ["std"]
+std = []
+
 [dependencies]
 console-core-never.workspace = true
 

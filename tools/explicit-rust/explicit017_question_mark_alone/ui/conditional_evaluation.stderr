@@ -1,0 +1,16 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/conditional_evaluation.rs:6:26
+   |
+LL |     let answer = keep && read()?;
+   |                          ^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = read()?; checked_value }`
+   |
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/conditional_evaluation.rs:11:30
+   |
+LL |     let pair = (calls.get(), { calls.set(8); Some(1) }?);
+   |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = { calls.set(8); Some(1) }?; checked_value }`
+
+error: aborting due to 2 previous errors
+

@@ -16,51 +16,60 @@ use console_core_never::Never;
 const TAB: &str = "tab";
 
 pub fn last(program: &str) -> Result<Option<String>, Never> {
-    let Ok(said) = notes::read(Note { program, called: TAB });
+  let Ok(said) = notes::read(Note {
+    program,
+    called: TAB,
+  });
 
-    let said = match said {
-        Some(said) => said,
-        None => return Ok(None),
-    };
+  let said_3 = match said {
+    Some(said_2) => said_2,
+    None => return Ok(None),
+  };
 
-    read(&said)
+  read(&said_3)
 }
 
 fn read(said: &str) -> Result<Option<String>, Never> {
-    let said = said.trim();
+  let said_2 = said.trim();
 
-    Ok((!said.is_empty()).then(|| said.to_string()))
+  Ok((!said_2.is_empty()).then(|| said_2.to_string()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Title<'a>(pub &'a str);
 
 pub fn keep(program: &str, title: Title<'_>) -> Result<(), Never> {
-    let Ok(last) = last(program);
+  let Ok(last) = last(program);
 
-    match title.0.is_empty() || last.as_deref() == Some(title.0) {
-        true => return Ok(()),
-        false => {},
-    }
+  match ::core::primitive::bool::then_some(title.0.is_empty() || last.as_deref() == Some(title.0), ()) {
+    ::core::option::Option::Some(()) => return Ok(()),
+    ::core::option::Option::None => {}
+  }
 
-    let Ok(()) = notes::write(Note { program, called: TAB }, &format!("{}\n", title.0));
+  let Ok(()) = notes::write(
+    Note {
+      program,
+      called: TAB,
+    },
+    &format!("{}\n", title.0),
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn the_name_on_the_tab_is_what_is_read() {
-        assert_eq!(read("Wi-Fi\n"), Ok(Some("Wi-Fi".to_string())));
-        assert_eq!(read("  Game Mode  "), Ok(Some("Game Mode".to_string())));
-    }
+  #[test]
+  fn the_name_on_the_tab_is_what_is_read() {
+    assert_eq!(read("Wi-Fi\n"), Ok(Some("Wi-Fi".to_string())));
+    assert_eq!(read("  Game Mode  "), Ok(Some("Game Mode".to_string())));
+  }
 
-    #[test]
-    fn a_file_saying_nothing_names_no_tab() {
-        assert_eq!(read(""), Ok(None));
-        assert_eq!(read("\n  \n"), Ok(None));
-    }
+  #[test]
+  fn a_file_saying_nothing_names_no_tab() {
+    assert_eq!(read(""), Ok(None));
+    assert_eq!(read("\n  \n"), Ok(None));
+  }
 }

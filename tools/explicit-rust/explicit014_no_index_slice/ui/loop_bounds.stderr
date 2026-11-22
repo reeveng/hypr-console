@@ -1,0 +1,181 @@
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:9:21
+   |
+LL |         output[i] = source[i].wrapping_add(1);
+   |                     ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+   = note: `#[deny(explicit014_no_index_slice)]` on by default
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:9:9
+   |
+LL |         output[i] = source[i].wrapping_add(1);
+   |         ^^^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for (output_element, source_element) in <[_]>::iter_mut(output).zip(<[_]>::iter(source)) {
+LL ~         *output_element = (*source_element).wrapping_add(1);
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:15:21
+   |
+LL |         source[i] = source[i].wrapping_add(1);
+   |                     ^^^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for source_element in <[_]>::iter_mut(source) {
+LL ~         *source_element = (*source_element).wrapping_add(1);
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:15:9
+   |
+LL |         source[i] = source[i].wrapping_add(1);
+   |         ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:21:21
+   |
+LL |         target[i] = source[(Wrapping((Wrapping(i) * Wrapping(2)).0) + Wrapping(1)).0];
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:21:9
+   |
+LL |         target[i] = source[(Wrapping((Wrapping(i) * Wrapping(2)).0) + Wrapping(1)).0];
+   |         ^^^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for (i, (target_element, [_, source_lane_1])) in <[_]>::iter_mut(target).zip(<[_]>::iter(<[_]>::as_chunks::<2>(&source).0)).enumerate() {
+LL ~         *target_element = *source_lane_1;
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:28:21
+   |
+LL |         target[i] = source[i].wrapping_add(source.first().copied().unwrap_or_default());
+   |                     ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:28:9
+   |
+LL |         target[i] = source[i].wrapping_add(source.first().copied().unwrap_or_default());
+   |         ^^^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for (target_element, source_element) in <[_]>::iter_mut(target).zip(<[_]>::iter(source)) {
+LL ~         *target_element = (*source_element).wrapping_add(source.first().copied().unwrap_or_default());
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:35:21
+   |
+LL |         target[i] = source[i];
+   |                     ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:35:9
+   |
+LL |         target[i] = source[i];
+   |         ^^^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for (i, (target_element, source_element)) in <[_]>::iter_mut(target).take(3).zip(<[_]>::iter(source).take(3)).enumerate().skip(1) {
+LL |         assert!(i == 1 || i == 2);
+LL ~         *target_element = *source_element;
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:45:15
+   |
+LL |         copy(&source[i * 4 + 1..i * 4 + 3], &mut target[i * 4..i * 4 + 2]);
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for (source_row, target_row) in <[_]>::iter(<[_]>::as_chunks::<4>(&source).0).zip(<[_]>::iter_mut(<[_]>::as_chunks_mut::<4>(target).0)) {
+LL ~         copy(&*{ let [_, _window @ .., _] = &*source_row; let _slice: &[_] = _window; _slice }, &mut *{ let [_window @ .., _, _] = &mut *target_row; let _slice: &mut [_] = _window; _slice });
+LL ~         *{ let [_, _, _, _window, ..] = &mut *target_row; _window } = *{ let [_, _, _, _window, ..] = &*source_row; _window };
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:45:50
+   |
+LL |         copy(&source[i * 4 + 1..i * 4 + 3], &mut target[i * 4..i * 4 + 2]);
+   |                                                  ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:46:29
+   |
+LL |         target[i * 4 + 3] = source[i * 4 + 3];
+   |                             ^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:46:9
+   |
+LL |         target[i * 4 + 3] = source[i * 4 + 3];
+   |         ^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:54:21
+   |
+LL |         target[i] = source[i];
+   |                     ^^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:54:9
+   |
+LL |         target[i] = source[i];
+   |         ^^^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for (target_element, source_element) in <[_]>::iter_mut(target).zip(<[_]>::iter(source)) {
+LL ~         *target_element = *source_element;
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:60:16
+   |
+LL |         *dst = source[i].wrapping_mul(scale[i]);
+   |                ^^^^^^^^^
+   |
+help: iterate over the elements selected by this loop
+   |
+LL ~     for ((dst, source_element), scale_element) in <[_]>::iter_mut(target).zip(<[_]>::iter(&source)).zip(<[_]>::iter(&scale)) {
+LL ~         *dst = (*source_element).wrapping_mul(*scale_element);
+   |
+
+error: indexing is an implicit panic: the missing case has no name here
+  --> $DIR/loop_bounds.rs:60:39
+   |
+LL |         *dst = source[i].wrapping_mul(scale[i]);
+   |                                       ^^^^^^^^
+   |
+   = help: ask with `get` / `get_mut` and meet the `None`, so the absent element is a case the code names
+
+error: aborting due to 18 previous errors
+

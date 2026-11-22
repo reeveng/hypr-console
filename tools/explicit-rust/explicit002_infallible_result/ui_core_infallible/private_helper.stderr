@@ -1,0 +1,17 @@
+error: this function cannot say it succeeded
+  --> $DIR/private_helper.rs:7:34
+   |
+LL | fn trimmed_length(text: &str) -> usize { text.trim().len() }
+   |                                  ^^^^^
+   |
+   = note: `#[deny(explicit002_infallible_result)]` on by default
+help: return an infallible result and handle its success at every call
+   |
+LL ~ fn trimmed_length(text: &str) -> ::core::result::Result<usize, ::core::convert::Infallible> { ::core::result::Result::Ok(text.trim().len()) }
+LL |
+LL | fn main() {
+LL ~     let ::core::result::Result::Ok(length) = trimmed_length(" label ");
+   |
+
+error: aborting due to 1 previous error
+

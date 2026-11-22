@@ -14,10 +14,10 @@ name = "console_manifest_engine"
 path = "src/lib.rs"
 
 [dependencies]
+console-operating-system-linux.workspace = true
 console-core-arguments.workspace = true
 console-core-words.workspace = true
 console-how-far.workspace = true
-console-program-lifetime.workspace = true
 console-awake.workspace = true
 console-core-external-programs.workspace = true
 console-core-internal-programs.workspace = true
@@ -42,6 +42,7 @@ console-boot-entries.workspace = true
 [dev-dependencies]
 console-core-directory-listing.workspace = true
 console-core-fonts.workspace = true
+serde = "1"
 serde_json = "1"
 serde_yaml_ng = "0.10"
 toml = { version = "1", default-features = false, features = ["parse", "serde"] }

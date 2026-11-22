@@ -1,0 +1,43 @@
+warning: `rustix::pipe::pipe` takes no flags, so what it makes is open in every program started after it; `pipe_with` is the call that can say otherwise
+  --> $DIR/main.rs:8:5
+   |
+LL |     rustix::pipe::pipe()
+   |     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: set `CLOEXEC` in the flags that create the descriptor, and hand a child the descriptor it needs where the child is started
+   = note: `#[warn(explicit091_closes_on_exec)]` on by default
+
+warning: `rustix::pipe::pipe_with` makes a descriptor and nothing in the call says `CLOEXEC`
+  --> $DIR/main.rs:13:5
+   |
+LL |     rustix::pipe::pipe_with(PipeFlags::NONBLOCK)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: set `CLOEXEC` in the flags that create the descriptor, and hand a child the descriptor it needs where the child is started
+
+warning: `rustix::fs::open` makes a descriptor and nothing in the call says `CLOEXEC`
+  --> $DIR/main.rs:18:5
+   |
+LL |     rustix::fs::open("somewhere", OFlags::RDONLY, Mode::empty())
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: set `CLOEXEC` in the flags that create the descriptor, and hand a child the descriptor it needs where the child is started
+
+warning: `rustix::fs::open` makes a descriptor and nothing in the call says `CLOEXEC`
+  --> $DIR/main.rs:47:5
+   |
+LL |     rustix::fs::open("name-with-CLOEXEC", flags, Mode::empty())
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: set `CLOEXEC` in the flags that create the descriptor, and hand a child the descriptor it needs where the child is started
+
+warning: `rustix::pipe::pipe_with` makes a descriptor and nothing in the call says `CLOEXEC`
+  --> $DIR/main.rs:53:5
+   |
+LL |     rustix::pipe::pipe_with(flags)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: set `CLOEXEC` in the flags that create the descriptor, and hand a child the descriptor it needs where the child is started
+
+warning: 5 warnings emitted
+

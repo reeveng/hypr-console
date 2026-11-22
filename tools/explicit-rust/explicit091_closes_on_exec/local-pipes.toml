@@ -1,0 +1,7 @@
+# Both ends are consumed in-process. These tests exercise polling, EOF, and
+# local wakeups. None passes a file descriptor to a child program.
+explicit091_local_pipes = [
+    "console_home::tests::a_search_that_has_told_everything_it_found_is_finished_and_not_ready_forever",
+    "console_panels::tests::a_close_read_ahead_of_its_turn_is_handled_before_another_open",
+    "console_panels::tests::a_panel_that_put_itself_away_is_gone_without_a_word_from_whoever_asked_for_it",
+]

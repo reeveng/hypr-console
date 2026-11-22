@@ -1,3 +1,5 @@
+// run-rustfix
+
 // UI test for EXPLICIT009 — a discarded `#[must_use]` value must be
 // discarded in writing.
 
@@ -22,4 +24,22 @@ fn used() -> i32 {
     counted() + 1
 }
 
-fn main() {}
+struct Meter;
+
+impl Meter {
+    #[must_use]
+    fn read(&self) -> u8 {
+        2
+    }
+}
+
+fn discard_method() {
+    Meter.read();
+}
+
+fn main() {
+    silent();
+    deliberate();
+    let _ = used();
+    discard_method();
+}

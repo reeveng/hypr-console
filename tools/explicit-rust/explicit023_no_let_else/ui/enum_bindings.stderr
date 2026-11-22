@@ -1,0 +1,103 @@
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/enum_bindings.rs:13:5
+   |
+LL | /     let Record::Count(value) = record else {
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+   = note: `#[deny(explicit023_no_let_else)]` on by default
+help: name the matching and failed cases
+   |
+LL ~     let value = match record {
+LL +         Record::Count(matched_value) => matched_value,
+LL +         crate::Record::Label { .. } | crate::Record::Empty => return 0,
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/enum_bindings.rs:20:5
+   |
+LL | /     let Record::Label { text } = record else {
+LL | |         ::core::panic!("expected label");
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     let text = match record {
+LL +         Record::Label { text: matched_text } => matched_text,
+LL +         crate::Record::Count(..) | crate::Record::Empty => ::core::panic!("expected label"),
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/enum_bindings.rs:27:5
+   |
+LL | /     let Record::Count(..) = record else {
+LL | |         panic!("expected count");
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     match record {
+LL +         Record::Count(..) => (),
+LL +         crate::Record::Label { .. } | crate::Record::Empty => panic!("expected count"),
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/enum_bindings.rs:33:5
+   |
+LL | /     let Record::Empty = record else {
+LL | |         panic!("expected empty");
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     match record {
+LL +         Record::Empty => (),
+LL +         crate::Record::Count(..) | crate::Record::Label { .. } => panic!("expected empty"),
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/enum_bindings.rs:39:5
+   |
+LL | /     let Included::Count(value) = record else {
+LL | |         return 0;
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     let value = match record {
+LL +         Included::Count(matched_value) => matched_value,
+LL +         crate::Included::Other => return 0,
+LL +     };
+   |
+
+error: `let … else` leaves an outcome without a name: the case that did not bind is spelled `else`
+  --> $DIR/enum_bindings.rs:50:5
+   |
+LL | /     let Included::Count(value) = read_kind()? else {
+LL | |         return Err(());
+LL | |     };
+   | |______^
+   |
+help: name the matching and failed cases
+   |
+LL ~     let value = {
+LL +         let outcome_value = read_kind()?;
+LL + 
+LL +         match outcome_value {
+LL +             Included::Count(matched_value) => matched_value,
+LL +             crate::Included::Other => return Err(()),
+LL +         }
+LL +     };
+   |
+
+error: aborting due to 6 previous errors
+

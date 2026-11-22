@@ -13,16 +13,16 @@
 //! machine where `console-wallpaper` will not start at all, which is the whole
 //! reason the ground is set here rather than by `console-wallpaper` itself.
 
-use console_core_color::Short;
 use crate::palette::Palette;
+use console_core_color::Short;
 
 pub const GROUND: &str = "night";
 
 pub fn spend(palette: &Palette) -> Result<String, Short> {
-    let ground = palette.must(GROUND)?;
+  let ground = palette.must(GROUND)?;
 
-    Ok(format!(
-        "# Written by console-palette from theme/palette.toml.\n\
+  Ok(format!(
+    "# Written by console-palette from theme/palette.toml.\n\
          #\n\
          # awww wants six hex digits and no hash, and a hash would start a\n\
          # comment here anyway.\n\
@@ -38,66 +38,70 @@ pub fn spend(palette: &Palette) -> Result<String, Short> {
          # desktop is stopped and started faster than a daemon can find a\n\
          # screen.\n\
          ExecStartPost=-/usr/bin/awww clear {ground}"
-    ))
+  ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
-    use crate::spend::tests::blossom;
+  use super::*;
+  use crate::spend::tests::blossom;
+  use std::error::Error;
 
-    #[test]
-    fn a_color_that_cannot_be_set_does_not_take_the_background_down() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let unit = spend(&palette)?;
-        let line = unit
-            .lines()
-            .find(|line| line.starts_with("ExecStartPost="))
-            .ok_or("a line that sets the ground")?;
-        assert!(
-            line.starts_with("ExecStartPost=-"),
-            "{line:?} makes the ground a condition of the background"
-        );
+  #[test]
+  fn a_color_that_cannot_be_set_does_not_take_the_background_down() -> Result<(), Box<dyn Error>>
+  {
+    let palette = blossom()?;
+    let unit = spend(&palette)?;
+    let line = unit
+      .lines()
+      .find(|line| line.starts_with("ExecStartPost="))
+      .ok_or("a line that sets the ground")?;
+    assert!(
+      line.starts_with("ExecStartPost=-"),
+      "{line:?} makes the ground a condition of the background"
+    );
 
-        Ok(())
+    Ok(())
+  }
+
+  #[test]
+  fn the_ground_is_set_and_no_picture_is_named() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let unit = spend(&palette)?;
+    assert!(unit.contains("awww clear "));
+    assert!(!unit.contains(".webp"), "{unit:?} names a picture");
+    assert!(!unit.contains("awww img"), "{unit:?} paints a picture");
+
+    Ok(())
+  }
+
+  #[test]
+  fn the_color_is_six_hex_digits_with_no_hash() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+    let unit = spend(&palette)?;
+    let (_, color) = unit.rsplit_once(' ').ok_or("a color at the end")?;
+    assert_eq!(color.len(), 6, "{color:?}");
+    assert!(
+      color.chars().all(|digit| digit.is_ascii_hexdigit()),
+      "{color:?}"
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn every_line_is_a_comment_or_a_setting() -> Result<(), Box<dyn Error>> {
+    let palette = blossom()?;
+
+    let spent = spend(&palette)?;
+
+    for line in spent.lines() {
+      assert!(
+        line.starts_with('#') || line.contains('='),
+        "{line:?} is neither a comment nor a setting"
+      );
     }
 
-    #[test]
-    fn the_ground_is_set_and_no_picture_is_named() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let unit = spend(&palette)?;
-        assert!(unit.contains("awww clear "));
-        assert!(!unit.contains(".webp"), "{unit:?} names a picture");
-        assert!(!unit.contains("awww img"), "{unit:?} paints a picture");
-
-        Ok(())
-    }
-
-    #[test]
-    fn the_color_is_six_hex_digits_with_no_hash() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-        let unit = spend(&palette)?;
-        let (_, color) = unit.rsplit_once(' ').ok_or("a color at the end")?;
-        assert_eq!(color.len(), 6, "{color:?}");
-        assert!(color.chars().all(|digit| digit.is_ascii_hexdigit()), "{color:?}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn every_line_is_a_comment_or_a_setting() -> Result<(), Box<dyn Error>> {
-        let palette = blossom()?;
-
-        let spent = spend(&palette)?;
-
-        for line in spent.lines() {
-            assert!(
-                line.starts_with('#') || line.contains('='),
-                "{line:?} is neither a comment nor a setting"
-            );
-        }
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

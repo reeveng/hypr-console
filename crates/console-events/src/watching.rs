@@ -46,175 +46,217 @@ use std::ops::ControlFlow;
 use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::SyncSender;
 
 use console_core_directory_listing::Descend;
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
-use console_core_number_conversion::{fitted, index};
+use console_core_number_conversion::fitted;
 use console_core_reconnect::{Round, keep};
 use console_program_contract::{Change, EventGroup};
 use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
 
 pub const MOST: u32 = 4096;
 
-const ROOM: u32 = 16 << 10;
+pub fn watch(folder: PathBuf, say: SyncSender<Change>) -> Result<(), Never> {
+  keep(move || {
+    let Ok(round) = round(&folder, &say);
 
-pub fn watch(folder: PathBuf, say: Sender<Change>) -> Result<(), Never> {
-    keep(move || {
-        let Ok(round) = round(&folder, &say);
-
-        round
-    })
+    round
+  })
 }
 
 fn watch_flags() -> Result<WatchFlags, Never> {
-    Ok(WatchFlags::CLOSE_WRITE
-        | WatchFlags::CREATE
-        | WatchFlags::DELETE
-        | WatchFlags::MOVED_FROM
-        | WatchFlags::MOVED_TO
-        | WatchFlags::DONT_FOLLOW)
+  Ok(
+    WatchFlags::CLOSE_WRITE
+      | WatchFlags::CREATE
+      | WatchFlags::DELETE
+      | WatchFlags::MOVED_FROM
+      | WatchFlags::MOVED_TO
+      | WatchFlags::ONLYDIR
+      | WatchFlags::DONT_FOLLOW,
+  )
 }
 
-fn round(folder: &Path, say: &Sender<Change>) -> Result<Round, Never> {
-    let listening = match inotify::init(CreateFlags::CLOEXEC) {
-        Ok(listening) => listening,
-        Err(fault) => {
-            eprintln!("console-events: {} cannot be watched: {fault}", folder.display());
+fn round(folder: &Path, say: &SyncSender<Change>) -> Result<Round, Never> {
+  let listening = match inotify::init(CreateFlags::CLOEXEC) {
+    Ok(listening) => listening,
+    Err(fault) => {
+      eprintln!(
+        "console-events: {} cannot be watched: {fault}",
+        folder.display()
+      );
 
-            return Ok(Round::Another);
-        }
+      return Ok(Round::Another);
+    }
+  };
+
+  let mut watched: BTreeMap<i32, PathBuf> = BTreeMap::new();
+  let Ok(()) = added(&listening, folder, &mut watched);
+
+  match ::core::primitive::bool::then_some(watched.is_empty(), ()) {
+    ::core::option::Option::Some(()) => return Ok(Round::Another),
+    ::core::option::Option::None => {}
+  }
+
+  let mut room = [MaybeUninit::<u8>::uninit(); 16 << 10];
+  let reader = inotify::Reader::new(&listening, &mut room);
+
+  let watching = iterate((reader, watched), |(mut reader_2, mut watched_2)| {
+    let (flags, within, name) = match reader_2.next() {
+      Ok(event) => (
+        event.events(),
+        event.wd(),
+        event
+          .file_name()
+          .map(|name| OsStr::from_bytes(name.to_bytes()).to_os_string()),
+      ),
+      Err(_unreadable) => return Ok(Step::Halt(Round::Another)),
     };
 
-    let mut watched: BTreeMap<i32, PathBuf> = BTreeMap::new();
-    let Ok(()) = added(&listening, folder, &mut watched);
+    #[cfg_attr(
+      dylint_lib = "explicit086_no_climbing_join",
+      expect(
+        explicit086_no_climbing_join,
+        reason = "the inotify kernel event supplies one directory entry name relative to the watched directory"
+      )
+    )]
+    let at = match (watched_2.get(&within), name) {
+      (Some(inside), Some(name_2)) => inside.join(name_2),
+      (Some(inside), None) => inside.clone(),
+      (None, Some(_) | None) => folder.to_path_buf(),
+    };
 
-    match watched.is_empty() {
-        true => return Ok(Round::Another),
-        false => {},
-    }
+    let said = match (
+      flags.contains(ReadFlags::QUEUE_OVERFLOW),
+      flags.contains(ReadFlags::IGNORED),
+      flags.contains(ReadFlags::ISDIR),
+      flags.intersects(ReadFlags::CREATE | ReadFlags::MOVED_TO),
+    ) {
+      (true, _, _, _) => {
+        console_core_logging::warn!(
+          "the inotify queue overflowed for {}; asking listeners to rescan",
+          folder.display()
+        );
 
-    let Ok(roomy) = index(ROOM);
-    let mut room = vec![MaybeUninit::<u8>::uninit(); roomy];
-    let reader = inotify::Reader::new(&listening, &mut room);
+        Some(folder.to_path_buf())
+      }
+      (false, true, _, _) => {
+        let _ = watched_2.remove(&within);
 
-    let watching = iterate((reader, watched), |(mut reader, mut watched)| {
-        let (flags, within, name) = match reader.next() {
-            Ok(event) => (
-                event.events(),
-                event.wd(),
-                event.file_name().map(|name| OsStr::from_bytes(name.to_bytes()).to_os_string()),
-            ),
-            Err(_unreadable) => return Ok(Step::Halt(Round::Another)),
-        };
-
-        let at = match (watched.get(&within), name) {
-            (Some(inside), Some(name)) => inside.join(name),
-            (Some(inside), None) => inside.clone(),
-            (None, Some(_) | None) => folder.to_path_buf(),
-        };
-
-        let said = match (
-            flags.contains(ReadFlags::QUEUE_OVERFLOW),
-            flags.contains(ReadFlags::IGNORED),
-            flags.contains(ReadFlags::ISDIR),
-            flags.intersects(ReadFlags::CREATE | ReadFlags::MOVED_TO),
-        ) {
-            (true, _, _, _) => Some(folder.to_path_buf()),
-            (false, true, _, _) => {
-                let _ = watched.remove(&within);
-
-                match watched.is_empty() {
-                    true => return Ok(Step::Halt(Round::Another)),
-                    false => None,
-                }
-            }
-            (false, false, true, true) => {
-                let Ok(()) = added(&listening, &at, &mut watched);
-
-                Some(at)
-            }
-            (false, false, false, true) => match flags.contains(ReadFlags::CREATE) {
-                true => None,
-                false => Some(at),
-            },
-            (false, false, _, false) => Some(at),
-        };
-
-        let at = match said {
-            Some(at) => at,
-            None => return Ok(Step::Again((reader, watched))),
-        };
-
-        let sent = say.send(Change { event_group: EventGroup::Path(folder.to_path_buf()), text: at.display().to_string() });
-
-        match sent {
-            Ok(()) => {},
-            Err(_nobody_is_left_to_tell) => return Ok(Step::Halt(Round::Finished)),
+        match ::core::primitive::bool::then_some(watched_2.is_empty(), ()) {
+          ::core::option::Option::Some(()) => return Ok(Step::Halt(Round::Another)),
+          ::core::option::Option::None => None,
         }
+      }
+      (false, false, true, true) => {
+        let Ok(()) = added(&listening, &at, &mut watched_2);
 
-        Ok(Step::Again((reader, watched)))
+        Some(at)
+      }
+      (false, false, false, true) => match ::core::primitive::bool::then_some(flags.contains(ReadFlags::CREATE), ()) {
+        ::core::option::Option::Some(()) => None,
+        ::core::option::Option::None => Some(at),
+      },
+      (false, false, _, false) => Some(at),
+    };
+
+    let at_3 = match said {
+      Some(at_2) => at_2,
+      None => return Ok(Step::Again((reader_2, watched_2))),
+    };
+
+    let sent = say.send(Change {
+      event_group: EventGroup::Path(folder.to_path_buf()),
+      text: at_3.display().to_string(),
     });
 
-    Ok(match watching {
-        Ok(round) => round,
-        Err(Endless) => Round::Another,
-    })
+    match sent {
+      Ok(()) => {}
+      Err(_nobody_is_left_to_tell) => return Ok(Step::Halt(Round::Finished)),
+    }
+
+    Ok(Step::Again((reader_2, watched_2)))
+  });
+
+  Ok(match watching {
+    Ok(round) => round,
+    Err(Endless) => Round::Another,
+  })
 }
 
-fn added(listening: &OwnedFd, from: &Path, watched: &mut BTreeMap<i32, PathBuf>) -> Result<(), Never> {
-    let Ok(flags) = watch_flags();
-    let Ok(listing) = console_core_directory_listing::recursive(from, |path| {
-        let Ok(shown) = shown(path);
+fn added(
+  listening: &OwnedFd,
+  from: &Path,
+  watched: &mut BTreeMap<i32, PathBuf>,
+) -> Result<(), Never> {
+  let Ok(flags) = watch_flags();
+  let Ok(listing) = console_core_directory_listing::recursive(from, |path| {
+    let Ok(shown) = shown(path);
 
-        shown
-    });
-    let mut folders = std::iter::once(from.to_path_buf()).chain(listing.filter_map(|entry| match entry {
-        Ok(path) => {
-            let Ok(shown) = shown(&path);
+    shown
+  });
+  let mut folders =
+    std::iter::once(from.to_path_buf()).chain(listing.filter_map(|entry| match entry {
+      Ok(path) => {
+        let Ok(shown) = shown(&path);
+        let metadata = std::fs::symlink_metadata(&path);
 
-            match (path.is_dir(), path.is_symlink(), shown) {
-                (true, false, Descend::Into) => Some(path),
-                (true, true, _) | (true, false, Descend::Past) | (false, _, _) => None,
-            }
+        match (metadata, shown) {
+          (Ok(details), Descend::Into) => match ::core::primitive::bool::then_some(details.is_dir(), ()) {
+            ::core::option::Option::Some(()) => Some(path),
+            ::core::option::Option::None => None,
+          },
+          (Ok(_), Descend::Past) => None,
+          (Err(_disappeared_or_unreadable), _) => None,
         }
-        Err(_unreadable) => None,
+      }
+      Err(_unreadable) => None,
     }));
 
-    let walked = folders.try_fold(watched, |watched, at| {
-        let Ok(many) = fitted::<_, u32>(watched.len());
+  let walked = folders.try_fold(watched, |watched_2, at| {
+    let Ok(many) = fitted::<_, u32>(watched_2.len());
 
-        match many >= MOST {
-            true => return ControlFlow::Break(watched),
-            false => {},
-        }
-
-        match inotify::add_watch(listening, &at, flags) {
-            Ok(within) => {
-                let _ = watched.insert(within, at);
-            }
-            Err(_gone_or_not_a_folder) => {},
-        }
-
-        ControlFlow::Continue(watched)
-    });
-
-    match walked {
-        ControlFlow::Break(_full) => eprintln!(
-            "console-events: {} has more than {MOST} folders under it, and what is deeper \
-             than that is not watched",
-            from.display()
-        ),
-        ControlFlow::Continue(_every_folder) => {},
+    match ::core::primitive::bool::then_some(many >= MOST, ()) {
+      ::core::option::Option::Some(()) => return ControlFlow::Break(watched_2),
+      ::core::option::Option::None => {}
     }
 
-    Ok(())
+    match inotify::add_watch(listening, &at, flags) {
+      Ok(within) => {
+        let _ = watched_2.insert(within, at);
+      }
+      Err(rustix::io::Errno::NOENT | rustix::io::Errno::NOTDIR) => {
+        return ControlFlow::Continue(watched_2);
+      }
+      Err(fault) => {
+        console_core_logging::warn!("console-events: could not watch {}: {fault}", at.display());
+      }
+    }
+
+    ControlFlow::Continue(watched_2)
+  });
+
+  match walked {
+    ControlFlow::Break(_full) => eprintln!(
+      "console-events: {} has more than {MOST} folders under it, and what is deeper \
+             than that is not watched",
+      from.display()
+    ),
+    ControlFlow::Continue(_every_folder) => {}
+  }
+
+  Ok(())
 }
 
 fn shown(path: &Path) -> Result<Descend, Never> {
-    Ok(match path.file_name().map(|name| name.as_bytes().first() == Some(&b'.')) {
-        Some(true) => Descend::Past,
-        Some(false) | None => Descend::Into,
-    })
+  Ok(
+    match path
+      .file_name()
+      .map(|name| name.as_bytes().first() == Some(&b'.'))
+    {
+      Some(true) => Descend::Past,
+      Some(false) | None => Descend::Into,
+    },
+  )
 }

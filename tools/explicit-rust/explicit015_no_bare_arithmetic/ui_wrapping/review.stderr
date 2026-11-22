@@ -1,0 +1,51 @@
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review.rs:4:5
+   |
+LL |     numerator / denominator
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+   = note: `#[deny(explicit015_no_bare_arithmetic)]` on by default
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review.rs:10:46
+   |
+LL | fn packed(value: &mut Packed, amount: u32) { value.0 += amount; }
+   |                                              ^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review.rs:11:60
+   |
+LL | unsafe fn pointer(value: *mut u32, amount: u32) { unsafe { *value += amount; } }
+   |                                                            ^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review.rs:12:48
+   |
+LL | fn overloaded(value: &mut u32, amount: &u32) { *value += amount; }
+   |                                                ^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review.rs:15:38
+   |
+LL | fn expanded(mut value: u32) -> u32 { value += amount!(); value }
+   |                                      ^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: bare integer arithmetic is an implicit panic in one profile and a silent wrap in the other
+  --> $DIR/review.rs:16:41
+   |
+LL | fn expanded_binary(value: u32) -> u32 { amount!() + value }
+   |                                         ^^^^^^^^^^^^^^^^^
+   |
+   = help: name the policy: `checked_*`, `saturating_*`, or `wrapping_*`, and meet what comes back
+
+error: aborting due to 6 previous errors
+

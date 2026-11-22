@@ -1,3 +1,4 @@
+// run-rustfix
 // UI test for EXPLICIT034 — an answer no one is asked to take.
 
 struct Held {

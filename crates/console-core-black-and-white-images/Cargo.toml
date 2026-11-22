@@ -1,0 +1,26 @@
+[package]
+name = "console-core-black-and-white-images"
+version = "0.3.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_core_black_and_white_images"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-mq-decoding.workspace = true
+console-core-never.workspace = true
+console-core-geometry.workspace = true
+console-core-number-conversion.workspace = true
+console-core-fax-images.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "the_pixels"
+path = "tests/the_pixels.rs"
+
+

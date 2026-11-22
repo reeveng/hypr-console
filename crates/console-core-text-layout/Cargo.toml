@@ -1,0 +1,55 @@
+[package]
+name = "console-core-text-layout"
+description = "Pure Rust multi-line text handling"
+version = "0.19.0"
+authors = ["Jeremy Soller <jeremy@system76.com>"]
+edition = "2021"
+license = "AGPL-3.0-or-later"
+documentation = "https://docs.rs/cosmic-text/latest/cosmic_text/"
+repository = "https://github.com/pop-os/cosmic-text"
+rust-version.workspace = true
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-localization.workspace = true
+console-core-geometry.workspace = true
+console-core-path-rasterizer.workspace = true
+console-core-picture-scaling.workspace = true
+console-core-png-files.workspace = true
+fontdb = { package = "console-core-font-database", path = "../console-core-font-database", default-features = false, features = ["memmap", "std"] }
+harfrust = { package = "console-core-text-shaping", path = "../console-core-text-shaping", version = "0.12.0", default-features = false, features = ["std"] }
+console-core-logging = { workspace = true, features = ["std"] }
+self_cell = "1.2.2"
+skrifa = { package = "console-core-font-metrics", path = "../console-core-font-metrics", version = "0.44.0", default-features = false, features = ["std"] }
+console-core-line-breaking.workspace = true
+unicode-script = { package = "console-core-writing-scripts", path = "../console-core-writing-scripts", version = "0.5.8" }
+unicode-segmentation = { package = "console-core-text-boundaries", path = "../console-core-text-boundaries", version = "1.12.0" }
+
+[dependencies.unicode-bidi]
+package = "console-core-text-direction"
+path = "../console-core-text-direction"
+version = "0.3.18"
+
+[features]
+default = ["std", "fontconfig"]
+fontconfig = ["fontdb/fontconfig", "std"]
+monospace_fallback = []
+shape-run-cache = []
+# Kept as a compatibility flag; this local crate always uses std.
+std = []
+warn_on_missing_glyphs = []
+
+[lib]
+name = "console_core_text_layout"
+path = "src/lib.rs"
+
+
+[package.metadata.upstream]
+name = "cosmic-text"
+version = "0.19.0"
+source = "https://crates.io/api/v1/crates/cosmic-text/0.19.0/download"
+sha256 = "be17b688510d934ce13f48a2beba700e11583e281e0fda99c22bb256a14eda73"
+
+[lints]
+workspace = true

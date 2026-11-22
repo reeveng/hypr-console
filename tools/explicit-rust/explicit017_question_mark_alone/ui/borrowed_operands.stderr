@@ -1,0 +1,69 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/borrowed_operands.rs:10:15
+   |
+LL |     Some(read(bytes.first()?))
+   |               ^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = bytes.first()?;
+LL ~     Some(read(checked_value))
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/borrowed_operands.rs:16:38
+   |
+LL |     Some(read_pair(trace.replace(5), bytes.first()?))
+   |                                      ^^^^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = bytes.first()?; checked_value }`
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/borrowed_operands.rs:20:13
+   |
+LL |     Ok(read(bytes.first().ok_or("empty")?))
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = bytes.first().ok_or("empty")?;
+LL ~     Ok(read(checked_value))
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/borrowed_operands.rs:24:15
+   |
+LL |     Some(read((match take { true => bytes.first(), false => None })?))
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = (match take { true => bytes.first(), false => None })?;
+LL ~     Some(read(checked_value))
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/borrowed_operands.rs:31:10
+   |
+LL |     Some(value?.0)
+   |          ^^^^^^
+   |
+help: evaluate the fallible value in its own statement
+   |
+LL ~     let checked_value = value?;
+LL ~     Some(checked_value.0)
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/borrowed_operands.rs:46:55
+   |
+LL |     output[{ index.set(index.get() * 10 + 1); 0 }] += next(index, succeed)?;
+   |                                                       ^^^^^^^^^^^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = next(index, succeed)?; checked_value }`
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/borrowed_operands.rs:51:55
+   |
+LL |     output[{ index.set(index.get() * 10 + 1); 0 }] += next(index, succeed)?;
+   |                                                       ^^^^^^^^^^^^^^^^^^^^^ help: bind the fallible operand where it is evaluated: `{ let checked_value = next(index, succeed)?; checked_value }`
+
+error: aborting due to 7 previous errors
+

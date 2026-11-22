@@ -16,9 +16,9 @@
 //!
 //! Its own program rather than three more lines in the panel, because it has
 //! to wait: the player is being launched and a bus name is being taken while
-//! this runs, and neither is instant. The panel hands it to `later`, which is a
-//! thread of the panel's own, and the tab is drawn again when it comes back --
-//! by which time the two marks on the transport are lit.
+//! this runs, and neither is instant. The panel runs it as a task, on a thread
+//! of the panel's own, and the tab is drawn again when it comes back -- by
+//! which time the two marks on the transport are lit.
 //!
 //! Nothing here overrules anyone. Both modes are ordinary presses of the two
 //! keys the transport already offers, so turning either of them off is someone
@@ -27,38 +27,67 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use console_core_arguments::{Command, Operands, read};
+use console_core_arguments::{Command, Flag, Operands, Reason, Takes, ValidationError, read};
 use console_music::player;
 
+const SONG_URI: Flag = Flag {
+  spelling: "--song-uri",
+  takes: Takes::Value("FILE_URI"),
+  about: "the song as a local file URI",
+};
+
 const COMMAND: Command = Command {
-    name: "music-onward",
-    about: "leave the player going: the library, in any order, round for ever, starting from SONG if there is one",
-    flags: &[],
-    operands: Operands::Optional("SONG"),
+  name: "music-onward",
+  about: "leave the player going: the library, in any order, round for ever, starting from SONG if there is one",
+  flags: &[SONG_URI],
+  operands: Operands::Optional("SONG"),
 };
 
 fn main() -> ExitCode {
-    let words: Vec<String> = std::env::args().skip(1).collect();
+  let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let line = match read(&COMMAND, &words) {
-        Ok(line) => line,
-        Err(refusal) => {
-            let Ok(code) = refusal.print();
+  let song = match chosen(&words) {
+    Ok(song) => song,
+    Err(refusal) => {
+      let Ok(code) = refusal.print();
 
-            return ExitCode::from(code);
-        }
-    };
-
-    let Ok(operands) = line.operands();
-
-    match operands.first().map(PathBuf::from) {
-        Some(song) => {
-            let Ok(()) = player::onward(&song);
-        }
-        None => {
-            let Ok(_) = player::onward_only();
-        }
+      return ExitCode::from(code);
     }
+  };
 
-    ExitCode::SUCCESS
+  match song {
+    Some(song_2) => {
+      let Ok(()) = player::onward(&song_2);
+    }
+    None => {
+      let Ok(_) = player::onward_only();
+    }
+  }
+
+  ExitCode::SUCCESS
+}
+
+fn chosen(words: &[String]) -> Result<Option<PathBuf>, ValidationError> {
+  let line = read(&COMMAND, words)?;
+  let Ok(operands) = line.operands();
+  let Ok(uri) = line.value(SONG_URI);
+
+  match uri {
+    Some(text) => {
+      let Ok(path) = console_core_file_urls::path(text);
+
+      match path {
+        Some(path_2) => Ok(Some(path_2)),
+        None => {
+          let Ok(refusal) = line.refusal(Reason::InvalidValue {
+            of: SONG_URI.spelling,
+            value: text.to_owned(),
+          });
+
+          Err(refusal)
+        }
+      }
+    }
+    None => Ok(operands.first().map(PathBuf::from)),
+  }
 }

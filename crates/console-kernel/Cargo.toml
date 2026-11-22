@@ -15,8 +15,15 @@ path = "src/main.rs"
 test = false
 
 [dependencies]
+console-browser-site-isolation.workspace = true
+console-core-bitmap-font.workspace = true
+console-core-checksums.workspace = true
+console-core-geometry.workspace = true
 console-core-never.workspace = true
+console-core-urls = { path = "../console-core-urls", default-features = false, features = ["alloc"] }
+console-core-web-engine.workspace = true
 console-kernel-handles.workspace = true
+console-kernel-heap.workspace = true
 
 [lints]
 workspace = true

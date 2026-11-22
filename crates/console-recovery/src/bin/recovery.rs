@@ -16,121 +16,127 @@ use std::process::ExitCode;
 
 use console_core_iteration::Step;
 use console_core_never::Never;
-use console_program_contract::{Event, Exit};
-use console_program_runtime::{Delivery, Interpreter, Subscribed, Tell, run};
-use console_program_lifetime::threads;
 use console_input_event_devices::device::INPUT;
 use console_input_event_devices::devices::Devices;
 use console_input_event_devices::presses::ButtonPress;
+use console_operating_system_linux::program_runtime::{
+  Clock, Delivery, Interpreter, Subscribed, Tell, run,
+};
+use console_program_contract::{Event, Exit};
+use console_program_lifetime::threads;
 use console_recovery::menu::{Menu, Recovery, Screen, screen};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Readiness {
-    Ready,
-    NotYet,
+  Ready,
+  NotYet,
 }
 
 struct Console {
-    devices: Option<Devices>,
-    said: Readiness,
+  devices: Option<Devices>,
+  said: Readiness,
 }
 
 impl Interpreter for Console {
-    type Event = ButtonPress;
-    type Effect = Screen;
+  type Event = ButtonPress;
+  type Effect = Screen;
 
-    fn interpret(&mut self, effect: &Screen) -> Vec<Event<ButtonPress>> {
-        match effect {
-            Screen::Show(menu) => {
-                let Ok(()) = self.show(menu);
-            }
-        }
-
-        Vec::new()
+  fn interpret(&mut self, effect: &Screen, _clock: &Clock) -> Vec<Event<ButtonPress>> {
+    match effect {
+      Screen::Show(menu) => {
+        let Ok(()) = self.show(menu);
+      }
     }
 
-    fn listen(&mut self, tell: Tell<ButtonPress>) -> Result<Subscribed, Never> {
-        let devices = match self.devices.take() {
-            Some(devices) => devices,
-            None => return Ok(Subscribed::No),
+    Vec::new()
+  }
+
+  fn listen(&mut self, tell: Tell<ButtonPress>) -> Result<Subscribed, Never> {
+    let devices = match self.devices.take() {
+      Some(devices) => devices,
+      None => return Ok(Subscribed::No),
+    };
+
+    let Ok(()) = threads::let_go(std::thread::spawn(move || {
+      let _ended = console_core_iteration::iterate(devices, |mut devices_2| {
+        let woke = match devices_2.wait(None, None) {
+          Ok(woke) => woke,
+          Err(why) => {
+            let Ok(_delivery) =
+              tell.end(Exit::Failure(format!("cannot wait for a press: {why}")));
+
+            return Ok(Step::Halt(()));
+          }
         };
 
-        let Ok(()) = threads::let_go(std::thread::spawn(move || {
-            let _ended = console_core_iteration::iterate(devices, |mut devices| {
-                let woke = match devices.wait(None, None) {
-                    Ok(woke) => woke,
-                    Err(why) => {
-                        let _ = tell.end(Exit::Failure(format!("cannot wait for a press: {why}")));
+        let gone = woke.presses.into_iter().find_map(|press| {
+          let Ok(heard) = tell.tell(press);
 
-                        return Ok(Step::Halt(()));
-                    }
-                };
+          match heard {
+            Delivery::Yes => None,
+            Delivery::Gone => Some(Delivery::Gone),
+          }
+        });
 
-                let gone = woke.presses.into_iter().find_map(|press| {
-                    let Ok(heard) = tell.tell(press);
+        Ok(match gone {
+          Some(_gone) => Step::Halt(()),
+          None => Step::Again(devices_2),
+        })
+      });
+    }));
 
-                    match heard {
-                        Delivery::Yes => None,
-                        Delivery::Gone => Some(Delivery::Gone),
-                    }
-                });
-
-                Ok(match gone {
-                    Some(_gone) => Step::Halt(()),
-                    None => Step::Again(devices),
-                })
-            });
-        }));
-
-        Ok(Subscribed::Yes)
-    }
+    Ok(Subscribed::Yes)
+  }
 }
 
 impl Console {
-    fn show(&mut self, menu: &Menu) -> Result<(), Never> {
-        match draw(menu) {
-            Ok(()) => {},
-            Err(why) => {
-                eprintln!("recovery: cannot write to the console: {why}");
+  fn show(&mut self, menu: &Menu) -> Result<(), Never> {
+    match draw(menu) {
+      Ok(()) => {}
+      Err(why) => {
+        eprintln!("recovery: cannot write to the console: {why}");
 
-                return Ok(());
-            }
-        }
-
-        match self.said {
-            Readiness::Ready => {},
-            Readiness::NotYet => match console_readiness::ready() {
-                Ok(()) => self.said = Readiness::Ready,
-                Err(why) => eprintln!("recovery: cannot tell systemd the menu is up: {why}"),
-            },
-        }
-
-        Ok(())
+        return Ok(());
+      }
     }
+
+    match self.said {
+      Readiness::Ready => {}
+      Readiness::NotYet => match console_readiness::ready() {
+        Ok(()) => self.said = Readiness::Ready,
+        Err(why) => eprintln!("recovery: cannot tell systemd the menu is up: {why}"),
+      },
+    }
+
+    Ok(())
+  }
 }
 
 fn main() -> ExitCode {
-    let devices = match Devices::open() {
-        Ok(devices) => devices,
-        Err(why) => {
-            eprintln!("recovery: cannot watch {INPUT}: {why}");
+  let devices = match Devices::open() {
+    Ok(devices) => devices,
+    Err(why) => {
+      eprintln!("recovery: cannot watch {INPUT}: {why}");
 
-            return ExitCode::FAILURE;
-        }
-    };
+      return ExitCode::FAILURE;
+    }
+  };
 
-    let mut console = Console { devices: Some(devices), said: Readiness::NotYet };
-    let Ok(ended) = run::<Recovery, Console>("recovery", &(), &mut console);
+  let mut console = Console {
+    devices: Some(devices),
+    said: Readiness::NotYet,
+  };
+  let Ok(ended) = run::<Recovery, Console>("recovery", &(), &mut console);
 
-    ended
+  ended
 }
 
 fn draw(menu: &Menu) -> io::Result<()> {
-    let Ok(shown) = screen(menu);
-    let mut console = io::stdout().lock();
+  let Ok(shown) = screen(menu);
+  let mut console = io::stdout().lock();
 
-    console.write_all(shown.as_bytes())?;
-    console.flush()?;
+  console.write_all(shown.as_bytes())?;
+  console.flush()?;
 
-    Ok(())
+  Ok(())
 }

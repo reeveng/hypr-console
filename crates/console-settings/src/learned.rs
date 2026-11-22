@@ -57,249 +57,255 @@ pub struct Band(pub u32);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Levels {
-    pub bands: Vec<Option<i64>>,
+  pub bands: Vec<Option<i64>>,
 }
 
 pub fn band(lit: Lit) -> Result<Band, Never> {
-    let Lit(raw) = lit;
+  let Lit(raw) = lit;
 
-    let Ok(under) = fitted(EDGES.iter().filter(|edge| **edge <= raw).count());
+  let Ok(under) = fitted(EDGES.iter().filter(|edge| **edge <= raw).count());
 
-    Ok(Band(under))
+  Ok(Band(under))
 }
 
 fn ladder(which: u32) -> Result<i64, Never> {
-    fitted::<_, i64>(which)
+  fitted::<_, i64>(which)
 }
 
 fn interpolate(under: (u32, i64), over: (u32, i64), which: u32) -> Result<i64, Never> {
-    let (low, at_low) = under;
-    let (high, at_high) = over;
+  let (low, at_low) = under;
+  let (high, at_high) = over;
 
-    let Ok(low) = ladder(low);
-    let Ok(high) = ladder(high);
-    let Ok(which) = ladder(which);
+  let Ok(low_2) = ladder(low);
+  let Ok(high_2) = ladder(high);
+  let Ok(which_2) = ladder(which);
 
-    let across = high.saturating_sub(low).max(1);
-    let along = which.saturating_sub(low);
-    let climb = at_high.saturating_sub(at_low);
+  let across = high_2.saturating_sub(low_2).max(1);
+  let along = which_2.saturating_sub(low_2);
+  let climb = at_high.saturating_sub(at_low);
 
-    Ok(at_low.saturating_add(climb.saturating_mul(along).saturating_div(across)))
+  Ok(at_low.saturating_add(climb.saturating_mul(along).saturating_div(across)))
 }
 
 impl Levels {
-    pub fn empty() -> Result<Self, Never> {
-        let Ok(many) = index(BANDS);
+  pub fn empty() -> Result<Self, Never> {
+    Ok(Levels {
+      bands: (0..BANDS).map(|_| None).collect(),
+    })
+  }
 
-        Ok(Levels { bands: vec![None; many] })
+  fn under(&self, which: u32) -> Result<Option<(u32, i64)>, Never> {
+    let Ok(which_2) = index(which);
+
+    Ok(
+      self
+        .bands
+        .iter()
+        .enumerate()
+        .take(which_2)
+        .filter_map(|(at, held)| held.map(|level| (at, level)))
+        .next_back()
+        .map(|(at, level)| {
+          let Ok(at_2) = fitted(at);
+
+          (at_2, level)
+        }),
+    )
+  }
+
+  fn over(&self, which: u32) -> Result<Option<(u32, i64)>, Never> {
+    let Ok(which_2) = index(which);
+
+    Ok(
+      self
+        .bands
+        .iter()
+        .enumerate()
+        .skip(which_2.saturating_add(1))
+        .filter_map(|(at, held)| held.map(|level| (at, level)))
+        .next()
+        .map(|(at, level)| {
+          let Ok(at_2) = fitted(at);
+
+          (at_2, level)
+        }),
+    )
+  }
+
+  pub fn taught(&self, band: Band, level: i64) -> Result<Self, Never> {
+    let Band(which) = band;
+    let Ok(at) = index(which);
+
+    let mut bands = self.bands.clone();
+
+    let slot = match bands.get_mut(at) {
+      Some(slot) => slot,
+      None => return Ok(self.clone()),
+    };
+
+    let level_2 = level.clamp(DARKEST, BRIGHTEST);
+
+    *slot = Some(match *slot {
+      Some(was) => was.saturating_add(level_2).saturating_div(HALVES),
+      None => level_2,
+    });
+
+    Ok(Levels { bands })
+  }
+
+  pub fn level_for(&self, band: Band) -> Result<Option<i64>, Never> {
+    let Band(which) = band;
+    let Ok(at) = index(which);
+
+    let here = match self.bands.get(at) {
+      Some(here) => *here,
+      None => return Ok(None),
+    };
+
+    match here {
+      Some(here_2) => return Ok(Some(here_2)),
+      None => {}
     }
 
-    fn under(&self, which: u32) -> Result<Option<(u32, i64)>, Never> {
-        let Ok(which) = index(which);
+    let Ok(under) = self.under(which);
+    let Ok(over) = self.over(which);
 
-        Ok(self
-            .bands
-            .iter()
-            .enumerate()
-            .take(which)
-            .filter_map(|(at, held)| held.map(|level| (at, level)))
-            .next_back()
-            .map(|(at, level)| {
-                let Ok(at) = fitted(at);
+    let climbed = match (under, over) {
+      (Some(under_2), Some(over_2)) => {
+        let Ok(climbed) = interpolate(under_2, over_2, which);
 
-                (at, level)
-            }))
-    }
+        Some(climbed)
+      }
+      (Some((_below, at_low)), None) => Some(at_low),
+      (None, Some((_above, at_high))) => Some(at_high),
+      (None, None) => None,
+    };
 
-    fn over(&self, which: u32) -> Result<Option<(u32, i64)>, Never> {
-        let Ok(which) = index(which);
+    Ok(climbed)
+  }
 
-        Ok(self
-            .bands
-            .iter()
-            .enumerate()
-            .skip(which.saturating_add(1))
-            .filter_map(|(at, held)| held.map(|level| (at, level)))
-            .next()
-            .map(|(at, level)| {
-                let Ok(at) = fitted(at);
+  pub fn read(held: &str) -> Result<Self, Never> {
+    let Ok(nothing) = Levels::empty();
 
-                (at, level)
-            }))
-    }
+    Ok(held.lines().fold(nothing, |levels, line| {
+      let mut said = line.split_whitespace();
 
-    pub fn taught(&self, band: Band, level: i64) -> Result<Self, Never> {
-        let Band(which) = band;
-        let Ok(at) = index(which);
+      let which = match said.next().map(str::parse::<u32>) {
+        Some(Ok(which)) => which,
+        None => return levels,
+        Some(Err(_not_a_number)) => return levels,
+      };
 
-        let mut bands = self.bands.clone();
+      let level = match said.next().map(str::parse::<i64>) {
+        Some(Ok(level)) => level,
+        None => return levels,
+        Some(Err(_not_a_number)) => return levels,
+      };
 
-        let slot = match bands.get_mut(at) {
-            Some(slot) => slot,
-            None => return Ok(self.clone()),
-        };
+      let mut bands = levels.bands.clone();
+      let Ok(which_2) = index(which);
 
-        let level = level.clamp(DARKEST, BRIGHTEST);
+      match bands.get_mut(which_2) {
+        Some(slot) => *slot = Some(level.clamp(DARKEST, BRIGHTEST)),
+        None => return levels,
+      }
 
-        *slot = Some(match *slot {
-            Some(was) => was.saturating_add(level).saturating_div(HALVES),
-            None => level,
-        });
+      Levels { bands }
+    }))
+  }
 
-        Ok(Levels { bands })
-    }
-
-    pub fn level_for(&self, band: Band) -> Result<Option<i64>, Never> {
-        let Band(which) = band;
-        let Ok(at) = index(which);
-
-        let here = match self.bands.get(at) {
-            Some(here) => *here,
-            None => return Ok(None),
-        };
-
-        match here {
-            Some(here) => return Ok(Some(here)),
-            None => {},
-        }
-
-        let Ok(under) = self.under(which);
-        let Ok(over) = self.over(which);
-
-        let climbed = match (under, over) {
-            (Some(under), Some(over)) => {
-                let Ok(climbed) = interpolate(under, over, which);
-
-                Some(climbed)
-            }
-            (Some((_below, at_low)), None) => Some(at_low),
-            (None, Some((_above, at_high))) => Some(at_high),
-            (None, None) => None,
-        };
-
-        Ok(climbed)
-    }
-
-    pub fn read(held: &str) -> Result<Self, Never> {
-        let Ok(nothing) = Levels::empty();
-
-        Ok(held.lines().fold(nothing, |levels, line| {
-            let mut said = line.split_whitespace();
-
-            let which = match said.next().map(str::parse::<u32>) {
-                Some(Ok(which)) => which,
-                None => return levels,
-                Some(Err(_not_a_number)) => return levels,
-            };
-
-            let level = match said.next().map(str::parse::<i64>) {
-                Some(Ok(level)) => level,
-                None => return levels,
-                Some(Err(_not_a_number)) => return levels,
-            };
-
-            let mut bands = levels.bands.clone();
-            let Ok(which) = index(which);
-
-            match bands.get_mut(which) {
-                Some(slot) => *slot = Some(level.clamp(DARKEST, BRIGHTEST)),
-                None => return levels,
-            }
-
-            Levels { bands }
-        }))
-    }
-
-    pub fn serialize(&self) -> Result<String, Never> {
-        Ok(self
-            .bands
-            .iter()
-            .enumerate()
-            .filter_map(|(at, held)| held.map(|level| format!("{at} {level}\n")))
-            .collect())
-    }
+  pub fn serialize(&self) -> Result<String, Never> {
+    Ok(
+      self
+        .bands
+        .iter()
+        .enumerate()
+        .filter_map(|(at, held)| held.map(|level| format!("{at} {level}\n")))
+        .collect(),
+    )
+  }
 }
 
 pub fn at(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
+  let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
 
-    Ok(ours.join(NAMED))
+  Ok(ours.join(NAMED))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Standing {
-    Loaded(Levels),
-    Invalid(String),
+  Loaded(Levels),
+  Invalid(String),
 }
 
 pub fn load(home: &Path) -> Result<Standing, Never> {
-    let Ok(at) = at(home);
-    let Ok(held) = console_core_atomic_writes::read(&at);
+  let Ok(at) = at(home);
+  let Ok(held) = console_core_atomic_writes::read(&at);
 
-    Ok(match held {
-        Stored::Text(said) => {
-            let Ok(levels) = Levels::read(&said);
+  Ok(match held {
+    Stored::Text(said) => {
+      let Ok(levels) = Levels::read(&said);
 
-            Standing::Loaded(levels)
-        }
-        Stored::Absent => {
-            let Ok(nothing) = Levels::empty();
+      Standing::Loaded(levels)
+    }
+    Stored::Absent => {
+      let Ok(nothing) = Levels::empty();
 
-            Standing::Loaded(nothing)
-        }
-        Stored::Failed(why) => Standing::Invalid(why),
-    })
+      Standing::Loaded(nothing)
+    }
+    Stored::Failed(why) => Standing::Invalid(why),
+  })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Following {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 impl Following {
-    pub fn read(held: &str) -> Result<Self, Never> {
-        Ok(match held.trim() {
-            "no" => Following::No,
-            _nothing_said_or_anything_else => Following::Yes,
-        })
-    }
+  pub fn read(held: &str) -> Result<Self, Never> {
+    Ok(match held.trim() {
+      "no" => Following::No,
+      _nothing_said_or_anything_else => Following::Yes,
+    })
+  }
 
-    pub fn other(self) -> Result<Self, Never> {
-        Ok(match self {
-            Following::Yes => Following::No,
-            Following::No => Following::Yes,
-        })
-    }
+  pub fn other(self) -> Result<Self, Never> {
+    Ok(match self {
+      Following::Yes => Following::No,
+      Following::No => Following::Yes,
+    })
+  }
 
-    pub fn as_str(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Following::Yes => "yes",
-            Following::No => "no",
-        })
-    }
+  pub fn as_str(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Following::Yes => "yes",
+      Following::No => "no",
+    })
+  }
 }
 
 pub fn asked_at(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
+  let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
 
-    Ok(ours.join(ASKED))
+  Ok(ours.join(ASKED))
 }
 
 pub fn following(home: &Path) -> Result<Following, Never> {
-    let Ok(at) = asked_at(home);
-    let Ok(held) = console_core_atomic_writes::read(&at);
+  let Ok(at) = asked_at(home);
+  let Ok(held) = console_core_atomic_writes::read(&at);
 
-    Ok(match held {
-        Stored::Text(said) => Following::read(&said)?,
-        Stored::Absent => Following::Yes,
-        Stored::Failed(_a_switch_that_will_not_say_is_a_switch_nobody_set) => Following::Yes,
-    })
+  Ok(match held {
+    Stored::Text(said) => Following::read(&said)?,
+    Stored::Absent => Following::Yes,
+    Stored::Failed(_a_switch_that_will_not_say_is_a_switch_nobody_set) => Following::Yes,
+  })
 }
 
 pub fn keep(home: &Path, levels: &Levels) -> Result<(), console_core_atomic_writes::Unwritten> {
-    let Ok(at) = at(home);
-    let Ok(written) = levels.serialize();
+  let Ok(at) = at(home);
+  let Ok(written) = levels.serialize();
 
-    console_core_atomic_writes::whole(&at, written.as_bytes())
+  console_core_atomic_writes::whole(&at, written.as_bytes())
 }

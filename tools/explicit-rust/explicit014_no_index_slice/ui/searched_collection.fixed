@@ -1,0 +1,42 @@
+// run-rustfix
+// edition:2024
+
+const ENTITIES: [(&str, &str); 3] = [("a", "first"), ("a", "second"), ("c", "third")];
+
+fn entity(key: &str) -> Option<&'static str> {
+    ENTITIES.binary_search_by_key(&key, |&(name, _)| name).ok().and_then(|at| <[_]>::get(&ENTITIES, at).map(|searched_entry| searched_entry.1))
+}
+
+struct Entries(Vec<(u32, String)>);
+
+impl Entries {
+    fn by_key(&self, key: u32) -> Option<&str> {
+        self.0.binary_search_by_key(&key, |(key, _)| *key).ok().and_then(|at| <[_]>::get(&self.0, at).map(|searched_entry| searched_entry.1.as_str()))
+    }
+
+    fn borrowed(&self, key: u32) -> Option<(usize, &(u32, String))> {
+        self.0.binary_search_by(|entry| entry.0.cmp(&key)).ok().and_then(|at| <[_]>::get(&self.0, at).map(|searched_entry| (at, searched_entry)))
+    }
+}
+
+fn spelled(table: &[u32], key: u32) -> Option<u32> {
+    match table.binary_search(&key) {
+        Ok(at) => <[_]>::get(&*table, at).copied(),
+        Err(_) => None,
+    }
+}
+
+fn main() {
+    let duplicate = ENTITIES.binary_search_by_key(&"a", |&(name, _)| name);
+    assert_eq!(entity("a"), duplicate.ok().and_then(|at| ENTITIES.get(at)).map(|entry| entry.1));
+    assert_eq!(entity("missing"), None);
+    let rows = Entries(vec![(1, String::from("one")), (3, String::from("three"))]);
+    let row = rows.0.last();
+    let borrowed = rows.borrowed(3);
+    assert_eq!(rows.by_key(3), Some("three"));
+    assert_eq!(borrowed.map(|(position, _)| position), Some(1));
+    assert!(borrowed.zip(row).is_some_and(|((_, read), stored)| core::ptr::eq(read, stored)));
+    assert_eq!(rows.by_key(2), None);
+    assert_eq!(spelled(&[5, 8, 13], 8), Some(8));
+    assert_eq!(spelled(&[5, 8, 13], 0), None);
+}

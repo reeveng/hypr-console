@@ -29,12 +29,14 @@
 
 use std::borrow::Cow;
 
+use console_concurrency::Cores;
 use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, whole_i32};
-use console_concurrency::Cores;
 use console_core_picture_scaling::{Plane, scaled_plane};
+use console_core_pixel_buffers::RowLayout;
 
+use crate::Seconds;
 use crate::tracks::{Turn, Video};
 
 const FRACTION: u32 = 14;
@@ -51,425 +53,633 @@ const NEUTRAL: u8 = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Matrix {
-    Bt601,
-    Bt709,
-    Bt2020,
-    Rgb,
-    Unsaid,
+  Bt601,
+  Bt709,
+  Bt2020,
+  Rgb,
+  Unsaid,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Range {
-    Studio,
-    Full,
+  Studio,
+  Full,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Colour {
-    pub(crate) matrix: Matrix,
-    pub(crate) range: Range,
+  pub(crate) matrix: Matrix,
+  pub(crate) range: Range,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Planes {
-    Eight([Vec<u8>; 3]),
-    Deep([Vec<u16>; 3], u32),
+  Eight([Vec<u8>; 3]),
+  Deep([Vec<u16>; 3], u32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Strides {
-    pub(crate) luma: u32,
-    pub(crate) chroma: u32,
+  pub(crate) luma: u32,
+  pub(crate) chroma: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Picture {
-    at: f64,
-    stored: Size<u32>,
-    chroma: Size<u32>,
-    planes: Planes,
-    strides: Strides,
-    colour: Colour,
-    turn: Turn,
+  at: Seconds,
+  stored: Size<u32>,
+  chroma: Size<u32>,
+  planes: Planes,
+  strides: Strides,
+  colour: Colour,
+  turn: Turn,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Bitmap {
-    pub size: Size<u32>,
-    pub rgba: Vec<u8>,
-}
+pub use console_core_pixel_buffers::PackedPixels as Bitmap;
 
 pub(crate) struct Decoded {
-    pub(crate) pts: i64,
-    pub(crate) stored: Size<u32>,
-    pub(crate) chroma: Size<u32>,
-    pub(crate) planes: Planes,
-    pub(crate) strides: Strides,
-    pub(crate) colour: Colour,
+  pub(crate) pts: i64,
+  pub(crate) stored: Size<u32>,
+  pub(crate) chroma: Size<u32>,
+  pub(crate) planes: Planes,
+  pub(crate) strides: Strides,
+  pub(crate) colour: Colour,
 }
 
 impl Decoded {
-    pub(crate) fn placed(self, video: &Video) -> Result<Picture, Never> {
-        let Ok(at) = video.seconds(self.pts);
+  pub(crate) fn placed(self, video: &Video) -> Result<Picture, Never> {
+    let Ok(at) = video.seconds(self.pts);
 
-        Ok(Picture { at, stored: self.stored, chroma: self.chroma, planes: self.planes, strides: self.strides, colour: self.colour, turn: video.turn })
-    }
+    Ok(Picture {
+      at,
+      stored: self.stored,
+      chroma: self.chroma,
+      planes: self.planes,
+      strides: self.strides,
+      colour: self.colour,
+      turn: video.turn,
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Weights {
-    luma: i32,
-    red_from_red: i32,
-    green_from_blue: i32,
-    green_from_red: i32,
-    blue_from_blue: i32,
-    black: i32,
+  luma: i32,
+  red_from_red: i32,
+  green_from_blue: i32,
+  green_from_red: i32,
+  blue_from_blue: i32,
+  black: i32,
 }
 
 fn weights(colour: Colour, height: u32) -> Result<Weights, Never> {
-    let (red, blue) = match (colour.matrix, height >= 720) {
-        (Matrix::Bt709, _) | (Matrix::Unsaid, true) => (0.2126, 0.0722),
-        (Matrix::Bt601, _) | (Matrix::Unsaid, false) | (Matrix::Rgb, _) => (0.299, 0.114),
-        (Matrix::Bt2020, _) => (0.2627, 0.0593),
-    };
+  let (red, blue) = match (colour.matrix, height >= 720) {
+    (Matrix::Bt709, _) | (Matrix::Unsaid, true) => (0.2126, 0.0722),
+    (Matrix::Bt601, _) | (Matrix::Unsaid, false) | (Matrix::Rgb, _) => (0.299, 0.114),
+    (Matrix::Bt2020, _) => (0.2627, 0.0593),
+  };
 
-    let green = 1.0 - red - blue;
+  let green = 1.0 - red - blue;
 
-    let (luma_gain, chroma_gain, black) = match colour.range {
-        Range::Studio => (255.0 / 219.0, 255.0 / 224.0, STUDIO_BLACK),
-        Range::Full => (1.0, 1.0, 0),
-    };
+  let (luma_gain, chroma_gain, black) = match colour.range {
+    Range::Studio => (255.0 / 219.0, 255.0 / 224.0, STUDIO_BLACK),
+    Range::Full => (1.0, 1.0, 0),
+  };
 
-    let Ok(luma) = whole_i32(luma_gain * ONE);
-    let Ok(red_from_red) = whole_i32(chroma_gain * 2.0 * (1.0 - red) * ONE);
-    let Ok(blue_from_blue) = whole_i32(chroma_gain * 2.0 * (1.0 - blue) * ONE);
-    let Ok(green_from_blue) = whole_i32(chroma_gain * 2.0 * blue * (1.0 - blue) / green * ONE);
-    let Ok(green_from_red) = whole_i32(chroma_gain * 2.0 * red * (1.0 - red) / green * ONE);
+  let Ok(luma) = whole_i32(luma_gain * ONE);
+  let Ok(red_from_red) = whole_i32(chroma_gain * 2.0 * (1.0 - red) * ONE);
+  let Ok(blue_from_blue) = whole_i32(chroma_gain * 2.0 * (1.0 - blue) * ONE);
+  let Ok(green_from_blue) = whole_i32(chroma_gain * 2.0 * blue * (1.0 - blue) / green * ONE);
+  let Ok(green_from_red) = whole_i32(chroma_gain * 2.0 * red * (1.0 - red) / green * ONE);
 
-    Ok(Weights { luma, red_from_red, green_from_blue, green_from_red, blue_from_blue, black })
+  Ok(Weights {
+    luma,
+    red_from_red,
+    green_from_blue,
+    green_from_red,
+    blue_from_blue,
+    black,
+  })
 }
 
 #[inline(always)]
 fn channel(value: i32) -> Result<u8, Never> {
-    let [low, ..] = value.saturating_add(HALF).wrapping_shr(FRACTION).clamp(0, 255).to_le_bytes();
+  let [low, ..] = value
+    .saturating_add(HALF)
+    .wrapping_shr(FRACTION)
+    .clamp(0, 255)
+    .to_le_bytes();
 
-    Ok(low)
+  Ok(low)
 }
 
 #[inline(always)]
 fn pixel(weights: &Weights, sample: [u8; 3]) -> Result<[u8; 4], Never> {
-    let [luma, blue, red] = sample;
-    let bright = i32::from(luma).wrapping_sub(weights.black).wrapping_mul(weights.luma);
-    let blue = i32::from(blue).wrapping_sub(MIDDLE);
-    let red = i32::from(red).wrapping_sub(MIDDLE);
-    let Ok(r) = channel(bright.wrapping_add(red.wrapping_mul(weights.red_from_red)));
-    let Ok(g) = channel(bright.wrapping_sub(blue.wrapping_mul(weights.green_from_blue)).wrapping_sub(red.wrapping_mul(weights.green_from_red)));
-    let Ok(b) = channel(bright.wrapping_add(blue.wrapping_mul(weights.blue_from_blue)));
+  let [luma, blue, red] = sample;
+  let bright = i32::from(luma)
+    .wrapping_sub(weights.black)
+    .wrapping_mul(weights.luma);
+  let blue_2 = i32::from(blue).wrapping_sub(MIDDLE);
+  let red_2 = i32::from(red).wrapping_sub(MIDDLE);
+  let Ok(r) = channel(bright.wrapping_add(red_2.wrapping_mul(weights.red_from_red)));
+  let Ok(g) = channel(
+    bright
+      .wrapping_sub(blue_2.wrapping_mul(weights.green_from_blue))
+      .wrapping_sub(red_2.wrapping_mul(weights.green_from_red)),
+  );
+  let Ok(b) = channel(bright.wrapping_add(blue_2.wrapping_mul(weights.blue_from_blue)));
 
-    Ok([r, g, b, u8::MAX])
+  Ok([r, g, b, u8::MAX])
 }
 
 #[inline(always)]
 fn as_it_stands(sample: [u8; 3]) -> Result<[u8; 4], Never> {
-    let [green, blue, red] = sample;
+  let [green, blue, red] = sample;
 
-    Ok([red, green, blue, u8::MAX])
+  Ok([red, green, blue, u8::MAX])
 }
 
 trait Sample: Copy {
-    fn eight(self, depth: u32) -> u8;
+  fn eight(self, depth: u32) -> u8;
 }
 
 impl Sample for u8 {
-    #[inline(always)]
-    fn eight(self, _depth: u32) -> u8 {
-        self
-    }
+  #[inline(always)]
+  fn eight(self, _depth: u32) -> u8 {
+    self
+  }
 }
 
 impl Sample for u16 {
-    #[inline(always)]
-    fn eight(self, depth: u32) -> u8 {
-        let [low, ..] = self.wrapping_shr(depth.saturating_sub(8)).min(255).to_le_bytes();
+  #[inline(always)]
+  fn eight(self, depth: u32) -> u8 {
+    let [low, ..] = self
+      .wrapping_shr(depth.saturating_sub(8))
+      .min(255)
+      .to_le_bytes();
 
-        low
-    }
+    low
+  }
 }
 
 struct Layout {
-    stored: Size<u32>,
-    chroma: Size<u32>,
-    strides: Strides,
-    depth: u32,
+  stored: Size<u32>,
+  chroma: Size<u32>,
+  strides: Strides,
+  depth: u32,
 }
 
 fn scaled_down(at: u32, sides: (u32, u32)) -> Result<u32, Never> {
-    let (chroma, whole) = sides;
+  let (chroma, whole) = sides;
 
-    let scaled = match u64::from(at).saturating_mul(u64::from(chroma)).checked_div(u64::from(whole)) {
-        Some(scaled) => scaled,
-        None => 0,
+  let scaled = match u64::from(at)
+    .saturating_mul(u64::from(chroma))
+    .checked_div(u64::from(whole))
+  {
+    Some(scaled) => scaled,
+    None => 0,
+  };
+
+  fitted::<u64, u32>(scaled)
+}
+
+fn rows_of(size: Size<u32>, stride: u32) -> Result<Option<RowLayout>, Never> {
+  let rows = RowLayout::new(
+    Size {
+      width: u64::from(size.width),
+      height: u64::from(size.height),
+    },
+    0,
+    i64::from(stride),
+  );
+
+  Ok(match rows {
+    Ok(layout) => Some(layout),
+    Err(_invalid_plane_layout) => None,
+  })
+}
+
+fn row_at<'a, T>(layout: Option<&RowLayout>, plane: &'a [T], y: u32) -> Result<&'a [T], Never> {
+  Ok(match layout {
+    Some(rows) => match rows.row(plane, u64::from(y)) {
+      Ok(row) => row,
+      Err(_row_is_missing) => &[],
+    },
+    None => &[],
+  })
+}
+
+fn converted(matrix: Matrix, weights: &Weights, sample: [u8; 3]) -> Result<[u8; 4], Never> {
+  match matrix {
+    Matrix::Rgb => as_it_stands(sample),
+    Matrix::Bt601 | Matrix::Bt709 | Matrix::Bt2020 | Matrix::Unsaid => pixel(weights, sample),
+  }
+}
+
+struct Colouring {
+  matrix: Matrix,
+  weights: Weights,
+  depth: u32,
+}
+
+fn draw_row<T: Sample>(
+  into: &mut [u8],
+  [luma, blue, red]: [&[T]; 3],
+  across: &[u32],
+  colouring: &Colouring,
+) -> Result<(), Never> {
+  for ((out, bright), x) in into.as_chunks_mut::<4>().0.iter_mut().zip(luma).zip(across) {
+    let Ok(at) = index(*x);
+
+    let (blue_2, red_2) = match (blue.get(at), red.get(at)) {
+      (Some(blue_3), Some(red_3)) => {
+        (blue_3.eight(colouring.depth), red_3.eight(colouring.depth))
+      }
+      (_, _) => (NEUTRAL, NEUTRAL),
     };
+    let sample = [bright.eight(colouring.depth), blue_2, red_2];
+    let Ok(pixel) = converted(colouring.matrix, &colouring.weights, sample);
 
-    fitted::<u64, u32>(scaled)
+    *out = pixel;
+  }
+
+  Ok(())
 }
 
-fn row_of<T: Sample>(plane: &[T], at: (u32, u32, u32)) -> Result<&[T], Never> {
-    let (row, stride, width) = at;
-    let Ok(start) = index(row.saturating_mul(stride));
-    let Ok(wide) = index(width);
+fn drawn<T: Sample>(
+  planes: &[Vec<T>; 3],
+  layout: &Layout,
+  colour: Colour,
+) -> Result<Vec<u8>, Never> {
+  let Layout {
+    stored,
+    chroma,
+    strides,
+    depth,
+  } = *layout;
+  let [luma, blue, red] = planes;
+  let Ok(area) = index(
+    u64::from(stored.width)
+      .saturating_mul(u64::from(stored.height))
+      .saturating_mul(4),
+  );
 
-    Ok(match plane.get(start..).and_then(|samples| samples.get(..wide)) {
-        Some(samples) => samples,
-        None => &[],
+  match ::core::primitive::bool::then_some(area != 0 && area <= luma.len().saturating_mul(4), ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => return Ok(Vec::new()),
+  }
+
+  let Ok(line) = index(u64::from(stored.width).saturating_mul(4));
+  let mut rgba = vec![0u8; area.min(luma.len().saturating_mul(4))];
+  let Ok(weights) = weights(colour, stored.height);
+  let colouring = Colouring {
+    matrix: colour.matrix,
+    weights,
+    depth,
+  };
+  let Ok(luma_layout) = rows_of(stored, strides.luma);
+  let Ok(chroma_layout) = rows_of(chroma, strides.chroma);
+
+  let across: Vec<u32> = (0..stored.width)
+    .map(|x| {
+      let Ok(at) = scaled_down(x, (chroma.width, stored.width));
+
+      at
     })
-}
+    .collect();
 
-fn drawn<T: Sample>(planes: &[Vec<T>; 3], layout: &Layout, colour: Colour) -> Result<Vec<u8>, Never> {
-    let Layout { stored, chroma, strides, depth } = *layout;
-    let Ok(weights) = weights(colour, stored.height);
-    let Ok(area) = index(u64::from(stored.width).saturating_mul(u64::from(stored.height)).saturating_mul(4));
-    let Ok(line) = index(stored.width.saturating_mul(4));
-    let mut rgba = vec![0u8; area];
+  for (out, y) in rgba.chunks_exact_mut(line.max(1)).zip(0..stored.height) {
+    let Ok(luma_row) = row_at(luma_layout.as_ref(), luma, y);
+    let Ok(down) = scaled_down(y, (chroma.height, stored.height));
+    let Ok(blue_row) = row_at(chroma_layout.as_ref(), blue, down);
+    let Ok(red_row) = row_at(chroma_layout.as_ref(), red, down);
 
-    let across: Vec<u32> = (0..stored.width).map(|x| {
-        let Ok(at) = scaled_down(x, (chroma.width, stored.width));
+    let Ok(()) = draw_row(out, [luma_row, blue_row, red_row], &across, &colouring);
+  }
 
-        at
-    }).collect();
-
-    let [luma, blue, red] = planes;
-
-    for (out, y) in rgba.chunks_exact_mut(line.max(1)).zip(0..stored.height) {
-        let Ok(luma_row) = row_of(luma, (y, strides.luma, stored.width));
-        let Ok(down) = scaled_down(y, (chroma.height, stored.height));
-        let Ok(blue_row) = row_of(blue, (down, strides.chroma, chroma.width));
-        let Ok(red_row) = row_of(red, (down, strides.chroma, chroma.width));
-
-        for ((into, luma), x) in out.as_chunks_mut::<4>().0.iter_mut().zip(luma_row).zip(&across) {
-            let Ok(at) = index(*x);
-
-            let (blue, red) = match (blue_row.get(at), red_row.get(at)) {
-                (Some(blue), Some(red)) => (blue.eight(depth), red.eight(depth)),
-                (_, _) => (NEUTRAL, NEUTRAL),
-            };
-
-            let sample = [luma.eight(depth), blue, red];
-
-            let Ok(coloured) = match colour.matrix {
-                Matrix::Rgb => as_it_stands(sample),
-                Matrix::Bt601 | Matrix::Bt709 | Matrix::Bt2020 | Matrix::Unsaid => pixel(&weights, sample),
-            };
-
-            *into = coloured;
-        }
-    }
-
-    Ok(rgba)
+  Ok(rgba)
 }
 
 fn turned(rgba: &[u8], stored: Size<u32>, turn: Turn) -> Result<Vec<u8>, Never> {
-    let pixels = rgba.as_chunks::<4>().0;
-    let Size { width, height } = stored;
+  let pixels = rgba.as_chunks::<4>().0;
+  let Size { width, height } = stored;
+  let Ok(expected) = index(u64::from(width).saturating_mul(u64::from(height)));
 
-    let at = |x: u32, y: u32| -> [u8; 4] {
-        let Ok(position) = index(u64::from(y).saturating_mul(u64::from(width)).saturating_add(u64::from(x)));
+  match ::core::primitive::bool::then_some(pixels.len() == expected, ()) {
+    ::core::option::Option::Some(()) => {}
+    ::core::option::Option::None => return Ok(Vec::new()),
+  }
 
-        match pixels.get(position) {
-            Some(pixel) => *pixel,
-            None => [0, 0, 0, u8::MAX],
-        }
-    };
+  let at = |x: u32, y: u32| -> [u8; 4] {
+    let Ok(position) = index(
+      u64::from(y)
+        .saturating_mul(u64::from(width))
+        .saturating_add(u64::from(x)),
+    );
 
-    let last_across = width.saturating_sub(1);
-    let last_down = height.saturating_sub(1);
+    match pixels.get(position) {
+      Some(pixel) => *pixel,
+      None => [0, 0, 0, u8::MAX],
+    }
+  };
 
-    let out: Vec<[u8; 4]> = match turn {
-        Turn::Upright => pixels.to_vec(),
-        Turn::Half => pixels.iter().rev().copied().collect(),
-        Turn::Quarter => (0..width).flat_map(|row| (0..height).map(move |column| (column, row))).map(|(column, row)| at(row, last_down.saturating_sub(column))).collect(),
-        Turn::ThreeQuarters => (0..width).flat_map(|row| (0..height).map(move |column| (column, row))).map(|(column, row)| at(last_across.saturating_sub(row), column)).collect(),
-    };
+  let last_across = width.saturating_sub(1);
+  let last_down = height.saturating_sub(1);
 
-    Ok(out.into_flattened())
+  let out: Vec<[u8; 4]> = match turn {
+    Turn::Upright => pixels.to_vec(),
+    Turn::Half => pixels.iter().rev().copied().collect(),
+    Turn::Quarter => (0..width)
+      .flat_map(|row| (0..height).map(move |column| (column, row)))
+      .map(|(column, row)| at(row, last_down.saturating_sub(column)))
+      .collect(),
+    Turn::ThreeQuarters => (0..width)
+      .flat_map(|row| (0..height).map(move |column| (column, row)))
+      .map(|(column, row)| at(last_across.saturating_sub(row), column))
+      .collect(),
+  };
+
+  Ok(out.into_flattened())
 }
 
 impl Picture {
-    pub fn at(&self) -> Result<f64, Never> {
-        Ok(self.at)
-    }
+  pub fn at(&self) -> Result<f64, Never> {
+    Ok(self.at.0)
+  }
 
-    pub fn size(&self) -> Result<Size<u32>, Never> {
-        Ok(match self.turn {
-            Turn::Upright | Turn::Half => self.stored,
-            Turn::Quarter | Turn::ThreeQuarters => Size { width: self.stored.height, height: self.stored.width },
-        })
-    }
+  pub fn size(&self) -> Result<Size<u32>, Never> {
+    Ok(match self.turn {
+      Turn::Upright | Turn::Half => self.stored,
+      Turn::Quarter | Turn::ThreeQuarters => Size {
+        width: self.stored.height,
+        height: self.stored.width,
+      },
+    })
+  }
 
-    pub fn rgba(&self) -> Result<Bitmap, Never> {
-        let depth = match &self.planes {
-            Planes::Eight(_) => 8,
-            Planes::Deep(_, depth) => *depth,
-        };
+  pub fn color_pixels(&self) -> Result<Bitmap, Never> {
+    let depth = match &self.planes {
+      Planes::Eight(_) => 8,
+      Planes::Deep(_, depth) => *depth,
+    };
 
-        let layout = Layout { stored: self.stored, chroma: self.chroma, strides: self.strides, depth };
+    let layout = Layout {
+      stored: self.stored,
+      chroma: self.chroma,
+      strides: self.strides,
+      depth,
+    };
 
-        let Ok(rgba) = match &self.planes {
-            Planes::Eight(planes) => drawn(planes, &layout, self.colour),
-            Planes::Deep(planes, _) => drawn(planes, &layout, self.colour),
-        };
+    let Ok(rgba) = match &self.planes {
+      Planes::Eight(planes) => drawn(planes, &layout, self.colour),
+      Planes::Deep(planes, _) => drawn(planes, &layout, self.colour),
+    };
 
-        let rgba = match self.turn {
-            Turn::Upright => rgba,
-            Turn::Half | Turn::Quarter | Turn::ThreeQuarters => {
-                let Ok(turned) = turned(&rgba, self.stored, self.turn);
+    let rgba_2 = match self.turn {
+      Turn::Upright => rgba,
+      Turn::Half | Turn::Quarter | Turn::ThreeQuarters => {
+        let Ok(turned) = turned(&rgba, self.stored, self.turn);
 
-                turned
-            },
-        };
+        turned
+      }
+    };
 
-        let Ok(size) = self.size();
+    let Ok(size) = self.size();
 
-        Ok(Bitmap { size, rgba })
-    }
+    Ok(Bitmap {
+      size,
+      bytes: rgba_2,
+    })
+  }
 }
 
 fn eight_bit<T: Sample>(plane: &[T], depth: u32) -> Result<Vec<u8>, Never> {
-    Ok(plane.iter().map(|sample| sample.eight(depth)).collect())
+  Ok(plane.iter().map(|sample| sample.eight(depth)).collect())
 }
 
-fn coloured_at(planes: [&[u8]; 3], made: Size<u32>, colour: Colour, tall: u32) -> Result<Vec<u8>, Never> {
-    let [luma, blue, red] = planes;
-    let Ok(weights) = weights(colour, tall);
-    let Ok(area) = index(u64::from(made.width).saturating_mul(u64::from(made.height)));
+fn coloured_at(
+  planes: [&[u8]; 3],
+  made: Size<u32>,
+  colour: Colour,
+  tall: u32,
+) -> Result<Vec<u8>, Never> {
+  let [luma, blue, red] = planes;
+  let Ok(weights) = weights(colour, tall);
+  let Ok(area) = index(u64::from(made.width).saturating_mul(u64::from(made.height)));
 
-    let (blue, red): (Cow<'_, [u8]>, Cow<'_, [u8]>) = match (blue.len() == area, red.len() == area) {
-        (true, true) => (Cow::Borrowed(blue), Cow::Borrowed(red)),
-        (_, _) => (Cow::Owned(vec![NEUTRAL; area]), Cow::Owned(vec![NEUTRAL; area])),
-    };
+  let mut rgba = [0, 0, 0, u8::MAX].repeat(area.min(luma.len()));
+  let pixels = rgba.as_chunks_mut::<4>().0.iter_mut();
 
-    let mut rgba = [0, 0, 0, u8::MAX].repeat(area);
-    let pixels = rgba.as_chunks_mut::<4>().0.iter_mut();
-    let samples = luma.iter().zip(blue.iter()).zip(red.iter());
+  match (blue.len() == area, red.len() == area) {
+    (true, true) => {
+      let samples = luma.iter().zip(blue).zip(red);
 
-    match colour.matrix {
-        Matrix::Rgb => {
-            for (into, ((luma, blue), red)) in pixels.zip(samples) {
-                let Ok(coloured) = as_it_stands([*luma, *blue, *red]);
+      for (into, ((luma_2, blue_2), red_2)) in pixels.zip(samples) {
+        let Ok(coloured) = converted(colour.matrix, &weights, [*luma_2, *blue_2, *red_2]);
 
-                *into = coloured;
-            }
-        },
-        Matrix::Bt601 | Matrix::Bt709 | Matrix::Bt2020 | Matrix::Unsaid => {
-            for (into, ((luma, blue), red)) in pixels.zip(samples) {
-                let Ok(coloured) = pixel(&weights, [*luma, *blue, *red]);
-
-                *into = coloured;
-            }
-        },
+        *into = coloured;
+      }
     }
+    (_, _) => {
+      for (into, bright) in pixels.zip(luma) {
+        let Ok(coloured) = converted(colour.matrix, &weights, [*bright, NEUTRAL, NEUTRAL]);
 
-    Ok(rgba)
+        *into = coloured;
+      }
+    }
+  }
+
+  Ok(rgba)
 }
 
 impl Picture {
-    pub fn rgba_at(&self, shown: Size<u32>, cores: Cores) -> Result<Bitmap, Never> {
-        let made = match self.turn {
-            Turn::Upright | Turn::Half => shown,
-            Turn::Quarter | Turn::ThreeQuarters => Size { width: shown.height, height: shown.width },
-        };
+  pub fn color_pixels_at(&self, shown: Size<u32>, cores: Cores) -> Result<Bitmap, Never> {
+    let made = match self.turn {
+      Turn::Upright | Turn::Half => shown,
+      Turn::Quarter | Turn::ThreeQuarters => Size {
+        width: shown.height,
+        height: shown.width,
+      },
+    };
 
-        let [luma, blue, red]: [Cow<'_, [u8]>; 3] = match &self.planes {
-            Planes::Eight([luma, blue, red]) => [Cow::Borrowed(luma.as_slice()), Cow::Borrowed(blue.as_slice()), Cow::Borrowed(red.as_slice())],
-            Planes::Deep(planes, depth) => planes.each_ref().map(|plane| {
-                let Ok(eight) = eight_bit(plane, *depth);
+    let [luma, blue, red]: [Cow<'_, [u8]>; 3] = match &self.planes {
+      Planes::Eight([luma, blue, red]) => [
+        Cow::Borrowed(luma.as_slice()),
+        Cow::Borrowed(blue.as_slice()),
+        Cow::Borrowed(red.as_slice()),
+      ],
+      Planes::Deep(planes, depth) => planes.each_ref().map(|plane| {
+        let Ok(eight) = eight_bit(plane, *depth);
 
-                Cow::Owned(eight)
-            }),
-        };
+        Cow::Owned(eight)
+      }),
+    };
 
-        let planes = [
-            Plane { samples: &luma, stride: self.strides.luma, size: self.stored },
-            Plane { samples: &blue, stride: self.strides.chroma, size: self.chroma },
-            Plane { samples: &red, stride: self.strides.chroma, size: self.chroma },
-        ];
+    let planes = [
+      Plane {
+        samples: &luma,
+        stride: self.strides.luma,
+        size: self.stored,
+      },
+      Plane {
+        samples: &blue,
+        stride: self.strides.chroma,
+        size: self.chroma,
+      },
+      Plane {
+        samples: &red,
+        stride: self.strides.chroma,
+        size: self.chroma,
+      },
+    ];
 
-        let scaled = console_concurrency::map(cores, &planes, |plane| {
-            let Ok(scaled) = scaled_plane(*plane, made);
+    let scaled = console_concurrency::map(cores, &planes, |plane| {
+      let Ok(scaled) = scaled_plane(*plane, made);
 
-            scaled
-        });
+      scaled
+    });
 
-        let [luma, blue, red] = match scaled.map(<[Vec<u8>; 3]>::try_from) {
-            Ok(Ok(three)) => three,
-            Ok(Err(_not_three)) => [Vec::new(), Vec::new(), Vec::new()],
-            Err(_a_plane_panicked) => [Vec::new(), Vec::new(), Vec::new()],
-        };
+    let [luma_2, blue_2, red_2] = match scaled.map(<[Vec<u8>; 3]>::try_from) {
+      Ok(Ok(three)) => three,
+      Ok(Err(_not_three)) => [Vec::new(), Vec::new(), Vec::new()],
+      Err(_a_plane_panicked) => [Vec::new(), Vec::new(), Vec::new()],
+    };
 
-        let Ok(rgba) = coloured_at([&luma, &blue, &red], made, self.colour, self.stored.height);
+    let Ok(rgba) = coloured_at(
+      [&luma_2, &blue_2, &red_2],
+      made,
+      self.colour,
+      self.stored.height,
+    );
 
-        let rgba = match self.turn {
-            Turn::Upright => rgba,
-            Turn::Half | Turn::Quarter | Turn::ThreeQuarters => {
-                let Ok(turned) = turned(&rgba, made, self.turn);
+    let rgba_2 = match self.turn {
+      Turn::Upright => rgba,
+      Turn::Half | Turn::Quarter | Turn::ThreeQuarters => {
+        let Ok(turned) = turned(&rgba, made, self.turn);
 
-                turned
-            },
-        };
+        turned
+      }
+    };
 
-        Ok(Bitmap { size: shown, rgba })
-    }
+    Ok(Bitmap {
+      size: shown,
+      bytes: rgba_2,
+    })
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn grey(colour: Colour, luma: u8) -> Result<[u8; 4], Never> {
-        let Ok(weights) = weights(colour, 1080);
+  #[test]
+  fn a_declared_frame_cannot_allocate_pixels_without_backing_samples() {
+    let layout = Layout {
+      stored: Size {
+        width: u32::MAX,
+        height: u32::MAX,
+      },
+      chroma: Size {
+        width: 1,
+        height: 1,
+      },
+      strides: Strides {
+        luma: u32::MAX,
+        chroma: 1,
+      },
+      depth: 8,
+    };
+    let colour = Colour {
+      matrix: Matrix::Bt709,
+      range: Range::Studio,
+    };
+    let Ok(rgba) = drawn(&[Vec::<u8>::new(), Vec::new(), Vec::new()], &layout, colour);
 
-        pixel(&weights, [luma, 128, 128])
+    assert!(rgba.is_empty());
+  }
+
+  fn grey(colour: Colour, luma: u8) -> Result<[u8; 4], Never> {
+    let Ok(weights) = weights(colour, 1080);
+
+    pixel(&weights, [luma, 128, 128])
+  }
+
+  #[test]
+  fn black_and_white_at_studio_range_are_black_and_white() {
+    let studio = Colour {
+      matrix: Matrix::Bt709,
+      range: Range::Studio,
+    };
+
+    assert_eq!(grey(studio, 16), Ok([0, 0, 0, 255]));
+    assert_eq!(grey(studio, 235), Ok([255, 255, 255, 255]));
+  }
+
+  #[test]
+  fn full_range_is_read_as_it_is_written() {
+    let full = Colour {
+      matrix: Matrix::Bt601,
+      range: Range::Full,
+    };
+
+    assert_eq!(grey(full, 0), Ok([0, 0, 0, 255]));
+    assert_eq!(grey(full, 100), Ok([100, 100, 100, 255]));
+  }
+
+  #[test]
+  fn pure_red_comes_back_red_under_each_matrix() {
+    let cases = [
+      (Matrix::Bt601, [81, 90, 240]),
+      (Matrix::Bt709, [63, 102, 240]),
+      (Matrix::Bt2020, [74, 97, 240]),
+    ];
+
+    for (matrix, sample) in cases {
+      let Ok(weights) = weights(
+        Colour {
+          matrix,
+          range: Range::Studio,
+        },
+        1080,
+      );
+      let Ok([red, green, blue, _]) = pixel(&weights, sample);
+
+      assert!(
+        red >= 250 && green <= 5 && blue <= 5,
+        "{matrix:?} drew {red}, {green}, {blue}"
+      );
     }
+  }
 
-    #[test]
-    fn black_and_white_at_studio_range_are_black_and_white() {
-        let studio = Colour { matrix: Matrix::Bt709, range: Range::Studio };
+  #[test]
+  fn a_quarter_turn_puts_the_bottom_left_at_the_top_left() -> Result<(), Never> {
+    let rgba: Vec<u8> = [
+      [1, 0, 0, 255],
+      [2, 0, 0, 255],
+      [3, 0, 0, 255],
+      [4, 0, 0, 255],
+      [5, 0, 0, 255],
+      [6, 0, 0, 255],
+    ]
+    .concat();
+    let stored = Size {
+      width: 3,
+      height: 2,
+    };
+    let Ok(quarter) = turned(&rgba, stored, Turn::Quarter);
+    let Ok(three) = turned(&rgba, stored, Turn::ThreeQuarters);
+    let reds = |rgba_2: &[u8]| {
+      rgba_2
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|[red, ..]| *red)
+        .collect::<Vec<u8>>()
+    };
 
-        assert_eq!(grey(studio, 16), Ok([0, 0, 0, 255]));
-        assert_eq!(grey(studio, 235), Ok([255, 255, 255, 255]));
-    }
+    assert_eq!(reds(&quarter), vec![4, 1, 5, 2, 6, 3]);
+    assert_eq!(reds(&three), vec![3, 6, 2, 5, 1, 4]);
 
-    #[test]
-    fn full_range_is_read_as_it_is_written() {
-        let full = Colour { matrix: Matrix::Bt601, range: Range::Full };
-
-        assert_eq!(grey(full, 0), Ok([0, 0, 0, 255]));
-        assert_eq!(grey(full, 100), Ok([100, 100, 100, 255]));
-    }
-
-    #[test]
-    fn pure_red_comes_back_red_under_each_matrix() {
-        let cases = [(Matrix::Bt601, [81, 90, 240]), (Matrix::Bt709, [63, 102, 240]), (Matrix::Bt2020, [74, 97, 240])];
-
-        for (matrix, sample) in cases {
-            let Ok(weights) = weights(Colour { matrix, range: Range::Studio }, 1080);
-            let Ok([red, green, blue, _]) = pixel(&weights, sample);
-
-            assert!(red >= 250 && green <= 5 && blue <= 5, "{matrix:?} drew {red}, {green}, {blue}");
-        }
-    }
-
-    #[test]
-    fn a_quarter_turn_puts_the_bottom_left_at_the_top_left() -> Result<(), Never> {
-        let rgba: Vec<u8> = [[1, 0, 0, 255], [2, 0, 0, 255], [3, 0, 0, 255], [4, 0, 0, 255], [5, 0, 0, 255], [6, 0, 0, 255]].concat();
-        let stored = Size { width: 3, height: 2 };
-        let Ok(quarter) = turned(&rgba, stored, Turn::Quarter);
-        let Ok(three) = turned(&rgba, stored, Turn::ThreeQuarters);
-        let reds = |rgba: &[u8]| rgba.as_chunks::<4>().0.iter().map(|[red, ..]| *red).collect::<Vec<u8>>();
-
-        assert_eq!(reds(&quarter), vec![4, 1, 5, 2, 6, 3]);
-        assert_eq!(reds(&three), vec![3, 6, 2, 5, 1, 4]);
-
-        Ok(())
-    }
+    Ok(())
+  }
 }

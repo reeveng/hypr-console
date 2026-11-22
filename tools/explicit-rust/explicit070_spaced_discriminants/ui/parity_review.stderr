@@ -1,0 +1,25 @@
+warning: `FullByte`'s discriminants `First` and `Last` are one bit apart, so a flipped bit turns one into the other and nothing catches it
+  --> $DIR/parity_review.rs:2:1
+   |
+LL | / enum FullByte {
+LL | |     First = 0,
+LL | |     Last = 128,
+LL | | }
+   | |_^
+   |
+   = help: space every pair two bits or more apart, so a single-bit error lands between states and the read fails rather than contin$DIRng in a state nothing chose. Where the encoding is not this enum's to choose -- a protocol somebody else wrote -- allow this rule here and let the reason name the protocol
+   = note: `#[warn(explicit070_spaced_discriminants)]` on by default
+
+warning: `Unselected`'s discriminants `First` and `Next` are one bit apart, so a flipped bit turns one into the other and nothing catches it
+  --> $DIR/parity_review.rs:8:1
+   |
+LL | / enum Unselected {
+LL | |     First = 0,
+LL | |     Next = 1,
+LL | | }
+   | |_^
+   |
+   = help: space every pair two bits or more apart, so a single-bit error lands between states and the read fails rather than contin$DIRng in a state nothing chose. Where the encoding is not this enum's to choose -- a protocol somebody else wrote -- allow this rule here and let the reason name the protocol
+
+warning: 2 warnings emitted
+

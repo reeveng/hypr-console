@@ -23,257 +23,319 @@ use console_core_never::Never;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unread {
-    pub at: PathBuf,
-    pub fault: String,
+  pub at: PathBuf,
+  pub fault: String,
 }
 
 impl fmt::Display for Unread {
-    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(to, "{}: {}", self.at.display(), self.fault)
-    }
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(to, "{}: {}", self.at.display(), self.fault)
+  }
 }
 
 impl std::error::Error for Unread {}
 
 fn read_file(at: &std::path::Path) -> Result<String, Unread> {
-    let Ok(held) = console_core_atomic_writes::read(at);
+  let Ok(held) = console_core_atomic_writes::read(at);
 
-    match held {
-        Stored::Text(said) => Ok(said),
-        Stored::Absent => Ok(String::new()),
-        Stored::Failed(fault) => Err(Unread { at: at.to_path_buf(), fault }),
-    }
+  match held {
+    Stored::Text(said) => Ok(said),
+    Stored::Absent => Ok(String::new()),
+    Stored::Failed(fault) => Err(Unread {
+      at: at.to_path_buf(),
+      fault,
+    }),
+  }
 }
 
 pub const NAMED: &str = "defaults";
 
 pub fn where_() -> Result<Option<PathBuf>, Never> {
-    let ours = console_core_places::Base::Configuration.ours()?;
+  let ours = console_core_places::Base::Configuration.ours()?;
 
-    Ok(ours.map(|ours| ours.join(NAMED)))
+  Ok(ours.map(|ours_2| ours_2.join(NAMED)))
 }
 
 pub fn under(home: &std::path::Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
+  let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
 
-    Ok(ours.join(NAMED))
+  Ok(ours.join(NAMED))
 }
 
 fn pair(line: &str) -> Result<Option<(String, String)>, Never> {
-    let line = line.trim();
+  let line_2 = line.trim();
 
-    Ok(match line.starts_with('#') {
-        true => None,
-        false => line
-            .split_once('=')
-            .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
-            .filter(|(key, _)| !key.is_empty()),
-    })
+  Ok(match line_2.chars().next() {
+    Some('#') | None => None,
+    Some(_other) => line_2
+      .split_once('=')
+      .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
+      .filter(|(key, _)| !key.is_empty()),
+  })
 }
 
 pub fn read(said: &str) -> Result<Vec<(String, String)>, Never> {
-    Ok(said
-        .lines()
-        .filter_map(|line| {
-            let Ok(pair) = pair(line);
-            pair
-        })
-        .collect())
+  Ok(
+    said
+      .lines()
+      .filter_map(|line| {
+        let Ok(pair) = pair(line);
+        pair
+      })
+      .collect(),
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Setting<'a> {
-    pub key: &'a str,
-    pub value: &'a str,
+  pub key: &'a str,
+  pub value: &'a str,
 }
 
 pub fn with_setting(said: &str, setting: Setting<'_>) -> Result<String, Never> {
-    let Setting { key, value } = setting;
-    let mut lines: Vec<String> = said.lines().map(str::to_string).collect();
-    let line = format!("{key}={value}");
+  let Setting { key, value } = setting;
+  let mut lines: Vec<String> = said.lines().map(str::to_string).collect();
+  let line = format!("{key}={value}");
 
-    let found = lines.iter_mut().find(|held| {
-        let Ok(pair) = pair(held);
-        pair.is_some_and(|(named, _)| named == key)
-    });
+  let found = lines.iter_mut().find(|held| {
+    let Ok(pair) = pair(held);
+    pair.is_some_and(|(named, _)| named == key)
+  });
 
-    match found {
-        Some(found) => *found = line,
-        None => lines.push(line),
-    }
+  match found {
+    Some(found_2) => *found_2 = line,
+    None => lines.push(line),
+  }
 
-    Ok(lines.iter().map(|line| format!("{line}\n")).collect())
+  Ok(lines.iter().map(|held| format!("{held}\n")).collect())
 }
 
 pub struct Choice<T: 'static> {
-    pub setting: &'static str,
-    pub unless_told: &'static str,
-    pub known: fn(&str) -> Result<Option<&'static T>, Never>,
+  pub setting: &'static str,
+  pub unless_told: &'static str,
+  pub known: fn(&str) -> Result<Option<&'static T>, Never>,
 }
 
 pub fn current_value<T>(choice: Choice<T>) -> Result<String, Never> {
-    let told = setting(choice.setting)?;
+  let told = setting(choice.setting)?;
 
-    let said = match told {
-        Some(said) => said,
-        None => String::new(),
-    };
-    let known = (choice.known)(&said)?;
+  let said = match told {
+    Some(said) => said,
+    None => String::new(),
+  };
+  let known = (choice.known)(&said)?;
 
-    Ok(match known {
-        Some(_) => said,
-        None => choice.unless_told.to_string(),
-    })
+  Ok(match known {
+    Some(_) => said,
+    None => choice.unless_told.to_string(),
+  })
 }
 
 pub fn setting(key: &str) -> Result<Option<String>, Never> {
-    let at = where_()?;
+  let at = where_()?;
 
-    let said = match at.as_deref().map(read_file) {
-        Some(Ok(said)) => said,
-        Some(Err(fault)) => {
-            eprintln!("console-defaults: {fault}; answering {key} as never chosen");
+  let said = match at.as_deref().map(read_file) {
+    Some(Ok(said)) => said,
+    Some(Err(fault)) => {
+      eprintln!("console-defaults: {fault}; answering {key} as never chosen");
 
-            return Ok(None);
-        }
-        None => return Ok(None),
-    };
+      return Ok(None);
+    }
+    None => return Ok(None),
+  };
 
-    let settings = read(&said)?;
+  let settings = read(&said)?;
 
-    Ok(settings.into_iter().find(|(named, _)| named == key).map(|(_, value)| value))
+  Ok(
+    settings
+      .into_iter()
+      .find(|(named, _)| named == key)
+      .map(|(_, value)| value),
+  )
 }
 
 pub fn set(setting: Setting<'_>) -> Result<(), Never> {
-    let keeping = where_()?;
+  let keeping = where_()?;
 
-    match keeping {
-        Some(at) => set_in(&at, setting),
-        None => {
-            eprintln!("console-defaults: no home to keep {} in; leaving it as it is", setting.key);
+  match keeping {
+    Some(at) => set_in(&at, setting),
+    None => {
+      eprintln!(
+        "console-defaults: no home to keep {} in; leaving it as it is",
+        setting.key
+      );
 
-            Ok(())
-        }
+      Ok(())
     }
+  }
 }
 
 pub fn set_in(at: &std::path::Path, setting: Setting<'_>) -> Result<(), Never> {
-    let parent = match at.parent() {
-        Some(parent) => parent,
-        None => {
-            eprintln!("console-defaults: {} is in no directory; leaving it as it is", at.display());
+  let parent = match at.parent() {
+    Some(parent) => parent,
+    None => {
+      eprintln!(
+        "console-defaults: {} is in no directory; leaving it as it is",
+        at.display()
+      );
 
-            return Ok(());
-        }
-    };
-
-    let _ = std::fs::create_dir_all(parent);
-
-    let alone = match std::fs::File::open(parent).and_then(|directory| {
-        rustix::fs::flock(&directory, rustix::fs::FlockOperation::LockExclusive)
-            .map(|()| directory)
-            .map_err(std::io::Error::from)
-    }) {
-        Ok(alone) => alone,
-        Err(fault) => {
-            eprintln!("console-defaults: {}: waiting to be the only writer: {fault}; leaving it as it is", parent.display());
-
-            return Ok(());
-        }
-    };
-
-    let said = match read_file(at) {
-        Ok(said) => said,
-        Err(fault) => {
-            eprintln!("console-defaults: {fault}; leaving it as it is");
-
-            return Ok(());
-        }
-    };
-
-    let written = with_setting(&said, setting)?;
-
-    match console_core_atomic_writes::whole(at, written.as_bytes()) {
-        Ok(()) => {}
-        Err(fault) => eprintln!("console-defaults: {}: {fault}", at.display()),
+      return Ok(());
     }
+  };
 
-    drop(alone);
+  match std::fs::create_dir_all(parent) {
+    Ok(()) => {}
+    Err(fault) => {
+      eprintln!(
+        "console-defaults: {}: creating the settings directory: {fault}; leaving it as it is",
+        parent.display()
+      );
 
-    Ok(())
+      return Ok(());
+    }
+  }
+
+  let alone = match std::fs::File::open(parent).and_then(|directory| {
+    rustix::fs::flock(&directory, rustix::fs::FlockOperation::LockExclusive)
+      .map(|()| directory)
+      .map_err(std::io::Error::from)
+  }) {
+    Ok(alone) => alone,
+    Err(fault) => {
+      eprintln!(
+        "console-defaults: {}: waiting to be the only writer: {fault}; leaving it as it is",
+        parent.display()
+      );
+
+      return Ok(());
+    }
+  };
+
+  let said = match read_file(at) {
+    Ok(said) => said,
+    Err(fault) => {
+      eprintln!("console-defaults: {fault}; leaving it as it is");
+
+      return Ok(());
+    }
+  };
+
+  let written = with_setting(&said, setting)?;
+
+  match console_core_atomic_writes::whole(at, written.as_bytes()) {
+    Ok(()) => {}
+    Err(fault) => eprintln!("console-defaults: {}: {fault}", at.display()),
+  }
+
+  drop(alone);
+
+  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_setting_is_a_key_and_a_value() {
-        assert_eq!(
-            read("search=startpage\n"),
-            Ok(vec![("search".to_string(), "startpage".to_string())])
-        );
-    }
+  #[test]
+  fn a_setting_is_a_key_and_a_value() {
+    assert_eq!(
+      read("search=startpage\n"),
+      Ok(vec![("search".to_string(), "startpage".to_string())])
+    );
+  }
 
-    #[test]
-    fn a_file_written_by_hand_is_read_the_same() {
-        let said = "# which engine\n  search = startpage  \n\nnonsense\n";
+  #[test]
+  fn a_file_written_by_hand_is_read_the_same() {
+    let said = "# which engine\n  search = startpage  \n\nnonsense\n";
 
-        assert_eq!(read(said), Ok(vec![("search".to_string(), "startpage".to_string())]));
-    }
+    assert_eq!(
+      read(said),
+      Ok(vec![("search".to_string(), "startpage".to_string())])
+    );
+  }
 
-    #[test]
-    fn setting_one_leaves_the_others_where_they_were() {
-        let said = "browser=librewolf.desktop\nsearch=duckduckgo\n";
+  #[test]
+  fn setting_one_leaves_the_others_where_they_were() {
+    let said = "browser=librewolf.desktop\nsearch=duckduckgo\n";
 
-        assert_eq!(
-            with_setting(said, Setting { key: "search", value: "startpage" }),
-            Ok("browser=librewolf.desktop\nsearch=startpage\n".to_string())
-        );
-    }
+    assert_eq!(
+      with_setting(
+        said,
+        Setting {
+          key: "search",
+          value: "startpage"
+        }
+      ),
+      Ok("browser=librewolf.desktop\nsearch=startpage\n".to_string())
+    );
+  }
 
-    #[test]
-    fn setting_one_that_was_never_there_writes_it() {
-        assert_eq!(
-            with_setting("", Setting { key: "search", value: "wikipedia" }),
-            Ok("search=wikipedia\n".to_string())
-        );
-    }
+  #[test]
+  fn setting_one_that_was_never_there_writes_it() {
+    assert_eq!(
+      with_setting(
+        "",
+        Setting {
+          key: "search",
+          value: "wikipedia"
+        }
+      ),
+      Ok("search=wikipedia\n".to_string())
+    );
+  }
 
-    #[test]
-    fn setting_one_keeps_what_was_written_by_hand() {
-        let said = "# which engine\n  search = duckduckgo  \n\nnonsense\n";
+  #[test]
+  fn setting_one_keeps_what_was_written_by_hand() {
+    let said = "# which engine\n  search = duckduckgo  \n\nnonsense\n";
 
-        assert_eq!(
-            with_setting(said, Setting { key: "search", value: "startpage" }),
-            Ok("# which engine\nsearch=startpage\n\nnonsense\n".to_string())
-        );
-    }
+    assert_eq!(
+      with_setting(
+        said,
+        Setting {
+          key: "search",
+          value: "startpage"
+        }
+      ),
+      Ok("# which engine\nsearch=startpage\n\nnonsense\n".to_string())
+    );
+  }
 
-    #[test]
-    fn two_settings_written_at_once_are_both_kept() -> Result<(), Box<dyn std::error::Error>> {
-        let here = console_core_temporary_directories::fresh("defaults-two")?;
-        let at = here.join(NAMED);
+  #[test]
+  fn two_settings_written_at_once_are_both_kept() -> Result<(), Box<dyn std::error::Error>> {
+    let here = console_core_temporary_directories::fresh("defaults-two")?;
+    let at = here.join(NAMED);
 
-        std::thread::scope(|scope| {
-            for key in ["one", "two", "three", "four"] {
-                let at = &at;
-                scope.spawn(move || {
-                    for round in 0..50 {
-                        let Ok(()) = set_in(at, Setting { key, value: &round.to_string() });
-                    }
-                });
-            }
-        });
+    std::thread::scope(|scope| {
+      let write = |key| {
+        for round in 0..50 {
+          let Ok(()) = set_in(
+            &at,
+            Setting {
+              key,
+              value: &round.to_string(),
+            },
+          );
+        }
+      };
 
-        let said = std::fs::read_to_string(&at)?;
-        let Ok(mut settings) = read(&said);
-        settings.sort();
+      scope.spawn(move || write("one"));
+      scope.spawn(move || write("two"));
+      scope.spawn(move || write("three"));
+      scope.spawn(move || write("four"));
+    });
 
-        let every = ["four", "one", "three", "two"].map(|key| (key.to_string(), "49".to_string()));
+    let said = std::fs::read_to_string(&at)?;
+    let Ok(mut settings) = read(&said);
+    settings.sort();
 
-        assert_eq!(settings, every.to_vec(), "a setting written beside another was lost");
+    let every = ["four", "one", "three", "two"].map(|key| (key.to_string(), "49".to_string()));
 
-        Ok(())
-    }
+    assert_eq!(
+      settings,
+      every.to_vec(),
+      "a setting written beside another was lost"
+    );
+
+    Ok(())
+  }
 }

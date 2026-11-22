@@ -37,108 +37,123 @@ mod reading;
 use std::collections::{BTreeMap, BTreeSet};
 
 use console_core_never::Never;
-use reading::{Failure, Section, section, read, root};
+use reading::{Failure, Section, read, root, section};
 
 const THE_ENGINE: &str = "console";
 
 const FAMILIES: [&str; 5] = ["core", "input", "manifest", "program", "test"];
 
 fn built_by() -> Result<BTreeMap<String, String>, Failure> {
-    let Ok(root) = root();
-    let mut held = BTreeMap::new();
+  let Ok(root) = root();
+  let mut held = BTreeMap::new();
 
-    let entries = std::fs::read_dir(root.join("crates"))?;
+  let entries = std::fs::read_dir(root.join("crates"))?;
 
+  for entry in entries {
+    let entry_2 = entry?;
+    let at = entry_2.path();
+    let named = match at.file_name().and_then(|named| named.to_str()) {
+      Some(named) => named.to_string(),
+      None => continue,
+    };
 
-    for entry in entries {
-        let entry = entry?;
-        let at = entry.path();
-        let named = match at.file_name().and_then(|named| named.to_str()) {
-            Some(named) => named.to_string(),
-            None => continue,
-        };
+    let said = match std::fs::read_to_string(at.join("Cargo.toml")) {
+      Ok(said) => said,
+      Err(_nothing_there) => continue,
+    };
 
-        let said = match std::fs::read_to_string(at.join("Cargo.toml")) {
-            Ok(said) => said,
-            Err(_nothing_there) => continue,
-        };
+    let mut inside = false;
 
-        let mut inside = false;
-
-        for line in said.lines().map(str::trim) {
-            match line.starts_with('[') {
-                true => inside = line == "[[bin]]",
-                false => match inside.then(|| line.strip_prefix("name")).flatten() {
-                    Some(rest) => match rest.trim_start_matches([' ', '=']).trim_matches('"') {
-                        "" => {},
-                        binary => {
-                            held.insert(binary.to_string(), named.clone());
-                        },
-                    },
-                    None => {},
-                },
-            }
+    'lines: for line in said.lines().map(str::trim) {
+      match ::core::primitive::bool::then_some(line.starts_with('['), ()) {
+        ::core::option::Option::Some(()) => {
+          inside = line == "[[bin]]";
+          continue 'lines;
         }
-    }
+        ::core::option::Option::None => {}
+      }
 
-    Ok(held)
+      let binary = match inside.then(|| line.strip_prefix("name")).flatten() {
+        Some(rest) => rest.trim_start_matches([' ', '=']).trim_matches('"'),
+        None => continue 'lines,
+      };
+
+      match binary {
+        "" => {}
+        name => {
+          held.insert(name.to_string(), named.clone());
+        }
+      }
+    }
+  }
+
+  Ok(held)
 }
 
 fn subject(crate_: &str) -> Result<BTreeSet<String>, Never> {
-    let said = crate_.strip_prefix("console-").map_or(crate_, |rest| rest);
-    let words: Vec<&str> = said.split('-').collect();
+  let said = crate_.strip_prefix("console-").map_or(crate_, |rest| rest);
+  let words: Vec<&str> = said.split('-').collect();
 
-    let kept = match words.split_first() {
-        Some((first, rest)) => match FAMILIES.contains(first) && !rest.is_empty() {
-            true => rest.to_vec(),
-            false => words,
-        },
-        None => words,
-    };
+  let kept = match words.split_first() {
+    Some((first, rest)) => match ::core::primitive::bool::then_some(FAMILIES.contains(first) && !rest.is_empty(), ()) {
+      ::core::option::Option::Some(()) => rest.to_vec(),
+      ::core::option::Option::None => words,
+    },
+    None => words,
+  };
 
-    Ok(kept.into_iter().map(str::to_string).collect())
+  Ok(kept.into_iter().map(str::to_string).collect())
 }
 
 #[test]
 fn every_program_the_manifest_builds_is_one_a_crate_here_declares() -> Result<(), Failure> {
-    let built = built_by()?;
-    let held = read("desktop.conf")?;
-    let named = section(&held, Section::Build)?;
-    let strange: Vec<String> = named.into_iter().filter(|named| !built.contains_key(named)).collect();
+  let built = built_by()?;
+  let held = read("desktop.conf")?;
+  let named = section(&held, Section::Build)?;
+  let strange: Vec<String> = named
+    .into_iter()
+    .filter(|named_2| !built.contains_key(named_2))
+    .collect();
 
-    assert!(
-        strange.is_empty(),
-        "[build] names what no crate builds: {strange:?}",
-    );
+  assert!(
+    strange.is_empty(),
+    "[build] names what no crate builds: {strange:?}",
+  );
 
-    Ok(())
+  Ok(())
 }
 
 #[test]
 fn a_part_is_named_for_the_crate_it_came_out_of() -> Result<(), Failure> {
-    let built = built_by()?;
-    let held = read("desktop.conf")?;
-    let named = section(&held, Section::Build)?;
+  let built = built_by()?;
+  let held = read("desktop.conf")?;
+  let named = section(&held, Section::Build)?;
 
-    let strange: Vec<String> = named
-        .into_iter()
-        .filter(|named| named != THE_ENGINE && !named.starts_with("console-"))
-        .filter_map(|named| built.get(&named).map(|crate_| (named.clone(), crate_.clone())))
-        .filter(|(named, crate_)| {
-            let opening = named.split_once('-').map_or(named.as_str(), |(opening, _)| opening);
-            let Ok(subject) = subject(crate_);
+  let strange: Vec<String> = named
+    .into_iter()
+    .filter(|named_2| named_2 != THE_ENGINE && !named_2.starts_with("console-"))
+    .filter_map(|named_3| {
+      built
+        .get(&named_3)
+        .map(|crate_| (named_3.clone(), crate_.clone()))
+    })
+    .filter(|(named_4, crate_)| {
+      let opening = named_4
+        .split_once('-')
+        .map_or(named_4.as_str(), |(opening, _)| opening);
+      let Ok(subject) = subject(crate_);
 
-            !subject.contains(opening)
-        })
-        .map(|(named, crate_)| format!("{named}, out of {crate_}"))
-        .collect();
+      !subject.contains(opening)
+    })
+    .map(|(named_5, crate_)| format!("{named}, out of {crate_}", named = named_5))
+    .collect();
 
-    assert!(
-        strange.is_empty(),
-        "a program in [build] is either a command, which is typed and opens with console-, \
+  assert!(
+    strange.is_empty(),
+    "a program in [build] is either a command, which is typed and opens with console-, \
          or a part, which is reached for by something else and opens with a word of the crate \
          it came out of -- these are neither: {strange:?}",
-    );
+  );
 
-    Ok(())
+  Ok(())
 }

@@ -11,9 +11,9 @@
 //! wants an opening that owes nothing to a daemon.
 
 fn main() -> std::process::ExitCode {
-    let asked: Vec<String> = std::env::args().skip(1).collect();
+  let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(code) = console_panels::asked_for(&asked);
+  let Ok(code) = console_panels::asked_for(&asked);
 
-    code
+  code
 }

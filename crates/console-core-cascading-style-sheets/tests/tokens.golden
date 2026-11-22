@@ -1,0 +1,21 @@
+"background: url(\"img.png\"); color:red !important" -> background=url("img.png") ; color=red!
+"fill:red;stroke:blue" -> fill=red ; stroke=blue
+"fill:red;;; stroke : blue ;" -> fill=red ; stroke=blue
+"*zoom:1; a:b" -> zoom=1 ; a=b
+"a:b; c; d:e" -> a=b
+"a: ; b: c" -> 
+"  /* x */ a /* y */ : /* z */ b /* w */ ; c:d" -> a=b ; c=d
+"a:b !important;c:d!important" -> a=b! ; c=d!
+"a:'x y';b:\"p;q\"" -> a='x y' ; b="p;q"
+"font: 12px/1.5 'A', serif" -> font=12px
+"a:b c d(e f) g" -> a=b c d(e f) g
+"" -> 
+";" -> 
+"a" -> 
+"a:" -> 
+":b" -> 
+"a:b;;c" -> a=b
+"é:ü" -> 
+"-a:b; --c:d; _e:f" -> -a=b
+"a: #fff #12 #-x" -> a=#fff #12 #-x
+"a:1.2.3 4.px 5%x" -> a=1.2.3 4.px 5%x

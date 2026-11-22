@@ -10,257 +10,280 @@
 
 use std::path::Path;
 
-use console_input_controller::actions::Table;
-use console_input_gamepad::front::{DEVICES, Front, Read, capabilities_command, load_profile_command, one_said, profile_path_command};
-use console_input_gamepad::devices::Has;
+use console_core_never::Never;
 use console_input_bindings::bound::{Binding, Input, Played};
 use console_input_bindings::moved::{Tasks, path_in};
+use console_input_controller::actions::Table;
+use console_input_gamepad::devices::Has;
+use console_input_gamepad::front::{
+  DEVICES, Front, Read, capabilities_command, load_profile_command, one_said,
+  profile_path_command,
+};
 use console_input_gamepad::router::{FILE, PROFILES, Router};
 use console_input_gamepad::vocabulary::button_name;
-use console_core_never::Never;
 
 use crate::machine;
 use crate::up_to_date::UpToDate;
 
 #[cfg_attr(
-    dylint_lib = "explicit048_no_unreal_state",
-    allow(
-        explicit048_no_unreal_state,
-        reason = "`asked` is whether the pad answered, `touchscreen` is what it said about a screen it may not have, and `told` is whether the router file is on disk; a device that never answered can still have a router written for it"
-    )
+  dylint_lib = "explicit048_no_unreal_state",
+  allow(
+    explicit048_no_unreal_state,
+    reason = "`asked` is whether the pad answered, `touchscreen` is what it said about a screen it may not have, and `told` is whether the router file is on disk; a device that never answered can still have a router written for it"
+  )
 )]
 pub struct Standing {
-    pub missing: Vec<String>,
-    pub asked: bool,
-    pub touchscreen: Option<bool>,
-    pub told: bool,
-    pub moved: u32,
+  pub missing: Vec<String>,
+  pub asked: bool,
+  pub touchscreen: Option<Has>,
+  pub told: bool,
+  pub moved: u32,
 }
 
 impl Standing {
-    pub fn up_to_date(&self) -> Result<UpToDate, Never> {
-        Ok(match self.missing.is_empty() {
-            true => UpToDate::Yes,
-            false => UpToDate::No,
-        })
-    }
+  pub fn up_to_date(&self) -> Result<UpToDate, Never> {
+    Ok(match ::core::primitive::bool::then_some(self.missing.is_empty(), ()) {
+      ::core::option::Option::Some(()) => UpToDate::Yes,
+      ::core::option::Option::None => UpToDate::No,
+    })
+  }
 
-    pub fn summary(&self) -> Result<String, Never> {
-        Ok(match self.missing.len() {
-            1 => "One thing this desktop does is on a button this device has not got".to_string(),
-            many => format!(
-                "{many} things this desktop does are on buttons this device has not got"
-            ),
-        })
-    }
+  pub fn summary(&self) -> Result<String, Never> {
+    Ok(match self.missing.len() {
+      1 => "One thing this desktop does is on a button this device has not got".to_string(),
+      many => format!("{many} things this desktop does are on buttons this device has not got"),
+    })
+  }
 
-    pub fn body(&self) -> Result<String, Never> {
-        Ok(format!("{}.\nSettings, Buttons is where they are moved.", self.missing.join("\n")))
-    }
+  pub fn body(&self) -> Result<String, Never> {
+    Ok(format!(
+      "{}.\nSettings, Buttons is where they are moved.",
+      self.missing.join("\n")
+    ))
+  }
 }
 
 pub fn check_buttons(_root: &Path, home: &str) -> Result<Standing, Never> {
-    let devices = match std::fs::read_to_string(DEVICES) {
-        Ok(said) => said,
+  let devices = match std::fs::read_to_string(DEVICES) {
+    Ok(said) => said,
 
-        Err(fault) => {
-            eprintln!("console: {DEVICES}: what this machine can be pressed with: {fault}");
-            String::new()
-        }
-    };
+    Err(fault) => {
+      eprintln!("console: {DEVICES}: what this machine can be pressed with: {fault}");
+      String::new()
+    }
+  };
 
-    let Ok(asking) = capabilities_command();
-    let Ok(asked) = machine::run(&asking);
-    let Ok(front) = Front::of(Read { said: &asked.out, devices: &devices });
-    let Ok(at) = path_in(Path::new(home));
-    let told = at.exists();
-    let Ok(said) = read(home);
-    let Ok(table) = Table::of(&said);
-    let Ok(every) = table.every();
+  let Ok(asking) = capabilities_command();
+  let Ok(asked) = machine::run(&asking);
+  let Ok(front) = Front::of(Read {
+    said: &asked.out,
+    devices: &devices,
+  });
+  let Ok(at) = path_in(Path::new(home));
+  let told = match std::fs::metadata(&at) {
+    Ok(_router_file) => true,
+    Err(_router_unavailable) => false,
+  };
+  let Ok(said) = read(home);
+  let Ok(table) = Table::of(&said);
+  let Ok(every) = table.every();
 
-    let mut missing: Vec<String> = Vec::new();
+  let mut missing: Vec<String> = Vec::new();
 
-    for (job, bound) in every {
-        let played: Vec<&Binding> = bound
-            .iter()
-            .filter(|one| one.on == Input::Pad)
-            .filter(|one| {
-                let Ok(played) = one.played();
+  for (job, bound) in every {
+    let played: Vec<&Binding> = bound
+      .iter()
+      .filter(|one| one.on == Input::Pad)
+      .filter(|one| {
+        let Ok(played) = one.played();
 
-                played == Played::ByAPress
-            })
-            .collect();
+        played == Played::ByAPress
+      })
+      .collect();
 
-        let anywhere = played.iter().any(|one| {
-            let Ok(here) = here(&front, one);
+    let anywhere = played.iter().any(|one| {
+      let Ok(here) = here(&front, one);
 
-            here == Has::Yes
-        });
+      here == Has::Yes
+    });
 
-        match played.is_empty() || anywhere {
-            true => continue,
-            false => {},
-        }
-
-        let where_ = played
-            .iter()
-            .map(|one| {
-                let Ok(said) = describe(one);
-
-                said
-            })
-            .collect::<Vec<String>>()
-            .join(" or ");
-        let Ok(says) = job.action.says();
-
-        missing.push(format!("{says}, on {where_}"));
+    match ::core::primitive::bool::then_some(played.is_empty() || anywhere, ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
     }
 
-    let Ok(moved) = console_core_number_conversion::fitted::<_, u32>(said.moved.len());
+    let where_ = played
+      .iter()
+      .map(|one| {
+        let Ok(said_2) = describe(one);
 
-    Ok(Standing {
-        missing,
-        asked: front.capabilities.is_some(),
-        touchscreen: front.touchscreen,
-        told,
-        moved,
-    })
+        said_2
+      })
+      .collect::<Vec<String>>()
+      .join(" or ");
+    let Ok(says) = job.action.says();
+
+    missing.push(format!("{says}, on {where_}"));
+  }
+
+  let Ok(moved) = console_core_number_conversion::fitted::<_, u32>(said.moved.len());
+
+  Ok(Standing {
+    missing,
+    asked: front.capabilities.is_some(),
+    touchscreen: front.touchscreen,
+    told,
+    moved,
+  })
 }
 
 fn describe(binding: &Binding) -> Result<String, Never> {
-    let mut words: Vec<&str> = binding.held.iter().map(String::as_str).collect();
+  let mut words: Vec<&str> = binding.held.iter().map(String::as_str).collect();
 
-    words.push(&binding.pressed);
+  words.push(&binding.pressed);
 
-    Ok(words.join(" + "))
+  Ok(words.join(" + "))
 }
 
 fn here(front: &Front, binding: &Binding) -> Result<Has, Never> {
-    let mut wanted: Vec<&str> = binding.held.iter().map(String::as_str).collect();
+  let mut wanted: Vec<&str> = binding.held.iter().map(String::as_str).collect();
 
-    wanted.push(&binding.pressed);
+  wanted.push(&binding.pressed);
 
-    for button in wanted {
-        let Ok(trigger) = console_input_gamepad::vocabulary::is_trigger(button);
+  for button in wanted {
+    let Ok(trigger) = console_input_gamepad::vocabulary::is_trigger(button);
 
-        match trigger {
-            console_input_gamepad::vocabulary::Names::ATrigger => continue,
-            console_input_gamepad::vocabulary::Names::AButton => {},
-        }
-
-        let sends = button_name(button).is_ok_and(|named| {
-            let Ok(can) = front.can_send(named);
-
-            can == Has::Yes
-        });
-
-        match sends {
-            true => {},
-            false => return Ok(Has::No),
-        }
+    match trigger {
+      console_input_gamepad::vocabulary::Names::ATrigger => continue,
+      console_input_gamepad::vocabulary::Names::AButton => {}
     }
 
-    Ok(Has::Yes)
+    let sends = match button_name(button) {
+      Ok(named) => {
+        let Ok(can) = front.can_send(named);
+
+        can == Has::Yes
+      }
+      Err(_not_a_button_name) => false,
+    };
+
+    match ::core::primitive::bool::then_some(sends, ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => return Ok(Has::No),
+    }
+  }
+
+  Ok(Has::Yes)
 }
 
 pub fn wrote_router() -> Result<Option<String>, Never> {
-    let Ok(asking) = capabilities_command();
-    let Ok(asked) = machine::run(&asking);
-    let Ok(front) = Front::of(Read { said: &asked.out, devices: "" });
+  let Ok(asking) = capabilities_command();
+  let Ok(asked) = machine::run(&asking);
+  let Ok(front) = Front::of(Read {
+    said: &asked.out,
+    devices: "",
+  });
 
-    let capabilities = match front.capabilities {
-        Some(capabilities) => capabilities,
-        None => return Ok(None),
-    };
+  let capabilities = match front.capabilities {
+    Some(capabilities) => capabilities,
+    None => return Ok(None),
+  };
 
-    let Ok(router) = Router::of(&capabilities);
+  let Ok(router) = Router::of(&capabilities);
 
-    match !router.without.is_empty() {
-        true => {
-            println!(
-                "this device sends buttons this desktop has no word for, so nothing can be put on them: {}",
-                router.without.join(", ")
-            );
-        }
-        false => {},
+  match ::core::primitive::bool::then_some(!router.without.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {
+      println!(
+        "this device sends buttons this desktop has no word for, so nothing can be put on them: {}",
+        router.without.join(", ")
+      );
     }
+    ::core::option::Option::None => {}
+  }
 
-    let live = format!("{PROFILES}{FILE}");
+  let live = format!("{PROFILES}{FILE}");
 
-    let Ok(yaml) = router.yaml();
+  let Ok(yaml) = router.yaml();
 
-    Ok(match console_core_atomic_writes::whole(std::path::Path::new(&live), yaml.as_bytes()) {
-        Ok(()) => Some(live),
-        Err(fault) => {
-            eprintln!("{live}: {fault}");
-            None
-        }
-    })
+  Ok(
+    match console_core_atomic_writes::whole(std::path::Path::new(&live), yaml.as_bytes()) {
+      Ok(()) => Some(live),
+      Err(fault) => {
+        eprintln!("{live}: {fault}");
+        None
+      }
+    },
+  )
 }
 
 pub fn again(worn: Option<String>, still_here: impl Fn(&str) -> bool) -> Result<String, Never> {
-    Ok(match worn {
-        Some(path) => match still_here(&path) {
-            true => path,
-            false => format!("{PROFILES}{FILE}"),
-        },
-        None => format!("{PROFILES}{FILE}"),
-    })
+  Ok(match worn {
+    Some(path) => match ::core::primitive::bool::then_some(still_here(&path), ()) {
+      ::core::option::Option::Some(()) => path,
+      ::core::option::Option::None => format!("{PROFILES}{FILE}"),
+    },
+    None => format!("{PROFILES}{FILE}"),
+  })
 }
 
 pub fn wear_again() -> Result<(), Never> {
-    let Ok(wearing) = profile_path_command();
-    let Ok(worn) = machine::run(&wearing);
-    let Ok(one) = one_said(&worn.out);
-    let Ok(path) = again(one, |path| std::path::Path::new(path).is_file());
-    let Ok(asking) = load_profile_command(&path);
-    let arguments: Vec<&str> = asking.iter().map(String::as_str).collect();
+  let Ok(wearing) = profile_path_command();
+  let Ok(worn) = machine::run(&wearing);
+  let Ok(one) = one_said(&worn.out);
+  let Ok(path) = again(one, |path| {
+    std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
+  });
+  let Ok(asking) = load_profile_command(&path);
+  let arguments: Vec<&str> = asking.iter().map(String::as_str).collect();
 
-    println!("the pad is reading {path} again");
+  println!("the pad is reading {path} again");
 
-    let Ok(_) = machine::run(&arguments);
+  let Ok(_) = machine::run(&arguments);
 
-    Ok(())
+  Ok(())
 }
 
 pub fn read(home: &str) -> Result<Tasks, Never> {
-    let Ok(at) = path_in(Path::new(home));
+  let Ok(at) = path_in(Path::new(home));
 
-    let said = match std::fs::read_to_string(&at) {
-        Ok(said) => said,
-        Err(_unreadable) => return Tasks::none(),
-    };
+  let said = match std::fs::read_to_string(&at) {
+    Ok(said) => said,
+    Err(_unreadable) => return Tasks::none(),
+  };
 
-    match Tasks::read(&said) {
-        Ok(jobs) => Ok(jobs),
-        Err(fault) => {
-            eprintln!("{}: {fault}", at.display());
+  match Tasks::read(&said) {
+    Ok(jobs) => Ok(jobs),
+    Err(fault) => {
+      eprintln!("{}: {fault}", at.display());
 
-            Tasks::none()
-        }
+      Tasks::none()
     }
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn the_pad_reads_the_profile_it_is_wearing_again() {
-        let worn = format!("{PROFILES}{FILE}");
+  #[test]
+  fn the_pad_reads_the_profile_it_is_wearing_again() {
+    let worn = format!("{PROFILES}{FILE}");
 
-        assert_eq!(again(Some(worn.clone()), |_| true), Ok(worn));
-    }
+    assert_eq!(again(Some(worn.clone()), |_| true), Ok(worn));
+  }
 
-    #[test]
-    fn a_profile_the_tree_no_longer_writes_is_not_handed_back() {
-        let gone = format!("{PROFILES}desktop.yaml");
+  #[test]
+  fn a_profile_the_tree_no_longer_writes_is_not_handed_back() {
+    let gone = format!("{PROFILES}desktop.yaml");
 
-        assert_eq!(again(Some(gone), |_| false), Ok(format!("{PROFILES}{FILE}")));
-    }
+    assert_eq!(
+      again(Some(gone), |_| false),
+      Ok(format!("{PROFILES}{FILE}"))
+    );
+  }
 
-    #[test]
-    fn a_pad_that_says_nothing_is_given_the_router() {
-        assert_eq!(again(None, |_| true), Ok(format!("{PROFILES}{FILE}")));
-    }
+  #[test]
+  fn a_pad_that_says_nothing_is_given_the_router() {
+    assert_eq!(again(None, |_| true), Ok(format!("{PROFILES}{FILE}")));
+  }
 }

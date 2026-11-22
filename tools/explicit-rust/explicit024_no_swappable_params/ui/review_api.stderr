@@ -1,0 +1,84 @@
+error: a second parameter of type `u32`: the compiler takes these two in either order and says nothing
+  --> $DIR/review_api.rs:4:24
+   |
+LL |     fn draw(x: u32, y: u32) -> u32 { x + y }
+   |                        ^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+   = note: `#[deny(explicit024_no_swappable_params)]` on by default
+
+error: a second parameter of type `u32`: the compiler takes these two in either order and says nothing
+  --> $DIR/review_api.rs:12:28
+   |
+LL |     pub fn draw(x: u32, y: u32) -> u32 { x + y }
+   |                            ^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: a second parameter of type `u32`: the compiler takes these two in either order and says nothing
+  --> $DIR/review_api.rs:17:24
+   |
+LL |     fn draw(x: u32, y: u32) -> u32 { x + y }
+   |                        ^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: a second parameter of type `u32`: the compiler takes these two in either order and says nothing
+  --> $DIR/review_api.rs:24:24
+   |
+LL |     fn draw(x: u32, y: u32) -> u32 { x + y }
+   |                        ^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: a second parameter of type `u32`: the compiler takes these two in either order and says nothing
+  --> $DIR/review_api.rs:31:24
+   |
+LL |     fn draw(x: u32, y: u32) -> u32 { x + y }
+   |                        ^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: a second parameter of type `u32`: the compiler takes these two in either order and says nothing
+  --> $DIR/review_api.rs:36:24
+   |
+LL |     fn draw(x: u32, y: u32) -> u32 { x + y }
+   |                        ^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: a second parameter of type `u32`: the compiler takes these two in either order and says nothing
+  --> $DIR/review_api.rs:41:35
+   |
+LL |     extern "C" fn draw(x: u32, y: u32) -> u32 { x + y }
+   |                                   ^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: a second parameter of type `u32`: the compiler takes these two in either order and says nothing
+  --> $DIR/review_api.rs:46:27
+   |
+LL |     fn draw<T>(x: u32, y: u32, _value: T) -> u32 { x + y }
+   |                           ^^^
+   |
+help: name the arguments at every call to this private function
+   |
+LL ~     fn draw<T>(DrawArguments { x, y }: DrawArguments, _value: T) -> u32 { x + y }
+LL + 
+LL +     struct DrawArguments {
+LL +       x: u32,
+LL +       y: u32,
+LL +     }
+LL ~     pub fn entry() -> u32 { draw(self::DrawArguments { x: 1, y: 2 }, ()) }
+   |
+
+error: a second parameter of type `u32`: the compiler takes these two in either order and says nothing
+  --> $DIR/review_api.rs:52:24
+   |
+LL |     fn draw(x: u32, y: u32) -> u32 { x + y }
+   |                        ^^^
+   |
+   = help: give each quantity a type of its own -- a newtype, not an alias, since an alias resolves to the same type and is taken in either order as well. Then the wrong order is a compile error rather than a wrong answer somewhere else
+
+error: aborting due to 9 previous errors
+

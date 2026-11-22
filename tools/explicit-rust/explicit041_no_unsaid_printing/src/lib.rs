@@ -12,9 +12,9 @@
 //! about. The program still prints it -- the terminal is right there and
 //! nothing can stop it -- but the transcript does not have it, so the one test
 //! that presses the program is blind to most of what the program actually
-//! emits, and the doctrine in `docs/checks.md` about asserting what a person
-//! would see is being kept against the half of the output that happens to be
-//! declared.
+//! emits, and the doctrine in the `checks.md` note in Orbit about asserting
+//! what a person would see is being kept against the half of the output that
+//! happens to be declared.
 //!
 //! It is the effect argument the rest of this suite makes about types, said
 //! about the one effect the tree already has a name for. EXPLICIT036 denies a

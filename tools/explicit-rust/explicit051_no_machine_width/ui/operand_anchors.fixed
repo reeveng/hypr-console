@@ -1,0 +1,29 @@
+// run-rustfix
+// edition:2024
+
+#[allow(explicit051_no_machine_width)]
+type Position = usize;
+
+fn compound(mut position: Position) -> Position {
+    let _amount = 2;
+    let _target = &mut position;
+    *_target = (*_target).wrapping_add(_amount);
+    position
+}
+
+fn annotated_closure(position: Position) -> Position {
+    let advance = |distance: Position| distance.wrapping_mul(3);
+    advance(position)
+}
+
+fn subtract(order: &mut Vec<u8>, position: Position) -> Position {
+    (::core::num::Wrapping({ order.push(1); 10 }) - ::core::num::Wrapping({ order.push(2); position })).0
+}
+
+fn main() {
+    assert_eq!(compound(Position::MAX), 1);
+    assert_eq!(annotated_closure(4), 12);
+    let mut order = Vec::new();
+    assert_eq!(subtract(&mut order, 3), 7);
+    assert_eq!(order, [1, 2]);
+}

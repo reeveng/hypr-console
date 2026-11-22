@@ -1,86 +1,182 @@
-//! The one global allocator, which starts as the firmware's and becomes the kernel's.
+//! The global allocator, transferred from firmware to an owned kernel heap.
 //!
-//! `alloc` has a single allocator for the whole program and cannot be handed a
-//! second one halfway through, so the change is a phase the allocator is in:
-//! the firmware's pool until boot services are exited, and the kernel's heap
-//! over its own frames from then on. The change only goes one way. A block the
-//! pool handed out before it is simply never given back, because the pool is
-//! gone and the heap does not free, and a block the heap handed out can never
-//! reach the pool, because the pool is never asked again.
+//! Every entry holds the same lock, including the one-way handover, so neither
+//! the free list nor the frame cursor assumes a single core. Local interrupts
+//! are disabled before taking it and their former state is restored after it
+//! is released. NMI and fault handlers must not allocate. The lock itself and
+//! its guards allocate nothing.
+//!
+//! Blocks the firmware allocated before handover stay reserved: boot services
+//! are gone, and those blocks are not part of any region the kernel heap was
+//! given. Only the kernel's own allocations can return to its free list.
 
 use core::alloc::{GlobalAlloc, Layout};
-use core::cell::UnsafeCell;
+use core::marker::PhantomData;
 use core::ptr;
 
 use console_core_never::Never;
+use console_kernel::locking::SpinLock;
 use console_kernel::memory::Heap;
 
 use crate::firmware;
 
 enum Phase {
-    Firmware,
-    Kernel(Heap<'static>),
+  Firmware,
+  Kernel(Heap<'static>),
 }
 
-struct Current(UnsafeCell<Phase>);
-
-// SAFETY: the kernel runs on one core with interrupts off, and the allocator is never entered from inside itself, so the phase is never reached from two places at once.
-unsafe impl Sync for Current {}
-
 #[cfg_attr(
-    dylint_lib = "explicit044_no_ambient_value",
-    allow(
-        explicit044_no_ambient_value,
-        reason = "the global allocator is the language's, one per program and called by `alloc` with a layout and nothing else, so the phase it allocates in can only be where the whole program can reach it; it is changed once, when boot services are exited"
-    )
+  dylint_lib = "explicit044_no_ambient_value",
+  allow(
+    explicit044_no_ambient_value,
+    reason = "GlobalAlloc is one per program and is called without a state argument; the lock serializes that required global state and the one-way firmware handover"
+  )
 )]
-static CURRENT: Current = Current(UnsafeCell::new(Phase::Firmware));
+#[cfg_attr(
+  dylint_lib = "explicit068_no_global_mutable_state",
+  expect(
+    explicit068_no_global_mutable_state,
+    reason = "the Rust global allocator receives only layout and pointer; its ownership and phase are serialized by the kernel lock"
+  )
+)]
+static CURRENT: SpinLock<Phase> = match SpinLock::new(Phase::Firmware) {
+  Ok(lock) => lock,
+};
+
+enum Restore {
+  Enabled,
+  Disabled,
+}
+
+struct Interrupts {
+  restore: Restore,
+  local: PhantomData<*mut ()>,
+}
+
+impl Interrupts {
+  #[cfg_attr(
+    dylint_lib = "explicit058_contain_unsafe",
+    expect(
+      explicit058_contain_unsafe,
+      reason = "the allocator snapshots and masks local CPU interrupts before taking its lock"
+    )
+  )]
+  fn disable() -> Result<Self, Never> {
+    let flags: u64;
+
+    // SAFETY: the allocator runs in kernel privilege; saving flags and disabling interrupts precedes the lock, and the assembly's memory clobber keeps heap operations inside the critical section.
+    unsafe { core::arch::asm!("pushfq", "pop {}", "cli", out(reg) flags) };
+
+    let restore = match ::core::primitive::bool::then_some(flags & 0x200 == 0, ()) {
+      ::core::option::Option::Some(()) => Restore::Disabled,
+      ::core::option::Option::None => Restore::Enabled,
+    };
+
+    Ok(Interrupts {
+      restore,
+      local: PhantomData,
+    })
+  }
+}
+
+impl Drop for Interrupts {
+  #[cfg_attr(
+    dylint_lib = "explicit058_contain_unsafe",
+    expect(
+      explicit058_contain_unsafe,
+      reason = "dropping the CPU-local guard restores the saved interrupt flag after the allocator unlocks"
+    )
+  )]
+  fn drop(&mut self) {
+    match self.restore {
+      Restore::Enabled => {
+        // SAFETY: this guard remains on the core where it disabled interrupts, and every heap guard is dropped before the prior enabled state is restored.
+        unsafe { core::arch::asm!("sti", options(nostack)) };
+      }
+      Restore::Disabled => {}
+    }
+  }
+}
 
 pub fn take_over(heap: Heap<'static>) -> Result<(), Never> {
-    // SAFETY: one core, interrupts off, and no allocation is in flight while `efi_main` hands the heap over.
-    unsafe { *CURRENT.0.get() = Phase::Kernel(heap) };
+  let Ok(_interrupts) = Interrupts::disable();
+  let Ok(mut phase) = CURRENT.lock();
 
-    Ok(())
+  *phase = Phase::Kernel(heap);
+
+  Ok(())
 }
 
 struct Kernel;
 
-// SAFETY: a block comes either from the firmware's pool at an alignment the pool guarantees or from the heap at the alignment asked for, and is never handed to the other.
+// SAFETY: every access is serialized with interrupts disabled, only the owning allocator frees each block, and kernel allocation honors the caller's size and alignment.
+#[cfg_attr(
+  dylint_lib = "explicit058_contain_unsafe",
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the Rust GlobalAlloc contract is implemented at the single firmware-to-kernel allocator boundary"
+  )
+)]
 unsafe impl GlobalAlloc for Kernel {
-    #[cfg_attr(
-        dylint_lib = "explicit051_no_machine_width",
-        allow(explicit051_no_machine_width, reason = "a pointer is an address at the machine's width, and the heap's address is met there and nowhere else")
-    )]
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        // SAFETY: one core, interrupts off, and `alloc` is not entered from inside itself.
-        let phase = unsafe { &mut *CURRENT.0.get() };
+  unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+    let Ok(_interrupts) = Interrupts::disable();
+    let Ok(mut phase) = CURRENT.lock();
 
-        match phase {
-            Phase::Firmware => {
-                let Ok(at) = firmware::pool_allocate(layout);
+    match &mut *phase {
+      Phase::Firmware => {
+        let Ok(at) = firmware::pool_allocate(layout);
 
-                at
-            },
-            Phase::Kernel(heap) => match heap.allocate(layout).map(usize::try_from) {
-                Ok(Ok(at)) => ptr::with_exposed_provenance_mut(at),
-                Ok(Err(_too_wide)) => ptr::null_mut(),
-                Err(_out_of_memory) => ptr::null_mut(),
-            },
-        }
+        at
+      }
+      Phase::Kernel(heap) => match heap.allocate(layout) {
+        Ok(at) => at.as_ptr(),
+        Err(_out_of_memory) => ptr::null_mut(),
+      },
     }
+  }
 
-    unsafe fn dealloc(&self, at: *mut u8, _layout: Layout) {
-        // SAFETY: one core, interrupts off, and `dealloc` is not entered from inside itself.
-        let phase = unsafe { &*CURRENT.0.get() };
+  #[cfg_attr(
+    dylint_lib = "explicit058_contain_unsafe",
+    expect(
+      explicit058_contain_unsafe,
+      reason = "the GlobalAlloc caller provides the pointer and original layout required by the selected allocator"
+    )
+  )]
+  unsafe fn dealloc(&self, at: *mut u8, layout: Layout) {
+    let Ok(_interrupts) = Interrupts::disable();
+    let Ok(mut phase) = CURRENT.lock();
 
-        match phase {
-            Phase::Firmware => {
-                let Ok(()) = firmware::pool_free(at);
-            },
-            Phase::Kernel(_heap) => {},
+    match &mut *phase {
+      Phase::Firmware => {
+        let Ok(()) = firmware::pool_free(at);
+      }
+      Phase::Kernel(heap) => match ptr::NonNull::new(at) {
+        Some(at_2) => {
+          // SAFETY: GlobalAlloc's caller supplies a live allocation and its original layout; the physical heap retains firmware allocations and frees only its own.
+          let freed = unsafe { heap.deallocate(at_2, layout) };
+
+          match freed {
+            Ok(()) => {}
+            Err(_corrupt_heap) => stop_corrupt_heap(),
+          }
         }
+        None => {}
+      },
     }
+  }
 }
 
 #[global_allocator]
 static KERNEL: Kernel = Kernel;
+
+#[cfg_attr(
+  dylint_lib = "explicit058_contain_unsafe",
+  expect(
+    explicit058_contain_unsafe,
+    reason = "UD2 reports heap corruption without a panic allocation or reacquiring the held heap lock"
+  )
+)]
+fn stop_corrupt_heap() -> ! {
+  // SAFETY: the installed invalid-opcode trap terminates boot without accessing the allocator.
+  unsafe { core::arch::asm!("ud2", options(noreturn, nostack)) }
+}

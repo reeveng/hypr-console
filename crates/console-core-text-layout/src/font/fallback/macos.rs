@@ -1,0 +1,103 @@
+use unicode_script::Script;
+
+use super::Fallback;
+
+#[derive(Debug)]
+pub struct PlatformFallback;
+
+impl Fallback for PlatformFallback {
+  fn common_fallback(&self) -> &'static [&'static str] {
+    common_fallback()
+  }
+
+  fn forbidden_fallback(&self) -> &'static [&'static str] {
+    forbidden_fallback()
+  }
+
+  fn script_fallback(
+    &self,
+    script: unicode_script::Script,
+    locale: &str,
+  ) -> &'static [&'static str] {
+    script_fallback(script, locale)
+  }
+}
+
+fn common_fallback() -> &'static [&'static str] {
+  &[
+    ".SF NS",
+    "Menlo",
+    "Apple Color Emoji",
+    "Geneva",
+    "Arial Unicode MS",
+  ]
+}
+
+fn forbidden_fallback() -> &'static [&'static str] {
+  &[".LastResort"]
+}
+
+fn han_unification(locale: &str) -> &'static [&'static str] {
+  match locale {
+    "ja" => &["Hiragino Sans"],
+
+    "ko" => &["Apple SD Gothic Neo"],
+
+    "zh-HK" => &["PingFang HK"],
+
+    "zh-TW" => &["PingFang TC"],
+
+    _ => &["PingFang SC"],
+  }
+}
+
+const SCRIPT_FONTS: &[(Script, &[&str])] = &[
+  (Script::Adlam, &["Noto Sans Adlam"]),
+  (Script::Arabic, &["Geeza Pro"]),
+  (Script::Armenian, &["Noto Sans Armenian"]),
+  (Script::Bengali, &["Bangla Sangam MN"]),
+  (Script::Buhid, &["Noto Sans Buhid"]),
+  (Script::Canadian_Aboriginal, &["Euphemia UCAS"]),
+  (Script::Chakma, &["Noto Sans Chakma"]),
+  (Script::Devanagari, &["Devanagari Sangam MN"]),
+  (Script::Ethiopic, &["Kefa"]),
+  (Script::Gothic, &["Noto Sans Gothic"]),
+  (Script::Grantha, &["Grantha Sangam MN"]),
+  (Script::Gujarati, &["Gujarati Sangam MN"]),
+  (Script::Gurmukhi, &["Gurmukhi Sangam MN"]),
+  (Script::Hanunoo, &["Noto Sans Hanunoo"]),
+  (Script::Hebrew, &["Arial"]),
+  (Script::Javanese, &["Noto Sans Javanese"]),
+  (Script::Kannada, &["Noto Sans Kannada"]),
+  (Script::Khmer, &["Khmer Sangam MN"]),
+  (Script::Lao, &["Lao Sangam MN"]),
+  (Script::Malayalam, &["Malayalam Sangam MN"]),
+  (Script::Mongolian, &["Noto Sans Mongolian"]),
+  (Script::Myanmar, &["Noto Sans Myanmar"]),
+  (Script::Oriya, &["Noto Sans Oriya"]),
+  (Script::Sinhala, &["Sinhala Sangam MN"]),
+  (Script::Syriac, &["Noto Sans Syriac"]),
+  (Script::Tagalog, &["Noto Sans Tagalog"]),
+  (Script::Tagbanwa, &["Noto Sans Tagbanwa"]),
+  (Script::Tai_Le, &["Noto Sans Tai Le"]),
+  (Script::Tai_Tham, &["Noto Sans Tai Tham"]),
+  (Script::Tai_Viet, &["Noto Sans Tai Viet"]),
+  (Script::Tamil, &["InaiMathi"]),
+  (Script::Telugu, &["Telugu Sangam MN"]),
+  (Script::Thaana, &["Noto Sans Thaana"]),
+  (Script::Thai, &["Ayuthaya"]),
+  (Script::Tibetan, &["Kailasa"]),
+  (Script::Tifinagh, &["Noto Sans Tifinagh"]),
+  (Script::Vai, &["Noto Sans Vai"]),
+  (Script::Yi, &["Noto Sans Yi", "PingFang SC"]),
+];
+
+fn script_fallback(script: Script, locale: &str) -> &'static [&'static str] {
+  super::mapped_fallback(
+    script,
+    locale,
+    &[Script::Han],
+    han_unification,
+    SCRIPT_FONTS,
+  )
+}

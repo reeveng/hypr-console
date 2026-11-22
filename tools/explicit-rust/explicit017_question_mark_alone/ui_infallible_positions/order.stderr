@@ -1,0 +1,42 @@
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/order.rs:25:9
+   |
+LL |         Probe(trace).stride()?,
+   |         ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(explicit017_question_mark_alone)]` on by default
+help: match the only possible result variant at this operand
+   |
+LL ~         match Probe(trace).stride() {
+LL +           ::core::result::Result::Ok(checked_value) => checked_value,
+LL ~         },
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/order.rs:34:16
+   |
+LL |     let next = index()?.wrapping_add(0);
+   |                ^^^^^^^^
+   |
+help: match the only possible result variant at this operand
+   |
+LL ~     let next = (match index() {
+LL +       ::core::result::Result::Ok(checked_value) => checked_value,
+LL ~     }).wrapping_add(0);
+   |
+
+error: this `?` is buried in a larger expression: an early return with no shape on the screen
+  --> $DIR/order.rs:35:14
+   |
+LL |     Ok(bytes[index()?] + bytes[next])
+   |              ^^^^^^^^
+   |
+help: match the only possible result variant at this operand
+   |
+LL ~     Ok(bytes[match index() {
+LL +       ::core::result::Result::Ok(checked_value_2) => checked_value_2,
+LL ~     }] + bytes[next])
+   |
+
+error: aborting due to 3 previous errors
+

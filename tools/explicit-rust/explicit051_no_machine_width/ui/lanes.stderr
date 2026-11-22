@@ -1,0 +1,27 @@
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/lanes.rs:15:18
+   |
+LL |             data[usize::wrapping_mul(y, 3).wrapping_add(1)],
+   |                  ^^^^^
+   |
+   = note: `#[deny(explicit051_no_machine_width)]` on by default
+help: use the conversion that names this machine-width boundary
+   |
+LL -             data[usize::wrapping_mul(y, 3).wrapping_add(1)],
+LL +             data[y.wrapping_mul(3).wrapping_add(1)],
+   |
+
+error: `usize` is as wide as the machine, and the source never says how wide that is
+  --> $DIR/lanes.rs:16:18
+   |
+LL |             data[usize::wrapping_mul(y, 3)],
+   |                  ^^^^^
+   |
+help: use the conversion that names this machine-width boundary
+   |
+LL -             data[usize::wrapping_mul(y, 3)],
+LL +             data[y.wrapping_mul(3)],
+   |
+
+error: aborting due to 2 previous errors
+

@@ -23,15 +23,14 @@
 //! is, because a panel left open over midnight is a panel that would otherwise
 //! keep lighting yesterday.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicI32, Ordering};
-
-use console_core_external_programs::Program;
+use console_actor::Actor;
 use console_core_arguments::{Command, Operands};
+use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_core_state_machine::{Machine, Queue};
 use console_panel::card::{Card, Door};
 use console_panel::marks;
-use console_panel::page::{Aside, Cell, Ends, Active, Page, Row, Rows};
+use console_panel::page::{Active, Aside, Cell, Ends, Page, Row, Rows};
 
 use crate::month::{self, Day, Grid, Holds, Month};
 
@@ -47,217 +46,279 @@ const TODAY: &str = "+%Y %m %d";
 
 const NO_DAY: &str = "Date Unavailable";
 
-type Shared = Arc<AtomicI32>;
+struct Calendar;
+
+impl Machine for Calendar {
+  type Input = ();
+  type State = i32;
+  type Request = i32;
+  type Effect = Never;
+
+  fn initialize(
+    _input: &(),
+    _previous: Option<i32>,
+    _effects: &mut Queue<Never>,
+  ) -> Result<i32, Never> {
+    Ok(WHERE_IT_OPENED)
+  }
+
+  fn handle(offset: i32, step: i32, _effects: &mut Queue<Never>) -> Result<i32, Never> {
+    Ok(offset.wrapping_add(step))
+  }
+}
 
 pub const COMMAND: Command = Command {
-    name: "calendar-panel",
-    about: "the calendar",
-    flags: &[],
-    operands: Operands::None,
+  name: "calendar-panel",
+  about: "the calendar",
+  flags: &[],
+  operands: Operands::None,
 };
 
 pub fn door(_argv: &[String]) -> Result<Door, Never> {
-    Door::closing(DOOR)
+  Door::closing(DOOR)
 }
 
 pub fn card(_argv: &[String]) -> Result<Card, Never> {
-    let held: Shared = Arc::new(AtomicI32::new(WHERE_IT_OPENED));
-
-    Card::new(Arc::new(move || {
-        let Ok(pages) = pages(&held);
-
-        pages
-    }))
+  Card::supervised::<Calendar, _>((), pages)
 }
 
-fn pages(held: &Shared) -> Result<Vec<Page>, Never> {
-    let reading = Arc::clone(held);
-    let Ok(rows) = Rows::computed(move || {
-        let Ok(rows) = rows(&reading);
+fn pages(held: &Actor<Calendar>) -> Result<Vec<Page>, Never> {
+  let reading = held.clone();
+  let compute = move || {
+    let Ok(rows) = rows(&reading);
 
-        rows
-    });
-    let Ok(page) = Page::new(TITLE, rows);
+    rows
+  };
+  let Ok(rows) = Rows::computed(compute.clone());
+  let Ok(page) = Page::new(TITLE, rows);
+  let Ok(with_preview) = page.meanwhile(compute);
 
-    Ok(vec![page])
+  Ok(vec![with_preview])
 }
 
-fn rows(held: &Shared) -> Result<Vec<Row>, Never> {
-    let Ok(today) = today();
+fn rows(held: &Actor<Calendar>) -> Result<Vec<Row>, Never> {
+  let Ok(today) = today();
+  let offset = held.get();
 
-    let today = match today {
-        Some(today) => today,
-        None => {
-            let Ok(row) = Row::placeholder(NO_DAY);
+  let (today_3, months) = match (today, offset) {
+    (Some(today_2), Ok(months)) => (today_2, months),
+    (None, _) | (Some(_), Err(console_actor::Closed)) => {
+      let Ok(row) = Row::placeholder(NO_DAY);
 
-            return Ok(vec![row]);
-        }
-    };
-
-    let Ok(opened) = today.month();
-    let Ok(at) = opened.add_months(held.load(Ordering::Relaxed));
-    let Ok(said) = run_cal(at);
-    let Ok(grid) = month::read(&said);
-
-    let Ok(over) = month_row(held, &grid);
-    let Ok(weekdays) = weekday_row(&grid);
-    let mut rows = vec![over, weekdays];
-
-    for week in &grid.weeks {
-        let Ok(row) = week_row(week, at, today);
-
-        rows.push(row);
+      return Ok(vec![row]);
     }
+  };
 
-    Ok(rows)
+  let Ok(opened) = today_3.month();
+  let Ok(at) = opened.add_months(months);
+  let Ok(said) = run_cal(at);
+  let Ok(grid) = month::read(&said);
+
+  let Ok(over) = month_row(held, &grid);
+  let Ok(weekdays) = weekday_row(&grid);
+  let mut rows = vec![over, weekdays];
+
+  for week in &grid.weeks {
+    let Ok(row) = week_row(week, at, today_3);
+
+    rows.push(row);
+  }
+
+  Ok(rows)
 }
 
-fn month_row(held: &Shared, grid: &Grid) -> Result<Row, Never> {
-    let stepping = Arc::clone(held);
-    let Ok(row) = Row::text(&grid.said, Aside(""));
-    let Ok(row) = row.with_level(Arc::new(move |by| {
-        stepping.fetch_add(by, Ordering::Relaxed);
-    }));
+fn month_row(held: &Actor<Calendar>, grid: &Grid) -> Result<Row, Never> {
+  let stepping = held.clone();
+  let Ok(row) = Row::text(&grid.said, Aside(""));
+  let Ok(row_2) = row.adjusting(move |by| {
+        #[cfg_attr(dylint_lib = "explicit060_no_reasonless_discard", expect(explicit060_no_reasonless_discard, reason = "the callback can only fail after the calendar actor has closed, when no panel remains to move or show an error"))]
+        let _ = stepping.send(by);
+    });
 
-    row.ended(Ends { less: marks::BEFORE, more: marks::AFTER })
+  row_2.ended(Ends {
+    less: marks::BEFORE,
+    more: marks::AFTER,
+  })
 }
 
 fn weekday_row(grid: &Grid) -> Result<Row, Never> {
-    let mut cells = Vec::new();
+  let mut cells = Vec::new();
 
-    for weekday in &grid.weekdays {
-        let Ok(cell) = Cell::new(weekday, Active::No);
+  for weekday in &grid.weekdays {
+    let Ok(cell) = Cell::new(weekday, Active::No);
 
-        cells.push(cell);
-    }
+    cells.push(cell);
+  }
 
-    Row::naming_cells(cells)
+  Row::naming_cells(cells)
 }
 
 fn week_row(week: &[String], at: Month, today: Day) -> Result<Row, Never> {
-    let mut cells = Vec::new();
+  let mut cells = Vec::new();
 
-    for day in week {
-        let Ok(now) = highlight(day, at, today);
-        let Ok(cell) = Cell::new(day, now);
+  for day in week {
+    let Ok(now) = highlight(day, at, today);
+    let Ok(cell) = Cell::new(day, now);
 
-        cells.push(cell);
-    }
+    cells.push(cell);
+  }
 
-    Row::celled(cells)
+  Row::celled(cells)
 }
 
 fn highlight(day: &str, at: Month, today: Day) -> Result<Active, Never> {
-    let Ok(holds) = at.holds(today);
+  let Ok(holds) = at.holds(today);
 
-    match holds {
-        Holds::No => return Ok(Active::No),
-        Holds::Yes => {},
-    }
+  match holds {
+    Holds::No => return Ok(Active::No),
+    Holds::Yes => {}
+  }
 
-    Ok(match day.parse::<i32>() == Ok(today.day) {
-        true => Active::Yes,
-        false => Active::No,
-    })
+  Ok(match ::core::primitive::bool::then_some(day.parse::<i32>() == Ok(today.day), ()) {
+    ::core::option::Option::Some(()) => Active::Yes,
+    ::core::option::Option::None => Active::No,
+  })
 }
 
 fn run_cal(at: Month) -> Result<String, Never> {
-    let Ok(mut command) = Program::Cal.command();
+  let Ok(mut command) = Program::Cal.command();
 
-    let out = command.arg(at.month.to_string()).arg(at.year.to_string()).output();
+  let out = command
+    .arg(at.month.to_string())
+    .arg(at.year.to_string())
+    .output();
 
-    Ok(match out {
-        Ok(out) => String::from_utf8_lossy(&out.stdout).to_string(),
-        Err(_the_machine_will_not_draw_a_month) => String::new(),
-    })
+  let text = match out {
+    Ok(output) => String::from_utf8(output.stdout),
+    Err(_the_machine_will_not_draw_a_month) => return Ok(String::new()),
+  };
+
+  Ok(match text {
+    Ok(said) => said,
+    Err(_calendar_output_is_not_utf8) => String::new(),
+  })
 }
 
 fn today() -> Result<Option<Day>, Never> {
-    let Ok(mut command) = Program::Date.command();
+  let Ok(mut command) = Program::Date.command();
 
-    let out = command.arg(TODAY).output();
+  let out = command.arg(TODAY).output();
 
-    let said = match out {
-        Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
-        Err(_the_machine_will_not_say_what_day_it_is) => return Ok(None),
-    };
+  let output = match out {
+    Ok(output) => output,
+    Err(_the_machine_will_not_say_what_day_it_is) => return Ok(None),
+  };
 
-    read_day(&said)
+  match std::str::from_utf8(&output.stdout) {
+    Ok(said) => read_day(said),
+    Err(_date_output_is_not_utf8) => Ok(None),
+  }
 }
 
 fn read_day(said: &str) -> Result<Option<Day>, Never> {
-    let mut words = said.split_whitespace();
+  let mut words = said.split_whitespace();
 
-    let Ok(year) = number(words.next());
-    let Ok(month) = number(words.next());
-    let Ok(day) = number(words.next());
+  let Ok(year) = number(words.next());
+  let Ok(month) = number(words.next());
+  let Ok(day) = number(words.next());
 
-    let year = match year {
-        Some(year) => year,
-        None => return Ok(None),
-    };
+  let year_3 = match year {
+    Some(year_2) => year_2,
+    None => return Ok(None),
+  };
 
-    let month = match month {
-        Some(month) => month,
-        None => return Ok(None),
-    };
+  let month_3 = match month {
+    Some(month_2) => month_2,
+    None => return Ok(None),
+  };
 
-    let day = match day {
-        Some(day) => day,
-        None => return Ok(None),
-    };
+  let day_3 = match day {
+    Some(day_2) => day_2,
+    None => return Ok(None),
+  };
 
-    Ok(Some(Day { year, month, day }))
+  Ok(Some(Day {
+    year: year_3,
+    month: month_3,
+    day: day_3,
+  }))
 }
 
 fn number(word: Option<&str>) -> Result<Option<i32>, Never> {
-    let word = match word {
-        Some(word) => word,
-        None => return Ok(None),
-    };
+  let word_3 = match word {
+    Some(word_2) => word_2,
+    None => return Ok(None),
+  };
 
-    Ok(match word.parse::<i32>() {
-        Ok(number) => Some(number),
-        Err(_the_machine_said_something_that_is_not_a_number) => None,
-    })
+  Ok(match word_3.parse::<i32>() {
+    Ok(number) => Some(number),
+    Err(_the_machine_said_something_that_is_not_a_number) => None,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn the_day_the_machine_said_is_read_through_the_noughts_in_front_of_it() {
-        let Ok(day) = read_day("2026 09 07");
+  #[test]
+  fn the_level_steps_the_month_in_both_directions() -> Result<(), Box<dyn std::error::Error>> {
+    let console_actor::Booted { actor, scope, .. } = console_actor::boot::<Calendar>(())?;
+    let Ok(grid) = month::read("October 2026");
+    let Ok(row) = month_row(&actor, &grid);
+    let adjust = row.level.ok_or("the month row must expose its level")?;
 
-        assert_eq!(day, Some(Day { year: 2026, month: 9, day: 7 }));
-    }
+    adjust(1);
+    assert_eq!(actor.get(), Ok(1));
+    adjust(-1);
+    assert_eq!(actor.get(), Ok(0));
+    let Ok(()) = scope.close();
 
-    #[test]
-    fn a_machine_that_would_not_say_what_day_it_is_is_not_a_day_in_1970() {
-        let Ok(nothing) = read_day("");
+    Ok(())
+  }
 
-        assert_eq!(nothing, None);
+  #[test]
+  fn the_day_the_machine_said_is_read_through_the_noughts_in_front_of_it() {
+    let Ok(day) = read_day("2026 09 07");
 
-        let Ok(half) = read_day("2026 09");
+    assert_eq!(
+      day,
+      Some(Day {
+        year: 2026,
+        month: 9,
+        day: 7
+      })
+    );
+  }
 
-        assert_eq!(half, None);
-    }
+  #[test]
+  fn a_machine_that_would_not_say_what_day_it_is_is_not_a_day_in_1970() {
+    let Ok(nothing) = read_day("");
 
-    #[test]
-    fn today_is_lit_only_in_the_month_that_holds_it() {
-        let today = Day { year: 2026, month: 10, day: 9 };
-        let Ok(at) = today.month();
-        let Ok(next) = at.after();
+    assert_eq!(nothing, None);
 
-        let Ok(lit) = highlight("9", at, today);
-        let Ok(elsewhere) = highlight("9", next, today);
-        let Ok(another) = highlight("8", at, today);
-        let Ok(blank) = highlight("", at, today);
+    let Ok(half) = read_day("2026 09");
 
-        assert_eq!(lit, Active::Yes);
-        assert_eq!(elsewhere, Active::No);
-        assert_eq!(another, Active::No);
-        assert_eq!(blank, Active::No);
-    }
+    assert_eq!(half, None);
+  }
+
+  #[test]
+  fn today_is_lit_only_in_the_month_that_holds_it() {
+    let today = Day {
+      year: 2026,
+      month: 10,
+      day: 9,
+    };
+    let Ok(at) = today.month();
+    let Ok(next) = at.after();
+
+    let Ok(lit) = highlight("9", at, today);
+    let Ok(elsewhere) = highlight("9", next, today);
+    let Ok(another) = highlight("8", at, today);
+    let Ok(blank) = highlight("", at, today);
+
+    assert_eq!(lit, Active::Yes);
+    assert_eq!(elsewhere, Active::No);
+    assert_eq!(another, Active::No);
+    assert_eq!(blank, Active::No);
+  }
 }

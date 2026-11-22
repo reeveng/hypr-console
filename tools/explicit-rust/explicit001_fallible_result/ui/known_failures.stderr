@@ -1,0 +1,48 @@
+error: `ok` turns a failure into a value with nothing said
+  --> $DIR/known_failures.rs:5:3
+   |
+LL |   text.parse::<f64>().ok()
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^ help: spell out the outcome of this conversion: `match text.parse::<f64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }`
+   |
+   = note: `#[deny(explicit001_fallible_result)]` on by default
+
+error: `is_err` turns a failure into a value with nothing said
+  --> $DIR/known_failures.rs:9:3
+   |
+LL |   text.parse::<bool>().is_err()
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: spell out the outcome of this conversion: `match &(text.parse::<bool>()) { ::core::result::Result::Ok(_) => false, ::core::result::Result::Err(_invalid_boolean) => true }`
+
+error: `ok` turns a failure into a value with nothing said
+  --> $DIR/known_failures.rs:13:3
+   |
+LL |   <&[u8; 2]>::try_from(bytes).ok()
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: spell out the outcome of this conversion: `match <&[u8; 2]>::try_from(bytes) { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_wrong_slice_length) => ::core::option::Option::None }`
+
+error: `ok` turns a failure into a value with nothing said
+  --> $DIR/known_failures.rs:17:3
+   |
+LL | /   sorted
+LL | |     .binary_search_by(|value| {
+LL | |       comparisons.push(*value);
+LL | |       value.cmp(&target)
+LL | |     })
+LL | |     .ok()
+   | |_________^
+   |
+help: spell out the outcome of this conversion
+   |
+LL ~   match sorted
+LL +     .binary_search_by(|value| {
+LL +       comparisons.push(*value);
+LL +       value.cmp(&target)
+LL +     }) { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_insertion_position_) => ::core::option::Option::None }
+   |
+
+error: `is_ok` turns a failure into a value with nothing said
+  --> $DIR/known_failures.rs:27:3
+   |
+LL |   sorted.binary_search(&target).is_ok() && {
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: spell out the outcome of this conversion: `(match &(sorted.binary_search(&target)) { ::core::result::Result::Ok(_) => true, ::core::result::Result::Err(_insertion_position_) => false })`
+
+error: aborting due to 5 previous errors
+

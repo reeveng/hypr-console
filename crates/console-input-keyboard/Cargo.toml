@@ -32,10 +32,11 @@ port = [
     "dep:console-screen",
     "dep:console-input-event-devices",
     "dep:rustix",
-    "dep:xkbcommon",
-    "dep:cairo-rs",
-    "dep:pango",
-    "dep:pangocairo",
+    "dep:console-input-keymaps",
+    "dep:console-core-path-rasterizer",
+    "dep:console-draw-painting",
+    "dep:console-draw-surface",
+    "dep:console-core-fonts",
     "dep:wayland-client",
     "dep:wayland-protocols-wlr",
     "dep:wayland-protocols-misc",
@@ -47,10 +48,12 @@ console-core-number-conversion.workspace = true
 console-core-color.workspace = true
 console-core-words.workspace = true
 console-program-contract.workspace = true
-console-program-runtime.workspace = true
+console-operating-system-linux.workspace = true
 console-core-external-programs.workspace = true
 console-core-geometry.workspace = true
+console-core-highlight.workspace = true
 console-core-iteration.workspace = true
+console-core-logging.workspace = true
 console-core-never.workspace = true
 console-core-walking.workspace = true
 
@@ -62,10 +65,11 @@ console-input-alphabets = { workspace = true, optional = true }
 console-core-places.workspace = true
 console-input-event-devices = { workspace = true, optional = true }
 rustix = { workspace = true, optional = true }
-xkbcommon = { version = "0.9", optional = true }
-cairo-rs = { version = "0.22", optional = true }
-pango = { version = "0.22", optional = true }
-pangocairo = { version = "0.22", optional = true }
+console-input-keymaps = { workspace = true, optional = true }
+console-core-path-rasterizer = { workspace = true, optional = true }
+console-draw-painting = { workspace = true, optional = true }
+console-draw-surface = { workspace = true, optional = true }
+console-core-fonts = { workspace = true, optional = true }
 wayland-client = { version = "0.31", optional = true }
 wayland-protocols-wlr = { version = "0.3", features = ["client"], optional = true }
 wayland-protocols-misc = { version = "0.3", features = ["client"], optional = true }

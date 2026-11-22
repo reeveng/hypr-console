@@ -5,7 +5,6 @@
 //! fit is reached with the arrows at either end, which are the shoulders said
 //! in the other language.
 
-
 use console_core_fonts::EM;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
@@ -27,8 +26,8 @@ pub const EDGE: i32 = EM / 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Card {
-    pub width: i32,
-    pub spent: i32,
+  pub width: i32,
+  pub spent: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,135 +35,189 @@ pub struct Cell(pub i32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tabs {
-    pub many: u32,
-    pub here: u32,
-    pub from: u32,
-    pub fits: u32,
+  pub many: u32,
+  pub here: u32,
+  pub from: u32,
+  pub fits: u32,
 }
 
 pub fn room(card: Card) -> Result<i32, Never> {
-    Ok(card
-        .width
-        .saturating_sub(2i32.saturating_mul(EDGE))
-        .saturating_sub(2i32.saturating_mul(MARGIN))
-        .saturating_sub(2i32.saturating_mul(PAD))
-        .saturating_sub(card.spent))
+  Ok(
+    card
+      .width
+      .saturating_sub(2i32.saturating_mul(EDGE))
+      .saturating_sub(2i32.saturating_mul(MARGIN))
+      .saturating_sub(2i32.saturating_mul(PAD))
+      .saturating_sub(card.spent),
+  )
 }
 
 pub fn fits(room: i32, cell: Cell) -> Result<u32, Never> {
-    let each = cell.0.saturating_add(GAP);
+  let each = cell.0.saturating_add(GAP);
 
-    let Ok(many) = fitted(room.saturating_add(GAP).saturating_div(each).max(1));
+  let Ok(many) = fitted(room.saturating_add(GAP).saturating_div(each).max(1));
 
-    Ok(match each > 0 {
-        true => many,
-        false => 1,
-    })
+  Ok(match ::core::primitive::bool::then_some(each > 0, ()) {
+    ::core::option::Option::Some(()) => many,
+    ::core::option::Option::None => 1,
+  })
 }
 
 pub fn visible_range(tabs: Tabs) -> Result<Range<u32>, Never> {
-    match tabs.fits >= tabs.many {
-        true => return Ok(0..tabs.many),
-        false => {},
-    }
+  match ::core::primitive::bool::then_some(tabs.fits >= tabs.many, ()) {
+    ::core::option::Option::Some(()) => return Ok(0..tabs.many),
+    ::core::option::Option::None => {}
+  }
 
-    let least = tabs.here.saturating_add(1).saturating_sub(tabs.fits);
-    let first = tabs.from.min(tabs.here).max(least);
-    let first = first.min(tabs.many.saturating_sub(tabs.fits));
+  let least = tabs.here.saturating_add(1).saturating_sub(tabs.fits);
+  let first = tabs.from.min(tabs.here).max(least);
+  let first_2 = first.min(tabs.many.saturating_sub(tabs.fits));
 
-    Ok(first..first.saturating_add(tabs.fits))
+  Ok(first_2..first_2.saturating_add(tabs.fits))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stop {
-    Tab(u32),
-    Outside,
+  Tab(u32),
+  Outside,
 }
 
 pub fn along(tabs: u32, from: Stop, step: i32) -> Result<Stop, Never> {
-    let Ok(out) = fitted::<u32, i32>(tabs);
+  let Ok(out) = fitted::<u32, i32>(tabs);
 
-    let at = match from {
-        Stop::Tab(index) => {
-            let Ok(index) = fitted::<u32, i32>(index);
+  let at = match from {
+    Stop::Tab(index) => {
+      let Ok(index_2) = fitted::<u32, i32>(index);
 
-            index.min(out)
-        }
-        Stop::Outside => out,
-    };
+      index_2.min(out)
+    }
+    Stop::Outside => out,
+  };
 
-    let going = at.saturating_add(step).clamp(0, out);
+  let going = at.saturating_add(step).clamp(0, out);
 
-    Ok(match going == out {
-        true => Stop::Outside,
-        false => {
-            let Ok(going) = fitted(going);
+  Ok(match ::core::primitive::bool::then_some(going == out, ()) {
+    ::core::option::Option::Some(()) => Stop::Outside,
+    ::core::option::Option::None => {
+      let Ok(going_2) = fitted(going);
 
-            Stop::Tab(going)
-        },
-    })
+      Stop::Tab(going_2)
+    }
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn a_strip_with_room_for_all_of_them_starts_at_the_first() {
-        assert_eq!(visible_range(Tabs { many: 5, here: 3, from: 0, fits: 5 }), Ok(0..5));
-        assert_eq!(visible_range(Tabs { many: 5, here: 3, from: 2, fits: 9 }), Ok(0..5));
-    }
+  #[test]
+  fn a_strip_with_room_for_all_of_them_starts_at_the_first() {
+    assert_eq!(
+      visible_range(Tabs {
+        many: 5,
+        here: 3,
+        from: 0,
+        fits: 5
+      }),
+      Ok(0..5)
+    );
+    assert_eq!(
+      visible_range(Tabs {
+        many: 5,
+        here: 3,
+        from: 2,
+        fits: 9
+      }),
+      Ok(0..5)
+    );
+  }
 
-    #[test]
-    fn the_run_moves_as_little_as_it_can() {
-        let run = |here, from| visible_range(Tabs { many: 5, here, from, fits: 3 });
+  #[test]
+  fn the_run_moves_as_little_as_it_can() {
+    let run = |here, from| {
+      visible_range(Tabs {
+        many: 5,
+        here,
+        from,
+        fits: 3,
+      })
+    };
 
-        assert_eq!(run(0, 0), Ok(0..3), "standing on the first");
-        assert_eq!(run(2, 0), Ok(0..3), "the third is already showing");
-        assert_eq!(run(3, 0), Ok(1..4), "one step, because it had to");
-        assert_eq!(run(1, 2), Ok(1..4), "back the other way, one step");
-    }
+    assert_eq!(run(0, 0), Ok(0..3), "standing on the first");
+    assert_eq!(run(2, 0), Ok(0..3), "the third is already showing");
+    assert_eq!(run(3, 0), Ok(1..4), "one step, because it had to");
+    assert_eq!(run(1, 2), Ok(1..4), "back the other way, one step");
+  }
 
-    #[test]
-    fn the_run_never_hangs_off_either_end() {
-        assert_eq!(visible_range(Tabs { many: 5, here: 4, from: 0, fits: 3 }), Ok(2..5));
-        assert_eq!(visible_range(Tabs { many: 5, here: 4, from: 9, fits: 3 }), Ok(2..5));
-    }
+  #[test]
+  fn the_run_never_hangs_off_either_end() {
+    assert_eq!(
+      visible_range(Tabs {
+        many: 5,
+        here: 4,
+        from: 0,
+        fits: 3
+      }),
+      Ok(2..5)
+    );
+    assert_eq!(
+      visible_range(Tabs {
+        many: 5,
+        here: 4,
+        from: 9,
+        fits: 3
+      }),
+      Ok(2..5)
+    );
+  }
 
-    #[test]
-    fn a_tab_and_a_gap_is_what_a_tab_costs() {
-        assert_eq!(fits(100, Cell(20)), Ok(4), "four tabs and the gaps between them");
-        assert_eq!(fits(0, Cell(20)), Ok(1), "somewhere to stand, whatever the room");
-    }
+  #[test]
+  fn a_tab_and_a_gap_is_what_a_tab_costs() {
+    assert_eq!(
+      fits(100, Cell(20)),
+      Ok(4),
+      "four tabs and the gaps between them"
+    );
+    assert_eq!(
+      fits(0, Cell(20)),
+      Ok(1),
+      "somewhere to stand, whatever the room"
+    );
+  }
 
-    #[test]
-    fn the_room_is_the_card_less_everything_that_is_not_a_tab() {
-        assert_eq!(
-            room(Card { width: 900, spent: 120 }),
-            Ok(900_i32
-                .saturating_sub(EDGE.saturating_mul(2))
-                .saturating_sub(MARGIN.saturating_mul(2))
-                .saturating_sub(PAD.saturating_mul(2))
-                .saturating_sub(120))
-        );
-    }
+  #[test]
+  fn the_room_is_the_card_less_everything_that_is_not_a_tab() {
+    assert_eq!(
+      room(Card {
+        width: 900,
+        spent: 120
+      }),
+      Ok(
+        900_i32
+          .saturating_sub(EDGE.saturating_mul(2))
+          .saturating_sub(MARGIN.saturating_mul(2))
+          .saturating_sub(PAD.saturating_mul(2))
+          .saturating_sub(120)
+      )
+    );
+  }
 
-    #[test]
-    fn a_shoulder_walks_the_tabs_and_then_the_way_out() {
-        assert_eq!(along(3, Stop::Tab(0), 1), Ok(Stop::Tab(1)));
-        assert_eq!(along(3, Stop::Tab(2), 1), Ok(Stop::Outside));
-        assert_eq!(along(3, Stop::Outside, -1), Ok(Stop::Tab(2)));
-    }
+  #[test]
+  fn a_shoulder_walks_the_tabs_and_then_the_way_out() {
+    assert_eq!(along(3, Stop::Tab(0), 1), Ok(Stop::Tab(1)));
+    assert_eq!(along(3, Stop::Tab(2), 1), Ok(Stop::Outside));
+    assert_eq!(along(3, Stop::Outside, -1), Ok(Stop::Tab(2)));
+  }
 
-    #[test]
-    fn the_walk_stops_at_both_ends() {
-        assert_eq!(along(3, Stop::Tab(0), -1), Ok(Stop::Tab(0)));
-        assert_eq!(along(3, Stop::Outside, 1), Ok(Stop::Outside));
-    }
+  #[test]
+  fn the_walk_stops_at_both_ends() {
+    assert_eq!(along(3, Stop::Tab(0), -1), Ok(Stop::Tab(0)));
+    assert_eq!(along(3, Stop::Outside, 1), Ok(Stop::Outside));
+  }
 
-    #[test]
-    fn the_way_out_is_there_on_a_panel_with_one_tab() {
-        assert_eq!(along(1, Stop::Tab(0), 1), Ok(Stop::Outside));
-        assert_eq!(along(1, Stop::Outside, -1), Ok(Stop::Tab(0)));
-    }
+  #[test]
+  fn the_way_out_is_there_on_a_panel_with_one_tab() {
+    assert_eq!(along(1, Stop::Tab(0), 1), Ok(Stop::Outside));
+    assert_eq!(along(1, Stop::Outside, -1), Ok(Stop::Tab(0)));
+  }
 }

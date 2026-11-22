@@ -1,0 +1,11 @@
+[Unit]
+Description=Send queued error reports to Orbit
+PartOf=console.target
+ConditionEnvironment=ORBIT_ERROR_DSN
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/console-upload-errors
+TimeoutStartSec=3min
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

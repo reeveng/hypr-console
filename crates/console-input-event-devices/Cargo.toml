@@ -12,8 +12,10 @@ path = "src/lib.rs"
 [dependencies]
 console-core-geometry.workspace = true
 console-core-iteration.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
+rustix.workspace = true
 
 [lints]
 workspace = true

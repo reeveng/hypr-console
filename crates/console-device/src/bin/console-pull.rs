@@ -8,22 +8,26 @@
 
 use std::process::ExitCode;
 
-use console_device_name as naming;
-use console_program_runtime::Pure;
 use console_device::pulling::{Named, Pull};
+use console_device_name as naming;
+use console_operating_system_linux::program_runtime::Pure;
 
 fn main() -> ExitCode {
-    let host = match naming::device() {
-        Ok(host) => host,
-        Err(fault) => {
-            eprintln!("{fault}");
+  let host = match naming::device() {
+    Ok(host) => host,
+    Err(fault) => {
+      eprintln!("{fault}");
 
-            return ExitCode::FAILURE;
-        }
-    };
+      return ExitCode::FAILURE;
+    }
+  };
 
-    let Ok(named) = Named::of(Some(&host));
-    let Ok(code) = console_program_runtime::run::<Pull, Pure>("console-pull", &named, &mut Pure);
+  let Ok(named) = Named::of(Some(&host));
+  let Ok(code) = console_operating_system_linux::program_runtime::run::<Pull, Pure>(
+    "console-pull",
+    &named,
+    &mut Pure,
+  );
 
-    code
+  code
 }

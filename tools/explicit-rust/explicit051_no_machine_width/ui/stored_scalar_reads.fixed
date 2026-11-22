@@ -1,0 +1,29 @@
+// run-rustfix
+// edition:2024
+// aux-build:console_core_number_conversion.rs
+extern crate console_core_number_conversion;
+
+fn pair<T>(value: T) -> (T, T) where T: Copy { (value, value) }
+
+fn measured(bytes: &[u8], edge: &[u8]) -> (u64, bool, u64, u64) {
+    let ::core::result::Result::Ok(position) = ::console_core_number_conversion::fixed_index(bytes.len());
+    (position, (match ::console_core_number_conversion::index(position) { ::core::result::Result::Ok(native_position) => native_position }) < edge.len(), pair(match ::console_core_number_conversion::index(position) { ::core::result::Result::Ok(native_position) => native_position }).0 as u64,
+     (match ::console_core_number_conversion::index(position) { ::core::result::Result::Ok(native_position) => native_position }).wrapping_add(!0) as u64)
+}
+
+fn indirect(bytes: &[u8]) -> Option<u64> {
+    let ::core::result::Result::Ok(count) = ::console_core_number_conversion::fixed_index(bytes.len());
+    Some(match ::console_core_number_conversion::index(count) { ::core::result::Result::Ok(native_position) => native_position }).map(|n| n as u64)
+}
+
+fn through_function_value(bytes: &[u8]) -> u64 {
+    let identity = core::convert::identity;
+    let ::core::result::Result::Ok(count) = ::console_core_number_conversion::fixed_index(bytes.len());
+    identity(match ::console_core_number_conversion::index(count) { ::core::result::Result::Ok(native_position) => native_position }) as u64
+}
+
+fn main() {
+    assert_eq!(measured(&[1, 2], &[3, 4, 5]), (2, true, 2, 1));
+    assert_eq!(indirect(&[]), Some(0));
+    assert_eq!(through_function_value(&[1]), 1);
+}

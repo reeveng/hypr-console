@@ -41,13 +41,13 @@ use console_core_never::Never;
 use crate::starting::quote_word;
 
 const SHELLS: &[&str] = &[
-    "ash", "bash", "csh", "dash", "elvish", "fish", "ksh", "mksh", "nu", "oksh", "pwsh", "sh",
-    "tcsh", "xonsh", "zsh",
+  "ash", "bash", "csh", "dash", "elvish", "fish", "ksh", "mksh", "nu", "oksh", "pwsh", "sh",
+  "tcsh", "xonsh", "zsh",
 ];
 
 const NEVER_RESUMED: &[&str] = &[
-    "dd", "doas", "fdisk", "mkfs", "pacman", "paru", "parted", "pkexec", "reboot", "rm",
-    "shutdown", "su", "sudo", "yay",
+  "dd", "doas", "fdisk", "mkfs", "pacman", "paru", "parted", "pkexec", "reboot", "rm",
+  "shutdown", "su", "sudo", "yay",
 ];
 
 const NEVER_RESUME_NAME: &str = "never-resume";
@@ -56,757 +56,804 @@ const SEARCH_LIMIT: u32 = 64;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Occupant {
-    pub directory: Option<String>,
-    pub program: Option<Vec<String>>,
-    pub shell: Option<String>,
+  pub directory: Option<String>,
+  pub program: Option<Vec<String>>,
+  pub shell: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Resumable {
-    Yes,
-    No,
+  Yes,
+  No,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Directory {
-    Known,
-    NotTold,
+  Known,
+  NotTold,
 }
 
 enum Value {
-    Attached,
-    Separate,
+  Attached,
+  Separate,
 }
 
 enum Command {
-    Flag(&'static str),
-    Trailing,
+  Flag(&'static str),
+  Trailing,
 }
 
 struct Configuration {
-    subcommand: Option<&'static str>,
-    directory: Option<(&'static str, Value)>,
-    command: Command,
+  subcommand: Option<&'static str>,
+  directory: Option<(&'static str, Value)>,
+  command: Command,
 }
 
 fn configuration(binary: &str) -> Result<Option<Configuration>, Never> {
-    let attached = |flag| Some((flag, Value::Attached));
-    let separate = |flag| Some((flag, Value::Separate));
+  let attached = |flag| Some((flag, Value::Attached));
+  let separate = |flag| Some((flag, Value::Separate));
 
-    Ok(Some(match binary {
-        "alacritty" => Configuration {
-            subcommand: None,
-            directory: separate("--working-directory"),
-            command: Command::Flag("-e"),
-        },
-        "foot" => Configuration {
-            subcommand: None,
-            directory: attached("--working-directory"),
-            command: Command::Flag("-e"),
-        },
-        "footclient" => Configuration {
-            subcommand: None,
-            directory: attached("--working-directory"),
-            command: Command::Trailing,
-        },
-        "ghostty" => Configuration {
-            subcommand: None,
-            directory: attached("--working-directory"),
-            command: Command::Flag("-e"),
-        },
-        "gnome-terminal" => Configuration {
-            subcommand: None,
-            directory: attached("--working-directory"),
-            command: Command::Flag("--"),
-        },
-        "kitty" => Configuration {
-            subcommand: None,
-            directory: separate("--directory"),
-            command: Command::Trailing,
-        },
-        "konsole" => Configuration {
-            subcommand: None,
-            directory: separate("--workdir"),
-            command: Command::Flag("-e"),
-        },
-        "rio" => Configuration {
-            subcommand: None,
-            directory: separate("--working-dir"),
-            command: Command::Flag("-e"),
-        },
-        "st" | "xterm" => {
-            Configuration { subcommand: None, directory: None, command: Command::Flag("-e") }
-        },
-        "terminator" | "xfce4-terminal" => Configuration {
-            subcommand: None,
-            directory: attached("--working-directory"),
-            command: Command::Flag("-x"),
-        },
-        "tilix" => Configuration {
-            subcommand: None,
-            directory: attached("--working-directory"),
-            command: Command::Flag("-e"),
-        },
-        "rxvt" | "urxvt" | "urxvtc" => Configuration {
-            subcommand: None,
-            directory: separate("-cd"),
-            command: Command::Flag("-e"),
-        },
-        "wezterm" => Configuration {
-            subcommand: Some("start"),
-            directory: separate("--cwd"),
-            command: Command::Flag("--"),
-        },
-        _something_this_does_not_know => return Ok(None),
-    }))
+  Ok(Some(match binary {
+    "alacritty" => Configuration {
+      subcommand: None,
+      directory: separate("--working-directory"),
+      command: Command::Flag("-e"),
+    },
+    "foot" => Configuration {
+      subcommand: None,
+      directory: attached("--working-directory"),
+      command: Command::Flag("-e"),
+    },
+    "footclient" => Configuration {
+      subcommand: None,
+      directory: attached("--working-directory"),
+      command: Command::Trailing,
+    },
+    "ghostty" => Configuration {
+      subcommand: None,
+      directory: attached("--working-directory"),
+      command: Command::Flag("-e"),
+    },
+    "gnome-terminal" => Configuration {
+      subcommand: None,
+      directory: attached("--working-directory"),
+      command: Command::Flag("--"),
+    },
+    "kitty" => Configuration {
+      subcommand: None,
+      directory: separate("--directory"),
+      command: Command::Trailing,
+    },
+    "konsole" => Configuration {
+      subcommand: None,
+      directory: separate("--workdir"),
+      command: Command::Flag("-e"),
+    },
+    "rio" => Configuration {
+      subcommand: None,
+      directory: separate("--working-dir"),
+      command: Command::Flag("-e"),
+    },
+    "st" | "xterm" => Configuration {
+      subcommand: None,
+      directory: None,
+      command: Command::Flag("-e"),
+    },
+    "terminator" | "xfce4-terminal" => Configuration {
+      subcommand: None,
+      directory: attached("--working-directory"),
+      command: Command::Flag("-x"),
+    },
+    "tilix" => Configuration {
+      subcommand: None,
+      directory: attached("--working-directory"),
+      command: Command::Flag("-e"),
+    },
+    "rxvt" | "urxvt" | "urxvtc" => Configuration {
+      subcommand: None,
+      directory: separate("-cd"),
+      command: Command::Flag("-e"),
+    },
+    "wezterm" => Configuration {
+      subcommand: Some("start"),
+      directory: separate("--cwd"),
+      command: Command::Flag("--"),
+    },
+    _something_this_does_not_know => return Ok(None),
+  }))
 }
 
 pub fn restore_command(arguments: &[String], pid: i32) -> Result<Option<Vec<String>>, Never> {
-    let occupant = inspect(pid)?;
+  let occupant = inspect(pid)?;
 
-    restore(arguments, &occupant)
+  restore(arguments, &occupant)
 }
 
 pub fn inspect(pid: i32) -> Result<Occupant, Never> {
-    let Ok(within) = shell_within(pid);
+  let Ok(within) = shell_within(pid);
 
-    let shell = match within {
-        Some(shell) => shell,
-        None => return Ok(Occupant::default()),
-    };
+  let shell = match within {
+    Some(shell) => shell,
+    None => return Ok(Occupant::default()),
+  };
 
-    let Ok(said) = stat(shell);
+  let Ok(said) = stat(shell);
 
-    let stat = match said {
-        Some(stat) => stat,
-        None => return Ok(Occupant::default()),
-    };
+  let stat = match said {
+    Some(stat) => stat,
+    None => return Ok(Occupant::default()),
+  };
 
-    let foreground = match stat.foreground > 0 && stat.foreground != stat.group {
-        true => Some(stat.foreground),
-        false => None,
-    };
+  let foreground = match ::core::primitive::bool::then_some(stat.foreground > 0 && stat.foreground != stat.group, ()) {
+    ::core::option::Option::Some(()) => Some(stat.foreground),
+    ::core::option::Option::None => None,
+  };
 
-    let program = match foreground {
-        Some(foreground) => {
-            let Ok(running) = running_command(foreground);
+  let program = match foreground {
+    Some(foreground_2) => {
+      let Ok(running) = running_command(foreground_2);
 
-            running
-        },
-        None => None,
-    };
+      running
+    }
+    None => None,
+  };
 
-    let Ok(under_the_shell) = directory(shell);
+  let Ok(under_the_shell) = directory(shell);
 
-    let directory = match (&program, foreground) {
-        (Some(_it_was_running_something), Some(foreground)) => {
-            let Ok(where_it_got_to) = directory(foreground);
+  let directory = match (&program, foreground) {
+    (Some(_it_was_running_something), Some(foreground_3)) => {
+      let Ok(where_it_got_to) = directory(foreground_3);
 
-            match where_it_got_to {
-                Some(directory) => Some(directory),
-                None => under_the_shell,
-            }
-        },
-        (Some(_), None) | (None, _) => under_the_shell,
-    };
+      match where_it_got_to {
+        Some(directory) => Some(directory),
+        None => under_the_shell,
+      }
+    }
+    (Some(_), None) | (None, _) => under_the_shell,
+  };
 
-    let Ok(words) = argv_of(shell);
+  let Ok(words) = argv_of(shell);
 
-    let named = match words.as_ref().and_then(|words| words.first()) {
-        Some(word) => {
-            let Ok(path) = binary_path(word);
+  let named = match words.as_ref().and_then(|words_2| words_2.first()) {
+    Some(word) => {
+      let Ok(path) = binary_path(word);
 
-            Some(path.to_string())
-        },
-        None => None,
-    };
+      Some(path.to_string())
+    }
+    None => None,
+  };
 
-    Ok(Occupant { directory, program, shell: named })
+  Ok(Occupant {
+    directory,
+    program,
+    shell: named,
+  })
 }
 
 fn running_command(pid: i32) -> Result<Option<Vec<String>>, Never> {
-    let Ok(said) = argv_of(pid);
+  let Ok(said) = argv_of(pid);
 
-    let words = match said {
-        Some(words) => words,
-        None => return Ok(None),
-    };
+  let words = match said {
+    Some(words) => words,
+    None => return Ok(None),
+  };
 
-    let named = match words.first() {
-        Some(word) => word,
-        None => return Ok(None),
-    };
+  let named = match words.first() {
+    Some(word) => word,
+    None => return Ok(None),
+  };
 
-    let Ok(binary) = binary(named);
-    let Ok(resumable) = resumable(binary);
+  let Ok(binary) = binary(named);
+  let Ok(resumable) = resumable(binary);
 
-    Ok(match resumable {
-        Resumable::Yes => Some(words),
-        Resumable::No => None,
-    })
+  Ok(match resumable {
+    Resumable::Yes => Some(words),
+    Resumable::No => None,
+  })
 }
 
 fn restore(arguments: &[String], occupant: &Occupant) -> Result<Option<Vec<String>>, Never> {
-    let first = match arguments.first() {
-        Some(first) => first,
-        None => return Ok(None),
-    };
+  let first = match arguments.first() {
+    Some(first) => first,
+    None => return Ok(None),
+  };
 
-    let Ok(named) = binary(first);
+  let Ok(named) = binary(first);
 
-    let Ok(known) = configuration(named);
+  let Ok(known) = configuration(named);
 
-    let configuration = match known {
-        Some(configuration) => configuration,
-        None => return Ok(None),
-    };
+  let configuration = match known {
+    Some(configuration) => configuration,
+    None => return Ok(None),
+  };
 
-    let mut line = vec![first.clone()];
+  let mut line = vec![first.clone()];
 
-    match configuration.subcommand {
-        Some(subcommand) => line.push(subcommand.to_string()),
-        None => {},
+  match configuration.subcommand {
+    Some(subcommand) => line.push(subcommand.to_string()),
+    None => {}
+  }
+
+  let rest = match arguments.split_first() {
+    Some((_the_terminal_itself, rest)) => rest,
+    None => &[],
+  };
+
+  let Ok(kept) = options(rest, &configuration);
+
+  line.extend(kept);
+
+  let told = match (&occupant.directory, &configuration.directory) {
+    (Some(directory), Some((flag, value))) => {
+      match value {
+        Value::Attached => line.push(format!("{flag}={directory}")),
+        Value::Separate => {
+          line.push((*flag).to_string());
+          line.push(directory.clone());
+        }
+      }
+
+      Directory::Known
     }
+    (Some(_), None) | (None, _) => Directory::NotTold,
+  };
 
-    let rest = match arguments.split_first() {
-        Some((_the_terminal_itself, rest)) => rest,
-        None => &[],
-    };
+  let inside = inside(occupant, told)?;
 
-    let Ok(kept) = options(rest, &configuration);
+  match &inside {
+    Some(inside_2) => {
+      match configuration.command {
+        Command::Flag(flag) => line.push(flag.to_string()),
+        Command::Trailing => {}
+      }
 
-    line.extend(kept);
-
-    let told = match (&occupant.directory, &configuration.directory) {
-        (Some(directory), Some((flag, value))) => {
-            match value {
-                Value::Attached => line.push(format!("{flag}={directory}")),
-                Value::Separate => {
-                    line.push((*flag).to_string());
-                    line.push(directory.clone());
-                },
-            }
-
-            Directory::Known
-        },
-        (Some(_), None) | (None, _) => Directory::NotTold,
-    };
-
-    let inside = inside(occupant, told)?;
-
-    match &inside {
-        Some(inside) => {
-            match configuration.command {
-                Command::Flag(flag) => line.push(flag.to_string()),
-                Command::Trailing => {},
-            }
-
-            line.extend(inside.clone());
-        },
-        None => {},
+      line.extend(inside_2.clone());
     }
+    None => {}
+  }
 
-    Ok(match (told, &inside) {
-        (Directory::NotTold, None) => None,
-        (Directory::Known, _) | (_, Some(_)) => Some(line),
-    })
+  Ok(match (told, &inside) {
+    (Directory::NotTold, None) => None,
+    (Directory::Known, _) | (_, Some(_)) => Some(line),
+  })
 }
 
 fn inside(occupant: &Occupant, told: Directory) -> Result<Option<Vec<String>>, Never> {
-    let step_in = match (told, &occupant.directory) {
-        (Directory::NotTold, Some(directory)) => {
-            let Ok(quoted) = quote_word(directory);
+  let step_in = match (told, &occupant.directory) {
+    (Directory::NotTold, Some(directory)) => {
+      let Ok(quoted) = quote_word(directory);
 
-            format!("cd {quoted}; ")
-        },
-        (Directory::NotTold, None) | (Directory::Known, _) => String::new(),
-    };
+      format!("cd {quoted}; ")
+    }
+    (Directory::NotTold, None) | (Directory::Known, _) => String::new(),
+  };
 
-    Ok(match (&occupant.program, &occupant.shell) {
-        (Some(program), Some(shell)) => {
-            let words: Vec<String> = program
-                .iter()
-                .map(|word| {
-                    let Ok(quoted) = quote_word(word);
+  Ok(match (&occupant.program, &occupant.shell) {
+    (Some(program), Some(shell)) => {
+      let words: Vec<String> = program
+        .iter()
+        .map(|word| {
+          let Ok(quoted) = quote_word(word);
 
-                    quoted
-                })
-                .collect();
+          quoted
+        })
+        .collect();
 
-            let Ok(call) =
-                shell_call(Shell(shell), &format!("{step_in}{}; exec {shell} -i", words.join(" ")));
+      let Ok(call) = shell_call(
+        Shell(shell),
+        &format!("{step_in}{}; exec {shell} -i", words.join(" ")),
+      );
 
-            Some(call)
-        },
-        (Some(program), None) => Some(program.clone()),
-        (None, Some(shell)) => match step_in.is_empty() {
-            true => None,
-            false => {
-                let Ok(call) = shell_call(Shell(shell), &format!("{step_in}exec {shell} -i"));
+      Some(call)
+    }
+    (Some(program), None) => Some(program.clone()),
+    (None, Some(shell)) => match ::core::primitive::bool::then_some(step_in.is_empty(), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => {
+        let Ok(call) = shell_call(Shell(shell), &format!("{step_in}exec {shell} -i"));
 
-                Some(call)
-            },
-        },
-        (None, None) => None,
-    })
+        Some(call)
+      }
+    },
+    (None, None) => None,
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Shell<'a>(&'a str);
 
+#[cfg_attr(
+  dylint_lib = "explicit082_no_built_shell_line",
+  expect(
+    explicit082_no_built_shell_line,
+    reason = "the saved interactive shell interprets fixed cd and exec forms with every restored word escaped by quote_word; supported shells differ on positional argument syntax"
+  )
+)]
 fn shell_call(shell: Shell<'_>, line: &str) -> Result<Vec<String>, Never> {
-    Ok(vec![shell.0.to_string(), "-i".to_string(), "-c".to_string(), line.to_string()])
+  Ok(vec![
+    shell.0.to_string(),
+    "-i".to_string(),
+    "-c".to_string(),
+    line.to_string(),
+  ])
 }
 
 fn options(words: &[String], configuration: &Configuration) -> Result<Vec<String>, Never> {
-    let mut kept = Vec::new();
-    let mut skip_value = false;
+  let mut kept = Vec::new();
+  let mut skip_value = false;
 
-    for word in words {
-        match skip_value {
-            true => {
-                skip_value = false;
+  for word in words {
+    match ::core::primitive::bool::then_some(skip_value, ()) {
+      ::core::option::Option::Some(()) => {
+        skip_value = false;
 
-                continue;
-            },
-            false => {},
-        }
-
-        match Some(word.as_str()) == configuration.subcommand {
-            true => continue,
-            false => {},
-        }
-
-        let ours = match &configuration.directory {
-            Some((flag, value)) => match word == flag {
-                true => {
-                    skip_value = matches!(value, Value::Separate);
-
-                    true
-                },
-                false => word.starts_with(&format!("{flag}=")),
-            },
-            None => false,
-        };
-
-        match ours {
-            true => continue,
-            false => {},
-        }
-
-        let stop = match configuration.command {
-            Command::Flag(flag) => word == flag,
-            Command::Trailing => !word.starts_with('-'),
-        };
-
-        match stop {
-            true => break,
-            false => kept.push(word.clone()),
-        }
+        continue;
+      }
+      ::core::option::Option::None => {}
     }
 
-    Ok(kept)
+    match ::core::primitive::bool::then_some(Some(word.as_str()) == configuration.subcommand, ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
+    }
+
+    let ours = match &configuration.directory {
+      Some((flag, value)) => match ::core::primitive::bool::then_some(word == flag, ()) {
+        ::core::option::Option::Some(()) => {
+          skip_value = matches!(value, Value::Separate);
+
+          true
+        }
+        ::core::option::Option::None => word.starts_with(&format!("{flag}=")),
+      },
+      None => false,
+    };
+
+    match ::core::primitive::bool::then_some(ours, ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
+    }
+
+    let stop = match configuration.command {
+      Command::Flag(flag) => word == flag,
+      Command::Trailing => !word.starts_with('-'),
+    };
+
+    match ::core::primitive::bool::then_some(stop, ()) {
+      ::core::option::Option::Some(()) => break,
+      ::core::option::Option::None => kept.push(word.clone()),
+    }
+  }
+
+  Ok(kept)
 }
 
 fn resumable(program: &str) -> Result<Resumable, Never> {
-    let Ok(denied) = never_resumed();
+  let Ok(denied) = never_resumed();
 
-    let refused = SHELLS.contains(&program) || denied.iter().any(|one| one == program);
+  let refused = SHELLS.contains(&program) || denied.iter().any(|one| one == program);
 
-    Ok(match refused {
-        true => Resumable::No,
-        false => Resumable::Yes,
-    })
+  Ok(match ::core::primitive::bool::then_some(refused, ()) {
+    ::core::option::Option::Some(()) => Resumable::No,
+    ::core::option::Option::None => Resumable::Yes,
+  })
 }
 
 fn never_resumed() -> Result<Vec<String>, Never> {
-    let Ok(at) = never_resume_path();
+  let Ok(at) = never_resume_path();
 
-    let said = match at {
-        Some(at) => std::fs::read_to_string(at),
-        None => return Ok(NEVER_RESUMED.iter().map(|name| (*name).to_string()).collect()),
-    };
+  let said = match at {
+    Some(at_2) => std::fs::read_to_string(at_2),
+    None => {
+      return Ok(
+        NEVER_RESUMED
+          .iter()
+          .map(|name| (*name).to_string())
+          .collect(),
+      );
+    }
+  };
 
-    Ok(match said {
-        Ok(listed) => listed
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty() && !line.starts_with('#'))
-            .map(str::to_string)
-            .collect(),
-        Err(_no_one_has_written_one) => {
-            NEVER_RESUMED.iter().map(|name| (*name).to_string()).collect()
-        },
-    })
+  Ok(match said {
+    Ok(listed) => listed
+      .lines()
+      .map(str::trim)
+      .filter(|line| !line.is_empty() && !line.starts_with('#'))
+      .map(str::to_string)
+      .collect(),
+    Err(_no_one_has_written_one) => NEVER_RESUMED
+      .iter()
+      .map(|name| (*name).to_string())
+      .collect(),
+  })
 }
 
 fn never_resume_path() -> Result<Option<PathBuf>, Never> {
-    let ours = console_core_places::Base::Configuration.ours()?;
+  let ours = console_core_places::Base::Configuration.ours()?;
 
-    Ok(ours.map(|at| at.join(crate::APPLICATION).join(NEVER_RESUME_NAME)))
+  Ok(ours.map(|at| at.join(crate::APPLICATION).join(NEVER_RESUME_NAME)))
 }
 
 fn shell_within(pid: i32) -> Result<Option<i32>, Never> {
-    let Ok(first) = children(pid);
+  let Ok(first) = children(pid);
 
-    let searched = console_core_iteration::iterate((VecDeque::from(first), 0_u32), |(mut queue, examined)| {
-        let candidate = match queue.pop_front() {
-            Some(candidate) => candidate,
-            None => return Ok(Step::Halt(None)),
-        };
+  let searched =
+    console_core_iteration::iterate((VecDeque::from(first), 0_u32), |(mut queue, examined)| {
+      let candidate = match queue.pop_front() {
+        Some(candidate) => candidate,
+        None => return Ok(Step::Halt(None)),
+      };
 
-        let examined = examined.saturating_add(1);
+      let examined_2 = examined.saturating_add(1);
 
-        match examined > SEARCH_LIMIT {
-            true => return Ok(Step::Halt(None)),
-            false => {},
+      match ::core::primitive::bool::then_some(examined_2 > SEARCH_LIMIT, ()) {
+        ::core::option::Option::Some(()) => return Ok(Step::Halt(None)),
+        ::core::option::Option::None => {}
+      }
+
+      let Ok(words) = argv_of(candidate);
+
+      let is_shell = match words.as_ref().and_then(|words_2| words_2.first()) {
+        Some(word) => {
+          let Ok(named) = binary(word);
+
+          SHELLS.contains(&named)
         }
+        None => false,
+      };
 
-        let Ok(words) = argv_of(candidate);
+      match ::core::primitive::bool::then_some(is_shell, ()) {
+        ::core::option::Option::Some(()) => return Ok(Step::Halt(Some(candidate))),
+        ::core::option::Option::None => {}
+      }
 
-        let is_shell = match words.as_ref().and_then(|words| words.first()) {
-            Some(word) => {
-                let Ok(named) = binary(word);
+      let Ok(more) = children(candidate);
 
-                SHELLS.contains(&named)
-            },
-            None => false,
-        };
+      queue.extend(more);
 
-        match is_shell {
-            true => return Ok(Step::Halt(Some(candidate))),
-            false => {},
-        }
-
-        let Ok(more) = children(candidate);
-
-        queue.extend(more);
-
-        Ok(Step::Again((queue, examined)))
+      Ok(Step::Again((queue, examined_2)))
     });
 
-    Ok(match searched {
-        Ok(found) => found,
-        Err(_endless) => None,
-    })
+  Ok(match searched {
+    Ok(found) => found,
+    Err(_endless) => None,
+  })
 }
 
 fn parse_pid(word: &str) -> Result<Option<i32>, Never> {
-    Ok(match word.parse::<i32>() {
-        Ok(number) => Some(number),
-        Err(_that_is_not_a_process) => None,
-    })
+  Ok(match word.parse::<i32>() {
+    Ok(number) => Some(number),
+    Err(_that_is_not_a_process) => None,
+  })
 }
 
 fn children(pid: i32) -> Result<Vec<i32>, Never> {
-    let mut found = Vec::new();
+  let mut found = Vec::new();
 
-    let tasks = match std::fs::read_dir(format!("/proc/{pid}/task")) {
-        Ok(tasks) => tasks,
-        Err(_it_is_gone) => return Ok(found),
-    };
+  let tasks = match std::fs::read_dir(format!("/proc/{pid}/task")) {
+    Ok(tasks) => tasks,
+    Err(_it_is_gone) => return Ok(found),
+  };
 
-    for task in tasks.flatten() {
-        match std::fs::read_to_string(task.path().join("children")) {
-            Ok(listed) => {
-                found.extend(listed.split_whitespace().filter_map(|word| {
-                    let Ok(numbered) = parse_pid(word);
+  for task in tasks.flatten() {
+    match std::fs::read_to_string(task.path().join("children")) {
+      Ok(listed) => {
+        found.extend(listed.split_whitespace().filter_map(|word| {
+          let Ok(numbered) = parse_pid(word);
 
-                    numbered
-                }));
-            },
-            Err(_that_thread_has_none) => {},
-        }
+          numbered
+        }));
+      }
+      Err(_unavailable_thread) => continue,
     }
+  }
 
-    Ok(found)
+  Ok(found)
 }
 
 struct FileStatus {
-    group: i32,
-    foreground: i32,
+  group: i32,
+  foreground: i32,
 }
 
 fn stat(pid: i32) -> Result<Option<FileStatus>, Never> {
-    let raw = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-        Ok(raw) => raw,
-        Err(_it_is_gone) => return Ok(None),
-    };
+  let raw = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+    Ok(raw) => raw,
+    Err(_it_is_gone) => return Ok(None),
+  };
 
-    let after = match raw.rsplit_once(')') {
-        Some((_its_own_name_in_brackets, after)) => after,
-        None => return Ok(None),
-    };
+  let after = match raw.rsplit_once(')') {
+    Some((_its_own_name_in_brackets, after)) => after,
+    None => return Ok(None),
+  };
 
-    let fields: Vec<&str> = after.split_whitespace().collect();
+  let fields: Vec<&str> = after.split_whitespace().collect();
 
-    let at = |which: u32| {
-        let Ok(which) = console_core_number_conversion::index(which);
+  let at = |which: u32| {
+    let Ok(which_2) = console_core_number_conversion::index(which);
 
-        match fields.get(which) {
-            Some(said) => {
-                let Ok(numbered) = parse_pid(said);
+    match fields.get(which_2) {
+      Some(said) => {
+        let Ok(numbered) = parse_pid(said);
 
-                numbered
-            },
-            None => None,
-        }
-    };
+        numbered
+      }
+      None => None,
+    }
+  };
 
-    Ok(match (at(2), at(5)) {
-        (Some(group), Some(foreground)) => Some(FileStatus { group, foreground }),
-        (None, _) | (_, None) => None,
-    })
+  Ok(match (at(2), at(5)) {
+    (Some(group), Some(foreground)) => Some(FileStatus { group, foreground }),
+    (None, _) | (_, None) => None,
+  })
 }
 
 fn argv_of(pid: i32) -> Result<Option<Vec<String>>, Never> {
-    let raw = match std::fs::read_to_string(format!("/proc/{pid}/cmdline")) {
-        Ok(raw) => raw,
-        Err(_it_is_gone) => return Ok(None),
-    };
+  let raw = match std::fs::read_to_string(format!("/proc/{pid}/cmdline")) {
+    Ok(raw) => raw,
+    Err(_it_is_gone) => return Ok(None),
+  };
 
-    let words: Vec<String> =
-        raw.split('\0').filter(|word| !word.is_empty()).map(str::to_string).collect();
+  let words: Vec<String> = raw
+    .split('\0')
+    .filter(|word| !word.is_empty())
+    .map(str::to_string)
+    .collect();
 
-    Ok(match words.is_empty() {
-        true => None,
-        false => Some(words),
-    })
+  Ok(match ::core::primitive::bool::then_some(words.is_empty(), ()) {
+    ::core::option::Option::Some(()) => None,
+    ::core::option::Option::None => Some(words),
+  })
 }
 
 fn directory(pid: i32) -> Result<Option<String>, Never> {
-    let at = match std::fs::read_link(format!("/proc/{pid}/cwd")) {
-        Ok(at) => at,
-        Err(_it_is_gone) => return Ok(None),
-    };
+  let at = match std::fs::read_link(format!("/proc/{pid}/cwd")) {
+    Ok(at) => at,
+    Err(_it_is_gone) => return Ok(None),
+  };
 
-    Ok(at.to_str().map(str::to_string))
+  Ok(at.to_str().map(str::to_string))
 }
 
 fn binary_path(word: &str) -> Result<&str, Never> {
-    Ok(match word.strip_prefix('-') {
-        Some(after) => after,
-        None => word,
-    })
+  Ok(match word.strip_prefix('-') {
+    Some(after) => after,
+    None => word,
+  })
 }
 
 fn binary(word: &str) -> Result<&str, Never> {
-    let Ok(path) = binary_path(word);
+  let Ok(path) = binary_path(word);
 
-    Ok(match path.rsplit('/').next() {
-        Some(binary) => binary,
-        None => path,
-    })
+  Ok(match path.rsplit('/').next() {
+    Some(binary) => binary,
+    None => path,
+  })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn arguments(words: &[&str]) -> Result<Vec<String>, Never> {
-        Ok(words.iter().map(|word| (*word).to_string()).collect())
-    }
+  fn arguments(words: &[&str]) -> Result<Vec<String>, Never> {
+    Ok(words.iter().map(|word| (*word).to_string()).collect())
+  }
 
-    fn occupant(directory: &str, program: &[&str]) -> Result<Occupant, Never> {
-        let Ok(program_words) = arguments(program);
+  fn occupant(directory: &str, program: &[&str]) -> Result<Occupant, Never> {
+    let Ok(program_words) = arguments(program);
 
-        Ok(Occupant {
-            directory: Some(directory.to_string()),
-            program: match program.is_empty() {
-                true => None,
-                false => Some(program_words),
-            },
-            shell: Some("/usr/bin/zsh".to_string()),
-        })
-    }
+    Ok(Occupant {
+      directory: Some(directory.to_string()),
+      program: match ::core::primitive::bool::then_some(program.is_empty(), ()) {
+        ::core::option::Option::Some(()) => None,
+        ::core::option::Option::None => Some(program_words),
+      },
+      shell: Some("/usr/bin/zsh".to_string()),
+    })
+  }
 
-    fn restore(words: &[&str], occupant: &Occupant) -> Result<Option<Vec<String>>, Never> {
-        let Ok(words) = arguments(words);
+  fn restore(words: &[&str], occupant: &Occupant) -> Result<Option<Vec<String>>, Never> {
+    let Ok(words_2) = arguments(words);
 
-        super::restore(&words, occupant)
-    }
+    super::restore(&words_2, occupant)
+  }
 
-    fn comes_back_as(words: &[&str]) -> Result<Option<Vec<String>>, Never> {
-        let Ok(words) = arguments(words);
+  fn comes_back_as(words: &[&str]) -> Result<Option<Vec<String>>, Never> {
+    let Ok(words_2) = arguments(words);
 
-        Ok(Some(words))
-    }
+    Ok(Some(words_2))
+  }
 
-    #[test]
-    fn brings_back_the_directory_the_shell_was_in() {
-        let Ok(occupant) = occupant("/home/ada/Documents/projects/website", &[]);
+  #[test]
+  fn brings_back_the_directory_the_shell_was_in() {
+    let Ok(occupant) = occupant("/home/ada/Documents/projects/website", &[]);
 
-        assert_eq!(
-            restore(
-                &["foot", "--working-directory=/home/ada"],
-                &occupant
-            ),
-            comes_back_as(&["foot", "--working-directory=/home/ada/Documents/projects/website"])
-        );
-    }
+    assert_eq!(
+      restore(&["foot", "--working-directory=/home/ada"], &occupant),
+      comes_back_as(&[
+        "foot",
+        "--working-directory=/home/ada/Documents/projects/website"
+      ])
+    );
+  }
 
-    #[test]
-    fn brings_back_the_program_through_the_shell_that_ran_it() {
-        let Ok(occupant) = occupant("/home/ada/notes", &["nvim", "today.md"]);
+  #[test]
+  fn brings_back_the_program_through_the_shell_that_ran_it() {
+    let Ok(occupant) = occupant("/home/ada/notes", &["nvim", "today.md"]);
 
-        assert_eq!(
-            restore(&["foot"], &occupant),
-            comes_back_as(&[
-                "foot",
-                "--working-directory=/home/ada/notes",
-                "-e",
-                "/usr/bin/zsh",
-                "-i",
-                "-c",
-                "nvim today.md; exec /usr/bin/zsh -i",
-            ])
-        );
-    }
+    assert_eq!(
+      restore(&["foot"], &occupant),
+      comes_back_as(&[
+        "foot",
+        "--working-directory=/home/ada/notes",
+        "-e",
+        "/usr/bin/zsh",
+        "-i",
+        "-c",
+        "nvim today.md; exec /usr/bin/zsh -i",
+      ])
+    );
+  }
 
-    #[test]
-    fn quotes_a_program_argument_that_would_otherwise_be_shell_syntax() {
-        let Ok(occupant) = occupant("/tmp", &["nvim", "two words"]);
-        let Ok(line) = restore(&["foot"], &occupant);
+  #[test]
+  fn quotes_a_program_argument_that_would_otherwise_be_shell_syntax() {
+    let Ok(occupant) = occupant("/home/console-test", &["nvim", "two words"]);
+    let Ok(line) = restore(&["foot"], &occupant);
 
-        assert_eq!(
-            line.as_ref().and_then(|line| line.last()).map(String::as_str),
-            Some("nvim 'two words'; exec /usr/bin/zsh -i")
-        );
-    }
+    assert_eq!(
+      line
+        .as_ref()
+        .and_then(|line_2| line_2.last())
+        .map(String::as_str),
+      Some("nvim 'two words'; exec /usr/bin/zsh -i")
+    );
+  }
 
-    #[test]
-    fn steps_into_the_directory_when_the_terminal_has_no_option_for_it() {
-        let Ok(occupant) = occupant("/home/ada/notes", &["nvim"]);
+  #[test]
+  fn steps_into_the_directory_when_the_terminal_has_no_option_for_it() {
+    let Ok(occupant) = occupant("/home/ada/notes", &["nvim"]);
 
-        assert_eq!(
-            restore(&["xterm"], &occupant),
-            comes_back_as(&[
-                "xterm",
-                "-e",
-                "/usr/bin/zsh",
-                "-i",
-                "-c",
-                "cd /home/ada/notes; nvim; exec /usr/bin/zsh -i",
-            ])
-        );
-    }
+    assert_eq!(
+      restore(&["xterm"], &occupant),
+      comes_back_as(&[
+        "xterm",
+        "-e",
+        "/usr/bin/zsh",
+        "-i",
+        "-c",
+        "cd /home/ada/notes; nvim; exec /usr/bin/zsh -i",
+      ])
+    );
+  }
 
-    #[test]
-    fn replaces_the_options_it_sets_and_keeps_the_rest() {
-        let Ok(occupant) = occupant("/tmp", &["nvim", "new.md"]);
+  #[test]
+  fn replaces_the_options_it_sets_and_keeps_the_rest() {
+    let Ok(occupant) = occupant("/home/console-test", &["nvim", "new.md"]);
 
-        assert_eq!(
-            restore(
-                &[
-                    "foot",
-                    "--font=Mono:size=12",
-                    "--working-directory=/home/ada",
-                    "-e",
-                    "nvim",
-                    "old.md"
-                ],
-                &occupant
-            ),
-            comes_back_as(&[
-                "foot",
-                "--font=Mono:size=12",
-                "--working-directory=/tmp",
-                "-e",
-                "/usr/bin/zsh",
-                "-i",
-                "-c",
-                "nvim new.md; exec /usr/bin/zsh -i",
-            ])
-        );
-    }
+    assert_eq!(
+      restore(
+        &[
+          "foot",
+          "--font=Mono:size=12",
+          "--working-directory=/home/ada",
+          "-e",
+          "nvim",
+          "old.md"
+        ],
+        &occupant
+      ),
+      comes_back_as(&[
+        "foot",
+        "--font=Mono:size=12",
+        "--working-directory=/home/console-test",
+        "-e",
+        "/usr/bin/zsh",
+        "-i",
+        "-c",
+        "nvim new.md; exec /usr/bin/zsh -i",
+      ])
+    );
+  }
 
-    #[test]
-    fn reads_a_directory_option_that_stands_apart_from_its_value() {
-        let Ok(occupant) = occupant("/tmp", &[]);
+  #[test]
+  fn reads_a_directory_option_that_stands_apart_from_its_value() {
+    let Ok(occupant) = occupant("/home/console-test", &[]);
 
-        assert_eq!(
-            restore(
-                &["alacritty", "--working-directory", "/home/ada", "--title", "x"],
-                &occupant
-            ),
-            comes_back_as(&["alacritty", "--title", "x", "--working-directory", "/tmp"])
-        );
-    }
+    assert_eq!(
+      restore(
+        &[
+          "alacritty",
+          "--working-directory",
+          "/home/ada",
+          "--title",
+          "x"
+        ],
+        &occupant
+      ),
+      comes_back_as(&[
+        "alacritty",
+        "--title",
+        "x",
+        "--working-directory",
+        "/home/console-test"
+      ])
+    );
+  }
 
-    #[test]
-    fn puts_a_subcommand_first_and_a_command_last() {
-        let Ok(occupant) = occupant("/tmp", &["btop"]);
+  #[test]
+  fn puts_a_subcommand_first_and_a_command_last() {
+    let Ok(occupant) = occupant("/home/console-test", &["btop"]);
 
-        assert_eq!(
-            restore(&["wezterm", "start", "--cwd", "/home/ada"], &occupant),
-            comes_back_as(&[
-                "wezterm",
-                "start",
-                "--cwd",
-                "/tmp",
-                "--",
-                "/usr/bin/zsh",
-                "-i",
-                "-c",
-                "btop; exec /usr/bin/zsh -i",
-            ])
-        );
-    }
+    assert_eq!(
+      restore(&["wezterm", "start", "--cwd", "/home/ada"], &occupant),
+      comes_back_as(&[
+        "wezterm",
+        "start",
+        "--cwd",
+        "/home/console-test",
+        "--",
+        "/usr/bin/zsh",
+        "-i",
+        "-c",
+        "btop; exec /usr/bin/zsh -i",
+      ])
+    );
+  }
 
-    #[test]
-    fn drops_the_command_a_terminal_carries_without_an_option() {
-        let Ok(occupant) = occupant("/tmp", &["nvim", "new.md"]);
+  #[test]
+  fn drops_the_command_a_terminal_carries_without_an_option() {
+    let Ok(occupant) = occupant("/home/console-test", &["nvim", "new.md"]);
 
-        assert_eq!(
-            restore(
-                &["kitty", "--directory", "/home/ada", "nvim", "old.md"],
-                &occupant
-            ),
-            comes_back_as(&[
-                "kitty",
-                "--directory",
-                "/tmp",
-                "/usr/bin/zsh",
-                "-i",
-                "-c",
-                "nvim new.md; exec /usr/bin/zsh -i",
-            ])
-        );
-    }
+    assert_eq!(
+      restore(
+        &["kitty", "--directory", "/home/ada", "nvim", "old.md"],
+        &occupant
+      ),
+      comes_back_as(&[
+        "kitty",
+        "--directory",
+        "/home/console-test",
+        "/usr/bin/zsh",
+        "-i",
+        "-c",
+        "nvim new.md; exec /usr/bin/zsh -i",
+      ])
+    );
+  }
 
-    #[test]
-    fn leaves_alone_a_window_that_is_not_a_terminal_it_knows() {
-        let Ok(occupant) = occupant("/home/ada", &["nvim"]);
+  #[test]
+  fn leaves_alone_a_window_that_is_not_a_terminal_it_knows() {
+    let Ok(occupant) = occupant("/home/ada", &["nvim"]);
 
-        assert_eq!(restore(&["librewolf"], &occupant), Ok(None));
-    }
+    assert_eq!(restore(&["librewolf"], &occupant), Ok(None));
+  }
 
-    #[test]
-    fn leaves_alone_a_terminal_whose_tree_said_nothing() {
-        assert_eq!(restore(&["foot"], &Occupant::default()), Ok(None));
-    }
+  #[test]
+  fn leaves_alone_a_terminal_whose_tree_said_nothing() {
+    assert_eq!(restore(&["foot"], &Occupant::default()), Ok(None));
+  }
 
-    #[test]
-    fn refuses_to_start_a_shell_or_a_half_finished_upgrade_again() {
-        assert_eq!(resumable("nvim"), Ok(Resumable::Yes));
-        assert_eq!(resumable("claude"), Ok(Resumable::Yes));
-        assert_eq!(resumable("zsh"), Ok(Resumable::No));
-        assert_eq!(resumable("sudo"), Ok(Resumable::No));
-        assert_eq!(resumable("pacman"), Ok(Resumable::No));
-    }
+  #[test]
+  fn refuses_to_start_a_shell_or_a_half_finished_upgrade_again() {
+    assert_eq!(resumable("nvim"), Ok(Resumable::Yes));
+    assert_eq!(resumable("claude"), Ok(Resumable::Yes));
+    assert_eq!(resumable("zsh"), Ok(Resumable::No));
+    assert_eq!(resumable("sudo"), Ok(Resumable::No));
+    assert_eq!(resumable("pacman"), Ok(Resumable::No));
+  }
 
-    #[test]
-    fn names_a_program_without_its_path_or_a_login_shell_s_dash() {
-        assert_eq!(binary("/usr/bin/zsh"), Ok("zsh"));
-        assert_eq!(binary("-zsh"), Ok("zsh"));
-        assert_eq!(binary("-/usr/bin/zsh"), Ok("zsh"));
-        assert_eq!(binary_path("-/usr/bin/zsh"), Ok("/usr/bin/zsh"));
-    }
+  #[test]
+  fn names_a_program_without_its_path_or_a_login_shell_s_dash() {
+    assert_eq!(binary("/usr/bin/zsh"), Ok("zsh"));
+    assert_eq!(binary("-zsh"), Ok("zsh"));
+    assert_eq!(binary("-/usr/bin/zsh"), Ok("zsh"));
+    assert_eq!(binary_path("-/usr/bin/zsh"), Ok("/usr/bin/zsh"));
+  }
 
-    #[test]
-    fn says_nothing_about_a_process_tree_with_no_shell_in_it() {
-        let Ok(mine) = console_core_number_conversion::fitted::<u32, i32>(std::process::id());
+  #[test]
+  fn says_nothing_about_a_process_tree_with_no_shell_in_it() {
+    let Ok(mine) = console_core_number_conversion::fitted::<u32, i32>(std::process::id());
 
-        assert_eq!(inspect(mine), Ok(Occupant::default()));
-    }
+    assert_eq!(inspect(mine), Ok(Occupant::default()));
+  }
 }

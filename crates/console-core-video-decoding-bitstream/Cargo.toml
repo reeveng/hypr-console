@@ -1,0 +1,18 @@
+[package]
+name = "console-core-video-decoding-bitstream"
+version = "0.4.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_core_video_decoding_bitstream"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-iteration.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+
+[lints]
+workspace = true

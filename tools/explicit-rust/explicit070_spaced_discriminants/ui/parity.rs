@@ -1,0 +1,18 @@
+// run-rustfix
+// edition:2024
+
+#[derive(Clone, Copy)]
+#[repr(u16)]
+enum Payload {
+    Zero = 0,
+    One,
+    Four = 4,
+    Five,
+}
+
+fn main() {
+    assert_eq!(Payload::Zero as u8, 0);
+    assert_eq!((Payload::One as u8) & 7, 1);
+    assert_eq!((Payload::Four as u8) & 7, 4);
+    assert_eq!(Payload::Five as u8, 5);
+}

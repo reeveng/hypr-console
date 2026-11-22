@@ -6,6 +6,10 @@
 //! device already uses. So there is no second pad for the daemons to find and
 //! nothing to clean up if a check stops halfway.
 //!
+//! Completion checks ask immediately, then use the shared wait only while
+//! pending. Query time spends the deadline, query failures propagate, and dry
+//! runs advance virtual time through the same wait without sleeping.
+//!
 //! Every press is a chord, and that is not a shorthand for a press. InputPlumber
 //! has two ways to be asked for an event and only one of them works: `SendEvent`
 //! reaches a `blocking_send` on a tokio worker and panics the daemon's own task
@@ -48,16 +52,15 @@
 //! kept and never showed, so a whole evening of timeouts read as bad Wi-Fi. The
 //! link is printed on its own line whenever ssh says one.
 
-
 use console_core_external_programs::Program;
-use console_core_number_conversion::{duration_from_seconds, fitted};
-use console_waiting::Schedule;
+use console_core_number_conversion::fitted;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use console_core_geometry::Point;
 use console_core_never::Never;
+pub use console_input_gamepad::devices::TriggerTravel;
 use console_input_gamepad::profile::{Kind, Profile};
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::vocabulary;
@@ -72,46 +75,46 @@ const EMPTY_WORKSPACE: &str = "empty";
 
 const NO_WINDOWS: i64 = 0;
 
-
 pub const COMM: u32 = 15;
 
 pub fn comm(named: &str) -> Result<&str, Never> {
-    let Ok(comm) = console_core_number_conversion::index(COMM);
+  let Ok(comm) = console_core_number_conversion::index(COMM);
 
-    Ok(match named.get(..comm) {
-        Some(cut) => cut,
-        None => named,
-    })
+  Ok(match named.get(..comm) {
+    Some(cut) => cut,
+    None => named,
+  })
 }
 
 pub fn host() -> Result<String, Error> {
-    let said = console_device_name::device()?;
+  let said = console_device_name::device()?;
 
-    match said.trim().is_empty() {
-        true => Err(Error::Hostless),
-        false => Ok(said),
-    }
+  match ::core::primitive::bool::then_some(said.trim().is_empty(), ()) {
+    ::core::option::Option::Some(()) => Err(Error::Hostless),
+    ::core::option::Option::None => Ok(said),
+  }
 }
 
-const PIECES: [&str; 18] = [
-    "console-input-controller",
-    "console-input-keyboard",
-    "console-bar",
-    "console-notify",
-    "console-panels",
-    "console-polkit",
-    "console-session",
-    "console-paper",
-    "console-wallpaper",
-    "console-events",
-    "console-home",
-    "console-control-center",
-    "console-overview",
-    "console-idle",
-    "console-warm",
-    "console-light",
-    "console-wifi",
-    "syncthing",
+const PIECES: [&str; 19] = [
+  "console-input-controller",
+  "console-input-keyboard",
+  "console-bar",
+  "console-clipboard",
+  "console-notify",
+  "console-panels",
+  "console-polkit",
+  "console-session",
+  "console-paper",
+  "console-wallpaper",
+  "console-events",
+  "console-home",
+  "console-control-center",
+  "console-overview",
+  "console-idle",
+  "console-warm",
+  "console-light",
+  "console-wifi",
+  "syncthing",
 ];
 
 const BY_A_SWITCH: [&str; 2] = ["console-warm", "console-light"];
@@ -121,24 +124,29 @@ const SENDEVENT: &str = "InputPlumber's SendEvent panics on its own runtime rath
      press instead, and see the backlog";
 
 const BUS: (&str, &str, &str) = (
-    "org.shadowblip.InputPlumber",
-    "/org/shadowblip/InputPlumber/CompositeDevice0",
-    "org.shadowblip.Input.CompositeDevice",
+  "org.shadowblip.InputPlumber",
+  "/org/shadowblip/InputPlumber/CompositeDevice0",
+  "org.shadowblip.Input.CompositeDevice",
 );
 
 fn session_environment(whom: &str) -> Result<String, Never> {
-    Ok(format!(
-        "export XDG_RUNTIME_DIR=/run/user/$(id -u {whom}); \
+  Ok(format!(
+    "export XDG_RUNTIME_DIR=/run/user/$(id -u {whom}); \
          export HYPRLAND_INSTANCE_SIGNATURE=$(ls -1t \"$XDG_RUNTIME_DIR/hypr\" 2>/dev/null | head -1); \
          export WAYLAND_DISPLAY=$(ls -1t \"$XDG_RUNTIME_DIR\" 2>/dev/null \
          | grep -E '^wayland-[0-9]+$' | head -1); \
          [ -n \"$HYPRLAND_INSTANCE_SIGNATURE\" ] || \
          {{ echo 'nothing on the device is in a Hyprland session' >&2; exit 1; }}"
-    ))
+  ))
 }
 
 fn logins(said: &str) -> Result<Vec<&str>, Never> {
-    Ok(said.split_whitespace().filter(|word| word.starts_with(LOGIN)).collect())
+  Ok(
+    said
+      .split_whitespace()
+      .filter(|word| word.starts_with(LOGIN))
+      .collect(),
+  )
 }
 
 const LOGIN: &str = "https://login.tailscale.com/";
@@ -149,8 +157,6 @@ pub const SETTLED: f64 = 0.6;
 
 pub const PATIENCE: f64 = 4.0;
 
-const ASKING: Duration = Duration::from_millis(500);
-
 pub const OPENING: f64 = 12.0;
 
 pub const LEAVING: f64 = 12.0;
@@ -158,12 +164,12 @@ pub const LEAVING: f64 = 12.0;
 const WALLPAPER_SURFACE: &str = "hyprpaper";
 
 fn spoken_as(kind: Kind, name: &str) -> Result<Option<String>, Never> {
-    Ok(match kind {
-        Kind::Key => Some(format!("Keyboard:{name}")),
-        Kind::MouseButton => Some(format!("Mouse:Button:{name}")),
-        Kind::GamepadButton => Some(format!("Gamepad:Button:{name}")),
-        Kind::MouseMotion | Kind::GamepadAxis | Kind::GamepadTrigger => None,
-    })
+  Ok(match kind {
+    Kind::Key => Some(format!("Keyboard:{name}")),
+    Kind::MouseButton => Some(format!("Mouse:Button:{name}")),
+    Kind::GamepadButton => Some(format!("Gamepad:Button:{name}")),
+    Kind::MouseMotion | Kind::GamepadAxis | Kind::GamepadTrigger => None,
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,57 +177,109 @@ struct Value<'a>(&'a str);
 
 #[derive(Debug, Default)]
 struct Came {
-    which: String,
-    where_: String,
+  which: String,
+  where_: String,
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit048_no_unreal_state",
-    allow(
-        explicit048_no_unreal_state,
-        reason = "`dry` is how this stage was started and the absences are what it has learnt since -- whose machine it is, a picture taken, a profile kept, the screen, a watcher; a dry stage that has read the screen is the ordinary one"
-    )
+  dylint_lib = "explicit048_no_unreal_state",
+  allow(
+    explicit048_no_unreal_state,
+    reason = "`dry` is how this stage was started and the absences are what it has learnt since -- whose machine it is, a picture taken, a profile kept, the screen, a watcher; a dry stage that has read the screen is the ordinary one"
+  )
 )]
-pub struct Device {
-    pub host: String,
-    whom: Option<String>,
-    pub dry_run: bool,
-    pub done: Vec<String>,
-    profiles: BTreeMap<String, Profile>,
-    taken: Option<Picture>,
-    kept: Option<PathBuf>,
-    opened: Vec<String>,
-    pushed: Pushed,
-    screen: Option<console_screen::Screen>,
-    watching: Option<std::sync::Arc<std::sync::Mutex<crate::watching::Watching>>>,
+pub struct Device<'watch> {
+  host: String,
+  whom: Option<String>,
+  dry_run: DryRun,
+  done: Vec<String>,
+  profiles: BTreeMap<String, Profile>,
+  taken: Option<Picture>,
+  kept: Option<PathBuf>,
+  opened: Vec<String>,
+  pushed: Pushed,
+  screen: Option<console_screen::Screen>,
+  watching: Option<&'watch std::sync::Mutex<crate::watching::Watching>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pushed {
-    Some,
-    None,
+  Some,
+  None,
+}
+
+impl From<f64> for Pushed {
+  fn from(amount: f64) -> Self {
+    match amount.classify() {
+      core::num::FpCategory::Zero => Self::None,
+      core::num::FpCategory::Nan
+      | core::num::FpCategory::Infinite
+      | core::num::FpCategory::Subnormal
+      | core::num::FpCategory::Normal => Self::Some,
+    }
+  }
+}
+
+#[derive(Clone, Copy)]
+pub enum Wait {
+  For(Duration),
+  TooLong,
+  Invalid,
+}
+
+impl From<f64> for Wait {
+  fn from(seconds: f64) -> Self {
+    match Duration::try_from_secs_f64(seconds) {
+      Ok(span) => Self::For(span),
+      Err(_out_of_range) => match bool::then_some(seconds > 0.0, ()) {
+        Some(()) => Self::TooLong,
+        None => Self::Invalid,
+      },
+    }
+  }
+}
+
+impl From<Duration> for Wait {
+  fn from(span: Duration) -> Self {
+    Self::For(span)
+  }
+}
+
+impl Wait {
+  fn limit(self) -> Result<Duration, Never> {
+    Ok(match self {
+      Self::For(span) => span,
+      Self::TooLong => Duration::MAX,
+      Self::Invalid => Duration::ZERO,
+    })
+  }
 }
 
 fn lookup<'a>(table: &'a [(&'a str, &'a str)], spoken: &str) -> Result<Option<&'a str>, Never> {
-    Ok(table.iter().find(|(said, _)| *said == spoken).map(|(_, name)| *name))
+  Ok(
+    table
+      .iter()
+      .find(|(said, _)| *said == spoken)
+      .map(|(_, name)| *name),
+  )
 }
 
 fn suggestions(table: &[(&str, &str)]) -> Result<String, Never> {
-    let every: Vec<&str> = table.iter().map(|(spoken, _)| *spoken).collect();
+  let every: Vec<&str> = table.iter().map(|(spoken, _)| *spoken).collect();
 
-    Ok(format!("try one of {}", every.join(", ")))
+  Ok(format!("try one of {}", every.join(", ")))
 }
 
 fn menus_up(seen: &mut Device) -> Result<Ready, Never> {
-    let Ok(menus) = seen.menus();
+  let Ok(menus) = seen.menus();
 
-    Ok(match menus.is_empty() {
-        true => Ready::NotYet,
-        false => Ready::Yes,
-    })
+  Ok(match ::core::primitive::bool::then_some(menus.is_empty(), ()) {
+    ::core::option::Option::Some(()) => Ready::NotYet,
+    ::core::option::Option::None => Ready::Yes,
+  })
 }
 
-pub use console_waiting::{Ready, Outcome};
+pub use console_waiting::{Outcome, Ready};
 
 pub const A_MOMENT: f64 = 2.0;
 
@@ -229,920 +287,1003 @@ pub const A_PICTURE: f64 = 10.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DryRun {
-    Pretend,
-    Really,
+  Pretend,
+  Really,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
-    At(i64),
-    Unsaid,
+  At(i64),
+  Unsaid,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Way {
-    Up,
-    Down,
+  Up,
+  Down,
 }
 
 impl Level {
-    pub fn expect_moved(self, way: Way, from: Level, unsaid: &str) -> CheckResult {
-        let (was, now) = match (from, self) {
-            (Level::At(was), Level::At(now)) => (was, now),
-            (Level::Unsaid, _) | (_, Level::Unsaid) => return failed(unsaid.to_string()),
-        };
+  pub fn expect_moved(self, way: Way, from: Level, unsaid: &str) -> CheckResult {
+    let (was, now) = match (from, self) {
+      (Level::At(was), Level::At(now)) => (was, now),
+      (Level::Unsaid, _) | (_, Level::Unsaid) => return failed(unsaid.to_string()),
+    };
 
-        let why = || format!("it was {was} and is {now}");
+    let why = || format!("it was {was} and is {now}");
 
-        match way {
-            Way::Up => more_than(now, was, why),
-            Way::Down => less_than(now, was, why),
-        }
+    match way {
+      Way::Up => more_than(now, was, why),
+      Way::Down => less_than(now, was, why),
     }
+  }
 }
 
 fn brightness_in(said: &str) -> Result<Level, Never> {
-    let line = match said.lines().next() {
-        Some(line) => line,
-        None => return Ok(Level::Unsaid),
-    };
+  let line = match said.lines().next() {
+    Some(line) => line,
+    None => return Ok(Level::Unsaid),
+  };
 
-    Ok(match line.trim().parse() {
-        Ok(brightness) => Level::At(brightness),
-        Err(_unreadable) => Level::Unsaid,
-    })
+  Ok(match line.trim().parse() {
+    Ok(brightness) => Level::At(brightness),
+    Err(_unreadable) => Level::Unsaid,
+  })
 }
 
 fn volume_in(said: &str) -> Result<Level, Never> {
-    let word = said.lines().next().and_then(|line| line.split_whitespace().nth(4));
+  let word = said
+    .lines()
+    .next()
+    .and_then(|line| line.split_whitespace().nth(4));
 
-    let word = match word {
-        Some(word) => word,
-        None => return Ok(Level::Unsaid),
-    };
+  let word_3 = match word {
+    Some(word_2) => word_2,
+    None => return Ok(Level::Unsaid),
+  };
 
-    Ok(match word.trim_end_matches('%').parse() {
-        Ok(volume) => Level::At(volume),
-        Err(_unreadable) => Level::Unsaid,
-    })
+  Ok(match word_3.trim_end_matches('%').parse() {
+    Ok(volume) => Level::At(volume),
+    Err(_unreadable) => Level::Unsaid,
+  })
 }
 
-impl Device {
-    pub fn new(host: &str, dry_run: DryRun) -> Result<Self, Error> {
-        let Ok(root) = crate::root();
-        let profiles = every_profile(&root)?;
-
-        Ok(Device {
-            host: host.to_string(),
-            dry_run: dry_run == DryRun::Pretend,
-            done: Vec::new(),
-            profiles,
-            taken: None,
-            kept: None,
-            opened: Vec::new(),
-            whom: None,
-            pushed: Pushed::None,
-            screen: None,
-            watching: None,
-        })
-    }
-
-    pub fn whoever(&mut self) -> Result<String, Never> {
-        match &self.whom {
-            Some(known) => return Ok(known.clone()),
-            None => {},
-        }
-
-        #[cfg_attr(
-            dylint_lib = "explicit026_env_read_once",
-            allow(
-                explicit026_env_read_once,
-                reason = "CONSOLE_USER says whose the device is when the device cannot be asked, and asking the device is what this file does"
-            )
-        )]
-        let told = match std::env::var("CONSOLE_USER") {
-            Ok(said) => match said.trim().is_empty() {
-                true => None,
-                false => Some(said.trim().to_string()),
-            },
-            Err(_unset) => None,
-        };
-
-        let said = match told {
-            Some(said) => said,
-            None => {
-                let Ok(said) = self.ssh(
-                    "set -- $(ls -1 /home 2>/dev/null); \
-                     if [ $# -eq 1 ]; then echo \"$1\"; else id -nu 1000; fi",
-                );
-
-                said
-            }
-        };
-
-        let said = match said.trim().is_empty() {
-            true => console_manifest_migrations::USER.to_string(),
-            false => said.trim().to_string(),
-        };
-
-        self.whom = Some(said.clone());
-
-        Ok(said)
-    }
-
-    pub fn home(&mut self) -> Result<String, Never> {
-        let Ok(whom) = self.whoever();
-
-        Ok(format!("/home/{whom}"))
-    }
-
-    pub fn set_watching(
-        &mut self,
-        watching: std::sync::Arc<std::sync::Mutex<crate::watching::Watching>>,
-    ) -> Result<(), Never> {
-        self.watching = Some(watching);
-
-        Ok(())
-    }
-
-    fn along(&mut self) -> Result<String, Never> {
-        let watching = match self.watching.as_ref() {
-            Some(watching) => watching,
-            None => return Ok(String::new()),
-        };
-
-        let Ok(mut held) = crate::watching::lock(watching);
-
-        held.tick()
-    }
-
-    pub fn ssh(&mut self, command: &str) -> Result<String, Never> {
-        self.done.push(command.to_string());
-
-        match self.dry_run {
-            true => return Ok(String::new()),
-            false => {},
-        }
-
-        let Ok(along) = self.along();
-        let asked = format!("{command}{along}");
-        let Ok(mut asking) = Program::Ssh.command();
-
-        let done = asking
-            .args(["-o", "BatchMode=yes", &self.host, &asked])
-            .output();
-
-        Ok(match done {
-            Ok(done) => {
-                let complained = String::from_utf8_lossy(&done.stderr);
-                let Ok(links) = logins(&complained);
-
-                for link in links {
-                    eprintln!("\nconsole-test-stages: {} will not answer until this is approved in a browser:\n\n    {link}\n", self.host);
-                }
-
-                String::from_utf8_lossy(&done.stdout).trim().to_string()
-            }
-            Err(fault) => {
-                eprintln!("console-test-stages: ssh {}: {fault}", self.host);
-
-                String::new()
-            }
-        })
-    }
-
-    pub fn in_session(&mut self, command: &str) -> Result<String, Never> {
-        let Ok(whom) = self.whoever();
-        let Ok(session) = session_environment(&whom);
-        let asked = format!("{session} && {command}");
-
-        self.user(&asked)
-    }
-
-    pub fn user(&mut self, command: &str) -> Result<String, Never> {
-        let Ok(whom) = self.whoever();
-        let Ok(quoted) = shell_quote(command);
-        let asked = format!("machinectl shell --uid={whom} .host /bin/sh -c {quoted}");
-
-        self.ssh(&asked)
-    }
-
-    pub fn read_descriptions(&mut self, at: &str) -> Result<Vec<console_panel::description::Description>, Never> {
-        let Ok(said) = self.in_session(&format!("cat {at} 2>/dev/null"));
-
-        Ok(said
-            .lines()
-            .filter_map(|line| match console_panel::description::read(line) {
-                Ok(drew) => Some(drew),
-                Err(_not_a_draw) => None,
-            })
-            .collect())
-    }
-
-    pub fn hypr(&mut self, command: &str) -> Result<String, Never> {
-        self.in_session(&format!("hyprctl {command}"))
-    }
-
-    fn loaded(&mut self) -> Result<Option<Profile>, Never> {
-        let Ok(profile) = self.profile();
-        let loaded = profile.to_lowercase();
-
-        Ok(self
-            .profiles
-            .values()
-            .find(|known| known.name.to_lowercase() == loaded)
-            .cloned())
-    }
-
-    fn capability(&mut self, button: &str) -> Result<Option<String>, Never> {
-        let Ok(loaded) = self.loaded();
-
-        capability_under(loaded.as_ref(), button)
-    }
-
-    fn chorded(&mut self, capabilities: &[String]) -> Result<String, Never> {
-        self.taken = None;
-
-        let Ok(chord) = chord(capabilities);
-        let Ok(asked) = calling(&chord);
-
-        self.ssh(&asked)
-    }
-
-    pub fn press(&mut self, button: &str) -> Result<(), Never> {
-        let Ok(found) = self.capability(button);
-
-        let capability = match found {
-            Some(capability) => capability,
-            None => return Ok(()),
-        };
-
-        let Ok(_) = self.chorded(&[capability]);
-
-        Ok(())
-    }
-
-    pub fn presses(&mut self, button: &str, times: u32) -> Result<(), Never> {
-        self.taken = None;
-
-        let Ok(found) = self.capability(button);
-
-        let capability = match found {
-            Some(capability) => capability,
-            None => return Ok(()),
-        };
-
-        let Ok(chord) = chord(&[capability]);
-        let Ok(asked) = calling(&chord);
-        let Ok(_) = self.ssh(&format!(
-            "for _ in $(seq {times}); do {asked}; sleep {LET_GO}; done"
-        ));
-
-        Ok(())
-    }
-
-    pub fn hold(&mut self, _button: &str) -> CheckResult {
-        cannot(SENDEVENT)
-    }
-
-    pub fn release(&mut self, _button: Option<&str>) -> CheckResult {
-        cannot(SENDEVENT)
-    }
-
-    pub fn trigger(&mut self, which: &str, amount: f64) -> CheckResult {
-        let Ok(found) = lookup(&vocabulary::TRIGGERS, which);
-
-        let named = match found {
-            Some(named) => named,
-            None => {
-                let Ok(said) = suggestions(&vocabulary::TRIGGERS);
-
-                return failed(format!("there is no trigger called {which:?}; {said}"));
-            }
-        };
-
-        match (0.0..=1.0).contains(&amount) {
-            true => {},
-            false => return failed(format!("a trigger is pulled between 0 and 1, not {amount}")),
-        }
-
-        let Ok(()) = self.pushed(amount);
-
-        self.axis(&format!("Gamepad:Trigger:{named}"), Value(&format!("d {amount:.3}")))
-    }
-
-    pub fn thumbstick(&mut self, which: &str, to: Point<f64>) -> CheckResult {
-        let Ok(found) = lookup(&vocabulary::AXES, which);
-
-        let named = match found {
-            Some(named) => named,
-            None => {
-                let Ok(said) = suggestions(&vocabulary::AXES);
-
-                return failed(format!("there is no thumbstick called {which:?}; {said}"));
-            }
-        };
-
-        for amount in [to.x, to.y] {
-            match (-1.0..=1.0).contains(&amount) {
-                true => {},
-                false => return failed(format!("push a thumbstick between -1 and 1, not {amount}")),
-            }
-        }
-
-        let Ok(()) = self.pushed(to.x.abs().max(to.y.abs()));
-
-        let (across, down) = (to.x, to.y);
-
-        self.axis(
-            &format!("Gamepad:Axis:{named}"),
-            Value(&format!("\"(dd)\" {across:.3} {down:.3}")),
-        )
-    }
-
-    pub fn let_go(&mut self) -> CheckResult {
-        self.pushed = Pushed::None;
-
-        for (spoken, _) in vocabulary::AXES {
-            self.thumbstick(spoken, Point { x: 0.0, y: 0.0 })?;
-        }
-
-        for (spoken, _) in vocabulary::TRIGGERS {
-            self.trigger(spoken, 0.0)?;
-        }
-
-        Ok(())
-    }
-
-    fn pushed(&mut self, amount: f64) -> Result<(), Never> {
-        self.taken = None;
-
-        match amount == 0.0 {
-            true => {},
-            false => self.pushed = Pushed::Some,
-        }
-
-        Ok(())
-    }
-
-    fn axis(&mut self, capability: &str, value: Value<'_>) -> CheckResult {
-        let Ok(quoted) = shell_quote(capability);
-        let value = value.0;
-        let asked = format!(
-            "busctl --system call {} {} {} SendEvent sv {quoted} {value} 2>&1",
-            BUS.0, BUS.1, BUS.2,
-        );
-        let Ok(said) = self.ssh(&asked);
-
-        match said.contains("Call failed") {
-            true => failed(format!("{capability} was not sent: {}", said.trim())),
-            false => Ok(()),
-        }
-    }
-
-    pub fn tap(&mut self, _at: Point<i32>) -> CheckResult {
-        cannot(
-            "InputPlumber will not parse its own Touchpad: capabilities back, \
-             so the trackpad cannot be sent; point or touch instead",
-        )
-    }
-
-    pub fn touch(&mut self, at: (u32, u32)) -> CheckResult {
-        self.tapped(&format!("{} {}", at.0, at.1), format!("nothing could be pressed at {at:?}"))
-    }
-
-    fn tapped(&mut self, asked: &str, otherwise: String) -> CheckResult {
-        self.taken = None;
-
-        let Ok(whom) = self.whoever();
-        let Ok(session) = session_environment(&whom);
-        let Ok(said) = self.ssh(&format!("{{ {session} && console-tap {asked}; }} 2>&1"));
-
-        match (said.contains("console-tap:"), said.contains("Hyprland session")) {
-            (true, _) | (_, true) => cannot(&format!("{otherwise}: {}", said.trim())),
-            (false, false) => Ok(()),
-        }
-    }
-
-    pub fn swipe(&mut self, from: (u32, u32), to: (u32, u32)) -> CheckResult {
-        self.tapped(
-            &format!("--swipe {} {} {} {}", from.0, from.1, to.0, to.1),
-            format!("no finger could be drawn from {from:?} to {to:?}"),
-        )
-    }
-
-    pub fn point(&mut self, at: (u32, u32)) -> CheckResult {
-        self.pointing(None, at, String::new())
-    }
-
-    pub fn click(&mut self, at: (u32, u32)) -> CheckResult {
-        self.pointing(None, at, " --click".to_string())
-    }
-
-    pub fn scroll(&mut self, at: (u32, u32), notches: i32) -> CheckResult {
-        self.pointing(None, at, format!(" --scroll {notches}"))
-    }
-
-    pub fn point_in(&mut self, namespace: &str, at: (u32, u32)) -> CheckResult {
-        self.pointing(Some(namespace), at, String::new())
-    }
-
-    pub fn click_in(&mut self, namespace: &str, at: (u32, u32)) -> CheckResult {
-        self.pointing(Some(namespace), at, " --click".to_string())
-    }
-
-    pub fn scroll_in(&mut self, namespace: &str, at: (u32, u32), notches: i32) -> CheckResult {
-        self.pointing(Some(namespace), at, format!(" --scroll {notches}"))
-    }
-
-    fn pointing(&mut self, inside: Option<&str>, at: (u32, u32), doing: String) -> CheckResult {
-        self.taken = None;
-
-        let within = match inside {
-            Some(namespace) => format!("--in {namespace} "),
-            None => String::new(),
-        };
-
-        let Ok(said) =
-            self.in_session(&format!("console-point {within}{} {}{doing} 2>&1", at.0, at.1));
-
-        match (said.contains("console-point:"), said.contains("not found")) {
-            (_, true) => cannot("this device has no console-point; deploy before pointing at it"),
-            (true, false) => {
-                failed(format!("the pointer could not be put at {at:?}: {}", said.trim()))
-            },
-            (false, false) => Ok(()),
-        }
-    }
-
-    pub fn home_awake(&mut self) -> Result<Ready, Never> {
-        let Ok(said) =
-            self.user("test -e \"$XDG_RUNTIME_DIR/console/home-awake\" && echo awake");
-
-        Ok(match said.contains("awake") {
-            true => Ready::Yes,
-            false => Ready::NotYet,
-        })
-    }
-
-    pub fn home_carrying(&mut self) -> Result<Ready, Never> {
-        let Ok(said) =
-            self.user("test -e \"$XDG_RUNTIME_DIR/console/home-carrying\" && echo carrying");
-
-        Ok(match said.contains("carrying") {
-            true => Ready::Yes,
-            false => Ready::NotYet,
-        })
-    }
-
-    pub fn layer(&mut self, namespace: &str) -> Result<Option<(u32, u32, u32, u32)>, Never> {
-        let Ok(said) = self.hypr("layers -j");
-        let Ok(read) = parse_answer(console_compositor::Layers, &said);
-
-        let surfaces = match read {
-            Some(surfaces) => surfaces,
-            None => return Ok(None),
-        };
-
-        for layer in &surfaces {
-            match layer.namespace == namespace {
-                true => {},
-                false => continue,
-            }
-
-            let Ok(said_where) = layer.corner();
-
-            let corner = match said_where {
-                Some(corner) => corner,
-                None => return Ok(None),
-            };
-
-            let Ok(x) = fitted::<i64, u32>(corner.x);
-            let Ok(y) = fitted::<i64, u32>(corner.y);
-            let Ok(wide) = fitted::<i64, u32>(corner.width);
-            let Ok(tall) = fitted::<i64, u32>(corner.height);
-
-            return Ok(Some((x, y, wide, tall)));
-        }
-
-        Ok(None)
-    }
-
-    pub fn load_profile(&mut self, name: &str) -> Result<(), Never> {
-        let Ok(quoted) = shell_quote(name);
-        let Ok(_) = self.user(&format!("controller-profile {quoted}"));
-
-        Ok(())
-    }
-
-    pub fn exec_cmd(&mut self, command: &str) -> Result<String, Never> {
-        let Ok(quoted) = shell_quote(&format!("hl.dsp.exec_cmd(\"{command}\")"));
-
-        self.hypr(&format!("dispatch {quoted}"))
-    }
-
-    pub fn addresses(&mut self) -> Result<Vec<String>, Never> {
-        let Ok(clients) = self.clients();
-
-        Ok(clients
-            .iter()
-            .filter_map(|client| {
-                let Ok(address) = address(client);
-
-                address
-            })
-            .collect())
+impl<'watch> Device<'watch> {
+  pub fn new(host: &str, dry_run: DryRun) -> Result<Self, Error> {
+    let Ok(root) = crate::root();
+    let profiles = every_profile(&root)?;
+
+    Ok(Device {
+      host: host.to_string(),
+      dry_run,
+      done: Vec::new(),
+      profiles,
+      taken: None,
+      kept: None,
+      opened: Vec::new(),
+      whom: None,
+      pushed: Pushed::None,
+      screen: None,
+      watching: None,
+    })
+  }
+
+  pub fn dry_run(&self) -> Result<DryRun, Never> {
+    Ok(self.dry_run)
+  }
+
+  pub fn done(&self) -> Result<&[String], Never> {
+    Ok(&self.done)
+  }
+
+  pub fn whoever(&mut self) -> Result<String, Never> {
+    match &self.whom {
+      Some(known) => return Ok(known.clone()),
+      None => {}
     }
 
     #[cfg_attr(
-        dylint_lib = "explicit028_no_search_in_a_loop",
-        allow(
-            explicit028_no_search_in_a_loop,
-            reason = "the windows a check opened against the windows the compositor says are up, which is tens of either"
-        )
+      dylint_lib = "explicit026_env_read_once",
+      allow(
+        explicit026_env_read_once,
+        reason = "CONSOLE_USER says whose the device is when the device cannot be asked, and asking the device is what this file does"
+      )
     )]
-    pub fn opened(&mut self) -> Result<Vec<String>, Never> {
-        let Ok(open) = self.addresses();
+    let told = match std::env::var("CONSOLE_USER") {
+      Ok(said) => match ::core::primitive::bool::then_some(said.trim().is_empty(), ()) {
+        ::core::option::Option::Some(()) => None,
+        ::core::option::Option::None => Some(said.trim().to_string()),
+      },
+      Err(_unset) => None,
+    };
 
-        Ok(self.opened.iter().filter(|which| open.contains(which)).cloned().collect())
-    }
-
-    pub fn window_gone(&mut self, which: &str, seconds: f64) -> Result<Outcome, Never> {
-        let going = which.to_string();
-
-        self.until::<Never>(
-            |seen| {
-                let Ok(open) = seen.addresses();
-
-                Ok(match open.contains(&going) {
-                    true => Ready::NotYet,
-                    false => Ready::Yes,
-                })
-            },
-            seconds,
-        )
-    }
-
-    fn pid_at(&mut self, which: &str) -> Result<Option<i64>, Never> {
-        let Ok(clients) = self.clients();
-
-        Ok(clients
-            .iter()
-            .find(|client| {
-                let Ok(found) = address(client);
-
-                found.as_deref() == Some(which)
-            })
-            .and_then(|client| client.get("pid"))
-            .and_then(serde_json::Value::as_i64))
-    }
-
-    pub fn close_window(&mut self, which: &str) -> Result<Outcome, Never> {
-        let closing = which.to_string();
-
-        self.opened.retain(|address| *address != closing);
-
-        match self.dry_run {
-            true => return Ok(Outcome::Happened),
-            false => {},
-        }
-
-        let Ok(pid) = self.pid_at(&closing);
-
-        let pid = match pid {
-            Some(pid) => pid,
-            None => return Ok(Outcome::Happened),
-        };
-
-        let Ok(_) = self.user(&format!("kill {pid}"));
-
-        self.window_gone(&closing, LEAVING)
-    }
-
-    pub fn go_to(&mut self, workspace: &str) -> Result<Outcome, Never> {
-        let wanted = workspace.to_string();
-        let Ok(lua) = console_compositor::onto(&wanted, console_compositor::Carrying::None);
-        let Ok(quoted) = shell_quote(&lua);
-        let Ok(_) = self.hypr(&format!("dispatch {quoted}"));
-
-        self.until::<Never>(
-            |seen| {
-                let Ok(now) = seen.workspace();
-
-                Ok(match now == wanted {
-                    true => Ready::Yes,
-                    false => Ready::NotYet,
-                })
-            },
-            A_MOMENT,
-        )
-    }
-
-    pub fn to_an_empty_workspace(&mut self) -> Result<Outcome, Never> {
-        let Ok(lua) = console_compositor::onto(EMPTY_WORKSPACE, console_compositor::Carrying::None);
-        let Ok(quoted) = shell_quote(&lua);
-        let Ok(_) = self.hypr(&format!("dispatch {quoted}"));
-
-        self.until::<Never>(
-            |seen| {
-                let Ok(held) = seen.windows_here();
-
-                Ok(match held {
-                    NO_WINDOWS => Ready::Yes,
-                    _ => Ready::NotYet,
-                })
-            },
-            A_MOMENT,
-        )
-    }
-
-    pub fn open(&mut self, command: &str, seconds: f64) -> Result<Outcome, Never> {
-        let Ok(which) = self.opening(command, seconds);
-
-        Ok(match which {
-            Some(_) => Outcome::Happened,
-            None => Outcome::RanOut,
-        })
-    }
-
-    pub fn opening(&mut self, command: &str, seconds: f64) -> Result<Option<String>, Never> {
-        match self.dry_run {
-            true => {
-                let Ok(_) = self.exec_cmd(command);
-
-                return Ok(Some(String::new()));
-            }
-            false => {},
-        }
-
-        let Ok(was) = self.addresses();
-        let Ok(_) = self.exec_cmd(command);
-        let mut came = Came::default();
-        let Ok(arrived) = self.until_handed::<Came, Never>(
-            &mut came,
-            |came, seen| {
-                seen.taken = None;
-
-                let Ok(now) = seen.clients();
-                let new = now.iter().find(|client| {
-                    let Ok(address) = address(client);
-
-                    address.is_some_and(|found| !was.contains(&found))
-                });
-
-                let new = match new {
-                    Some(new) => new,
-                    None => return Ok(Ready::NotYet),
-                };
-
-                let Ok(found) = address(new);
-
-                came.which = match found {
-                    Some(found) => found,
-                    None => String::new(),
-                };
-
-                came.where_ = match new
-                    .get("workspace")
-                    .and_then(|workspace| workspace.get("name"))
-                    .and_then(|name| name.as_str())
-                {
-                    Some(named) => named.to_string(),
-                    None => String::new(),
-                };
-
-                Ok(Ready::Yes)
-            },
-            seconds,
+    let discovered = match told {
+      Some(said) => said,
+      None => {
+        let Ok(said) = self.ssh(
+          "set -- $(ls -1 /home 2>/dev/null); \
+                     if [ $# -eq 1 ]; then echo \"$1\"; else id -nu 1000; fi",
         );
 
-        match arrived {
-            Outcome::Happened => {},
-            Outcome::RanOut => return Ok(None),
+        said
+      }
+    };
+
+    let said = match ::core::primitive::bool::then_some(discovered.trim().is_empty(), ()) {
+      ::core::option::Option::Some(()) => console_manifest_migrations::USER.to_string(),
+      ::core::option::Option::None => discovered.trim().to_string(),
+    };
+
+    self.whom = Some(said.clone());
+
+    Ok(said)
+  }
+
+  pub fn home(&mut self) -> Result<String, Never> {
+    let Ok(whom) = self.whoever();
+
+    Ok(format!("/home/{whom}"))
+  }
+
+  pub fn set_watching(
+    &mut self,
+    watching: &'watch std::sync::Mutex<crate::watching::Watching>,
+  ) -> Result<(), Never> {
+    self.watching = Some(watching);
+
+    Ok(())
+  }
+
+  fn along(&mut self) -> Result<String, Never> {
+    let watching = match self.watching {
+      Some(watching) => watching,
+      None => return Ok(String::new()),
+    };
+
+    let Ok(held) = crate::watching::lock(watching);
+
+    match held {
+      Some(mut acquired) => acquired.tick(),
+      None => Ok(String::new()),
+    }
+  }
+
+  pub fn ssh(&mut self, command: &str) -> Result<String, Never> {
+    self.done.push(command.to_string());
+
+    match self.dry_run {
+      DryRun::Pretend => return Ok(String::new()),
+      DryRun::Really => {}
+    }
+
+    let Ok(along) = self.along();
+    let asked = format!("{command}{along}");
+    let Ok(mut asking) = Program::Ssh.command();
+
+    let done = asking
+      .args(["-o", "BatchMode=yes", &self.host, &asked])
+      .output();
+
+    Ok(match done {
+      Ok(done_2) => {
+        let complained = self.ssh_text(&done_2.stderr, "stderr")?;
+        let Ok(links) = logins(complained);
+
+        for link in links {
+          eprintln!(
+            "\nconsole-test-stages: {} will not answer until this is approved in a browser:\n\n    {link}\n",
+            self.host
+          );
         }
 
-        self.opened.push(came.which.clone());
+        let said = self.ssh_text(&done_2.stdout, "stdout")?;
 
-        let Ok(there) = self.go_to(&came.where_);
+        said.trim().to_string()
+      }
+      Err(fault) => {
+        console_core_logging::warn!("console-test-stages: ssh {}: {fault}", self.host);
 
-        Ok(match there {
-            Outcome::Happened => Some(came.which),
-            Outcome::RanOut => None,
+        String::new()
+      }
+    })
+  }
+
+  fn ssh_text<'text>(&self, bytes: &'text [u8], stream: &str) -> Result<&'text str, Never> {
+    Ok(match std::str::from_utf8(bytes) {
+      Ok(text) => text,
+      Err(fault) => {
+        console_core_logging::warn!(
+          "console-test-stages: ssh {} returned invalid UTF-8 on {stream}: {fault}",
+          self.host
+        );
+
+        ""
+      }
+    })
+  }
+
+  pub fn in_session(&mut self, command: &str) -> Result<String, Never> {
+    let Ok(whom) = self.whoever();
+    let Ok(session) = session_environment(&whom);
+    let asked = format!("{session} && {command}");
+
+    self.user(&asked)
+  }
+
+  pub fn user(&mut self, command: &str) -> Result<String, Never> {
+    let Ok(whom) = self.whoever();
+    let Ok(quoted) = shell_quote(command);
+    let asked = format!("machinectl shell --uid={whom} .host /bin/sh -c {quoted}");
+
+    self.ssh(&asked)
+  }
+
+  pub fn read_descriptions(
+    &mut self,
+    at: &str,
+  ) -> Result<Vec<console_panel::description::Description>, Never> {
+    let Ok(said) = self.in_session(&format!("cat {at} 2>/dev/null"));
+
+    Ok(
+      said
+        .lines()
+        .filter_map(|line| match console_panel::description::read(line) {
+          Ok(drew) => Some(drew),
+          Err(_not_a_draw) => None,
         })
+        .collect(),
+    )
+  }
+
+  pub fn hypr(&mut self, command: &str) -> Result<String, Never> {
+    self.in_session(&format!("hyprctl {command}"))
+  }
+
+  fn loaded(&mut self) -> Result<Option<Profile>, Never> {
+    let Ok(profile) = self.profile();
+    let loaded = profile.to_lowercase();
+
+    Ok(
+      self
+        .profiles
+        .values()
+        .find(|known| known.name.to_lowercase() == loaded)
+        .cloned(),
+    )
+  }
+
+  fn capability(&mut self, button: &str) -> Result<Option<String>, Never> {
+    let Ok(loaded) = self.loaded();
+
+    capability_under(loaded.as_ref(), button)
+  }
+
+  fn chorded(&mut self, capabilities: &[String]) -> Result<String, Never> {
+    self.taken = None;
+
+    let Ok(chord) = chord(capabilities);
+    let Ok(asked) = calling(&chord);
+
+    self.ssh(&asked)
+  }
+
+  pub fn press(&mut self, button: &str) -> Result<(), Never> {
+    let Ok(found) = self.capability(button);
+
+    let capability = match found {
+      Some(capability) => capability,
+      None => return Ok(()),
+    };
+
+    let Ok(_) = self.chorded(&[capability]);
+
+    Ok(())
+  }
+
+  pub fn presses(&mut self, button: &str, times: u32) -> Result<(), Never> {
+    self.taken = None;
+
+    let Ok(found) = self.capability(button);
+
+    let capability = match found {
+      Some(capability) => capability,
+      None => return Ok(()),
+    };
+
+    let Ok(chord) = chord(&[capability]);
+    let Ok(asked) = calling(&chord);
+    let Ok(_) = self.ssh(&format!(
+      "for _ in $(seq {times}); do {asked}; sleep {LET_GO}; done"
+    ));
+
+    Ok(())
+  }
+
+  pub fn hold(&mut self, _button: &str) -> CheckResult {
+    cannot(SENDEVENT)
+  }
+
+  pub fn release(&mut self, _button: Option<&str>) -> CheckResult {
+    cannot(SENDEVENT)
+  }
+
+  pub fn trigger(&mut self, which: &str, TriggerTravel(amount): TriggerTravel) -> CheckResult {
+    let Ok(found) = lookup(&vocabulary::TRIGGERS, which);
+
+    let named = match found {
+      Some(named) => named,
+      None => {
+        let Ok(said) = suggestions(&vocabulary::TRIGGERS);
+
+        return failed(format!("there is no trigger called {which:?}; {said}"));
+      }
+    };
+
+    match ::core::primitive::bool::then_some((0.0..=1.0).contains(&amount), ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => return failed(format!("a trigger is pulled between 0 and 1, not {amount}")),
     }
 
-    pub fn settle(&mut self, seconds: f64) -> Result<(), Never> {
-        match self.dry_run {
-            true => {},
-            false => {
-                #[cfg_attr(
-                    dylint_lib = "explicit021_no_sleeping",
-                    allow(
-                        explicit021_no_sleeping,
-                        reason = "this is the gap `until` asks between two questions to the handheld, and a check that calls it directly is waiting on a number rather than on the thing -- which is what EXPLICIT022 denies, at the call, where the decision is"
-                    )
-                )]
-                std::thread::sleep(Duration::from_secs_f64(seconds));
-            }
-        }
+    let Ok(()) = self.pushed(Pushed::from(amount));
 
-        Ok(())
+    self.axis(
+      &format!("Gamepad:Trigger:{named}"),
+      Value(&format!("d {amount:.3}")),
+    )
+  }
+
+  pub fn thumbstick(&mut self, which: &str, to: Point<f64>) -> CheckResult {
+    let Ok(found) = lookup(&vocabulary::AXES, which);
+
+    let named = match found {
+      Some(named) => named,
+      None => {
+        let Ok(said) = suggestions(&vocabulary::AXES);
+
+        return failed(format!("there is no thumbstick called {which:?}; {said}"));
+      }
+    };
+
+    for amount in [to.x, to.y] {
+      match ::core::primitive::bool::then_some((-1.0..=1.0).contains(&amount), ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => return failed(format!("push a thumbstick between -1 and 1, not {amount}")),
+      }
     }
 
-    pub fn workspace(&mut self) -> Result<String, Never> {
-        let Ok(said) = self.hypr("activeworkspace -j");
-        let Ok(found) = read(&said);
+    let Ok(()) = self.pushed(Pushed::from(to.x.abs().max(to.y.abs())));
 
-        let found = match found {
-            Some(found) => found,
-            None => return Ok(String::new()),
-        };
+    let (across, down) = (to.x, to.y);
 
-        let Ok(named) = console_compositor::workspace(&found);
+    self.axis(
+      &format!("Gamepad:Axis:{named}"),
+      Value(&format!("\"(dd)\" {across:.3} {down:.3}")),
+    )
+  }
 
-        Ok(match named {
-            Some(named) => named.to_string(),
-            None => String::new(),
+  pub fn let_go(&mut self) -> CheckResult {
+    self.pushed = Pushed::None;
+
+    for (spoken, _) in vocabulary::AXES {
+      self.thumbstick(spoken, Point { x: 0.0, y: 0.0 })?;
+    }
+
+    for (spoken, _) in vocabulary::TRIGGERS {
+      self.trigger(spoken, TriggerTravel(0.0))?;
+    }
+
+    Ok(())
+  }
+
+  fn pushed(&mut self, outcome: Pushed) -> Result<(), Never> {
+    self.taken = None;
+
+    match outcome {
+      Pushed::None => {}
+      Pushed::Some => self.pushed = Pushed::Some,
+    }
+
+    Ok(())
+  }
+
+  fn axis(&mut self, capability: &str, value: Value<'_>) -> CheckResult {
+    let Ok(quoted) = shell_quote(capability);
+    let value_2 = value.0;
+    let asked = format!(
+      "busctl --system call {} {} {} SendEvent sv {quoted} {value} 2>&1",
+      BUS.0,
+      BUS.1,
+      BUS.2,
+      value = value_2
+    );
+    let Ok(said) = self.ssh(&asked);
+
+    match ::core::primitive::bool::then_some(said.contains("Call failed"), ()) {
+      ::core::option::Option::Some(()) => failed(format!("{capability} was not sent: {}", said.trim())),
+      ::core::option::Option::None => Ok(()),
+    }
+  }
+
+  pub fn tap(&mut self, _at: Point<i32>) -> CheckResult {
+    cannot(
+      "InputPlumber will not parse its own Touchpad: capabilities back, \
+             so the trackpad cannot be sent; point or touch instead",
+    )
+  }
+
+  pub fn touch(&mut self, at: (u32, u32)) -> CheckResult {
+    self.tapped(
+      &format!("{} {}", at.0, at.1),
+      format!("nothing could be pressed at {at:?}"),
+    )
+  }
+
+  fn tapped(&mut self, asked: &str, otherwise: String) -> CheckResult {
+    self.taken = None;
+
+    let Ok(whom) = self.whoever();
+    let Ok(session) = session_environment(&whom);
+    let Ok(said) = self.ssh(&format!("{{ {session} && console-tap {asked}; }} 2>&1"));
+
+    match (
+      said.contains("console-tap:"),
+      said.contains("Hyprland session"),
+    ) {
+      (true, _) | (_, true) => cannot(&format!("{otherwise}: {}", said.trim())),
+      (false, false) => Ok(()),
+    }
+  }
+
+  pub fn swipe(&mut self, from: (u32, u32), to: (u32, u32)) -> CheckResult {
+    self.tapped(
+      &format!("--swipe {} {} {} {}", from.0, from.1, to.0, to.1),
+      format!("no finger could be drawn from {from:?} to {to:?}"),
+    )
+  }
+
+  pub fn point(&mut self, at: (u32, u32)) -> CheckResult {
+    self.pointing(None, at, String::new())
+  }
+
+  pub fn click(&mut self, at: (u32, u32)) -> CheckResult {
+    self.pointing(None, at, " --click".to_string())
+  }
+
+  pub fn scroll(&mut self, at: (u32, u32), notches: i32) -> CheckResult {
+    self.pointing(None, at, format!(" --scroll {notches}"))
+  }
+
+  pub fn point_in(&mut self, namespace: &str, at: (u32, u32)) -> CheckResult {
+    self.pointing(Some(namespace), at, String::new())
+  }
+
+  pub fn click_in(&mut self, namespace: &str, at: (u32, u32)) -> CheckResult {
+    self.pointing(Some(namespace), at, " --click".to_string())
+  }
+
+  pub fn scroll_in(&mut self, namespace: &str, at: (u32, u32), notches: i32) -> CheckResult {
+    self.pointing(Some(namespace), at, format!(" --scroll {notches}"))
+  }
+
+  fn pointing(&mut self, inside: Option<&str>, at: (u32, u32), doing: String) -> CheckResult {
+    self.taken = None;
+
+    let within = match inside {
+      Some(namespace) => format!("--in {namespace} "),
+      None => String::new(),
+    };
+
+    let Ok(said) = self.in_session(&format!(
+      "console-point {within}{} {}{doing} 2>&1",
+      at.0, at.1
+    ));
+
+    match (said.contains("console-point:"), said.contains("not found")) {
+      (_, true) => cannot("this device has no console-point; deploy before pointing at it"),
+      (true, false) => failed(format!(
+        "the pointer could not be put at {at:?}: {}",
+        said.trim()
+      )),
+      (false, false) => Ok(()),
+    }
+  }
+
+  pub fn home_awake(&mut self) -> Result<Ready, Never> {
+    let Ok(said) = self.user("test -e \"$XDG_RUNTIME_DIR/console/home-awake\" && echo awake");
+
+    Ok(match ::core::primitive::bool::then_some(said.contains("awake"), ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    })
+  }
+
+  pub fn home_carrying(&mut self) -> Result<Ready, Never> {
+    let Ok(said) =
+      self.user("test -e \"$XDG_RUNTIME_DIR/console/home-carrying\" && echo carrying");
+
+    Ok(match ::core::primitive::bool::then_some(said.contains("carrying"), ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    })
+  }
+
+  pub fn layer(&mut self, namespace: &str) -> Result<Option<(u32, u32, u32, u32)>, Never> {
+    let Ok(said) = self.hypr("layers -j");
+    let Ok(read) = parse_answer(console_compositor::Layers, &said);
+
+    let surfaces = match read {
+      Some(surfaces) => surfaces,
+      None => return Ok(None),
+    };
+
+    for layer in &surfaces {
+      match ::core::primitive::bool::then_some(layer.namespace == namespace, ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => continue,
+      }
+
+      let Ok(said_where) = layer.corner();
+
+      let corner = match said_where {
+        Some(corner) => corner,
+        None => return Ok(None),
+      };
+
+      let Ok(x) = fitted::<i64, u32>(corner.x);
+      let Ok(y) = fitted::<i64, u32>(corner.y);
+      let Ok(wide) = fitted::<i64, u32>(corner.width);
+      let Ok(tall) = fitted::<i64, u32>(corner.height);
+
+      return Ok(Some((x, y, wide, tall)));
+    }
+
+    Ok(None)
+  }
+
+  pub fn load_profile(&mut self, name: &str) -> Result<(), Never> {
+    let Ok(quoted) = shell_quote(name);
+    let Ok(_) = self.user(&format!("controller-profile {quoted}"));
+
+    Ok(())
+  }
+
+  pub fn exec_cmd(&mut self, command: &str) -> Result<String, Never> {
+    let Ok(quoted) = shell_quote(&format!("hl.dsp.exec_cmd(\"{command}\")"));
+
+    self.hypr(&format!("dispatch {quoted}"))
+  }
+
+  pub fn addresses(&mut self) -> Result<Vec<String>, Never> {
+    let Ok(clients) = self.clients();
+
+    Ok(
+      clients
+        .iter()
+        .filter_map(|client| {
+          let Ok(address) = address(client);
+
+          address
         })
-    }
+        .collect(),
+    )
+  }
 
-    fn clients(&mut self) -> Result<Vec<serde_json::Value>, Never> {
-        let Ok(said) = self.hypr("clients -j");
-        let Ok(found) = read(&said);
+  #[cfg_attr(
+    dylint_lib = "explicit028_no_search_in_a_loop",
+    allow(
+      explicit028_no_search_in_a_loop,
+      reason = "the windows a check opened against the windows the compositor says are up, which is tens of either"
+    )
+  )]
+  pub fn opened(&mut self) -> Result<Vec<String>, Never> {
+    let Ok(open) = self.addresses();
 
-        let found = match found {
-            Some(found) => found,
-            None => return Ok(Vec::new()),
-        };
+    Ok(
+      self
+        .opened
+        .iter()
+        .filter(|which| open.contains(which))
+        .cloned()
+        .collect(),
+    )
+  }
 
-        let Ok(clients) = console_compositor::clients(&found);
+  pub fn window_gone(&mut self, which: &str, seconds: impl Into<Wait>) -> Result<Outcome, Never> {
+    let going = which.to_string();
 
-        Ok(clients.cloned().collect())
-    }
+    self.until::<Never>(
+      |seen| {
+        let Ok(open) = seen.addresses();
 
-    pub fn windows_open(&mut self) -> Result<Vec<console_compositor::Window>, Never> {
-        let Ok(said) = self.hypr("clients -j");
-        let Ok(found) = read(&said);
-
-        Ok(match found {
-            Some(found) => {
-                let Ok(open) = console_compositor::windows_open(&found);
-
-                open
-            }
-            None => Vec::new(),
+        Ok(match ::core::primitive::bool::then_some(open.contains(&going), ()) {
+          ::core::option::Option::Some(()) => Ready::NotYet,
+          ::core::option::Option::None => Ready::Yes,
         })
+      },
+      seconds,
+    )
+  }
+
+  fn pid_at(&mut self, which: &str) -> Result<Option<i64>, Never> {
+    let Ok(clients) = self.clients();
+
+    Ok(
+      clients
+        .iter()
+        .find(|client| {
+          let Ok(found) = address(client);
+
+          found.as_deref() == Some(which)
+        })
+        .and_then(|client| client.get("pid"))
+        .and_then(serde_json::Value::as_i64),
+    )
+  }
+
+  pub fn close_window(&mut self, which: &str) -> Result<Outcome, Never> {
+    let closing = which.to_string();
+
+    self.opened.retain(|address| *address != closing);
+
+    match self.dry_run {
+      DryRun::Pretend => return Ok(Outcome::Happened),
+      DryRun::Really => {}
     }
 
-    pub fn windows(&mut self) -> Result<Vec<String>, Never> {
-        let Ok(clients) = self.clients();
-        let mut named: Vec<String> = clients
-            .iter()
-            .map(|client| match client.get("class").and_then(|class| class.as_str()) {
-                Some(class) => class.to_string(),
-                None => String::new(),
-            })
-            .collect();
+    let Ok(pid) = self.pid_at(&closing);
 
-        named.sort();
+    let pid_3 = match pid {
+      Some(pid_2) => pid_2,
+      None => return Ok(Outcome::Happened),
+    };
 
-        Ok(named)
-    }
+    let Ok(_) = self.user(&format!("kill {pid}", pid = pid_3));
 
-    pub fn titles(&mut self) -> Result<Vec<String>, Never> {
-        let Ok(clients) = self.clients();
+    self.window_gone(&closing, LEAVING)
+  }
 
-        Ok(clients
-            .iter()
-            .map(|client| match client.get("title").and_then(|title| title.as_str()) {
-                Some(title) => title.to_string(),
-                None => String::new(),
-            })
-            .collect())
-    }
+  pub fn go_to(&mut self, workspace: &str) -> Result<Outcome, Never> {
+    let wanted = workspace.to_string();
+    let Ok(lua) = console_compositor::onto(&wanted, console_compositor::Carrying::None);
+    let Ok(quoted) = shell_quote(&lua);
+    let Ok(_) = self.hypr(&format!("dispatch {quoted}"));
 
-    pub fn types(&mut self, words: &str) -> Result<String, Never> {
-        let Ok(whom) = self.whoever();
-        let Ok(session) = session_environment(&whom);
-        let Ok(quoted) = shell_quote(words);
+    self.until::<Never>(
+      |seen| {
+        let Ok(now) = seen.workspace();
 
-        self.user(&format!("{session} && wtype {quoted}"))
-    }
+        Ok(match ::core::primitive::bool::then_some(now == wanted, ()) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        })
+      },
+      A_MOMENT,
+    )
+  }
 
-    pub fn press_chord(&mut self, held: &[&str], key: &str) -> CheckResult {
-        let mut chord = Vec::new();
+  pub fn to_an_empty_workspace(&mut self) -> Result<Outcome, Never> {
+    let Ok(lua) = console_compositor::onto(EMPTY_WORKSPACE, console_compositor::Carrying::None);
+    let Ok(quoted) = shell_quote(&lua);
+    let Ok(_) = self.hypr(&format!("dispatch {quoted}"));
 
-        for one in held.iter().chain(std::iter::once(&key)) {
-            let Ok(found) = vocabulary::key_capability(one);
-
-            match found {
-                Some(capability) => chord.push(capability),
-                None => return failed(format!("there is no key called {one:?} to press")),
-            }
-        }
-
-        let Ok(said) = self.chorded(&chord);
-
-        match said.contains("Call failed") {
-            true => failed(format!("{chord:?} was not sent: {}", said.trim())),
-            false => Ok(()),
-        }
-    }
-
-    pub fn windows_here(&mut self) -> Result<i64, Never> {
-        let Ok(said) = self.hypr("activeworkspace -j");
-        let Ok(found) = read(&said);
-
-        let found = match found {
-            Some(found) => found,
-            None => return Ok(0),
-        };
-
-        let Ok(held) = console_compositor::windows(&found);
+    self.until::<Never>(
+      |seen| {
+        let Ok(held) = seen.windows_here();
 
         Ok(match held {
-            Some(held) => held,
-            None => NO_WINDOWS,
+          NO_WINDOWS => Ready::Yes,
+          _ => Ready::NotYet,
         })
+      },
+      A_MOMENT,
+    )
+  }
+
+  pub fn open(&mut self, command: &str, seconds: impl Into<Wait>) -> Result<Outcome, Never> {
+    let Ok(which) = self.opening(command, seconds);
+
+    Ok(match which {
+      Some(_) => Outcome::Happened,
+      None => Outcome::RanOut,
+    })
+  }
+
+  pub fn opening(&mut self, command: &str, seconds: impl Into<Wait>) -> Result<Option<String>, Never> {
+    match self.dry_run {
+      DryRun::Pretend => {
+        let Ok(_) = self.exec_cmd(command);
+
+        return Ok(Some(String::new()));
+      }
+      DryRun::Really => {}
     }
 
-    pub fn keyboard(&mut self) -> Result<Ready, Never> {
-        let Ok(said) = self.hypr("layers -j");
+    let Ok(was) = self.addresses();
+    let Ok(_) = self.exec_cmd(command);
+    let mut came = Came::default();
+    let Ok(arrived) = self.until_handed::<Came, Never>(
+      &mut came,
+      |came_2, seen| {
+        seen.taken = None;
 
-        Ok(match said.contains("console-keyboard") {
-            true => Ready::Yes,
-            false => Ready::NotYet,
-        })
+        let Ok(now) = seen.clients();
+        let new = now.iter().find(|client| {
+          let Ok(address) = address(client);
+
+          address.is_some_and(|found| !was.contains(&found))
+        });
+
+        let new_3 = match new {
+          Some(new_2) => new_2,
+          None => return Ok(Ready::NotYet),
+        };
+
+        let Ok(found) = address(new_3);
+
+        came_2.which = match found {
+          Some(found_2) => found_2,
+          None => String::new(),
+        };
+
+        came_2.where_ = match new_3
+          .get("workspace")
+          .and_then(|workspace| workspace.get("name"))
+          .and_then(|name| name.as_str())
+        {
+          Some(named) => named.to_string(),
+          None => String::new(),
+        };
+
+        Ok(Ready::Yes)
+      },
+      seconds,
+    );
+
+    match arrived {
+      Outcome::Happened => {}
+      Outcome::RanOut => return Ok(None),
     }
 
-    pub fn profile(&mut self) -> Result<String, Never> {
-        match self.dry_run {
-            true => return Ok(String::new()),
-            false => {},
-        }
+    self.opened.push(came.which.clone());
 
-        let asked = format!(
-            "busctl --system get-property {} {} {} ProfileName",
-            BUS.0, BUS.1, BUS.2
-        );
-        let Ok(said) = self.ssh(&asked);
+    let Ok(there) = self.go_to(&came.where_);
 
-        Ok(match said.split('"').rev().nth(1) {
-            Some(inside) => inside.to_string(),
+    Ok(match there {
+      Outcome::Happened => Some(came.which),
+      Outcome::RanOut => None,
+    })
+  }
+
+  pub fn settle(&mut self, seconds: impl Into<Wait>) -> Result<(), Never> {
+    match self.dry_run {
+      DryRun::Pretend => {}
+      DryRun::Really => {
+        let given: Wait = <_ as ::core::convert::Into<crate::device::Wait>>::into(seconds);
+
+        let span = match given {
+          Wait::For(span) => span,
+          Wait::TooLong | Wait::Invalid => {
+            console_core_logging::warn!("console-test-stages: invalid settle duration");
+            return Ok(());
+          }
+        };
+
+        #[cfg_attr(
+          dylint_lib = "explicit021_no_sleeping",
+          allow(
+            explicit021_no_sleeping,
+            reason = "this is the gap `until` asks between two questions to the handheld, and a check that calls it directly is waiting on a number rather than on the thing -- which is what EXPLICIT022 denies, at the call, where the decision is"
+          )
+        )]
+        std::thread::sleep(span);
+      }
+    }
+
+    Ok(())
+  }
+
+  pub fn workspace(&mut self) -> Result<String, Never> {
+    let Ok(said) = self.hypr("activeworkspace -j");
+    let Ok(found) = read(&said);
+
+    let found_3 = match found {
+      Some(found_2) => found_2,
+      None => return Ok(String::new()),
+    };
+
+    let Ok(named) = console_compositor::workspace(&found_3);
+
+    Ok(match named {
+      Some(named_2) => named_2.to_string(),
+      None => String::new(),
+    })
+  }
+
+  fn clients(&mut self) -> Result<Vec<serde_json::Value>, Never> {
+    let Ok(said) = self.hypr("clients -j");
+    let Ok(found) = read(&said);
+
+    let found_3 = match found {
+      Some(found_2) => found_2,
+      None => return Ok(Vec::new()),
+    };
+
+    let Ok(clients) = console_compositor::clients(&found_3);
+
+    Ok(clients.cloned().collect())
+  }
+
+  pub fn windows_open(&mut self) -> Result<Vec<console_compositor::Window>, Never> {
+    let Ok(said) = self.hypr("clients -j");
+    let Ok(found) = read(&said);
+
+    Ok(match found {
+      Some(found_2) => {
+        let Ok(open) = console_compositor::windows_open(&found_2);
+
+        open
+      }
+      None => Vec::new(),
+    })
+  }
+
+  pub fn windows(&mut self) -> Result<Vec<String>, Never> {
+    let Ok(clients) = self.clients();
+    let mut named: Vec<String> = clients
+      .iter()
+      .map(
+        |client| match client.get("class").and_then(|class| class.as_str()) {
+          Some(class) => class.to_string(),
+          None => String::new(),
+        },
+      )
+      .collect();
+
+    named.sort();
+
+    Ok(named)
+  }
+
+  pub fn titles(&mut self) -> Result<Vec<String>, Never> {
+    let Ok(clients) = self.clients();
+
+    Ok(
+      clients
+        .iter()
+        .map(
+          |client| match client.get("title").and_then(|title| title.as_str()) {
+            Some(title) => title.to_string(),
             None => String::new(),
-        })
+          },
+        )
+        .collect(),
+    )
+  }
+
+  pub fn types(&mut self, words: &str) -> Result<String, Never> {
+    let Ok(whom) = self.whoever();
+    let Ok(session) = session_environment(&whom);
+    let Ok(quoted) = shell_quote(words);
+
+    self.user(&format!("{session} && wtype {quoted}"))
+  }
+
+  pub fn press_chord(&mut self, held: &[&str], key: &str) -> CheckResult {
+    let mut chord = Vec::new();
+
+    for one in held.iter().chain(std::iter::once(&key)) {
+      let Ok(found) = vocabulary::key_capability(one);
+
+      match found {
+        Some(capability) => chord.push(capability),
+        None => return failed(format!("there is no key called {one:?} to press")),
+      }
     }
 
-    pub fn brightness(&mut self) -> Result<Level, Never> {
-        let Ok(said) = self.ssh("cat /sys/class/backlight/*/brightness");
+    let Ok(said) = self.chorded(&chord);
 
-        brightness_in(&said)
+    match ::core::primitive::bool::then_some(said.contains("Call failed"), ()) {
+      ::core::option::Option::Some(()) => failed(format!("{chord:?} was not sent: {}", said.trim())),
+      ::core::option::Option::None => Ok(()),
+    }
+  }
+
+  pub fn windows_here(&mut self) -> Result<i64, Never> {
+    let Ok(said) = self.hypr("activeworkspace -j");
+    let Ok(found) = read(&said);
+
+    let found_3 = match found {
+      Some(found_2) => found_2,
+      None => return Ok(0),
+    };
+
+    let Ok(held) = console_compositor::windows(&found_3);
+
+    Ok(match held {
+      Some(held_2) => held_2,
+      None => NO_WINDOWS,
+    })
+  }
+
+  pub fn keyboard(&mut self) -> Result<Ready, Never> {
+    let Ok(said) = self.hypr("layers -j");
+
+    Ok(match ::core::primitive::bool::then_some(said.contains("console-keyboard"), ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    })
+  }
+
+  pub fn profile(&mut self) -> Result<String, Never> {
+    match self.dry_run {
+      DryRun::Pretend => return Ok(String::new()),
+      DryRun::Really => {}
     }
 
-    pub fn brightness_to(&mut self, level: i64) -> Result<(), Never> {
-        let Ok(_) = self.ssh(&format!(
-            "printf '%s\\n' {level} | tee /sys/class/backlight/*/brightness >/dev/null"
-        ));
+    let asked = format!(
+      "busctl --system get-property {} {} {} ProfileName",
+      BUS.0, BUS.1, BUS.2
+    );
+    let Ok(said) = self.ssh(&asked);
 
-        Ok(())
-    }
+    Ok(match said.split('"').rev().nth(1) {
+      Some(inside) => inside.to_string(),
+      None => String::new(),
+    })
+  }
 
-    pub fn volume(&mut self) -> Result<Level, Never> {
-        let Ok(said) = self.user("pactl get-sink-volume @DEFAULT_SINK@");
+  pub fn brightness(&mut self) -> Result<Level, Never> {
+    let Ok(said) = self.ssh("cat /sys/class/backlight/*/brightness");
 
-        volume_in(&said)
-    }
+    brightness_in(&said)
+  }
 
-    pub fn volume_to(&mut self, level: i64) -> Result<(), Never> {
-        let Ok(_) = self.user(&format!("pactl set-sink-volume @DEFAULT_SINK@ {level}%"));
+  pub fn brightness_to(&mut self, level: i64) -> Result<(), Never> {
+    let Ok(_) = self.ssh(&format!(
+      "printf '%s\\n' {level} | tee /sys/class/backlight/*/brightness >/dev/null"
+    ));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    pub fn services(&mut self) -> Result<Vec<String>, Never> {
-        let asking: Vec<&str> =
-            PIECES.into_iter().filter(|piece| !BY_A_SWITCH.contains(piece)).collect();
-        let Ok(said) = self.user(&format!("systemctl --user is-active {}", asking.join(" ")));
+  pub fn volume(&mut self) -> Result<Level, Never> {
+    let Ok(said) = self.user("pactl get-sink-volume @DEFAULT_SINK@");
 
-        Ok(said.split_whitespace().map(str::to_string).collect())
-    }
+    volume_in(&said)
+  }
 
-    pub fn restarts(&mut self) -> Result<Vec<String>, Never> {
-        let Ok(said) = self.user(&format!(
-            "systemctl --user show --value -p NRestarts {}",
-            PIECES.join(" ")
-        ));
+  pub fn volume_to(&mut self, level: i64) -> Result<(), Never> {
+    let Ok(_) = self.user(&format!("pactl set-sink-volume @DEFAULT_SINK@ {level}%"));
 
-        Ok(said.split_whitespace().map(str::to_string).collect())
-    }
+    Ok(())
+  }
 
-    pub fn icon_theme(&mut self) -> Result<String, Never> {
-        self.user("sed -n 's/^gtk-icon-theme-name=//p' ~/.config/gtk-4.0/settings.ini | head -1")
-    }
+  pub fn services(&mut self) -> Result<Vec<String>, Never> {
+    let asking: Vec<&str> = PIECES
+      .into_iter()
+      .filter(|piece| !BY_A_SWITCH.contains(piece))
+      .collect();
+    let Ok(said) = self.user(&format!("systemctl --user is-active {}", asking.join(" ")));
 
-    pub fn icons_missing(&mut self, theme: &str, names: &[&str]) -> Result<Vec<String>, Never> {
-        let asked = format!(
-            "seen=''; todo={theme}; \
+    Ok(said.split_whitespace().map(str::to_string).collect())
+  }
+
+  pub fn restarts(&mut self) -> Result<Vec<String>, Never> {
+    let Ok(said) = self.user(&format!(
+      "systemctl --user show --value -p NRestarts {}",
+      PIECES.join(" ")
+    ));
+
+    Ok(said.split_whitespace().map(str::to_string).collect())
+  }
+
+  pub fn icon_theme(&mut self) -> Result<String, Never> {
+    self.user("sed -n 's/^gtk-icon-theme-name=//p' ~/.config/gtk-4.0/settings.ini | head -1")
+  }
+
+  pub fn icons_missing(&mut self, theme: &str, names: &[&str]) -> Result<Vec<String>, Never> {
+    let asked = format!(
+      "seen=''; todo={theme}; \
              while [ -n \"$todo\" ]; do \
                next=''; \
                for one in $todo; do \
@@ -1160,637 +1301,715 @@ impl Device {
              for name in {names}; do \
                printf '%s\\n' \"$have\" | grep -qxF \"$name\" || echo \"$name\"; \
              done",
-            theme = theme,
-            names = names.join(" ")
+      theme = theme,
+      names = names.join(" ")
+    );
+
+    let Ok(said) = self.user(&asked);
+
+    Ok(
+      said
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect(),
+    )
+  }
+
+  pub fn files(&mut self, where_: &str) -> Result<Vec<String>, Never> {
+    let Ok(quoted) = shell_quote(where_);
+    let Ok(said) = self.user(&format!("ls -1 {quoted} 2>/dev/null"));
+    let mut found: Vec<String> = said
+      .lines()
+      .filter(|line| !line.is_empty())
+      .map(str::to_string)
+      .collect();
+
+    found.sort();
+
+    Ok(found)
+  }
+
+  pub fn journal(&mut self, unit: &str, lines: u32) -> Result<String, Never> {
+    self.user(&format!(
+      "journalctl --user -u {unit} -n {lines} --no-pager"
+    ))
+  }
+
+  pub fn menus(&mut self) -> Result<Vec<String>, Never> {
+    let Ok(said) = self.hypr("layers -j");
+    let Ok(read) = read(&said);
+
+    let found = match read {
+      Some(found) => found,
+      None => return Ok(Vec::new()),
+    };
+
+    let mut named = Vec::new();
+
+    let surfaces = match console_compositor::said_of(console_compositor::Layers, found) {
+      Ok(surfaces) => surfaces,
+      Err(_unreadable) => Vec::new(),
+    };
+
+    for layer in &surfaces {
+      let namespace = layer.namespace.as_str();
+
+      match ::core::primitive::bool::then_some(console_input_controller::mode::SYSTEM_SURFACES.contains(&namespace)
+        || namespace == WALLPAPER_SURFACE, ())
+      {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => named.push(namespace.to_string()),
+      }
+    }
+
+    named.sort();
+
+    Ok(named)
+  }
+
+  pub fn until<Why>(
+    &mut self,
+    mut what: impl FnMut(&mut Self) -> Result<Ready, Why>,
+    seconds: impl Into<Wait>,
+  ) -> Result<Outcome, Why> {
+    self.until_handed(&mut what, |what_2, seen| what_2(seen), seconds)
+  }
+
+  pub fn until_handed<M, Why>(
+    &mut self,
+    handed: &mut M,
+    mut what: impl FnMut(&mut M, &mut Self) -> Result<Ready, Why>,
+    seconds: impl Into<Wait>,
+  ) -> Result<Outcome, Why> {
+    let given: Wait = <_ as ::core::convert::Into<crate::device::Wait>>::into(seconds);
+    let Ok(patience) = given.limit();
+    let dry_run = self.dry_run;
+    let mut inputs = (handed, self, &mut what);
+
+    match dry_run {
+      DryRun::Pretend => {
+        let mut clock = console_waiting::clock::TestClock::default();
+
+        crate::completion::wait(
+          &mut clock,
+          &mut inputs,
+          patience,
+          |(handed_2, seen, ask)| ask(handed_2, seen),
+          crate::stopping::stop_state,
+        )
+      }
+      DryRun::Really => {
+        let Ok(mut clock) = console_waiting::clock::LiveClock::started();
+
+        crate::completion::wait(
+          &mut clock,
+          &mut inputs,
+          patience,
+          |(handed_3, seen, ask)| ask(handed_3, seen),
+          crate::stopping::stop_state,
+        )
+      }
+    }
+  }
+
+  pub fn press_and_wait(
+    &mut self,
+    button: &str,
+    reading: fn(&mut Self) -> Result<Level, Never>,
+  ) -> Result<Level, Never> {
+    let Ok(was) = reading(self);
+    let Ok(()) = self.press(button);
+    let Ok(_) = self.changed(reading, &was, PATIENCE);
+
+    Ok(was)
+  }
+
+  pub fn changed<T: PartialEq, Why>(
+    &mut self,
+    mut reading: impl FnMut(&mut Self) -> Result<T, Why>,
+    from: &T,
+    seconds: impl Into<Wait>,
+  ) -> Result<Outcome, Why> {
+    self.until_handed(
+      &mut reading,
+      |reading_2, seen| {
+        let now = reading_2(seen)?;
+
+        Ok(match ::core::primitive::bool::then_some(now == *from, ()) {
+          ::core::option::Option::Some(()) => Ready::NotYet,
+          ::core::option::Option::None => Ready::Yes,
+        })
+      },
+      seconds,
+    )
+  }
+
+  pub fn wait_for_menu(&mut self, seconds: impl Into<Wait>) -> Result<Outcome, Never> {
+    self.until(menus_up, seconds)
+  }
+
+  pub fn wait_for_close(&mut self, seconds: impl Into<Wait>) -> Result<Outcome, Never> {
+    self.until(
+      |seen| {
+        let Ok(up) = menus_up(seen);
+
+        up.flipped()
+      },
+      seconds,
+    )
+  }
+
+  pub fn frame_cache(&mut self, picture: &str) -> Result<(Option<i64>, Option<i64>), Never> {
+    let Ok(quoted) = shell_quote(picture);
+    let Ok(said) = self.user(&format!(
+      "find ~/.cache/awww -type f -exec stat -c %Y {{}} + 2>/dev/null \
+             | sort -n | tail -1; echo --; stat -c %Y {quoted} 2>/dev/null"
+    ));
+    let mut halves = said.split("--");
+    let last = |half: Option<&str>| {
+      let mut found = None;
+
+      let said_3 = match half {
+        Some(said_2) => said_2,
+        None => NOTHING_SAID,
+      };
+
+      for word in said_3.split_whitespace() {
+        found = match word.parse::<i64>() {
+          Ok(number) => Some(number),
+          Err(_not_a_number) => found,
+        };
+      }
+
+      found
+    };
+
+    Ok((last(halves.next()), last(halves.next())))
+  }
+
+  pub fn wallpaper(&mut self) -> Result<String, Never> {
+    let Ok(whom) = self.whoever();
+    let Ok(session) = session_environment(&whom);
+
+    self.user(&format!("{session} && awww query"))
+  }
+
+  fn fetch_picture(&mut self, shot: &std::path::Path) -> Result<(), Never> {
+    let Ok(mut fetching) = Program::Scp.command();
+    let fetched = fetching
+      .args(["-q", &format!("{}:/tmp/console-check.png", self.host)])
+      .arg(shot)
+      .status();
+    let Ok(_) = self.ssh("rm -f /tmp/console-check.png");
+
+    match fetched {
+      Ok(status) => match bool::then_some(status.success(), ()) {
+        Some(()) => {}
+        None => {
+          console_core_logging::warn!("console-test-stages: scp {}: {status}", self.host);
+        }
+      },
+      Err(fault) => {
+        console_core_logging::warn!("console-test-stages: scp {}: {fault}", self.host);
+      }
+    }
+
+    Ok(())
+  }
+
+  fn picture(&mut self) -> Result<&Picture, Error> {
+    match ::core::primitive::bool::then_some(self.taken.is_none(), ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(_) = self.exec_cmd("grim /tmp/console-check.png");
+        let Ok(written) = self.until::<Never>(
+          |seen| {
+            let Ok(said) =
+              seen.ssh("test -s /tmp/console-check.png && echo written || echo not-yet");
+
+            Ok(match ::core::primitive::bool::then_some(said.trim() == "written", ()) {
+              ::core::option::Option::Some(()) => Ready::Yes,
+              ::core::option::Option::None => Ready::NotYet,
+            })
+          },
+          A_PICTURE,
         );
 
-        let Ok(said) = self.user(&asked);
+        match written {
+          Outcome::Happened => {}
+          Outcome::RanOut => return Err(Error::DeviceWroteNoPicture),
+        }
 
-        Ok(said
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(str::to_string)
-            .collect())
-    }
+        let here = console_core_temporary_directories::fresh("shot").map_err(Error::Scratch)?;
+        let shot = here.join("screen.png");
+        let Ok(()) = self.fetch_picture(&shot);
 
-    pub fn files(&mut self, where_: &str) -> Result<Vec<String>, Never> {
-        let Ok(quoted) = shell_quote(where_);
-        let Ok(said) = self.user(&format!("ls -1 {quoted} 2>/dev/null"));
-        let mut found: Vec<String> = said
-            .lines()
-            .filter(|line| !line.is_empty())
-            .map(str::to_string)
-            .collect();
+        let picture = match Picture::read(&shot) {
+          Ok(picture) => picture,
+          Err(fault) => {
+            let Ok(()) = crate::remove_scratch(&here);
 
-        found.sort();
-
-        Ok(found)
-    }
-
-    pub fn journal(&mut self, unit: &str, lines: u32) -> Result<String, Never> {
-        self.user(&format!("journalctl --user -u {unit} -n {lines} --no-pager"))
-    }
-
-    pub fn menus(&mut self) -> Result<Vec<String>, Never> {
-        let Ok(said) = self.hypr("layers -j");
-        let Ok(read) = read(&said);
-
-        let found = match read {
-            Some(found) => found,
-            None => return Ok(Vec::new()),
+            return Err(fault);
+          }
         };
 
-        let mut named = Vec::new();
-
-        let surfaces = match console_compositor::said_of(console_compositor::Layers, found) {
-            Ok(surfaces) => surfaces,
-            Err(_unreadable) => Vec::new(),
-        };
-
-        for layer in &surfaces {
-            let namespace = layer.namespace.as_str();
-
-            match console_input_controller::mode::SYSTEM_SURFACES.contains(&namespace) || namespace == WALLPAPER_SURFACE {
-                true => {},
-                false => named.push(namespace.to_string()),
-            }
-        }
-
-        named.sort();
-
-        Ok(named)
+        self.taken = Some(picture);
+        self.kept = Some(here);
+      }
+      ::core::option::Option::None => {}
     }
 
-    pub fn until<Why>(
-        &mut self,
-        mut what: impl FnMut(&mut Self) -> Result<Ready, Why>,
-        seconds: f64,
-    ) -> Result<Outcome, Why> {
-        self.until_handed(&mut what, |what, seen| what(seen), seconds)
-    }
+    self.taken.as_ref().ok_or(Error::DevicePictureGone)
+  }
 
-    pub fn until_handed<M, Why>(
-        &mut self,
-        handed: &mut M,
-        mut what: impl FnMut(&mut M, &mut Self) -> Result<Ready, Why>,
-        seconds: f64,
-    ) -> Result<Outcome, Why> {
-        let Ok(patience) = duration_from_seconds(seconds);
-        let Ok(schedule) = Schedule::asking_every(patience, ASKING);
-        let Ok(gaps) = schedule.delays();
+  pub fn background(&mut self) -> Result<String, Error> {
+    let picture = self.picture()?;
+    let Ok(most_common) = picture.most_common();
 
-        for gap in gaps {
-            let Ok(stop) = crate::stopping::stop_state();
+    Ok(most_common)
+  }
 
-            match stop {
-                crate::stopping::Stop::Requested => return Ok(Outcome::RanOut),
-                crate::stopping::Stop::No => {},
-            }
+  pub fn color(&mut self, at: Point<f64>) -> Result<String, Error> {
+    let screen = self.current_screen()?;
+    let Ok(logical) = screen.logical();
+    let picture = self.picture()?;
 
-            #[cfg_attr(
-                dylint_lib = "explicit022_no_settling",
-                allow(
-                    explicit022_no_settling,
-                    reason = "this is the gap between two questions to the handheld, which is the one caller the sleep below it is for; the calls that still name a number say at their own sites why the elapsing was what was asked for"
-                )
-            )]
-            let Ok(()) = self.settle(gap.as_secs_f64());
+    where_(picture, at, logical)
+  }
 
-            let seen = what(handed, self)?;
-
-            match seen {
-                Ready::Yes => return Ok(Outcome::Happened),
-                Ready::NotYet => {},
-            }
-        }
-
-        Ok(Outcome::RanOut)
-    }
-
-    pub fn press_and_wait(&mut self, button: &str, reading: fn(&mut Self) -> Result<Level, Never>) -> Result<Level, Never> {
-        let Ok(was) = reading(self);
-        let Ok(()) = self.press(button);
-        let Ok(_) = self.changed(reading, &was, PATIENCE);
-
-        Ok(was)
-    }
-
-    pub fn changed<T: PartialEq, Why>(
-        &mut self,
-        mut reading: impl FnMut(&mut Self) -> Result<T, Why>,
-        from: &T,
-        seconds: f64,
-    ) -> Result<Outcome, Why> {
-        self.until_handed(
-            &mut reading,
-            |reading, seen| {
-                let now = reading(seen)?;
-
-                Ok(match now == *from {
-                    true => Ready::NotYet,
-                    false => Ready::Yes,
-                })
-            },
-            seconds,
-        )
-    }
-
-    pub fn wait_for_menu(&mut self, seconds: f64) -> Result<Outcome, Never> {
-        self.until(menus_up, seconds)
-    }
-
-    pub fn wait_for_close(&mut self, seconds: f64) -> Result<Outcome, Never> {
-        self.until(
-            |seen| {
-                let Ok(up) = menus_up(seen);
-
-                up.flipped()
-            },
-            seconds,
-        )
-    }
-
-    pub fn frame_cache(&mut self, picture: &str) -> Result<(Option<i64>, Option<i64>), Never> {
-        let Ok(quoted) = shell_quote(picture);
-        let Ok(said) = self.user(&format!(
-            "find ~/.cache/awww -type f -exec stat -c %Y {{}} + 2>/dev/null \
-             | sort -n | tail -1; echo --; stat -c %Y {quoted} 2>/dev/null"
-        ));
-        let mut halves = said.split("--");
-        let last = |half: Option<&str>| {
-            let mut found = None;
-
-            let said = match half {
-                Some(said) => said,
-                None => NOTHING_SAID,
-            };
-
-            for word in said.split_whitespace() {
-                match word.parse::<i64>() {
-                    Ok(number) => found = Some(number),
-                    Err(_not_a_number) => {},
-                }
-            }
-
-            found
-        };
-
-        Ok((last(halves.next()), last(halves.next())))
-    }
-
-    pub fn wallpaper(&mut self) -> Result<String, Never> {
-        let Ok(whom) = self.whoever();
-        let Ok(session) = session_environment(&whom);
-
-        self.user(&format!("{session} && awww query"))
-    }
-
-    fn picture(&mut self) -> Result<&Picture, Error> {
-        match self.taken.is_none() {
-            true => {
-                let Ok(_) = self.exec_cmd("grim /tmp/console-check.png");
-                let Ok(written) = self.until::<Never>(
-                    |seen| {
-                        let Ok(said) = seen.ssh(
-                            "test -s /tmp/console-check.png && echo written || echo not-yet",
-                        );
-
-                        Ok(match said.trim() == "written" {
-                            true => Ready::Yes,
-                            false => Ready::NotYet,
-                        })
-                    },
-                    A_PICTURE,
-                );
-
-                match written {
-                    Outcome::Happened => {},
-                    Outcome::RanOut => return Err(Error::DeviceWroteNoPicture),
-                }
-
-                let here = console_core_temporary_directories::fresh("shot").map_err(Error::Scratch)?;
-                let shot = here.join("screen.png");
-                let Ok(mut fetching) = Program::Scp.command();
-
-                let _ = fetching
-                    .args(["-q", &format!("{}:/tmp/console-check.png", self.host)])
-                    .arg(&shot)
-                    .status();
-                let Ok(_) = self.ssh("rm -f /tmp/console-check.png");
-                let picture = Picture::read(&shot)?;
-
-                self.taken = Some(picture);
-                self.kept = Some(here);
-            }
-            false => {},
-        }
-
-        self.taken.as_ref().ok_or(Error::DevicePictureGone)
-    }
-
-    pub fn background(&mut self) -> Result<String, Error> {
-        let picture = self.picture()?;
-        let Ok(most_common) = picture.most_common();
-
-        Ok(most_common)
-    }
-
-    pub fn color(&mut self, at: Point<f64>) -> Result<String, Error> {
-        let screen = self.current_screen()?;
-        let Ok(logical) = screen.logical();
-        let picture = self.picture()?;
-
-        where_(picture, at, logical)
-    }
-
-    fn current_screen(&mut self) -> Result<console_screen::Screen, Error> {
-        match self.screen {
-            Some(known) => Ok(known),
-            None => {
-                let Ok(shown) = self.shown();
-
-                let screen = match shown {
-                    Some(screen) => screen,
-                    None => crate::screen()?,
-                };
-
-                self.screen = Some(screen);
-
-                Ok(screen)
-            },
-        }
-    }
-
-    pub fn standing(&mut self) -> Result<console_screen::Shape, Never> {
+  fn current_screen(&mut self) -> Result<console_screen::Screen, Error> {
+    match self.screen {
+      Some(known) => Ok(known),
+      None => {
         let Ok(shown) = self.shown();
 
-        Ok(match shown {
-            Some(screen) => {
-                let Ok(shape) = screen.shape();
-
-                shape
-            }
-            None => console_screen::Shape::Wider,
-        })
-    }
-
-    fn shown(&mut self) -> Result<Option<console_screen::Screen>, Never> {
-        let Ok(said) = self.hypr("monitors -j");
-        let Ok(read) = read(&said);
-
-        let found = match read {
-            Some(found) => found,
-            None => return Ok(None),
+        let screen = match shown {
+          Some(screen) => screen,
+          None => crate::screen()?,
         };
 
-        let Ok(monitors) = console_compositor::monitors(&found);
+        self.screen = Some(screen);
 
-        console_screen::shown(&monitors)
+        Ok(screen)
+      }
+    }
+  }
+
+  pub fn standing(&mut self) -> Result<console_screen::Shape, Never> {
+    let Ok(shown) = self.shown();
+
+    Ok(match shown {
+      Some(screen) => {
+        let Ok(shape) = screen.shape();
+
+        shape
+      }
+      None => console_screen::Shape::Wider,
+    })
+  }
+
+  fn shown(&mut self) -> Result<Option<console_screen::Screen>, Never> {
+    let Ok(said) = self.hypr("monitors -j");
+    let Ok(read) = read(&said);
+
+    let found = match read {
+      Some(found) => found,
+      None => return Ok(None),
+    };
+
+    let Ok(monitors) = console_compositor::monitors(&found);
+
+    console_screen::shown(&monitors)
+  }
+
+  pub fn patch(&mut self, at: Point<f64>) -> Result<String, Error> {
+    let picture = self.picture()?;
+    let Ok(average) = picture.average(at, crate::picture::PATCH);
+
+    Ok(average)
+  }
+
+  pub fn again(&mut self) -> Result<(), Never> {
+    self.taken = None;
+
+    Ok(())
+  }
+
+  pub fn fresh(&mut self) -> Result<(), Never> {
+    self.taken = None;
+    self.screen = None;
+
+    match self.dry_run {
+      DryRun::Pretend => return Ok(()),
+      DryRun::Really => {}
     }
 
-    pub fn patch(&mut self, at: Point<f64>) -> Result<String, Error> {
-        let picture = self.picture()?;
-        let Ok(average) = picture.average(at, crate::picture::PATCH);
-
-        Ok(average)
+    match self.pushed {
+      Pushed::None => {}
+      Pushed::Some => match self.let_go() {
+        Ok(()) => {}
+        Err(why) => {
+          eprintln!("console-test-stages: the pad would not let go: {why:?}");
+        }
+      },
     }
 
-    pub fn again(&mut self) -> Result<(), Never> {
-        self.taken = None;
+    for _ in 0..3 {
+      let Ok(menus) = self.menus();
 
-        Ok(())
+      match ::core::primitive::bool::then_some(menus.is_empty(), ()) {
+        ::core::option::Option::Some(()) => break,
+        ::core::option::Option::None => {}
+      }
+
+      let Ok(()) = self.press("b");
+      let Ok(_closed) = self.wait_for_close(A_MOMENT);
     }
 
-    pub fn fresh(&mut self) -> Result<(), Never> {
-        self.taken = None;
-        self.screen = None;
+    let Ok(profile) = self.profile();
 
-        match self.dry_run {
-            true => return Ok(()),
-            false => {},
+    match ::core::primitive::bool::then_some(profile == "Router", ()) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => {
+        let Ok(()) = self.load_profile(console_input_gamepad::router::NAME);
+        let Ok(loaded) = self.until::<Never>(
+          |seen| {
+            let Ok(now) = seen.profile();
+
+            Ok(match ::core::primitive::bool::then_some(now == "Router", ()) {
+              ::core::option::Option::Some(()) => Ready::Yes,
+              ::core::option::Option::None => Ready::NotYet,
+            })
+          },
+          A_MOMENT,
+        );
+
+        match loaded {
+          Outcome::Happened => {}
+          Outcome::RanOut => {
+            eprintln!("console-test-stages: the router profile would not load");
+          }
         }
-
-        match self.pushed {
-            Pushed::None => {},
-            Pushed::Some => match self.let_go() {
-                Ok(()) => {},
-                Err(why) => {
-                    eprintln!("console-test-stages: the pad would not let go: {why:?}");
-                }
-            },
-        }
-
-        for _ in 0..3 {
-            let Ok(menus) = self.menus();
-
-            match menus.is_empty() {
-                true => break,
-                false => {},
-            }
-
-            let Ok(()) = self.press("b");
-            let Ok(_closed) = self.wait_for_close(A_MOMENT);
-        }
-
-        let Ok(profile) = self.profile();
-
-        match profile == "Router" {
-            true => {},
-            false => {
-                let Ok(()) = self.load_profile(console_input_gamepad::router::NAME);
-                let Ok(loaded) = self.until::<Never>(
-                    |seen| {
-                        let Ok(now) = seen.profile();
-
-                        Ok(match now == "Router" {
-                            true => Ready::Yes,
-                            false => Ready::NotYet,
-                        })
-                    },
-                    A_MOMENT,
-                );
-
-                match loaded {
-                    Outcome::Happened => {},
-                    Outcome::RanOut => {
-                        eprintln!("console-test-stages: the router profile would not load");
-                    }
-                }
-            }
-        }
-
-        Ok(())
+      }
     }
 
-    pub fn close(&mut self) -> Result<(), Never> {
-        match self.kept.take() {
-            Some(here) => {
-                let _ = std::fs::remove_dir_all(here);
-            }
-            None => {},
-        }
+    Ok(())
+  }
 
-        Ok(())
+  pub fn close(&mut self) -> Result<(), Never> {
+    match self.kept.take() {
+      Some(here) => {
+        let Ok(()) = crate::remove_scratch(&here);
+      }
+      None => {}
     }
+
+    Ok(())
+  }
 }
 
 pub fn capability_under(here: Option<&Profile>, button: &str) -> Result<Option<String>, Never> {
-    let itself = match vocabulary::button_name(button) {
-        Ok(name) => Some(format!("Gamepad:Button:{name}")),
-        Err(_unnamed) => None,
-    };
+  let itself = match vocabulary::button_name(button) {
+    Ok(name) => Some(format!("Gamepad:Button:{name}")),
+    Err(_unnamed) => None,
+  };
 
-    let here = match here {
-        Some(here) => here,
-        None => return Ok(itself),
-    };
+  let here_3 = match here {
+    Some(here_2) => here_2,
+    None => return Ok(itself),
+  };
 
-    let named = match here.for_button(button) {
-        Ok(named) => named,
-        Err(_no_such_button) => return Ok(itself),
-    };
+  let named = match here_3.for_button(button) {
+    Ok(named) => named,
+    Err(_no_such_button) => return Ok(itself),
+  };
 
-    let sent = named.iter().flat_map(|mapping| &mapping.targets).find_map(|target| {
-        let Ok(spoken) = spoken_as(target.kind, &target.name);
+  let sent = named
+    .iter()
+    .flat_map(|mapping| &mapping.targets)
+    .find_map(|target| {
+      let Ok(spoken) = spoken_as(target.kind, &target.name);
 
-        spoken
+      spoken
     });
 
-    Ok(match (sent, named.is_empty()) {
-        (Some(sent), _) => Some(sent),
-        (None, false) => None,
-        (None, true) => itself,
-    })
+  Ok(match (sent, named.is_empty()) {
+    (Some(sent_2), _) => Some(sent_2),
+    (None, false) => None,
+    (None, true) => itself,
+  })
 }
 
 fn address(client: &serde_json::Value) -> Result<Option<String>, Never> {
-    Ok(client.get("address").and_then(|address| address.as_str()).map(str::to_string))
+  Ok(
+    client
+      .get("address")
+      .and_then(|address| address.as_str())
+      .map(str::to_string),
+  )
 }
 
-fn parse_answer<Q: console_compositor::Question>(question: Q, said: &str) -> Result<Option<Q::Reply>, Never> {
-    Ok(match console_compositor::read(question, said) {
-        Ok(answer) => Some(answer),
-        Err(why) => {
-            eprintln!("console-test-stages: the device answered with something the compositor did not: {why}");
+fn parse_answer<Q: console_compositor::Question>(
+  question: Q,
+  said: &str,
+) -> Result<Option<Q::Reply>, Never> {
+  Ok(match console_compositor::read(question, said) {
+    Ok(answer) => Some(answer),
+    Err(why) => {
+      eprintln!(
+        "console-test-stages: the device answered with something the compositor did not: {why}"
+      );
 
-            None
-        }
-    })
+      None
+    }
+  })
 }
 
 fn read(said: &str) -> Result<Option<serde_json::Value>, Never> {
-    Ok(match console_compositor::read_value(said) {
-        Ok(parsed) => Some(parsed),
-        Err(why) => {
-            eprintln!("console-test-stages: the device answered with something the compositor did not: {why}");
+  Ok(match console_compositor::read_value(said) {
+    Ok(parsed) => Some(parsed),
+    Err(why) => {
+      eprintln!(
+        "console-test-stages: the device answered with something the compositor did not: {why}"
+      );
 
-            None
-        }
-    })
+      None
+    }
+  })
 }
 
 pub fn shell_quote(said: &str) -> Result<String, Never> {
-    Ok(format!("'{}'", said.replace('\'', r"'\''")))
+  Ok(format!("'{}'", said.replace('\'', r"'\''")))
 }
 
 fn chord(capabilities: &[String]) -> Result<String, Never> {
-    let mut words = vec![format!("as {}", capabilities.len())];
+  let mut words = vec![format!("as {}", capabilities.len())];
 
-    for one in capabilities {
-        let Ok(one) = shell_quote(one);
+  for one in capabilities {
+    let Ok(one_2) = shell_quote(one);
 
-        words.push(one);
-    }
+    words.push(one_2);
+  }
 
-    Ok(words.join(" "))
+  Ok(words.join(" "))
 }
 
 fn calling(chord: &str) -> Result<String, Never> {
-    Ok(format!("busctl --system call {} {} {} SendButtonChord {chord} 2>&1", BUS.0, BUS.1, BUS.2))
+  Ok(format!(
+    "busctl --system call {} {} {} SendButtonChord {chord} 2>&1",
+    BUS.0, BUS.1, BUS.2
+  ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    fn dry() -> Result<Device, crate::Error> {
-        Device::new("root@handheld", DryRun::Pretend)
-    }
+  fn dry() -> Result<Device<'static>, crate::Error> {
+    Device::new("root@handheld", DryRun::Pretend)
+  }
 
-    fn root() -> Result<std::path::PathBuf, Never> {
-        let Ok(root) = crate::root();
+  fn root() -> Result<std::path::PathBuf, Never> {
+    let Ok(root) = crate::root();
 
-        Ok(root)
-    }
+    Ok(root)
+  }
 
-    #[test]
-    fn the_pieces_asked_about_are_the_ones_the_manifest_enables() -> Result<(), Box<dyn std::error::Error>> {
-        let Ok(root) = root();
-        let held = std::fs::read_to_string(root.join("desktop.conf"))?;
+  #[test]
+  fn the_pieces_asked_about_are_the_ones_the_manifest_enables()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let Ok(root) = root();
+    let held = std::fs::read_to_string(root.join("desktop.conf"))?;
 
-        let Ok(services) =
-            console_core_ini_files::lines(&held, console_core_ini_files::Under("services"));
+    let Ok(services) =
+      console_core_ini_files::lines(&held, console_core_ini_files::Under("services"));
 
-        let mut named: Vec<String> = services
-            .into_iter()
-            .filter(|line| line.ends_with(".service"))
-            .map(|line| line.trim_end_matches(".service").to_string())
-            .collect();
+    let mut named: Vec<String> = services
+      .into_iter()
+      .filter(|line| line.ends_with(".service"))
+      .map(|line| line.trim_end_matches(".service").to_string())
+      .collect();
 
-        let mut wanted: Vec<String> = PIECES.iter().map(|piece| piece.to_string()).collect();
-        named.sort();
-        wanted.sort();
+    let mut wanted: Vec<String> = PIECES.iter().map(|piece| piece.to_string()).collect();
+    named.sort();
+    wanted.sort();
 
-        assert_eq!(
-            named, wanted,
-            "the desktop the manifest enables is not the desktop the checks ask about"
-        );
+    assert_eq!(
+      named, wanted,
+      "the desktop the manifest enables is not the desktop the checks ask about"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_patience_on_the_handheld_is_counted_in_half_second_gaps() -> Result<(), Box<dyn Error>> {
-        let mut stage = dry()?;
-        let mut asks = 0_u32;
-        let Ok(waited) = stage.until_handed::<u32, Never>(
-            &mut asks,
-            |asks, _seen| {
-                *asks = (*asks).saturating_add(1);
+  #[test]
+  fn a_patience_on_the_handheld_checks_immediately_and_at_the_deadline()
+  -> Result<(), Box<dyn Error>> {
+    let mut stage = dry()?;
+    let mut asks = 0_u32;
+    let Ok(waited) = stage.until_handed::<u32, Never>(
+      &mut asks,
+      |asks_2, _seen| {
+        *asks_2 = (*asks_2).saturating_add(1);
 
-                Ok(Ready::NotYet)
-            },
-            PATIENCE,
-        );
+        Ok(Ready::NotYet)
+      },
+      PATIENCE,
+    );
 
-        assert_eq!(waited, Outcome::RanOut);
-        assert_eq!(asks, 8, "four seconds of patience is eight questions, however long each of them took");
+    assert_eq!(waited, Outcome::RanOut);
+    assert_eq!(
+      asks, 81,
+      "one immediate question and one after each 50 ms gap, including the deadline"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_thing_already_there_on_the_handheld_is_asked_about_once() -> Result<(), Box<dyn Error>> {
-        let mut stage = dry()?;
-        let mut asks = 0_u32;
-        let Ok(waited) = stage.until_handed::<u32, Never>(
-            &mut asks,
-            |asks, _seen| {
-                *asks = (*asks).saturating_add(1);
+  #[test]
+  fn a_thing_already_there_on_the_handheld_is_asked_about_once() -> Result<(), Box<dyn Error>> {
+    let mut stage = dry()?;
+    let mut asks = 0_u32;
+    let Ok(waited) = stage.until_handed::<u32, Never>(
+      &mut asks,
+      |asks_2, _seen| {
+        *asks_2 = (*asks_2).saturating_add(1);
 
-                Ok(Ready::Yes)
-            },
-            PATIENCE,
-        );
+        Ok(Ready::Yes)
+      },
+      PATIENCE,
+    );
 
-        assert_eq!(waited, Outcome::Happened);
-        assert_eq!(asks, 1);
+    assert_eq!(waited, Outcome::Happened);
+    assert_eq!(asks, 1);
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_word_with_a_quote_in_it_is_still_one_word() {
-        assert_eq!(super::shell_quote("plain"), Ok("'plain'".to_string()));
-        assert_eq!(super::shell_quote("it's"), Ok(r"'it'\''s'".to_string()));
-    }
+  #[test]
+  fn an_immediate_completion_needs_no_patience() -> Result<(), Box<dyn Error>> {
+    let mut stage = dry()?;
+    let Ok(waited) = stage.until::<Never>(|_seen| Ok(Ready::Yes), 0.0);
 
-    #[test]
-    fn a_chord_says_how_many_it_is_before_it_says_what_they_are() {
-        assert_eq!(super::chord(&["Gamepad:Button:South".to_string()]), Ok("as 1 'Gamepad:Button:South'".to_string()));
-    }
+    assert_eq!(waited, Outcome::Happened);
 
-    #[test]
-    fn a_key_under_a_modifier_is_the_modifier_and_then_the_key() -> Result<(), Box<dyn Error>> {
-        let Ok(one) = vocabulary::key_capability("super");
-        let Ok(other) = vocabulary::key_capability("i");
-        let one = one.ok_or("a modifier")?;
-        let other = other.ok_or("a letter")?;
+    Ok(())
+  }
 
-        assert_eq!(super::chord(&[one, other]), Ok("as 2 'Keyboard:KeyLeftMeta' 'Keyboard:KeyI'".to_string()));
+  #[test]
+  fn a_word_with_a_quote_in_it_is_still_one_word() {
+    assert_eq!(super::shell_quote("plain"), Ok("'plain'".to_string()));
+    assert_eq!(super::shell_quote("it's"), Ok(r"'it'\''s'".to_string()));
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn a_chord_says_how_many_it_is_before_it_says_what_they_are() {
+    assert_eq!(
+      super::chord(&["Gamepad:Button:South".to_string()]),
+      Ok("as 1 'Gamepad:Button:South'".to_string())
+    );
+  }
 
-    #[test]
-    fn a_key_nothing_names_is_answered_with_nothing_rather_than_a_guess() {
-        assert_eq!(vocabulary::key_capability("logo"), Ok(None));
-        assert_eq!(vocabulary::key_capability("slash"), Ok(None));
-    }
+  #[test]
+  fn a_key_under_a_modifier_is_the_modifier_and_then_the_key() -> Result<(), Box<dyn Error>> {
+    let Ok(one) = vocabulary::key_capability("super");
+    let Ok(other) = vocabulary::key_capability("i");
+    let one_2 = one.ok_or("a modifier")?;
+    let other_2 = other.ok_or("a letter")?;
 
-    #[test]
-    fn a_button_is_sent_as_what_the_loaded_profile_makes_of_it() -> Result<(), Box<dyn Error>> {
-        let Ok(root) = root();
-        let profiles = every_profile(&root)?;
-        assert_eq!(
-            capability_under(profiles.get("router"), "right-paddle-top"),
-            Ok(Some("Keyboard:KeyF15".to_string()))
-        );
+    assert_eq!(
+      super::chord(&[one_2, other_2]),
+      Ok("as 2 'Keyboard:KeyLeftMeta' 'Keyboard:KeyI'".to_string())
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_button_that_means_nothing_in_a_picker_is_still_sent() -> Result<(), Box<dyn Error>> {
-        let Ok(root) = root();
-        let profiles = every_profile(&root)?;
-        assert_eq!(
-            capability_under(profiles.get("router"), "view"),
-            Ok(Some("Gamepad:Button:Select".to_string()))
-        );
+  #[test]
+  fn a_key_nothing_names_is_answered_with_nothing_rather_than_a_guess() {
+    assert_eq!(vocabulary::key_capability("logo"), Ok(None));
+    assert_eq!(vocabulary::key_capability("slash"), Ok(None));
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn a_button_is_sent_as_what_the_loaded_profile_makes_of_it() -> Result<(), Box<dyn Error>> {
+    let Ok(root) = root();
+    let profiles = every_profile(&root)?;
+    assert_eq!(
+      capability_under(profiles.get("router"), "right-paddle-top"),
+      Ok(Some("Keyboard:KeyF15".to_string()))
+    );
 
-    #[test]
-    fn a_button_a_profile_says_nothing_about_is_sent_as_itself() -> Result<(), Box<dyn Error>> {
-        let Ok(root) = root();
-        let profiles = every_profile(&root)?;
-        assert_eq!(
-            capability_under(profiles.get("game"), "a"),
-            Ok(Some("Gamepad:Button:South".to_string()))
-        );
+    Ok(())
+  }
 
-        Ok(())
-    }
+  #[test]
+  fn a_button_that_means_nothing_in_a_picker_is_still_sent() -> Result<(), Box<dyn Error>> {
+    let Ok(root) = root();
+    let profiles = every_profile(&root)?;
+    assert_eq!(
+      capability_under(profiles.get("router"), "view"),
+      Ok(Some("Gamepad:Button:Select".to_string()))
+    );
 
-    #[test]
-    fn a_level_the_machine_would_not_say_is_not_a_level_of_nought() {
-        assert_eq!(brightness_in("24000\n"), Ok(Level::At(24000)));
-        assert_eq!(brightness_in(""), Ok(Level::Unsaid));
-        assert_eq!(brightness_in("no such file"), Ok(Level::Unsaid));
+    Ok(())
+  }
 
-        let said = "Volume: front-left: 26214 /  40% / -23.86 dB,   front-right: 26214 /  40%";
+  #[test]
+  fn a_button_a_profile_says_nothing_about_is_sent_as_itself() -> Result<(), Box<dyn Error>> {
+    let Ok(root) = root();
+    let profiles = every_profile(&root)?;
+    assert_eq!(
+      capability_under(profiles.get("game"), "a"),
+      Ok(Some("Gamepad:Button:South".to_string()))
+    );
 
-        assert_eq!(volume_in(said), Ok(Level::At(40)));
-        assert_eq!(volume_in(""), Ok(Level::Unsaid));
-        assert_eq!(volume_in("Volume: unknown"), Ok(Level::Unsaid));
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn a_name_past_fifteen_bytes_is_what_the_kernel_would_have_cut_it_to() {
-        assert_eq!(comm("controller-desktop"), Ok("controller-desk"));
-        assert_eq!(comm("controller-profile"), Ok("controller-prof"));
-        assert_eq!(comm("console-panels"), Ok("console-panels"));
-        assert_eq!(comm("Hyprland"), Ok("Hyprland"));
-    }
+  #[test]
+  fn a_level_the_machine_would_not_say_is_not_a_level_of_nought() {
+    assert_eq!(brightness_in("24000\n"), Ok(Level::At(24000)));
+    assert_eq!(brightness_in(""), Ok(Level::Unsaid));
+    assert_eq!(brightness_in("no such file"), Ok(Level::Unsaid));
 
-    #[test]
-    fn nothing_is_sent_on_a_dry_run() -> Result<(), Box<dyn Error>> {
-        let mut device = dry()?;
-        let Ok(()) = device.press("a");
-        assert!(!device.done.is_empty(), "the command is still read");
+    let said = "Volume: front-left: 26214 /  40% / -23.86 dB,   front-right: 26214 /  40%";
 
-        Ok(())
-    }
+    assert_eq!(volume_in(said), Ok(Level::At(40)));
+    assert_eq!(volume_in(""), Ok(Level::Unsaid));
+    assert_eq!(volume_in("Volume: unknown"), Ok(Level::Unsaid));
+  }
 
-    #[test]
-    fn a_login_tailscale_asks_for_is_found_in_what_ssh_said() {
-        let said = "# Tailscale SSH requires an additional check.\n# To authenticate, visit: https://login.tailscale.com/a/l1b811fa83a140e\nConnection to 100.109.165.76 port 22 timed out\n";
+  #[test]
+  fn a_name_past_fifteen_bytes_is_what_the_kernel_would_have_cut_it_to() {
+    assert_eq!(comm("controller-desktop"), Ok("controller-desk"));
+    assert_eq!(comm("controller-profile"), Ok("controller-prof"));
+    assert_eq!(comm("console-panels"), Ok("console-panels"));
+    assert_eq!(comm("Hyprland"), Ok("Hyprland"));
+  }
 
-        assert_eq!(logins(said), Ok(vec!["https://login.tailscale.com/a/l1b811fa83a140e"]));
-        assert_eq!(logins("ssh: connect to host the-handheld port 22: Connection timed out"), Ok(Vec::new()));
-    }
+  #[test]
+  fn nothing_is_sent_on_a_dry_run() -> Result<(), Box<dyn Error>> {
+    let mut device = dry()?;
+    let Ok(()) = device.press("a");
+    assert!(!device.done.is_empty(), "the command is still read");
+
+    Ok(())
+  }
+
+  #[test]
+  fn a_login_tailscale_asks_for_is_found_in_what_ssh_said() {
+    let said = "# Tailscale SSH requires an additional check.\n# To authenticate, visit: https://login.tailscale.com/a/l1b811fa83a140e\nConnection to 100.109.165.76 port 22 timed out\n";
+
+    assert_eq!(
+      logins(said),
+      Ok(vec!["https://login.tailscale.com/a/l1b811fa83a140e"])
+    );
+    assert_eq!(
+      logins("ssh: connect to host the-handheld port 22: Connection timed out"),
+      Ok(Vec::new())
+    );
+  }
 }

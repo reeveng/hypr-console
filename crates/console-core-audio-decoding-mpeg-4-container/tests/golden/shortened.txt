@@ -1,0 +1,1334 @@
+== aac.m4a seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+3129: refused: end of stream
+== aac.m4a forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+1639: refused: unsupported feature: isomp4: missing moov atom
+1788: refused: unsupported feature: isomp4: missing moov atom
+1937: refused: unsupported feature: isomp4: missing moov atom
+2086: refused: unsupported feature: isomp4: missing moov atom
+2235: refused: unsupported feature: isomp4: missing moov atom
+2384: refused: unsupported feature: isomp4: missing moov atom
+2533: refused: unsupported feature: isomp4: missing moov atom
+2682: refused: unsupported feature: isomp4: missing moov atom
+2831: refused: unsupported feature: isomp4: missing moov atom
+2980: refused: unsupported feature: isomp4: missing moov atom
+3129: refused: unsupported feature: isomp4: missing moov atom
+== alac.m4a seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+3129: refused: end of stream
+3278: refused: end of stream
+3427: refused: end of stream
+3576: refused: end of stream
+3725: refused: end of stream
+3874: refused: end of stream
+4023: refused: end of stream
+4172: refused: end of stream
+4321: refused: end of stream
+4470: refused: end of stream
+4619: refused: end of stream
+4768: refused: end of stream
+4917: refused: end of stream
+5066: refused: end of stream
+5215: refused: end of stream
+5364: refused: end of stream
+5513: refused: end of stream
+5662: refused: end of stream
+5811: refused: end of stream
+5960: refused: end of stream
+6109: refused: end of stream
+6258: refused: end of stream
+6407: refused: end of stream
+6556: refused: end of stream
+6705: refused: end of stream
+6854: refused: end of stream
+7003: refused: end of stream
+7152: refused: end of stream
+7301: refused: end of stream
+7450: refused: end of stream
+7599: refused: end of stream
+7748: refused: end of stream
+7897: refused: end of stream
+8046: refused: end of stream
+8195: refused: end of stream
+8344: refused: end of stream
+== alac.m4a forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+1639: refused: unsupported feature: isomp4: missing moov atom
+1788: refused: unsupported feature: isomp4: missing moov atom
+1937: refused: unsupported feature: isomp4: missing moov atom
+2086: refused: unsupported feature: isomp4: missing moov atom
+2235: refused: unsupported feature: isomp4: missing moov atom
+2384: refused: unsupported feature: isomp4: missing moov atom
+2533: refused: unsupported feature: isomp4: missing moov atom
+2682: refused: unsupported feature: isomp4: missing moov atom
+2831: refused: unsupported feature: isomp4: missing moov atom
+2980: refused: unsupported feature: isomp4: missing moov atom
+3129: refused: unsupported feature: isomp4: missing moov atom
+3278: refused: unsupported feature: isomp4: missing moov atom
+3427: refused: unsupported feature: isomp4: missing moov atom
+3576: refused: unsupported feature: isomp4: missing moov atom
+3725: refused: unsupported feature: isomp4: missing moov atom
+3874: refused: unsupported feature: isomp4: missing moov atom
+4023: refused: unsupported feature: isomp4: missing moov atom
+4172: refused: unsupported feature: isomp4: missing moov atom
+4321: refused: unsupported feature: isomp4: missing moov atom
+4470: refused: unsupported feature: isomp4: missing moov atom
+4619: refused: unsupported feature: isomp4: missing moov atom
+4768: refused: unsupported feature: isomp4: missing moov atom
+4917: refused: unsupported feature: isomp4: missing moov atom
+5066: refused: unsupported feature: isomp4: missing moov atom
+5215: refused: unsupported feature: isomp4: missing moov atom
+5364: refused: unsupported feature: isomp4: missing moov atom
+5513: refused: unsupported feature: isomp4: missing moov atom
+5662: refused: unsupported feature: isomp4: missing moov atom
+5811: refused: unsupported feature: isomp4: missing moov atom
+5960: refused: unsupported feature: isomp4: missing moov atom
+6109: refused: unsupported feature: isomp4: missing moov atom
+6258: refused: unsupported feature: isomp4: missing moov atom
+6407: refused: unsupported feature: isomp4: missing moov atom
+6556: refused: unsupported feature: isomp4: missing moov atom
+6705: refused: unsupported feature: isomp4: missing moov atom
+6854: refused: unsupported feature: isomp4: missing moov atom
+7003: refused: unsupported feature: isomp4: missing moov atom
+7152: refused: unsupported feature: isomp4: missing moov atom
+7301: refused: unsupported feature: isomp4: missing moov atom
+7450: refused: unsupported feature: isomp4: missing moov atom
+7599: refused: unsupported feature: isomp4: missing moov atom
+7748: refused: unsupported feature: isomp4: missing moov atom
+7897: refused: unsupported feature: isomp4: missing moov atom
+8046: refused: unsupported feature: isomp4: missing moov atom
+8195: refused: unsupported feature: isomp4: missing moov atom
+8344: refused: unsupported feature: isomp4: missing moov atom
+== av.mp4 seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+3129: refused: end of stream
+3278: refused: end of stream
+3427: refused: end of stream
+3576: refused: end of stream
+3725: refused: end of stream
+3874: refused: end of stream
+4023: refused: end of stream
+4172: refused: end of stream
+4321: refused: end of stream
+4470: refused: end of stream
+4619: refused: end of stream
+4768: refused: end of stream
+== av.mp4 forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+1639: refused: unsupported feature: isomp4: missing moov atom
+1788: refused: unsupported feature: isomp4: missing moov atom
+1937: refused: unsupported feature: isomp4: missing moov atom
+2086: refused: unsupported feature: isomp4: missing moov atom
+2235: refused: unsupported feature: isomp4: missing moov atom
+2384: refused: unsupported feature: isomp4: missing moov atom
+2533: refused: unsupported feature: isomp4: missing moov atom
+2682: refused: unsupported feature: isomp4: missing moov atom
+2831: refused: unsupported feature: isomp4: missing moov atom
+2980: refused: unsupported feature: isomp4: missing moov atom
+3129: refused: unsupported feature: isomp4: missing moov atom
+3278: refused: unsupported feature: isomp4: missing moov atom
+3427: refused: unsupported feature: isomp4: missing moov atom
+3576: refused: unsupported feature: isomp4: missing moov atom
+3725: refused: unsupported feature: isomp4: missing moov atom
+3874: refused: unsupported feature: isomp4: missing moov atom
+4023: refused: unsupported feature: isomp4: missing moov atom
+4172: refused: unsupported feature: isomp4: missing moov atom
+4321: refused: unsupported feature: isomp4: missing moov atom
+4470: refused: unsupported feature: isomp4: missing moov atom
+4619: refused: unsupported feature: isomp4: missing moov atom
+4768: refused: unsupported feature: isomp4: missing moov atom
+== dash-stream0.mp4 seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+== dash-stream0.mp4 forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1043: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1192: opened, 2 lines, 1 packets, fold 4606101091978698740, ended: end of stream
+1341: opened, 4 lines, 3 packets, fold 10531762058577655758, ended: end of stream
+1490: opened, 4 lines, 5 packets, fold 5759471102215055514, ended: end of stream
+1639: opened, 4 lines, 7 packets, fold 13531920699441905729, ended: end of stream
+1788: opened, 4 lines, 9 packets, fold 12832058350428345203, ended: end of stream
+1937: opened, 4 lines, 9 packets, fold 12832058350428345203, ended: end of stream
+2086: opened, 4 lines, 10 packets, fold 15633443417484079220, ended: end of stream
+2235: opened, 4 lines, 11 packets, fold 8799932432003203758, ended: end of stream
+2384: opened, 4 lines, 13 packets, fold 13756928572490640630, ended: end of stream
+2533: opened, 4 lines, 14 packets, fold 18276532998397524952, ended: end of stream
+2682: opened, 4 lines, 16 packets, fold 16305006488986350747, ended: end of stream
+2831: opened, 4 lines, 17 packets, fold 7554460425678392184, ended: end of stream
+2980: opened, 4 lines, 18 packets, fold 11653495430103127368, ended: end of stream
+== flac.mp4 seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+3129: refused: end of stream
+3278: refused: end of stream
+3427: refused: end of stream
+3576: refused: end of stream
+3725: refused: end of stream
+3874: refused: end of stream
+4023: refused: end of stream
+4172: refused: end of stream
+4321: refused: end of stream
+4470: refused: end of stream
+4619: refused: end of stream
+4768: refused: end of stream
+4917: refused: end of stream
+5066: refused: end of stream
+5215: refused: end of stream
+5364: refused: end of stream
+5513: refused: end of stream
+5662: refused: end of stream
+5811: refused: end of stream
+5960: refused: end of stream
+6109: refused: end of stream
+6258: refused: end of stream
+6407: refused: end of stream
+6556: refused: end of stream
+6705: refused: end of stream
+6854: refused: end of stream
+7003: refused: end of stream
+== flac.mp4 forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+1639: refused: unsupported feature: isomp4: missing moov atom
+1788: refused: unsupported feature: isomp4: missing moov atom
+1937: refused: unsupported feature: isomp4: missing moov atom
+2086: refused: unsupported feature: isomp4: missing moov atom
+2235: refused: unsupported feature: isomp4: missing moov atom
+2384: refused: unsupported feature: isomp4: missing moov atom
+2533: refused: unsupported feature: isomp4: missing moov atom
+2682: refused: unsupported feature: isomp4: missing moov atom
+2831: refused: unsupported feature: isomp4: missing moov atom
+2980: refused: unsupported feature: isomp4: missing moov atom
+3129: refused: unsupported feature: isomp4: missing moov atom
+3278: refused: unsupported feature: isomp4: missing moov atom
+3427: refused: unsupported feature: isomp4: missing moov atom
+3576: refused: unsupported feature: isomp4: missing moov atom
+3725: refused: unsupported feature: isomp4: missing moov atom
+3874: refused: unsupported feature: isomp4: missing moov atom
+4023: refused: unsupported feature: isomp4: missing moov atom
+4172: refused: unsupported feature: isomp4: missing moov atom
+4321: refused: unsupported feature: isomp4: missing moov atom
+4470: refused: unsupported feature: isomp4: missing moov atom
+4619: refused: unsupported feature: isomp4: missing moov atom
+4768: refused: unsupported feature: isomp4: missing moov atom
+4917: refused: unsupported feature: isomp4: missing moov atom
+5066: refused: unsupported feature: isomp4: missing moov atom
+5215: refused: unsupported feature: isomp4: missing moov atom
+5364: refused: unsupported feature: isomp4: missing moov atom
+5513: refused: unsupported feature: isomp4: missing moov atom
+5662: refused: unsupported feature: isomp4: missing moov atom
+5811: refused: unsupported feature: isomp4: missing moov atom
+5960: refused: unsupported feature: isomp4: missing moov atom
+6109: refused: unsupported feature: isomp4: missing moov atom
+6258: refused: unsupported feature: isomp4: missing moov atom
+6407: refused: unsupported feature: isomp4: missing moov atom
+6556: refused: unsupported feature: isomp4: missing moov atom
+6705: refused: unsupported feature: isomp4: missing moov atom
+6854: refused: unsupported feature: isomp4: missing moov atom
+7003: refused: unsupported feature: isomp4: missing moov atom
+== frag.mp4 seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+== frag.mp4 forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+894: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1043: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1192: opened, 2 lines, 1 packets, fold 4606101091978698740, ended: end of stream
+1341: opened, 3 lines, 2 packets, fold 16356485428129206249, ended: end of stream
+1490: opened, 4 lines, 4 packets, fold 1588861570811446720, ended: end of stream
+1639: opened, 4 lines, 6 packets, fold 5885857074632933445, ended: end of stream
+1788: opened, 4 lines, 8 packets, fold 8307698298436158960, ended: end of stream
+1937: opened, 4 lines, 10 packets, fold 15633443417484079220, ended: end of stream
+2086: opened, 4 lines, 11 packets, fold 8799932432003203758, ended: end of stream
+2235: opened, 4 lines, 13 packets, fold 13756928572490640630, ended: end of stream
+2384: opened, 4 lines, 14 packets, fold 18276532998397524952, ended: end of stream
+2533: opened, 4 lines, 16 packets, fold 16305006488986350747, ended: end of stream
+2682: opened, 4 lines, 18 packets, fold 11653495430103127368, ended: end of stream
+== frag2.mp4 seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+== frag2.mp4 forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+894: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1043: opened, 2 lines, 1 packets, fold 4606101091978698740, ended: end of stream
+1192: opened, 3 lines, 2 packets, fold 16356485428129206249, ended: end of stream
+1341: opened, 4 lines, 4 packets, fold 1588861570811446720, ended: end of stream
+1490: opened, 4 lines, 5 packets, fold 5759471102215055514, ended: end of stream
+1639: opened, 4 lines, 6 packets, fold 5885857074632933445, ended: end of stream
+1788: opened, 4 lines, 8 packets, fold 8307698298436158960, ended: end of stream
+1937: opened, 4 lines, 10 packets, fold 15633443417484079220, ended: end of stream
+2086: opened, 4 lines, 10 packets, fold 15633443417484079220, ended: end of stream
+2235: opened, 4 lines, 12 packets, fold 17799824864802848557, ended: end of stream
+2384: opened, 4 lines, 13 packets, fold 13756928572490640630, ended: end of stream
+2533: opened, 4 lines, 15 packets, fold 13446532136363343791, ended: end of stream
+2682: opened, 4 lines, 15 packets, fold 13446532136363343791, ended: end of stream
+2831: opened, 4 lines, 17 packets, fold 7554460425678392184, ended: end of stream
+2980: opened, 4 lines, 19 packets, fold 15962812647288323140, ended: end of stream
+== mp3.mp4 seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+3129: refused: end of stream
+3278: refused: end of stream
+3427: refused: end of stream
+3576: refused: end of stream
+3725: refused: end of stream
+3874: refused: end of stream
+4023: refused: end of stream
+4172: refused: end of stream
+4321: refused: end of stream
+== mp3.mp4 forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+1639: refused: unsupported feature: isomp4: missing moov atom
+1788: refused: unsupported feature: isomp4: missing moov atom
+1937: refused: unsupported feature: isomp4: missing moov atom
+2086: refused: unsupported feature: isomp4: missing moov atom
+2235: refused: unsupported feature: isomp4: missing moov atom
+2384: refused: unsupported feature: isomp4: missing moov atom
+2533: refused: unsupported feature: isomp4: missing moov atom
+2682: refused: unsupported feature: isomp4: missing moov atom
+2831: refused: unsupported feature: isomp4: missing moov atom
+2980: refused: unsupported feature: isomp4: missing moov atom
+3129: refused: unsupported feature: isomp4: missing moov atom
+3278: refused: unsupported feature: isomp4: missing moov atom
+3427: refused: unsupported feature: isomp4: missing moov atom
+3576: refused: unsupported feature: isomp4: missing moov atom
+3725: refused: unsupported feature: isomp4: missing moov atom
+3874: refused: unsupported feature: isomp4: missing moov atom
+4023: refused: unsupported feature: isomp4: missing moov atom
+4172: refused: unsupported feature: isomp4: missing moov atom
+4321: refused: unsupported feature: isomp4: missing moov atom
+== opus.mp4 seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+== opus.mp4 forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+1639: refused: unsupported feature: isomp4: missing moov atom
+1788: refused: unsupported feature: isomp4: missing moov atom
+1937: refused: unsupported feature: isomp4: missing moov atom
+2086: refused: unsupported feature: isomp4: missing moov atom
+== mono.mov seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+== mono.mov forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+== pcm_f32le.mov seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+3129: refused: end of stream
+3278: refused: end of stream
+3427: refused: end of stream
+3576: refused: end of stream
+3725: refused: end of stream
+3874: refused: end of stream
+4023: refused: end of stream
+4172: refused: end of stream
+== pcm_f32le.mov forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+1639: refused: unsupported feature: isomp4: missing moov atom
+1788: refused: unsupported feature: isomp4: missing moov atom
+1937: refused: unsupported feature: isomp4: missing moov atom
+2086: refused: unsupported feature: isomp4: missing moov atom
+2235: refused: unsupported feature: isomp4: missing moov atom
+2384: refused: unsupported feature: isomp4: missing moov atom
+2533: refused: unsupported feature: isomp4: missing moov atom
+2682: refused: unsupported feature: isomp4: missing moov atom
+2831: refused: unsupported feature: isomp4: missing moov atom
+2980: refused: unsupported feature: isomp4: missing moov atom
+3129: refused: unsupported feature: isomp4: missing moov atom
+3278: refused: unsupported feature: isomp4: missing moov atom
+3427: refused: unsupported feature: isomp4: missing moov atom
+3576: refused: unsupported feature: isomp4: missing moov atom
+3725: refused: unsupported feature: isomp4: missing moov atom
+3874: refused: unsupported feature: isomp4: missing moov atom
+4023: refused: unsupported feature: isomp4: missing moov atom
+4172: refused: unsupported feature: isomp4: missing moov atom
+== pcm_f64le.mov seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+3129: refused: end of stream
+3278: refused: end of stream
+3427: refused: end of stream
+3576: refused: end of stream
+3725: refused: end of stream
+3874: refused: end of stream
+4023: refused: end of stream
+4172: refused: end of stream
+4321: refused: end of stream
+4470: refused: end of stream
+4619: refused: end of stream
+4768: refused: end of stream
+4917: refused: end of stream
+5066: refused: end of stream
+5215: refused: end of stream
+5364: refused: end of stream
+5513: refused: end of stream
+5662: refused: end of stream
+5811: refused: end of stream
+5960: refused: end of stream
+6109: refused: end of stream
+6258: refused: end of stream
+6407: refused: end of stream
+6556: refused: end of stream
+6705: refused: end of stream
+6854: refused: end of stream
+7003: refused: end of stream
+7152: refused: end of stream
+7301: refused: end of stream
+7450: refused: end of stream
+7599: refused: end of stream
+7748: refused: end of stream
+== pcm_f64le.mov forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+1639: refused: unsupported feature: isomp4: missing moov atom
+1788: refused: unsupported feature: isomp4: missing moov atom
+1937: refused: unsupported feature: isomp4: missing moov atom
+2086: refused: unsupported feature: isomp4: missing moov atom
+2235: refused: unsupported feature: isomp4: missing moov atom
+2384: refused: unsupported feature: isomp4: missing moov atom
+2533: refused: unsupported feature: isomp4: missing moov atom
+2682: refused: unsupported feature: isomp4: missing moov atom
+2831: refused: unsupported feature: isomp4: missing moov atom
+2980: refused: unsupported feature: isomp4: missing moov atom
+3129: refused: unsupported feature: isomp4: missing moov atom
+3278: refused: unsupported feature: isomp4: missing moov atom
+3427: refused: unsupported feature: isomp4: missing moov atom
+3576: refused: unsupported feature: isomp4: missing moov atom
+3725: refused: unsupported feature: isomp4: missing moov atom
+3874: refused: unsupported feature: isomp4: missing moov atom
+4023: refused: unsupported feature: isomp4: missing moov atom
+4172: refused: unsupported feature: isomp4: missing moov atom
+4321: refused: unsupported feature: isomp4: missing moov atom
+4470: refused: unsupported feature: isomp4: missing moov atom
+4619: refused: unsupported feature: isomp4: missing moov atom
+4768: refused: unsupported feature: isomp4: missing moov atom
+4917: refused: unsupported feature: isomp4: missing moov atom
+5066: refused: unsupported feature: isomp4: missing moov atom
+5215: refused: unsupported feature: isomp4: missing moov atom
+5364: refused: unsupported feature: isomp4: missing moov atom
+5513: refused: unsupported feature: isomp4: missing moov atom
+5662: refused: unsupported feature: isomp4: missing moov atom
+5811: refused: unsupported feature: isomp4: missing moov atom
+5960: refused: unsupported feature: isomp4: missing moov atom
+6109: refused: unsupported feature: isomp4: missing moov atom
+6258: refused: unsupported feature: isomp4: missing moov atom
+6407: refused: unsupported feature: isomp4: missing moov atom
+6556: refused: unsupported feature: isomp4: missing moov atom
+6705: refused: unsupported feature: isomp4: missing moov atom
+6854: refused: unsupported feature: isomp4: missing moov atom
+7003: refused: unsupported feature: isomp4: missing moov atom
+7152: refused: unsupported feature: isomp4: missing moov atom
+7301: refused: unsupported feature: isomp4: missing moov atom
+7450: refused: unsupported feature: isomp4: missing moov atom
+7599: refused: unsupported feature: isomp4: missing moov atom
+7748: refused: unsupported feature: isomp4: missing moov atom
+== pcm_s16be.mov seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+== pcm_s16be.mov forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+1639: refused: unsupported feature: isomp4: missing moov atom
+1788: refused: unsupported feature: isomp4: missing moov atom
+1937: refused: unsupported feature: isomp4: missing moov atom
+2086: refused: unsupported feature: isomp4: missing moov atom
+2235: refused: unsupported feature: isomp4: missing moov atom
+2384: refused: unsupported feature: isomp4: missing moov atom
+== pcm_s16le.mov seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+== pcm_s16le.mov forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+1639: refused: unsupported feature: isomp4: missing moov atom
+1788: refused: unsupported feature: isomp4: missing moov atom
+1937: refused: unsupported feature: isomp4: missing moov atom
+2086: refused: unsupported feature: isomp4: missing moov atom
+2235: refused: unsupported feature: isomp4: missing moov atom
+2384: refused: unsupported feature: isomp4: missing moov atom
+== pcm_s24le.mov seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: unsupported feature: isomp4: missing moov atom
+2831: refused: end of stream
+2980: refused: end of stream
+3129: refused: end of stream
+3278: refused: end of stream
+== pcm_s24le.mov forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+1639: refused: unsupported feature: isomp4: missing moov atom
+1788: refused: unsupported feature: isomp4: missing moov atom
+1937: refused: unsupported feature: isomp4: missing moov atom
+2086: refused: unsupported feature: isomp4: missing moov atom
+2235: refused: unsupported feature: isomp4: missing moov atom
+2384: refused: unsupported feature: isomp4: missing moov atom
+2533: refused: unsupported feature: isomp4: missing moov atom
+2682: refused: unsupported feature: isomp4: missing moov atom
+2831: refused: unsupported feature: isomp4: missing moov atom
+2980: refused: unsupported feature: isomp4: missing moov atom
+3129: refused: unsupported feature: isomp4: missing moov atom
+3278: refused: unsupported feature: isomp4: missing moov atom
+== pcm_s32le.mov seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+3129: refused: end of stream
+3278: refused: end of stream
+3427: refused: end of stream
+3576: refused: end of stream
+3725: refused: end of stream
+3874: refused: end of stream
+4023: refused: end of stream
+4172: refused: end of stream
+== pcm_s32le.mov forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+1639: refused: unsupported feature: isomp4: missing moov atom
+1788: refused: unsupported feature: isomp4: missing moov atom
+1937: refused: unsupported feature: isomp4: missing moov atom
+2086: refused: unsupported feature: isomp4: missing moov atom
+2235: refused: unsupported feature: isomp4: missing moov atom
+2384: refused: unsupported feature: isomp4: missing moov atom
+2533: refused: unsupported feature: isomp4: missing moov atom
+2682: refused: unsupported feature: isomp4: missing moov atom
+2831: refused: unsupported feature: isomp4: missing moov atom
+2980: refused: unsupported feature: isomp4: missing moov atom
+3129: refused: unsupported feature: isomp4: missing moov atom
+3278: refused: unsupported feature: isomp4: missing moov atom
+3427: refused: unsupported feature: isomp4: missing moov atom
+3576: refused: unsupported feature: isomp4: missing moov atom
+3725: refused: unsupported feature: isomp4: missing moov atom
+3874: refused: unsupported feature: isomp4: missing moov atom
+4023: refused: unsupported feature: isomp4: missing moov atom
+4172: refused: unsupported feature: isomp4: missing moov atom
+== pcm_u8.mov seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+== pcm_u8.mov forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: unsupported feature: isomp4: missing moov atom
+298: refused: unsupported feature: isomp4: missing moov atom
+447: refused: unsupported feature: isomp4: missing moov atom
+596: refused: unsupported feature: isomp4: missing moov atom
+745: refused: unsupported feature: isomp4: missing moov atom
+894: refused: unsupported feature: isomp4: missing moov atom
+1043: refused: unsupported feature: isomp4: missing moov atom
+1192: refused: unsupported feature: isomp4: missing moov atom
+1341: refused: unsupported feature: isomp4: missing moov atom
+1490: refused: unsupported feature: isomp4: missing moov atom
+== aac_fast.m4a seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+== aac_fast.m4a forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1639: opened, 2 lines, 1 packets, fold 4606101091978698740, ended: end of stream
+1788: opened, 4 lines, 3 packets, fold 10531762058577655758, ended: end of stream
+1937: opened, 4 lines, 5 packets, fold 5759471102215055514, ended: end of stream
+2086: opened, 4 lines, 7 packets, fold 13531920699441905729, ended: end of stream
+2235: opened, 4 lines, 9 packets, fold 12832058350428345203, ended: end of stream
+2384: opened, 4 lines, 11 packets, fold 8799932432003203758, ended: end of stream
+2533: opened, 4 lines, 12 packets, fold 17799824864802848557, ended: end of stream
+2682: opened, 4 lines, 14 packets, fold 18276532998397524952, ended: end of stream
+2831: opened, 4 lines, 15 packets, fold 13446532136363343791, ended: end of stream
+2980: opened, 4 lines, 17 packets, fold 7554460425678392184, ended: end of stream
+== alac_fast.m4a seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+3129: refused: end of stream
+3278: refused: end of stream
+3427: refused: end of stream
+3576: refused: end of stream
+3725: refused: end of stream
+3874: refused: end of stream
+4023: refused: end of stream
+4172: refused: end of stream
+4321: refused: end of stream
+4470: refused: end of stream
+4619: refused: end of stream
+4768: refused: end of stream
+4917: refused: end of stream
+5066: refused: end of stream
+5215: refused: end of stream
+5364: refused: end of stream
+5513: refused: end of stream
+5662: refused: end of stream
+5811: refused: end of stream
+5960: refused: end of stream
+6109: refused: end of stream
+6258: refused: end of stream
+6407: refused: end of stream
+6556: refused: end of stream
+6705: refused: end of stream
+6854: refused: end of stream
+7003: refused: end of stream
+7152: refused: end of stream
+7301: refused: end of stream
+7450: refused: end of stream
+7599: refused: end of stream
+7748: refused: end of stream
+7897: refused: end of stream
+== alac_fast.m4a forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1043: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1192: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1341: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1490: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1639: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1788: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1937: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+2086: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+2235: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+2384: opened, 2 lines, 1 packets, fold 17613446027526701863, ended: end of stream
+2533: opened, 2 lines, 1 packets, fold 17613446027526701863, ended: end of stream
+2682: opened, 2 lines, 1 packets, fold 17613446027526701863, ended: end of stream
+2831: opened, 2 lines, 1 packets, fold 17613446027526701863, ended: end of stream
+2980: opened, 2 lines, 1 packets, fold 17613446027526701863, ended: end of stream
+3129: opened, 2 lines, 1 packets, fold 17613446027526701863, ended: end of stream
+3278: opened, 2 lines, 1 packets, fold 17613446027526701863, ended: end of stream
+3427: opened, 2 lines, 1 packets, fold 17613446027526701863, ended: end of stream
+3576: opened, 2 lines, 1 packets, fold 17613446027526701863, ended: end of stream
+3725: opened, 2 lines, 1 packets, fold 17613446027526701863, ended: end of stream
+3874: opened, 2 lines, 1 packets, fold 17613446027526701863, ended: end of stream
+4023: opened, 3 lines, 2 packets, fold 7851674855923574146, ended: end of stream
+4172: opened, 3 lines, 2 packets, fold 7851674855923574146, ended: end of stream
+4321: opened, 3 lines, 2 packets, fold 7851674855923574146, ended: end of stream
+4470: opened, 3 lines, 2 packets, fold 7851674855923574146, ended: end of stream
+4619: opened, 3 lines, 2 packets, fold 7851674855923574146, ended: end of stream
+4768: opened, 3 lines, 2 packets, fold 7851674855923574146, ended: end of stream
+4917: opened, 3 lines, 2 packets, fold 7851674855923574146, ended: end of stream
+5066: opened, 3 lines, 2 packets, fold 7851674855923574146, ended: end of stream
+5215: opened, 3 lines, 2 packets, fold 7851674855923574146, ended: end of stream
+5364: opened, 3 lines, 2 packets, fold 7851674855923574146, ended: end of stream
+5513: opened, 3 lines, 2 packets, fold 7851674855923574146, ended: end of stream
+5662: opened, 4 lines, 3 packets, fold 8254364812199616528, ended: end of stream
+5811: opened, 4 lines, 3 packets, fold 8254364812199616528, ended: end of stream
+5960: opened, 4 lines, 3 packets, fold 8254364812199616528, ended: end of stream
+6109: opened, 4 lines, 3 packets, fold 8254364812199616528, ended: end of stream
+6258: opened, 4 lines, 3 packets, fold 8254364812199616528, ended: end of stream
+6407: opened, 4 lines, 3 packets, fold 8254364812199616528, ended: end of stream
+6556: opened, 4 lines, 3 packets, fold 8254364812199616528, ended: end of stream
+6705: opened, 4 lines, 3 packets, fold 8254364812199616528, ended: end of stream
+6854: opened, 4 lines, 3 packets, fold 8254364812199616528, ended: end of stream
+7003: opened, 4 lines, 3 packets, fold 8254364812199616528, ended: end of stream
+7152: opened, 4 lines, 3 packets, fold 8254364812199616528, ended: end of stream
+7301: opened, 4 lines, 4 packets, fold 5622844226288536182, ended: end of stream
+7450: opened, 4 lines, 4 packets, fold 5622844226288536182, ended: end of stream
+7599: opened, 4 lines, 4 packets, fold 5622844226288536182, ended: end of stream
+7748: opened, 4 lines, 4 packets, fold 5622844226288536182, ended: end of stream
+7897: opened, 4 lines, 4 packets, fold 5622844226288536182, ended: end of stream
+== av_fast.mp4 seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+3129: refused: end of stream
+3278: refused: end of stream
+3427: refused: end of stream
+3576: refused: end of stream
+3725: refused: end of stream
+3874: refused: end of stream
+4023: refused: end of stream
+4172: refused: end of stream
+4321: refused: end of stream
+4470: refused: end of stream
+4619: refused: end of stream
+4768: refused: end of stream
+== av_fast.mp4 forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1788: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1937: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+2086: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+2235: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+2384: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+2533: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+2682: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+2831: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+2980: opened, 3 lines, 2 packets, fold 12522382298705933478, ended: end of stream
+3129: opened, 4 lines, 3 packets, fold 5800443502269347968, ended: end of stream
+3278: opened, 4 lines, 5 packets, fold 376661374301163505, ended: end of stream
+3427: opened, 4 lines, 6 packets, fold 10575672878252776332, ended: end of stream
+3576: opened, 4 lines, 9 packets, fold 13214283860918299950, ended: end of stream
+3725: opened, 4 lines, 11 packets, fold 8865972589666902412, ended: end of stream
+3874: opened, 4 lines, 11 packets, fold 8865972589666902412, ended: end of stream
+4023: opened, 4 lines, 14 packets, fold 1757894229156509304, ended: end of stream
+4172: opened, 4 lines, 16 packets, fold 15161889894525372590, ended: end of stream
+4321: opened, 4 lines, 16 packets, fold 15161889894525372590, ended: end of stream
+4470: opened, 4 lines, 18 packets, fold 15450166468979487614, ended: end of stream
+4619: opened, 4 lines, 20 packets, fold 12209667108891393043, ended: end of stream
+4768: opened, 4 lines, 21 packets, fold 14573735537522314657, ended: end of stream
+== flac_fast.mp4 seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+2533: refused: end of stream
+2682: refused: end of stream
+2831: refused: end of stream
+2980: refused: end of stream
+3129: refused: end of stream
+3278: refused: end of stream
+3427: refused: end of stream
+3576: refused: end of stream
+3725: refused: end of stream
+3874: refused: end of stream
+4023: refused: end of stream
+4172: refused: end of stream
+4321: refused: end of stream
+4470: refused: end of stream
+4619: refused: end of stream
+4768: refused: end of stream
+4917: refused: end of stream
+5066: refused: end of stream
+5215: refused: end of stream
+5364: refused: end of stream
+5513: refused: end of stream
+5662: refused: end of stream
+5811: refused: end of stream
+5960: refused: end of stream
+6109: refused: end of stream
+6258: refused: end of stream
+6407: refused: end of stream
+6556: refused: end of stream
+6705: refused: end of stream
+6854: refused: end of stream
+7003: refused: end of stream
+== flac_fast.mp4 forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1043: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1192: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1341: opened, 2 lines, 1 packets, fold 5744108884291289438, ended: end of stream
+1490: opened, 2 lines, 1 packets, fold 5744108884291289438, ended: end of stream
+1639: opened, 3 lines, 2 packets, fold 11710862970526137189, ended: end of stream
+1788: opened, 3 lines, 2 packets, fold 11710862970526137189, ended: end of stream
+1937: opened, 4 lines, 3 packets, fold 3415153814756258949, ended: end of stream
+2086: opened, 4 lines, 3 packets, fold 3415153814756258949, ended: end of stream
+2235: opened, 4 lines, 3 packets, fold 3415153814756258949, ended: end of stream
+2384: opened, 4 lines, 4 packets, fold 4056989688063692697, ended: end of stream
+2533: opened, 4 lines, 4 packets, fold 4056989688063692697, ended: end of stream
+2682: opened, 4 lines, 5 packets, fold 11648174629823113440, ended: end of stream
+2831: opened, 4 lines, 5 packets, fold 11648174629823113440, ended: end of stream
+2980: opened, 4 lines, 5 packets, fold 11648174629823113440, ended: end of stream
+3129: opened, 4 lines, 6 packets, fold 8433739693608660204, ended: end of stream
+3278: opened, 4 lines, 6 packets, fold 8433739693608660204, ended: end of stream
+3427: opened, 4 lines, 7 packets, fold 12014810568739479280, ended: end of stream
+3576: opened, 4 lines, 7 packets, fold 12014810568739479280, ended: end of stream
+3725: opened, 4 lines, 8 packets, fold 16538769767114537066, ended: end of stream
+3874: opened, 4 lines, 8 packets, fold 16538769767114537066, ended: end of stream
+4023: opened, 4 lines, 8 packets, fold 16538769767114537066, ended: end of stream
+4172: opened, 4 lines, 9 packets, fold 12954160208585262112, ended: end of stream
+4321: opened, 4 lines, 9 packets, fold 12954160208585262112, ended: end of stream
+4470: opened, 4 lines, 10 packets, fold 15433671858741150304, ended: end of stream
+4619: opened, 4 lines, 10 packets, fold 15433671858741150304, ended: end of stream
+4768: opened, 4 lines, 10 packets, fold 15433671858741150304, ended: end of stream
+4917: opened, 4 lines, 11 packets, fold 17834901423172562548, ended: end of stream
+5066: opened, 4 lines, 11 packets, fold 17834901423172562548, ended: end of stream
+5215: opened, 4 lines, 12 packets, fold 9947820117691954854, ended: end of stream
+5364: opened, 4 lines, 12 packets, fold 9947820117691954854, ended: end of stream
+5513: opened, 4 lines, 13 packets, fold 12546465259636033424, ended: end of stream
+5662: opened, 4 lines, 13 packets, fold 12546465259636033424, ended: end of stream
+5811: opened, 4 lines, 13 packets, fold 12546465259636033424, ended: end of stream
+5960: opened, 4 lines, 14 packets, fold 17324955553949823020, ended: end of stream
+6109: opened, 4 lines, 14 packets, fold 17324955553949823020, ended: end of stream
+6258: opened, 4 lines, 15 packets, fold 15885424335621629214, ended: end of stream
+6407: opened, 4 lines, 15 packets, fold 15885424335621629214, ended: end of stream
+6556: opened, 4 lines, 15 packets, fold 15885424335621629214, ended: end of stream
+6705: opened, 4 lines, 16 packets, fold 13458210068003680595, ended: end of stream
+6854: opened, 4 lines, 16 packets, fold 13458210068003680595, ended: end of stream
+7003: opened, 4 lines, 17 packets, fold 12084648945495168307, ended: end of stream
+== opus_fast.mp4 seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+== opus_fast.mp4 forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: opened, 1 lines, 0 packets, fold 0, ended: end of stream
+1043: opened, 3 lines, 2 packets, fold 6267524999511139509, ended: end of stream
+1192: opened, 4 lines, 4 packets, fold 18067481837716097830, ended: end of stream
+1341: opened, 4 lines, 6 packets, fold 5710376860895195821, ended: end of stream
+1490: opened, 4 lines, 9 packets, fold 1889091706364516339, ended: end of stream
+1639: opened, 4 lines, 12 packets, fold 5809477912479764401, ended: end of stream
+1788: opened, 4 lines, 15 packets, fold 8728600710061264988, ended: end of stream
+1937: opened, 4 lines, 17 packets, fold 15488444374154832956, ended: end of stream
+2086: opened, 4 lines, 19 packets, fold 6726306151098784705, ended: end of stream
+== pcm_s16le_fast.mov seekable
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: refused: end of stream
+894: refused: end of stream
+1043: refused: end of stream
+1192: refused: end of stream
+1341: refused: end of stream
+1490: refused: end of stream
+1639: refused: end of stream
+1788: refused: end of stream
+1937: refused: end of stream
+2086: refused: end of stream
+2235: refused: end of stream
+2384: refused: end of stream
+== pcm_s16le_fast.mov forward
+0: refused: unsupported feature: core (probe): no suitable format reader found
+149: refused: end of stream
+298: refused: end of stream
+447: refused: end of stream
+596: refused: end of stream
+745: opened, 4 lines, 15 packets, fold 660929726218493180, ended: end of stream
+894: opened, 4 lines, 52 packets, fold 13693452316415829086, ended: end of stream
+1043: opened, 4 lines, 89 packets, fold 7060168750894309340, ended: end of stream
+1192: opened, 4 lines, 126 packets, fold 10606754125191299634, ended: end of stream
+1341: opened, 4 lines, 164 packets, fold 10649168240705373234, ended: end of stream
+1490: opened, 4 lines, 201 packets, fold 10515610104988282972, ended: end of stream
+1639: opened, 4 lines, 238 packets, fold 2973154497701329096, ended: end of stream
+1788: opened, 4 lines, 275 packets, fold 6124739693731738038, ended: end of stream
+1937: opened, 4 lines, 313 packets, fold 4089657840005915227, ended: end of stream
+2086: opened, 4 lines, 350 packets, fold 10215263250747042656, ended: end of stream
+2235: opened, 4 lines, 387 packets, fold 9448148881255756442, ended: end of stream
+2384: opened, 4 lines, 424 packets, fold 2176045582805371383, ended: end of stream

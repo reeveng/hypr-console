@@ -19,7 +19,7 @@
 //! let in and told something, because a door that stops spinning by never
 //! opening again is the other way to get this wrong.
 
-mod pool;
+pub mod pool;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
@@ -40,75 +40,101 @@ const FEW: u64 = 256;
 
 const A_TICK: Duration = Duration::from_millis(10);
 
+const STAT_LIMIT: u64 = 8 << 10;
+
+#[cfg_attr(
+  dylint_lib = "explicit057_no_unbounded_wait",
+  expect(
+    explicit057_no_unbounded_wait,
+    reason = "the process stats are a finite kernel-generated procfs record, read through the fixed STAT_LIMIT byte cap"
+  )
+)]
 fn on_the_processor(stat: &mut File) -> Result<Duration, Failure> {
-    let mut said = String::new();
+  let mut said = String::new();
 
-    stat.seek(SeekFrom::Start(0))?;
-    stat.read_to_string(&mut said)?;
+  stat.seek(SeekFrom::Start(0))?;
+  stat.take(STAT_LIMIT).read_to_string(&mut said)?;
 
-    let (_, after_the_name) = said.rsplit_once(')').ok_or("a name in brackets")?;
-    let mut fields = after_the_name.split_whitespace().skip(11);
-    let user = fields.next().ok_or("the time spent as the program")?;
-    let system = fields.next().ok_or("the time spent as the kernel on its behalf")?;
-    let user: u32 = user.parse()?;
-    let system: u32 = system.parse()?;
+  let (_, after_the_name) = said.rsplit_once(')').ok_or("a name in brackets")?;
+  let mut fields = after_the_name.split_whitespace().skip(11);
+  let user = fields.next().ok_or("the time spent as the program")?;
+  let system = fields
+    .next()
+    .ok_or("the time spent as the kernel on its behalf")?;
+  let user_2: u32 = user.parse()?;
+  let system_2: u32 = system.parse()?;
 
-    Ok(A_TICK.saturating_mul(user.saturating_add(system)))
+  Ok(A_TICK.saturating_mul(user_2.saturating_add(system_2)))
 }
 
 #[test]
-fn a_door_that_cannot_open_is_not_asked_again_as_fast_as_the_machine_turns() -> Result<(), Failure> {
-    let at = socket("door")?;
-    let handed = serve_at(&at)?;
-    let mut stat = File::open("/proc/self/stat")?;
-    let was = getrlimit(Resource::Nofile);
+fn a_door_that_cannot_open_is_not_asked_again_as_fast_as_the_machine_turns() -> Result<(), Failure>
+{
+  let at = socket("door")?;
+  let handed = serve_at(&at)?;
+  let mut stat = File::open("/proc/self/stat")?;
+  let was = getrlimit(Resource::Nofile);
 
-    setrlimit(Resource::Nofile, Rlimit { current: Some(FEW), maximum: was.maximum })?;
+  setrlimit(
+    Resource::Nofile,
+    Rlimit {
+      current: Some(FEW),
+      maximum: was.maximum,
+    },
+  )?;
 
-    let mut spent: Vec<File> = std::iter::repeat_with(|| File::open("/dev/null"))
-        .map_while(|opened| match opened {
-            Ok(null) => Some(null),
-            Err(_out_of_descriptors) => None,
-        })
-        .collect();
+  let mut spent: Vec<File> = (0..FEW)
+    .map_while(|_slot| match File::open("/dev/null") {
+      Ok(null) => Some(null),
+      Err(_out_of_descriptors) => None,
+    })
+    .collect();
 
-    drop(spent.pop());
+  drop(spent.pop());
 
-    let queued = UnixStream::connect(&at)?;
-    let before = on_the_processor(&mut stat)?;
-    let Ok(patience) = Schedule::of(REFUSING);
-    let Ok(_refused_all_along) = until(patience, || Ok(Ready::NotYet));
-    let after = on_the_processor(&mut stat)?;
-    let spun = after.saturating_sub(before);
+  let queued = UnixStream::connect(&at)?;
+  let before = on_the_processor(&mut stat)?;
+  let Ok(patience) = Schedule::of(REFUSING);
+  let Ok(_refused_all_along) = until(patience, || Ok(Ready::NotYet));
+  let after = on_the_processor(&mut stat)?;
+  let spun = after.saturating_sub(before);
 
-    drop(spent);
-    setrlimit(Resource::Nofile, was)?;
+  drop(spent);
+  setrlimit(Resource::Nofile, was)?;
 
-    assert!(
-        spun < SPINNING,
-        "a door that could not open was asked again as fast as the machine turns: {spun:?} on \
+  assert!(
+    spun < SPINNING,
+    "a door that could not open was asked again as fast as the machine turns: {spun:?} on \
          the processor in {REFUSING:?} of nothing happening"
-    );
+  );
 
-    let asked = wire::encoded(&Message::Subscribe(EventGroup::Sound))?;
-    let mut asking = queued.try_clone()?;
+  let asked = wire::encoded(&Message::Subscribe(EventGroup::Sound))?;
+  let mut asking = queued.try_clone()?;
 
-    writeln!(asking, "{asked}")?;
+  writeln!(asking, "{asked}")?;
 
-    let saying = handed.recv_timeout(BEFORE_LONG).map_err(|_| "the program queued at the door was never let in")?;
+  let saying = handed
+    .recv_timeout(BEFORE_LONG)
+    .map_err(|_| "the program queued at the door was never let in")?;
 
-    saying
-        .send(Change { event_group: EventGroup::Sound, text: "let in at last".to_string() })
-        .map_err(|_| "the pool stopped listening to its own source")?;
+  saying
+    .send(Change {
+      event_group: EventGroup::Sound,
+      text: "let in at last".to_string(),
+    })
+    .map_err(|_| "the pool stopped listening to its own source")?;
 
-    let _ = queued.set_read_timeout(Some(BEFORE_LONG));
-    let mut told = String::new();
+  queued.set_read_timeout(Some(BEFORE_LONG))?;
+  let mut told = String::new();
 
-    BufReader::new(queued).read_line(&mut told)?;
+  BufReader::new(queued).read_line(&mut told)?;
 
-    assert!(told.contains("let in at last"), "the program let in heard {told:?}");
+  assert!(
+    told.contains("let in at last"),
+    "the program let in heard {told:?}"
+  );
 
-    let _ = std::fs::remove_file(&at);
+  std::fs::remove_file(&at)?;
 
-    Ok(())
+  Ok(())
 }

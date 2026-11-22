@@ -1,0 +1,123 @@
+warning: `std::slice::from_raw_parts` checks nothing: a pointer and a length declared to be a slice; every check after it trusts a length nobody checked
+  --> $DIR/main.rs:7:14
+   |
+LL |     unsafe { std::slice::from_raw_parts(at, long) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+   = note: `#[warn(explicit096_no_unchecked_memory)]` on by default
+
+warning: `std::vec::Vec::<T, A>::set_len` checks nothing: elements declared written that nothing wrote; `resize`, `extend` and `truncate` change a length by doing the work
+  --> $DIR/main.rs:13:14
+   |
+LL |     unsafe { held.set_len(long) }
+   |              ^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: `std::mem::zeroed` checks nothing: all-zeroes declared to be a value of the type, which it is not for a reference, a `NonZero` or most enums
+  --> $DIR/main.rs:19:14
+   |
+LL |     unsafe { std::mem::zeroed() }
+   |              ^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: `std::num::NonZero::<T>::new_unchecked` checks nothing: a type with an invariant built by skipping the invariant; the checked constructor answers with a value
+  --> $DIR/main.rs:25:14
+   |
+LL |     unsafe { NonZeroU32::new_unchecked(many) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: `core::num::<impl u32>::unchecked_add` checks nothing: arithmetic with the overflow declared away; `checked_*`, `saturating_*` and `wrapping_*` each name a policy
+  --> $DIR/main.rs:31:14
+   |
+LL |     unsafe { one.unchecked_add(other) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: `std::mem::MaybeUninit::<T>::assume_init_read` checks nothing: an unchecked read, borrow or drop of potentially uninitialized memory
+  --> $DIR/main.rs:50:22
+   |
+LL |     let _ = unsafe { value.assume_init_read() };
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: `std::mem::MaybeUninit::<T>::assume_init_ref` checks nothing: an unchecked read, borrow or drop of potentially uninitialized memory
+  --> $DIR/main.rs:52:22
+   |
+LL |     let _ = unsafe { value.assume_init_ref() };
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: `std::mem::MaybeUninit::<T>::assume_init_mut` checks nothing: an unchecked read, borrow or drop of potentially uninitialized memory
+  --> $DIR/main.rs:54:22
+   |
+LL |     let _ = unsafe { value.assume_init_mut() };
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: `std::mem::MaybeUninit::<T>::assume_init_drop` checks nothing: an unchecked read, borrow or drop of potentially uninitialized memory
+  --> $DIR/main.rs:56:14
+   |
+LL |     unsafe { value.assume_init_drop() };
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: `std::mem::ManuallyDrop::<T>::drop` checks nothing: manual destruction or extraction requires exactly one owner of the live value
+  --> $DIR/main.rs:63:14
+   |
+LL |     unsafe { std::mem::ManuallyDrop::drop(&mut owned) };
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: `std::mem::ManuallyDrop::<T>::take` checks nothing: manual destruction or extraction requires exactly one owner of the live value
+  --> $DIR/main.rs:67:22
+   |
+LL |     let _ = unsafe { std::mem::ManuallyDrop::take(&mut owned) };
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: `std::ptr::drop_in_place` checks nothing: manual destruction requires a live value and no subsequent drop
+  --> $DIR/main.rs:71:14
+   |
+LL |     unsafe { std::ptr::drop_in_place(&mut *owned) };
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: `std::mem::transmute_copy` checks nothing: a value copied bitwise across types; the source remains live
+  --> $DIR/main.rs:75:26
+   |
+LL |     let _: u8 = unsafe { std::mem::transmute_copy(&byte) };
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: `std::ptr::read` checks nothing: a raw read of a non-Copy value leaves ownership of the source to be proved
+  --> $DIR/main.rs:82:30
+   |
+LL |     let _: String = unsafe { std::ptr::read(&*owned) };
+   |                              ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: `std::ptr::const_ptr::<impl *const T>::read` checks nothing: a raw read of a non-Copy value leaves ownership of the source to be proved
+  --> $DIR/main.rs:87:30
+   |
+LL |     let _: String = unsafe { pointer.read() };
+   |                              ^^^^^^^^^^^^^^
+   |
+   = help: use the spelling that does the work or answers with a value. Where the promise is somebody else's -- a length the kernel handed over with a mapping -- allow this rule here and let the reason say whose it is and where it was made
+
+warning: 15 warnings emitted
+

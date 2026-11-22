@@ -1,0 +1,27 @@
+warning: `std::io::Read::read_to_end` reads for as long as the other end goes on writing
+  --> $DIR/main.rs:10:13
+   |
+LL |     let _ = heard.read_to_end(&mut held)?;
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: read through `take(LIMIT)`, with the limit a `const` whose name says what it is the most of, and decide what a stream that reached it means. Where the other end is this desktop's own and what it sends is already bounded, allow this rule here and let the reason say by what
+   = note: `#[warn(explicit087_no_unbounded_read)]` on by default
+
+warning: `std::io::Read::read_to_string` reads for as long as the other end goes on writing
+  --> $DIR/main.rs:19:13
+   |
+LL |     let _ = heard.read_to_string(&mut said)?;
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: read through `take(LIMIT)`, with the limit a `const` whose name says what it is the most of, and decide what a stream that reached it means. Where the other end is this desktop's own and what it sends is already bounded, allow this rule here and let the reason say by what
+
+warning: `std::io::read_to_string` reads for as long as the other end goes on writing
+  --> $DIR/main.rs:26:5
+   |
+LL |     std::io::read_to_string(heard)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: read through `take(LIMIT)`, with the limit a `const` whose name says what it is the most of, and decide what a stream that reached it means. Where the other end is this desktop's own and what it sends is already bounded, allow this rule here and let the reason say by what
+
+warning: 3 warnings emitted
+

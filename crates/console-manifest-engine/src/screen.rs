@@ -23,59 +23,59 @@ use console_screen::{DRAWN_AT, kernel};
 use crate::machine;
 
 pub fn wrote(home: &Path) -> Result<Option<String>, Never> {
-    let Ok(found) = kernel::here();
+  let Ok(found) = kernel::here();
 
-    let panel = match found {
-        Some(panel) => panel,
-        None => {
-            eprintln!(
-                "the kernel says nothing about a screen under {}, so the block in the \
+  let panel = match found {
+    Some(panel) => panel,
+    None => {
+      eprintln!(
+        "the kernel says nothing about a screen under {}, so the block in the \
                  compositor's own file is what stands",
-                kernel::DRM
-            );
+        kernel::DRM
+      );
 
-            return Ok(None);
-        }
-    };
-
-    let Ok(at) = kernel::at(home);
-    let Ok(block) = panel.block(DRAWN_AT);
-
-    let holding = match at.parent() {
-        Some(holding) => holding,
-        None => return Ok(None),
-    };
-
-    match std::fs::create_dir_all(holding) {
-        Ok(()) => {},
-        Err(fault) => {
-            eprintln!("{}: {fault}", holding.display());
-
-            return Ok(None);
-        }
+      return Ok(None);
     }
+  };
 
-    let Ok(()) = handed_over(holding);
+  let Ok(at) = kernel::at(home);
+  let Ok(block) = panel.block(DRAWN_AT);
 
-    match console_core_atomic_writes::write_and_sync(&at, block.as_bytes()) {
-        Ok(()) => {},
-        Err(fault) => {
-            eprintln!("{fault}");
+  let holding = match at.parent() {
+    Some(holding) => holding,
+    None => return Ok(None),
+  };
 
-            return Ok(None);
-        }
+  match std::fs::create_dir_all(holding) {
+    Ok(()) => {}
+    Err(fault) => {
+      eprintln!("{}: {fault}", holding.display());
+
+      return Ok(None);
     }
+  }
 
-    let Ok(()) = handed_over(&at);
+  let Ok(()) = handed_over(holding);
 
-    Ok(Some(at.display().to_string()))
+  match console_core_atomic_writes::write_and_sync(&at, block.as_bytes()) {
+    Ok(()) => {}
+    Err(fault) => {
+      eprintln!("{fault}");
+
+      return Ok(None);
+    }
+  }
+
+  let Ok(()) = handed_over(&at);
+
+  Ok(Some(at.display().to_string()))
 }
 
 fn handed_over(at: &Path) -> Result<(), Never> {
-    match machine::handed_over(at) {
-        Ok(()) => {},
-        Err(fault) => eprintln!("{fault}"),
-    }
+  match machine::handed_over(at) {
+    Ok(()) => {}
+    Err(fault) => eprintln!("{fault}"),
+  }
 
-    Ok(())
+  Ok(())
 }

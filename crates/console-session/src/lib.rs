@@ -22,10 +22,10 @@ pub mod reaching;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Session {
-    #[words(word = "plasma", going = "back to the desktop")]
-    Desktop,
-    #[words(word = "gamescope", going = "to game mode")]
-    Game,
+  #[words(word = "plasma", going = "back to the desktop")]
+  Desktop,
+  #[words(word = "gamescope", going = "to game mode")]
+  Game,
 }
 
 pub const GAME_TARGET: &str = "gamescope-session.target";
@@ -33,258 +33,292 @@ pub const GAME_TARGET: &str = "gamescope-session.target";
 pub const SWITCHER: &str = "/usr/local/bin/steamos-session-select";
 
 impl Session {
-    pub fn buttons(self) -> Result<Option<&'static str>, Never> {
-        Ok(match self {
-            Session::Desktop => None,
-            Session::Game => Some("game"),
-        })
-    }
+  pub fn buttons(self) -> Result<Option<&'static str>, Never> {
+    Ok(match self {
+      Session::Desktop => None,
+      Session::Game => Some("game"),
+    })
+  }
 }
 
 pub fn worth_going(now: Session, to: Session) -> Result<Going, Never> {
-    Ok(match now != to {
-        true => Going::Worth,
-        false => Going::Already,
-    })
+  Ok(match (now, to) {
+    (Session::Game, Session::Desktop) | (Session::Desktop, Session::Game) => Going::Worth,
+    (Session::Game, Session::Game) | (Session::Desktop, Session::Desktop) => Going::Already,
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Going {
-    Worth,
-    Already,
+  Worth,
+  Already,
 }
 
 pub fn steps(now: Session, to: Session) -> Result<Vec<Vec<String>>, Never> {
-    let Ok(worth) = worth_going(now, to);
+  let Ok(worth) = worth_going(now, to);
 
-    match worth {
-        Going::Already => return Ok(Vec::new()),
-        Going::Worth => {}
-    }
+  match worth {
+    Going::Already => return Ok(Vec::new()),
+    Going::Worth => {}
+  }
 
-    let mut steps = Vec::new();
+  let mut steps = Vec::new();
 
-    let Ok(buttons) = to.buttons();
+  let Ok(buttons) = to.buttons();
 
-    match buttons {
-        Some(profile) => steps.push(vec!["controller-profile".to_string(), profile.to_string()]),
-        None => {}
-    }
+  match buttons {
+    Some(profile) => steps.push(vec!["controller-profile".to_string(), profile.to_string()]),
+    None => {}
+  }
 
-    let Ok(word) = to.word();
+  let Ok(word) = to.word();
 
-    steps.push(vec![SWITCHER.to_string(), word.to_string()]);
+  steps.push(vec![SWITCHER.to_string(), word.to_string()]);
 
-    Ok(steps)
+  Ok(steps)
 }
 
 pub const HANDED_OVER: [&str; 5] = [
-    "WAYLAND_DISPLAY",
-    "HYPRLAND_INSTANCE_SIGNATURE",
-    "XDG_CURRENT_DESKTOP",
-    "XDG_SESSION_TYPE",
-    "XDG_RUNTIME_DIR",
+  "WAYLAND_DISPLAY",
+  "HYPRLAND_INSTANCE_SIGNATURE",
+  "XDG_CURRENT_DESKTOP",
+  "XDG_SESSION_TYPE",
+  "XDG_RUNTIME_DIR",
 ];
 
 pub const TARGET: &str = "console.target";
 
 pub fn startup_commands() -> Result<Vec<Vec<String>>, Never> {
-    let Ok(mut handing) = Program::Systemctl.arguments(&["--user", "import-environment"]);
+  let Ok(mut handing) = Program::Systemctl.arguments(&["--user", "import-environment"]);
 
-    handing.extend(HANDED_OVER.iter().map(|name| (*name).to_string()));
+  handing.extend(HANDED_OVER.iter().map(|name| (*name).to_string()));
 
-    let Ok(scale) = InternalProgram::Scale.path();
+  let Ok(scale) = InternalProgram::Scale.path();
 
-    Ok(vec![
-        handing,
-        vec![scale.to_string(), "apply".to_string()],
-        vec![
-            "systemctl".to_string(),
-            "--user".to_string(),
-            "restart".to_string(),
-            "--no-block".to_string(),
-            TARGET.to_string(),
-        ],
-    ])
+  Ok(vec![
+    handing,
+    vec![scale.to_string(), "apply".to_string()],
+    vec![
+      "systemctl".to_string(),
+      "--user".to_string(),
+      "restart".to_string(),
+      "--no-block".to_string(),
+      TARGET.to_string(),
+    ],
+  ])
 }
 
 use std::process::Command;
 
 use console_core_external_programs::Program;
-use console_response_times::Wait;
-use console_core_never::Never;
 use console_core_internal_programs::InternalProgram;
+use console_core_never::Never;
 use console_core_words::Words;
+use console_response_times::Wait;
+
+enum CommandResult {
+  Succeeded,
+  Failed,
+}
+
+impl From<bool> for CommandResult {
+  fn from(succeeded: bool) -> Self {
+    match bool::then_some(succeeded, ()) {
+      Some(()) => Self::Succeeded,
+      None => Self::Failed,
+    }
+  }
+}
 
 pub fn here(target: &str) -> Result<Session, Never> {
-    let Ok(mut systemctl) = Program::Systemctl.command();
+  let Ok(mut systemctl) = Program::Systemctl.command();
 
-    let asked = systemctl.args(["--user", "is-active", "--quiet", target]).status();
+  let asked = systemctl
+    .args(["--user", "is-active", "--quiet", target])
+    .status();
 
-    Ok(match asked.map(|how| how.success()) {
-        Ok(true) => Session::Game,
-        Ok(false) => Session::Desktop,
-        Err(_would_not_start) => Session::Desktop,
-    })
+  Ok(match asked.map(|how| CommandResult::from(how.success())) {
+    Ok(CommandResult::Succeeded) => Session::Game,
+    Ok(CommandResult::Failed) => Session::Desktop,
+    Err(_would_not_start) => Session::Desktop,
+  })
 }
 
 #[cfg_attr(
-    dylint_lib = "explicit029_no_asking_per_item",
-    allow(
-        explicit029_no_asking_per_item,
-        reason = "the list is programs: each step is a different arguments and the whole of what this does is run them in order, stopping at the first that says no"
-    )
+  dylint_lib = "explicit029_no_asking_per_item",
+  allow(
+    explicit029_no_asking_per_item,
+    reason = "the list is programs: each step is a different arguments and the whole of what this does is run them in order, stopping at the first that says no"
+  )
 )]
 pub fn run_each(what: &str, steps: &[Vec<String>]) -> Result<(), Never> {
-    let Ok(mut waiting) =
-        console_response_times::Waiting::on(Wait { who: "session", what });
+  let Ok(mut waiting) = console_response_times::Waiting::on(Wait {
+    who: "session",
+    what,
+  });
 
-    for arguments in steps {
-        let (program, rest) = match arguments.split_first() {
-            Some((program, rest)) => (program, rest),
-            None => continue,
-        };
+  for arguments in steps {
+    let (program, rest) = match arguments.split_first() {
+      Some((program, rest)) => (program, rest),
+      None => continue,
+    };
 
-        let mut starting = Command::new(program);
-        starting.args(rest);
-        let Ok(()) = console_response_times::not_a_press(&mut starting);
+    let mut starting = Command::new(program);
+    starting.args(rest);
+    let Ok(()) = console_response_times::not_a_press(&mut starting);
 
-        match starting.status() {
-            Ok(how) => match how.success() {
-                true => {
-                    let Ok(plainly) = plainly(program);
-                    let Ok(()) = waiting.mark(&plainly);
-                }
-                false => {
-                    eprintln!("{program} said {how}");
-                    return Ok(());
-                }
-            },
-            Err(why) => {
-                eprintln!("no {program} to run: {why}");
-                return Ok(());
-            }
+    match starting.status() {
+      Ok(how) => match CommandResult::from(how.success()) {
+        CommandResult::Succeeded => {
+          let Ok(plainly) = plainly(program);
+          let Ok(()) = waiting.mark(&plainly);
         }
+        CommandResult::Failed => {
+          eprintln!("{program} said {how}");
+          return Ok(());
+        }
+      },
+      Err(why) => {
+        eprintln!("no {program} to run: {why}");
+        return Ok(());
+      }
     }
+  }
 
-    let Ok(()) = waiting.finish();
-    let Ok(()) = console_response_times::flush();
+  let Ok(()) = waiting.finish();
+  let Ok(()) = console_response_times::flush();
 
-    Ok(())
+  Ok(())
 }
 
 pub fn plainly(program: &str) -> Result<String, Never> {
-    Ok(match program.rsplit_once('/') {
-        Some((_, name)) => name.to_string(),
-        None => program.to_string(),
-    })
+  Ok(match program.rsplit_once('/') {
+    Some((_, name)) => name.to_string(),
+    None => program.to_string(),
+  })
 }
 
 pub fn run(now: Session, to: Session) -> Result<(), Never> {
-    let Ok(going) = to.going();
-    let Ok(steps) = steps(now, to);
-    let Ok(()) = run_each(going, &steps);
+  let Ok(going) = to.going();
+  let Ok(steps) = steps(now, to);
+  let Ok(()) = run_each(going, &steps);
 
-    Ok(())
+  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::error::Error;
+  use super::*;
+  use std::error::Error;
 
-    #[test]
-    fn a_step_is_written_down_under_the_name_of_the_program_and_not_its_path() {
-        let Ok(path) = plainly("/usr/local/bin/steamos-session-select");
-        let Ok(name) = plainly("systemctl");
+  #[test]
+  fn a_step_is_written_down_under_the_name_of_the_program_and_not_its_path() {
+    let Ok(path) = plainly("/usr/local/bin/steamos-session-select");
+    let Ok(name) = plainly("systemctl");
 
-        assert_eq!(path, "steamos-session-select");
-        assert_eq!(name, "systemctl");
-    }
+    assert_eq!(path, "steamos-session-select");
+    assert_eq!(name, "systemctl");
+  }
 
-    #[test]
-    fn each_way_across_says_which_way_it_was_going() {
-        let Ok(back) = Session::Desktop.going();
-        let Ok(away) = Session::Game.going();
+  #[test]
+  fn each_way_across_says_which_way_it_was_going() {
+    let Ok(back) = Session::Desktop.going();
+    let Ok(away) = Session::Game.going();
 
-        assert_ne!(back, away);
-    }
+    assert_ne!(back, away);
+  }
 
-    #[test]
-    fn neither_way_to_a_session_acts_when_the_machine_is_already_in_it() {
-        let Ok(in_game) = worth_going(Session::Game, Session::Game);
-        let Ok(on_the_desktop) = worth_going(Session::Desktop, Session::Desktop);
-        let Ok(game_steps) = steps(Session::Game, Session::Game);
-        let Ok(desktop_steps) = steps(Session::Desktop, Session::Desktop);
+  #[test]
+  fn neither_way_to_a_session_acts_when_the_machine_is_already_in_it() {
+    let Ok(in_game) = worth_going(Session::Game, Session::Game);
+    let Ok(on_the_desktop) = worth_going(Session::Desktop, Session::Desktop);
+    let Ok(game_steps) = steps(Session::Game, Session::Game);
+    let Ok(desktop_steps) = steps(Session::Desktop, Session::Desktop);
 
-        assert_eq!(in_game, Going::Already);
-        assert_eq!(on_the_desktop, Going::Already);
-        assert_eq!(game_steps, Vec::<Vec<String>>::new());
-        assert_eq!(desktop_steps, Vec::<Vec<String>>::new());
-    }
+    assert_eq!(in_game, Going::Already);
+    assert_eq!(on_the_desktop, Going::Already);
+    assert_eq!(game_steps, Vec::<Vec<String>>::new());
+    assert_eq!(desktop_steps, Vec::<Vec<String>>::new());
+  }
 
-    #[test]
-    fn the_pad_is_a_gamepad_again_before_steam_is_asked_for() {
-        let Ok(steps) = steps(Session::Desktop, Session::Game);
+  #[test]
+  fn the_pad_is_a_gamepad_again_before_steam_is_asked_for() {
+    let Ok(steps) = steps(Session::Desktop, Session::Game);
 
-        assert_eq!(steps.first(), Some(&vec!["controller-profile".to_string(), "game".to_string()]));
-        assert_eq!(steps.get(1), Some(&vec![SWITCHER.to_string(), "gamescope".to_string()]));
-    }
+    assert_eq!(
+      steps.first(),
+      Some(&vec!["controller-profile".to_string(), "game".to_string()])
+    );
+    assert_eq!(
+      steps.get(1),
+      Some(&vec![SWITCHER.to_string(), "gamescope".to_string()])
+    );
+  }
 
-    #[test]
-    fn coming_back_does_not_reach_for_the_controller() {
-        let Ok(steps) = steps(Session::Game, Session::Desktop);
+  #[test]
+  fn coming_back_does_not_reach_for_the_controller() {
+    let Ok(steps) = steps(Session::Game, Session::Desktop);
 
-        assert_eq!(steps, vec![vec![SWITCHER, "plasma"]]);
-    }
+    assert_eq!(steps, vec![vec![SWITCHER, "plasma"]]);
+  }
 
-    fn the_desktop() -> Result<(u32, Vec<String>), Box<dyn Error>> {
-        let Ok(starting) = startup_commands();
+  fn the_desktop() -> Result<(u32, Vec<String>), Box<dyn Error>> {
+    let Ok(starting) = startup_commands();
 
-        let desktop = (0..)
-            .zip(starting)
-            .find(|(_, step)| step.last().map(String::as_str) == Some(TARGET))
-            .ok_or("nothing in the session starts the desktop")?;
+    let desktop = (0..)
+      .zip(starting)
+      .find(|(_, step)| step.last().map(String::as_str) == Some(TARGET))
+      .ok_or("nothing in the session starts the desktop")?;
 
-        Ok(desktop)
-    }
+    Ok(desktop)
+  }
 
-    #[test]
-    fn the_compositor_is_handed_over_before_anything_is_started() -> Result<(), Box<dyn Error>> {
-        let Ok(starting) = startup_commands();
-        let handing = starting.first().ok_or("the session starts nothing")?;
-        let (desktop, _) = the_desktop()?;
+  #[test]
+  fn the_compositor_is_handed_over_before_anything_is_started() -> Result<(), Box<dyn Error>> {
+    let Ok(starting) = startup_commands();
+    let handing = starting.first().ok_or("the session starts nothing")?;
+    let (desktop, _) = the_desktop()?;
 
-        assert_eq!(handing.get(2).map(String::as_str), Some("import-environment"));
-        assert!(handing.contains(&"HYPRLAND_INSTANCE_SIGNATURE".to_string()));
-        assert!(desktop > 0, "the desktop starts before it is told where it is");
+    assert_eq!(
+      handing.get(2).map(String::as_str),
+      Some("import-environment")
+    );
+    assert!(handing.contains(&"HYPRLAND_INSTANCE_SIGNATURE".to_string()));
+    assert!(
+      desktop > 0,
+      "the desktop starts before it is told where it is"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn the_desktop_is_restarted_and_never_merely_started() -> Result<(), Box<dyn Error>> {
-        let (_, step) = the_desktop()?;
+  #[test]
+  fn the_desktop_is_restarted_and_never_merely_started() -> Result<(), Box<dyn Error>> {
+    let (_, step) = the_desktop()?;
 
-        assert!(step.contains(&"restart".to_string()));
-        assert!(!step.contains(&"start".to_string()));
+    assert!(step.contains(&"restart".to_string()));
+    assert!(!step.contains(&"start".to_string()));
 
-        Ok(())
-    }
+    Ok(())
+  }
 
-    #[test]
-    fn the_screen_is_put_back_to_its_size_before_the_desktop_is_started() -> Result<(), Box<dyn Error>> {
-        let Ok(starting) = startup_commands();
-        let Ok(scale) = InternalProgram::Scale.path();
-        let (at, step) = (0..)
-            .zip(&starting)
-            .find(|(_, step)| step.first().map(String::as_str) == Some(scale))
-            .ok_or("nothing puts the screen back to the size it was left at")?;
-        let (desktop, _) = the_desktop()?;
+  #[test]
+  fn the_screen_is_put_back_to_its_size_before_the_desktop_is_started()
+  -> Result<(), Box<dyn Error>> {
+    let Ok(starting) = startup_commands();
+    let Ok(scale) = InternalProgram::Scale.path();
+    let (at, step) = (0..)
+      .zip(&starting)
+      .find(|(_, step)| step.first().map(String::as_str) == Some(scale))
+      .ok_or("nothing puts the screen back to the size it was left at")?;
+    let (desktop, _) = the_desktop()?;
 
-        assert_eq!(step.get(1).map(String::as_str), Some("apply"));
-        assert!(at < desktop, "the desktop is drawn before the screen is the right size");
+    assert_eq!(step.get(1).map(String::as_str), Some("apply"));
+    assert!(
+      at < desktop,
+      "the desktop is drawn before the screen is the right size"
+    );
 
-        Ok(())
-    }
+    Ok(())
+  }
 }

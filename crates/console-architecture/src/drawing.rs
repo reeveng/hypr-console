@@ -51,408 +51,520 @@ const UNIX_SOCKET: &str = "a unix socket";
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Edge {
-    from: String,
-    to: String,
-    label: String,
-    style: Line,
+  from: String,
+  to: String,
+  label: String,
+  style: Line,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Line {
-    Solid,
-    Dashed,
+  Solid,
+  Dashed,
 }
 
 impl Line {
-    fn written(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Line::Solid => "solid",
-            Line::Dashed => "dashed",
-        })
-    }
+  fn written(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Line::Solid => "solid",
+      Line::Dashed => "dashed",
+    })
+  }
 
-    fn kind(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Line::Solid => "dependency",
-            Line::Dashed => "ordering",
-        })
-    }
+  fn kind(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Line::Solid => "dependency",
+      Line::Dashed => "ordering",
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy)]
 struct Ends<'a> {
-    from: &'a str,
-    to: &'a str,
+  from: &'a str,
+  to: &'a str,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 enum Of {
-    #[words(shape = "box", kind = "unit")]
-    Unit,
-    #[words(shape = "box", kind = "unit")]
-    EnabledUnit,
-    #[words(shape = "box3d", kind = "binary")]
-    Binary,
-    #[words(shape = "component", kind = "program")]
-    Program,
-    #[words(shape = "box", kind = "internal")]
-    Internal,
-    #[words(shape = "note", kind = "event-group")]
-    EventGroup,
-    #[words(shape = "cylinder", kind = "compositor")]
-    Compositor,
-    #[words(shape = "circle", kind = "socket")]
-    Socket,
-    #[words(shape = "ellipse", kind = "crate")]
-    Crate,
+  #[words(shape = "box", kind = "unit")]
+  Unit,
+  #[words(shape = "box", kind = "unit")]
+  EnabledUnit,
+  #[words(shape = "box3d", kind = "binary")]
+  Binary,
+  #[words(shape = "component", kind = "program")]
+  Program,
+  #[words(shape = "box", kind = "internal")]
+  Internal,
+  #[words(shape = "note", kind = "event-group")]
+  EventGroup,
+  #[words(shape = "cylinder", kind = "compositor")]
+  Compositor,
+  #[words(shape = "circle", kind = "socket")]
+  Socket,
+  #[words(shape = "ellipse", kind = "crate")]
+  Crate,
 }
 
 impl Of {
-    fn style(self) -> Result<Option<&'static str>, Never> {
-        Ok(match self {
-            Of::EnabledUnit => Some("bold"),
-            Of::Unit => Some("solid"),
-            Of::Internal => Some("rounded"),
-            Of::Binary | Of::Program | Of::EventGroup | Of::Compositor | Of::Socket | Of::Crate => None,
-        })
-    }
+  fn style(self) -> Result<Option<&'static str>, Never> {
+    Ok(match self {
+      Of::EnabledUnit => Some("bold"),
+      Of::Unit => Some("solid"),
+      Of::Internal => Some("rounded"),
+      Of::Binary | Of::Program | Of::EventGroup | Of::Compositor | Of::Socket | Of::Crate => None,
+    })
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Look {
-    label: String,
-    of: Of,
+  label: String,
+  of: Of,
 }
 
 #[derive(Debug, Clone)]
 struct Node {
-    id: String,
-    look: Look,
+  id: String,
+  look: Look,
 }
 
 #[derive(Debug, Default)]
 struct Drawing {
-    nodes: BTreeMap<String, Look>,
-    edges: BTreeSet<Edge>,
+  nodes: BTreeMap<String, Look>,
+  edges: BTreeSet<Edge>,
 }
 
 #[derive(Serialize)]
 struct Element<T> {
-    data: T,
+  data: T,
 }
 
 #[derive(Serialize)]
 struct NodeData<'a> {
-    id: &'a str,
-    label: &'a str,
-    #[serde(rename = "type")]
-    kind: &'static str,
+  id: &'a str,
+  label: &'a str,
+  #[serde(rename = "type")]
+  kind: &'static str,
 }
 
 #[derive(Serialize)]
 struct EdgeData<'a> {
-    id: String,
-    source: &'a str,
-    target: &'a str,
-    label: &'a str,
-    #[serde(rename = "type")]
-    kind: &'static str,
+  id: String,
+  source: &'a str,
+  target: &'a str,
+  label: &'a str,
+  #[serde(rename = "type")]
+  kind: &'static str,
 }
 
 #[derive(Serialize)]
 struct Elements<'a> {
-    nodes: Vec<Element<NodeData<'a>>>,
-    edges: Vec<Element<EdgeData<'a>>>,
+  nodes: Vec<Element<NodeData<'a>>>,
+  edges: Vec<Element<EdgeData<'a>>>,
 }
 
 impl Drawing {
-    fn node(&mut self, node: Node) -> Result<(), Never> {
-        let _ = self.nodes.insert(node.id, node.look);
+  fn node(&mut self, node: Node) -> Result<(), Never> {
+    let _ = self.nodes.insert(node.id, node.look);
 
-        Ok(())
+    Ok(())
+  }
+
+  fn named_only(&mut self, node: Node) -> Result<(), Never> {
+    let _ = self.nodes.entry(node.id).or_insert(node.look);
+
+    Ok(())
+  }
+
+  fn edge(&mut self, ends: Ends<'_>, label: &str) -> Result<(), Never> {
+    self.line(ends, label, Line::Solid)
+  }
+
+  fn add_ordering(&mut self, ends: Ends<'_>, label: &str) -> Result<(), Never> {
+    self.line(ends, label, Line::Dashed)
+  }
+
+  fn line(&mut self, ends: Ends<'_>, label: &str, style: Line) -> Result<(), Never> {
+    let _ = self.edges.insert(Edge {
+      from: String::from(ends.from),
+      to: String::from(ends.to),
+      label: String::from(label),
+      style,
+    });
+
+    Ok(())
+  }
+
+  fn to_dot(&self) -> Result<String, Never> {
+    let mut out = String::from(HEAD);
+
+    for (id, look) in &self.nodes {
+      let Ok(shape) = look.of.shape();
+      let Ok(node_style) = look.of.style();
+      let styled = match node_style {
+        Some(style) => format!(", style={style}"),
+        None => String::new(),
+      };
+
+      out.push_str(&format!(
+        "  {id:?} [label={:?}, shape={shape}{styled}];\n",
+        look.label
+      ));
     }
 
-    fn named_only(&mut self, node: Node) -> Result<(), Never> {
-        let _ = self.nodes.entry(node.id).or_insert(node.look);
+    for edge in &self.edges {
+      let Ok(style) = edge.style.written();
 
-        Ok(())
+      out.push_str(&format!(
+        "  {:?} -> {:?} [label={:?}, style={style}];\n",
+        edge.from, edge.to, edge.label
+      ));
     }
 
-    fn edge(&mut self, ends: Ends<'_>, label: &str) -> Result<(), Never> {
-        self.line(ends, label, Line::Solid)
-    }
+    out.push_str("}\n");
 
-    fn add_ordering(&mut self, ends: Ends<'_>, label: &str) -> Result<(), Never> {
-        self.line(ends, label, Line::Dashed)
-    }
+    Ok(out)
+  }
 
-    fn line(&mut self, ends: Ends<'_>, label: &str, style: Line) -> Result<(), Never> {
-        let _ = self.edges.insert(Edge { from: String::from(ends.from), to: String::from(ends.to), label: String::from(label), style });
+  fn to_elements(&self) -> Result<String, serde_json::Error> {
+    let nodes = self
+      .nodes
+      .iter()
+      .map(|(id, look)| {
+        let Ok(kind) = look.of.kind();
 
-        Ok(())
-    }
-
-    fn to_dot(&self) -> Result<String, Never> {
-        let mut out = String::from(HEAD);
-
-        for (id, look) in &self.nodes {
-            let Ok(shape) = look.of.shape();
-            let Ok(style) = look.of.style();
-            let styled = match style {
-                Some(style) => format!(", style={style}"),
-                None => String::new(),
-            };
-
-            out.push_str(&format!("  {id:?} [label={:?}, shape={shape}{styled}];\n", look.label));
+        Element {
+          data: NodeData {
+            id,
+            label: &look.label,
+            kind,
+          },
         }
+      })
+      .collect();
+    let edges = (0_u32..)
+      .zip(&self.edges)
+      .map(|(numbered, edge)| {
+        let Ok(kind) = edge.style.kind();
 
-        for edge in &self.edges {
-            let Ok(style) = edge.style.written();
-
-            out.push_str(&format!("  {:?} -> {:?} [label={:?}, style={style}];\n", edge.from, edge.to, edge.label));
+        Element {
+          data: EdgeData {
+            id: format!("e{numbered}"),
+            source: &edge.from,
+            target: &edge.to,
+            label: &edge.label,
+            kind,
+          },
         }
+      })
+      .collect();
 
-        out.push_str("}\n");
-
-        Ok(out)
-    }
-
-    fn to_elements(&self) -> Result<String, serde_json::Error> {
-        let nodes = self
-            .nodes
-            .iter()
-            .map(|(id, look)| {
-                let Ok(kind) = look.of.kind();
-
-                Element { data: NodeData { id, label: &look.label, kind } }
-            })
-            .collect();
-        let edges = (0_u32..)
-            .zip(&self.edges)
-            .map(|(numbered, edge)| {
-                let Ok(kind) = edge.style.kind();
-
-                Element { data: EdgeData { id: format!("e{numbered}"), source: &edge.from, target: &edge.to, label: &edge.label, kind } }
-            })
-            .collect();
-
-        serde_json::to_string_pretty(&Elements { nodes, edges })
-    }
+    serde_json::to_string_pretty(&Elements { nodes, edges })
+  }
 }
 
 fn unit_id(name: &str) -> Result<String, Never> {
-    Ok(format!("unit:{name}"))
+  Ok(format!("unit:{name}"))
 }
 
 fn crate_id(package: &str) -> Result<String, Never> {
-    Ok(format!("crate:{package}"))
+  Ok(format!("crate:{package}"))
 }
 
 fn packages_of_binaries(facts: &[Fact]) -> Result<BTreeMap<String, String>, Never> {
-    Ok(facts
-        .iter()
-        .filter(|fact| fact.kind == Kind::Builds && fact.target != facts::LIBRARY)
-        .map(|fact| (fact.target.clone(), fact.package.clone()))
-        .collect())
+  Ok(
+    facts
+      .iter()
+      .filter(|fact| fact.kind == Kind::Builds && fact.target != facts::LIBRARY)
+      .map(|fact| (fact.target.clone(), fact.package.clone()))
+      .collect(),
+  )
 }
 
 fn unit(drawing: &mut Drawing, unit: &Unit, architecture: &Architecture) -> Result<(), Never> {
-    let Ok(id) = unit_id(&unit.name);
-    let Ok(binaries) = packages_of_binaries(&architecture.facts);
-    let of = match architecture.enabled.contains(&unit.name) {
-        true => Of::EnabledUnit,
-        false => Of::Unit,
-    };
-    let Ok(()) = drawing.node(Node { id: id.clone(), look: Look { label: unit.name.clone(), of } });
-    let Ok(started) = unit.exec_start();
+  let Ok(id) = unit_id(&unit.name);
+  let Ok(binaries) = packages_of_binaries(&architecture.facts);
+  let of = match ::core::primitive::bool::then_some(architecture.enabled.contains(&unit.name), ()) {
+    ::core::option::Option::Some(()) => Of::EnabledUnit,
+    ::core::option::Option::None => Of::Unit,
+  };
+  let Ok(()) = drawing.node(Node {
+    id: id.clone(),
+    look: Look {
+      label: unit.name.clone(),
+      of,
+    },
+  });
+  let Ok(started) = unit.exec_start();
 
-    match started {
-        Some(Started::InternalProgram(binary)) => match binaries.get(&binary) {
-            Some(package) => {
-                let Ok(to) = crate_id(package);
-                let Ok(()) = drawing.edge(Ends { from: &id, to: &to }, &binary);
-            }
-            None => {
-                let to = format!("binary:{binary}");
-                let Ok(()) = drawing.node(Node { id: to.clone(), look: Look { label: binary.clone(), of: Of::Binary } });
-                let Ok(()) = drawing.edge(Ends { from: &id, to: &to }, "starts");
-            }
+  match started {
+    Some(Started::InternalProgram(binary)) => match binaries.get(&binary) {
+      Some(package) => {
+        let Ok(to) = crate_id(package);
+        let Ok(()) = drawing.edge(Ends { from: &id, to: &to }, &binary);
+      }
+      None => {
+        let to = format!("binary:{binary}");
+        let Ok(()) = drawing.node(Node {
+          id: to.clone(),
+          look: Look {
+            label: binary.clone(),
+            of: Of::Binary,
+          },
+        });
+        let Ok(()) = drawing.edge(Ends { from: &id, to: &to }, "starts");
+      }
+    },
+    Some(Started::ExternalProgram(program)) => {
+      let to = format!("binary:{program}");
+      let Ok(()) = drawing.node(Node {
+        id: to.clone(),
+        look: Look {
+          label: program.clone(),
+          of: Of::Program,
         },
-        Some(Started::ExternalProgram(program)) => {
-            let to = format!("binary:{program}");
-            let Ok(()) = drawing.node(Node { id: to.clone(), look: Look { label: program.clone(), of: Of::Program } });
-            let Ok(()) = drawing.edge(Ends { from: &id, to: &to }, "starts");
-        }
-        None => {}
+      });
+      let Ok(()) = drawing.edge(Ends { from: &id, to: &to }, "starts");
     }
+    None => {}
+  }
 
-    let Ok(ordered) = unit.orderings();
+  let Ok(ordered) = unit.orderings();
 
-    for (other, said) in ordered {
-        let Ok(to) = unit_id(&other);
-        let Ok(()) = drawing.named_only(Node { id: to.clone(), look: Look { label: other.clone(), of: Of::Unit } });
-        let Ok(()) = drawing.add_ordering(Ends { from: &id, to: &to }, said);
+  for (other, said) in ordered {
+    let Ok(to) = unit_id(&other);
+    let Ok(()) = drawing.named_only(Node {
+      id: to.clone(),
+      look: Look {
+        label: other.clone(),
+        of: Of::Unit,
+      },
+    });
+    let Ok(()) = drawing.add_ordering(Ends { from: &id, to: &to }, said);
+  }
+
+  let Ok(triggers) = unit.triggers();
+
+  match triggers {
+    Some(service) => {
+      let Ok(to) = unit_id(&service);
+      let Ok(()) = drawing.named_only(Node {
+        id: to.clone(),
+        look: Look {
+          label: service.clone(),
+          of: Of::Unit,
+        },
+      });
+      let Ok(()) = drawing.edge(Ends { from: &id, to: &to }, "starts");
     }
+    None => {}
+  }
 
-    let Ok(triggers) = unit.triggers();
-
-    match triggers {
-        Some(service) => {
-            let Ok(to) = unit_id(&service);
-            let Ok(()) = drawing.named_only(Node { id: to.clone(), look: Look { label: service.clone(), of: Of::Unit } });
-            let Ok(()) = drawing.edge(Ends { from: &id, to: &to }, "starts");
-        }
-        None => {}
-    }
-
-    Ok(())
+  Ok(())
 }
 
 fn event_group(drawing: &mut Drawing, named: &str) -> Result<String, Never> {
-    let id = format!("event-group:{named}");
-    let label = match named == ANY_EVENT_GROUP {
-        true => "any event group its caller names",
-        false => named,
-    };
-    let Ok(()) = drawing.node(Node { id: id.clone(), look: Look { label: String::from(label), of: Of::EventGroup } });
+  let id = format!("event-group:{named}");
+  let label = match ::core::primitive::bool::then_some(named == ANY_EVENT_GROUP, ()) {
+    ::core::option::Option::Some(()) => "any event group its caller names",
+    ::core::option::Option::None => named,
+  };
+  let Ok(()) = drawing.node(Node {
+    id: id.clone(),
+    look: Look {
+      label: String::from(label),
+      of: Of::EventGroup,
+    },
+  });
 
-    Ok(id)
+  Ok(id)
 }
 
 fn elsewhere(drawing: &mut Drawing, id: &str, of: Of) -> Result<String, Never> {
-    let Ok(()) = drawing.node(Node { id: String::from(id), look: Look { label: String::from(id), of } });
+  let Ok(()) = drawing.node(Node {
+    id: String::from(id),
+    look: Look {
+      label: String::from(id),
+      of,
+    },
+  });
 
-    Ok(String::from(id))
+  Ok(String::from(id))
 }
 
 fn fact(drawing: &mut Drawing, fact: &Fact) -> Result<(), Never> {
-    let Ok(from) = crate_id(&fact.package);
-    let what = fact.what.as_str();
+  let Ok(from) = crate_id(&fact.package);
+  let what = fact.what.as_str();
 
-    let (to, label) = match fact.kind {
-        Kind::Runs => {
-            let to = format!("program:{what}");
-            let Ok(()) = drawing.node(Node { id: to.clone(), look: Look { label: what.to_lowercase(), of: Of::Program } });
-
-            (to, "runs")
-        }
-        Kind::Starts => {
-            let to = format!("internal:{what}");
-            let Ok(()) = drawing.node(Node { id: to.clone(), look: Look { label: String::from(what), of: Of::Internal } });
-
-            (to, "starts")
-        }
-        Kind::Sources => {
-            let Ok(to) = event_group(drawing, what);
-
-            (to, "sources")
-        }
-        Kind::Asks => {
-            let Ok(to) = elsewhere(drawing, COMPOSITOR, Of::Compositor);
-
-            (to, "asks")
-        }
-        Kind::Socket => match what == "Events" {
-            true => {
-                let Ok(to) = elsewhere(drawing, COMPOSITOR_EVENTS, Of::Compositor);
-
-                (to, "names the socket")
-            }
-            false => {
-                let Ok(to) = elsewhere(drawing, COMPOSITOR, Of::Compositor);
-
-                (to, "names the socket")
-            }
+  let (to, label) = match fact.kind {
+    Kind::Runs => {
+      let to = format!("program:{what}");
+      let Ok(()) = drawing.node(Node {
+        id: to.clone(),
+        look: Look {
+          label: what.to_lowercase(),
+          of: Of::Program,
         },
-        Kind::Connects => {
-            let Ok(to) = elsewhere(drawing, UNIX_SOCKET, Of::Socket);
+      });
 
-            (to, "connects")
-        }
-        Kind::Binds => {
-            let Ok(to) = elsewhere(drawing, UNIX_SOCKET, Of::Socket);
+      (to, "runs")
+    }
+    Kind::Starts => {
+      let to = format!("internal:{what}");
+      let Ok(()) = drawing.node(Node {
+        id: to.clone(),
+        look: Look {
+          label: String::from(what),
+          of: Of::Internal,
+        },
+      });
 
-            (to, "binds")
-        }
-        Kind::Builds | Kind::Links | Kind::Names | Kind::Handles | Kind::Subscribes | Kind::Timer => return Ok(()),
-    };
+      (to, "starts")
+    }
+    Kind::Sources => {
+      let Ok(to) = event_group(drawing, what);
 
-    drawing.edge(Ends { from: &from, to: &to }, label)
+      (to, "sources")
+    }
+    Kind::Asks => {
+      let Ok(to) = elsewhere(drawing, COMPOSITOR, Of::Compositor);
+
+      (to, "asks")
+    }
+    Kind::Socket => match ::core::primitive::bool::then_some(what == "Events", ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(to) = elsewhere(drawing, COMPOSITOR_EVENTS, Of::Compositor);
+
+        (to, "names the socket")
+      }
+      ::core::option::Option::None => {
+        let Ok(to) = elsewhere(drawing, COMPOSITOR, Of::Compositor);
+
+        (to, "names the socket")
+      }
+    },
+    Kind::Connects => {
+      let Ok(to) = elsewhere(drawing, UNIX_SOCKET, Of::Socket);
+
+      (to, "connects")
+    }
+    Kind::Binds => {
+      let Ok(to) = elsewhere(drawing, UNIX_SOCKET, Of::Socket);
+
+      (to, "binds")
+    }
+    Kind::Builds
+    | Kind::Links
+    | Kind::Names
+    | Kind::Handles
+    | Kind::Subscribes
+    | Kind::Timer
+    | Kind::HostAccess => return Ok(()),
+  };
+
+  drawing.edge(
+    Ends {
+      from: &from,
+      to: &to,
+    },
+    label,
+  )
 }
 
 fn packages(drawing: &mut Drawing, architecture: &Architecture) -> Result<(), Never> {
-    let Ok(timers) = facts::packages(&architecture.facts, Kind::Timer);
-    let Ok(subscribed) = facts::subscriptions(&architecture.facts);
+  let Ok(timers) = facts::packages(&architecture.facts, Kind::Timer);
+  let Ok(subscribed) = facts::subscriptions(&architecture.facts);
 
-    for one in &architecture.facts {
-        let Ok(()) = fact(drawing, one);
+  for one in &architecture.facts {
+    let Ok(()) = fact(drawing, one);
+  }
+
+  for (target, event_groups) in &subscribed {
+    let Ok(from) = crate_id(&target.package);
+
+    for named in event_groups {
+      let Ok(to) = event_group(drawing, named);
+      let Ok(()) = drawing.edge(
+        Ends {
+          from: &from,
+          to: &to,
+        },
+        "subscribes",
+      );
     }
+  }
 
-    for (target, event_groups) in &subscribed {
-        let Ok(from) = crate_id(&target.package);
+  let drawn: BTreeSet<String> = drawing
+    .edges
+    .iter()
+    .flat_map(|edge| [edge.from.clone(), edge.to.clone()])
+    .collect();
 
-        for named in event_groups {
-            let Ok(to) = event_group(drawing, named);
-            let Ok(()) = drawing.edge(Ends { from: &from, to: &to }, "subscribes");
-        }
+  let built: BTreeSet<&str> = architecture
+    .facts
+    .iter()
+    .filter(|fact| fact.kind == Kind::Builds)
+    .map(|fact| fact.package.as_str())
+    .collect();
+
+  for package in built {
+    let Ok(id) = crate_id(package);
+    let clock = match timers.get(package) {
+      Some(how) => format!(
+        "\nkeeps a clock: {}",
+        how.iter().cloned().collect::<Vec<_>>().join(", ")
+      ),
+      None => String::new(),
+    };
+
+    match ::core::primitive::bool::then_some(drawn.contains(&id), ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(()) = drawing.node(Node {
+          id,
+          look: Look {
+            label: format!("{package}{clock}"),
+            of: Of::Crate,
+          },
+        });
+      }
+      ::core::option::Option::None => {}
     }
+  }
 
-    let drawn: BTreeSet<String> = drawing.edges.iter().flat_map(|edge| [edge.from.clone(), edge.to.clone()]).collect();
-
-    let built: BTreeSet<&str> = architecture
-        .facts
-        .iter()
-        .filter(|fact| fact.kind == Kind::Builds)
-        .map(|fact| fact.package.as_str())
-        .collect();
-
-    for package in built {
-        let Ok(id) = crate_id(package);
-        let clock = match timers.get(package) {
-            Some(how) => format!("\nkeeps a clock: {}", how.iter().cloned().collect::<Vec<_>>().join(", ")),
-            None => String::new(),
-        };
-
-        match drawn.contains(&id) {
-            true => {
-                let Ok(()) = drawing.node(Node { id, look: Look { label: format!("{package}{clock}"), of: Of::Crate } });
-            }
-            false => {}
-        }
-    }
-
-    Ok(())
+  Ok(())
 }
 
 fn drawing(architecture: &Architecture) -> Result<Drawing, Never> {
-    let mut drawing = Drawing::default();
+  let mut drawing = Drawing::default();
 
-    for one in &architecture.units {
-        let Ok(()) = unit(&mut drawing, one, architecture);
-    }
+  for one in &architecture.units {
+    let Ok(()) = unit(&mut drawing, one, architecture);
+  }
 
-    let Ok(()) = packages(&mut drawing, architecture);
+  let Ok(()) = packages(&mut drawing, architecture);
 
-    Ok(drawing)
+  Ok(drawing)
 }
 
 pub fn draw(architecture: &Architecture) -> Result<String, Never> {
-    let Ok(drawing) = drawing(architecture);
+  let Ok(drawing) = drawing(architecture);
 
-    drawing.to_dot()
+  drawing.to_dot()
 }
 
 pub fn elements(architecture: &Architecture) -> Result<String, serde_json::Error> {
-    let Ok(drawing) = drawing(architecture);
+  let Ok(drawing) = drawing(architecture);
 
-    drawing.to_elements()
+  drawing.to_elements()
 }
 
 pub fn page(architecture: &Architecture) -> Result<String, serde_json::Error> {
-    let elements = elements(architecture)?;
-    let held = elements.replace("</", "<\\/");
+  let elements = elements(architecture)?;
+  let held = elements.replace("</", "<\\/");
 
-    Ok(format!("{PAGE_HEAD}{held};\n{PAGE_TAIL}"))
+  Ok(format!("{PAGE_HEAD}{held};\n{PAGE_TAIL}"))
 }
 
 const PAGE_HEAD: &str = "\

@@ -1,0 +1,18 @@
+[package]
+name = "console-core-audio-decoding-tags"
+version = "0.5.5"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Project Symphonia multimedia tag and metadata readers."
+
+[dependencies]
+encoding_rs = "0.8.17"
+console-core-logging = { workspace = true, features = ["std"] }
+console-core-audio-decoding-interfaces = { path = "../console-core-audio-decoding-interfaces" }
+console-core-byte-streams = { workspace = true }
+console-core-never = { workspace = true }
+console-core-number-conversion = { workspace = true }
+
+[lints]
+workspace = true

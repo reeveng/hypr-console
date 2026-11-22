@@ -16,25 +16,28 @@ The build uses an Arch Linux container and the `x86-64-v3` CPU target. The
 archive contains the built binaries and their source commit. GitHub publishes
 the archive's SHA-256 digest with the immutable release metadata.
 
-## Set up automatic updates
+## Set up update checks
 
-Install `console-update` from a verified release for the initial switch. Run
-the first install by tag on the device as root.
+Install `console-update`, its launcher entry, and the check service and timer
+from a verified release for the initial switch. Enable the timer to check
+hourly and show a notification for each new stable tag.
 
 ```sh
-sudo console-update legion-go-v0.1.0
 sudo systemctl daemon-reload
 sudo systemctl enable --now console-update.timer
 ```
+
+Open **Console Updates** from the launcher and choose **Install** when ready.
+An administrator can also install a specific tag with
+`sudo console-update legion-go-v0.1.1`.
 
 The updater checks the archive against GitHub's asset digest and compares its
 source commit with the fetched tag. `console apply` takes the existing Snapper
 snapshots before exchanging the new checkout with `/etc/console`, then applies
 the bundled binaries and manifest. The updater runs the desktop health check
-before recording success. The timer checks hourly and applies while the desktop
-is idle or locked.
+before recording success.
 
 To return to the previous release, run `sudo console-update --rollback`. The
 updater preserves that checkout and its binaries, and applies them as a new
-generation. Automatic updates hold the rolled-back tag until a newer stable tag
+generation. Background checks hold the rolled-back tag until a newer stable tag
 appears. The previous snapshots are available through the normal boot menu.

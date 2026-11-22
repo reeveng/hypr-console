@@ -1,8 +1,8 @@
 [Unit]
-Description=Apply a published Legion Go release
+Description=Check for a published Legion Go release
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/console-update --automatic
+ExecStart=/usr/local/bin/console-update --check

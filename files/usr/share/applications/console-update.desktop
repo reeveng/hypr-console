@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Console Updates
+Comment=Choose when to install a Console update
+Exec=/usr/local/bin/console-update --prompt
+Icon=system-software-update
+Terminal=false
+Categories=System;

@@ -21,12 +21,14 @@ const MARK: &str = ".git/console-release";
 const PENDING: &str = "pending";
 const PREVIOUS: &str = "previous";
 const HELD: &str = "held-tag";
+const NOTICED: &str = "noticed-tag";
 
 type Fault = Box<dyn Error>;
 
 enum Request {
   Latest,
-  Automatic,
+  Check,
+  Prompt,
   Tag(String),
   Rollback,
 }
@@ -59,16 +61,23 @@ fn run() -> Result<(), Fault> {
   let request = match arguments.as_slice() {
     [] => Request::Latest,
     [word] if word == "--help" => {
-      println!("Usage: console-update [legion-go-vX.Y.Z | --automatic | --rollback]");
+      println!("Usage: console-update [legion-go-vX.Y.Z | --check | --prompt | --rollback]");
       return Ok(());
     }
-    [word] if word == "--automatic" => Request::Automatic,
+    [word] if word == "--check" => Request::Check,
+    [word] if word == "--prompt" => Request::Prompt,
     [word] if word == "--rollback" => Request::Rollback,
     [word] if version(word).is_some() => Request::Tag(word.clone()),
     _ => {
-      return Err("Usage: console-update [legion-go-vX.Y.Z | --automatic | --rollback]".into());
+      return Err(
+        "Usage: console-update [legion-go-vX.Y.Z | --check | --prompt | --rollback]".into(),
+      );
     }
   };
+  let live = Path::new(LIVE);
+  if matches!(request, Request::Prompt) {
+    return prompt(live);
+  }
 
   if output(Command::new("id").arg("-u"))? != "0" {
     return Err("run console-update as root".into());
@@ -79,7 +88,6 @@ fn run() -> Result<(), Fault> {
 
   let _lock = UnixListener::bind_addr(&SocketAddr::from_abstract_name(b"console/update")?)?;
   let releases = Path::new(RELEASES);
-  let live = Path::new(LIVE);
   DirBuilder::new()
     .mode(0o700)
     .create(releases)
@@ -91,7 +99,11 @@ fn run() -> Result<(), Fault> {
       }
     })?;
 
-  if let Some(pending) = optional(&releases.join(PENDING))? {
+  let pending = optional(&releases.join(PENDING))?;
+  if matches!(request, Request::Check) {
+    return check(live, releases, pending.is_some());
+  }
+  if let Some(pending) = pending {
     return settle(live, releases, Switch::read(&pending)?);
   }
   if !git(live, &["status", "--porcelain"])?.is_empty() {
@@ -105,35 +117,17 @@ fn run() -> Result<(), Fault> {
     return begin(live, releases, saved.trim().to_owned());
   }
 
-  let automatic = matches!(request, Request::Automatic);
-  if automatic && !idle()? {
-    println!("The desktop is in use. The next update check will try again.");
-    return Ok(());
-  }
   let tag = match &request {
     Request::Tag(tag) => Some(tag.as_str()),
     _ => None,
   };
   let release = release(tag)?;
-  if automatic
-    && optional(&releases.join(HELD))?
-      .as_deref()
-      .is_some_and(|held| version(held.trim()) >= version(&release.tag))
-  {
-    println!(
-      "{} was rolled back. The next stable tag can be installed automatically.",
-      release.tag
-    );
-    return Ok(());
-  }
   if let Some(current) = marker(live)? {
     let (installed_tag, installed_commit) = current;
     if git(live, &["rev-parse", "HEAD"])? != installed_commit {
       return Err("the current checkout has diverged from its installed release".into());
     }
-    if release.tag == installed_tag
-      || (automatic && version(&release.tag) <= version(&installed_tag))
-    {
+    if release.tag == installed_tag {
       println!("Console is on {installed_tag}.");
       return Ok(());
     }
@@ -165,44 +159,54 @@ fn version(tag: &str) -> Option<(u32, u32, u32)> {
     .then_some((major, minor, patch))
 }
 
-fn idle() -> Result<bool, Fault> {
-  if !user_unit_active("console.target")? {
-    return Ok(false);
+fn check(live: &Path, releases: &Path, pending: bool) -> Result<(), Fault> {
+  if pending {
+    println!("A release is pending. Run console-update as root to resume it.");
+    return Ok(());
   }
-  let session = output(Command::new("loginctl").args([
-    "show-seat",
-    "seat0",
-    "-p",
-    "ActiveSession",
-    "--value",
-  ]))?;
-  if session.is_empty() {
-    return Ok(false);
+  let latest = release(None)?;
+  if !newer(live, &latest.tag)? {
+    println!("Console is up to date.");
+    return Ok(());
   }
-  let hint = output(Command::new("loginctl").args([
-    "show-session",
-    &session,
-    "-p",
-    "IdleHint",
-    "--value",
-  ]))?;
-  if hint == "yes" {
-    return Ok(true);
+  let held = optional(&releases.join(HELD))?;
+  let noticed = optional(&releases.join(NOTICED))?;
+  if held
+    .as_deref()
+    .is_some_and(|tag| version(tag.trim()) >= version(&latest.tag))
+    || noticed
+      .as_deref()
+      .is_some_and(|tag| tag.trim() == latest.tag)
+  {
+    return Ok(());
   }
-  user_unit_active("console-lock.service")
+  let body = format!(
+    "{} is available. Open Console Updates to choose when to install it.",
+    latest.tag
+  );
+  checked(desktop_command()?.args(["notify-send", "Console update available", &body]))?;
+  write(&releases.join(NOTICED), &latest.tag)
 }
 
-fn user_unit_active(unit: &str) -> Result<bool, Fault> {
-  let status = Command::new("systemctl")
-    .args([
-      "--user",
-      "--machine=1000@.host",
-      "is-active",
-      "--quiet",
-      unit,
-    ])
+fn newer(live: &Path, tag: &str) -> Result<bool, Fault> {
+  Ok(marker(live)?.is_none_or(|(installed, _)| version(tag) > version(&installed)))
+}
+
+fn prompt(live: &Path) -> Result<(), Fault> {
+  let latest = release(None)?;
+  let tag = latest.tag;
+  if !newer(live, &tag)? {
+    return checked(Command::new("notify-send").arg("Console is up to date"));
+  }
+  let question = format!("Install {tag} now? This will restart Console services.");
+  let accepted = Command::new("/usr/local/bin/console-confirm")
+    .env(console_core_internal_programs::CONFIRM_DOES, "Install")
+    .arg(question)
     .status()?;
-  Ok(status.success())
+  if accepted.success() {
+    checked(Command::new("pkexec").args(["/usr/local/bin/console-update", &tag]))?;
+  }
+  Ok(())
 }
 
 fn release(tag: Option<&str>) -> Result<Release, Fault> {
@@ -535,22 +539,26 @@ fn apply(live: &Path, other: &Path, wanted: &str, previous: &str) -> Result<(), 
   if git(live, &["rev-parse", "HEAD"])? != wanted {
     return Err("the manifest engine did not activate the requested checkout".into());
   }
+  checked(desktop_command()?.args(["/usr/local/bin/console", "health"]))
+}
+
+fn desktop_command() -> Result<Command, Fault> {
   let account = output(Command::new("getent").args(["passwd", "1000"]))?;
   let user = account
     .split(':')
     .next()
     .filter(|user| !user.is_empty())
     .ok_or("the desktop account was not found")?;
-  checked(Command::new("runuser").args([
+  let mut command = Command::new("runuser");
+  command.args([
     "-u",
     user,
     "--",
     "env",
     "XDG_RUNTIME_DIR=/run/user/1000",
     "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus",
-    "/usr/local/bin/console",
-    "health",
-  ]))
+  ]);
+  Ok(command)
 }
 
 fn marker(root: &Path) -> Result<Option<(String, String)>, Fault> {
@@ -634,5 +642,17 @@ mod tests {
     assert!(!member("bin/../revision"));
     assert!(!member("/bin/console"));
     assert!(!member("bin/nested/console"));
+  }
+
+  #[test]
+  fn a_background_check_leaves_an_interrupted_install_for_the_user() {
+    assert!(
+      check(
+        Path::new("/unused-checkout"),
+        Path::new("/unused-storage"),
+        true
+      )
+      .is_ok()
+    );
   }
 }

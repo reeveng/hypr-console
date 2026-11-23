@@ -22,6 +22,10 @@ name = "settings-login-pattern"
 path = "src/bin/settings-login-pattern.rs"
 
 [[bin]]
+name = "console-update-pattern"
+path = "src/bin/console-update-pattern.rs"
+
+[[bin]]
 name = "console-battery"
 path = "src/bin/console-battery.rs"
 

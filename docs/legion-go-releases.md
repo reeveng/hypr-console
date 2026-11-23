@@ -33,7 +33,8 @@ An administrator can also install a specific tag with
 
 On a Legion Go with a login pattern, an administrator can enable pattern
 approval with `sudo console-update --enroll-pattern`. Console Updates then
-shows the available tag and accepts the familiar pattern by touch or gamepad.
+opens its own dialog with the available tag and accepts the saved login pattern
+by touch or gamepad. Use the close button to dismiss the dialog.
 The updater keeps a root-owned copy of the hash. Re-enroll after changing the
 login pattern. Use `sudo console-update --forget-pattern` to return to password
 approval.

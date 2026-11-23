@@ -279,7 +279,7 @@ fn prompt(live: &Path) -> Result<(), Fault> {
   {
     "enrolled" => {
       return checked(
-        Command::new("/usr/local/bin/settings-login-pattern").args(["--install-update", &tag]),
+        Command::new("/usr/local/bin/console-update-pattern").arg(&tag),
       );
     }
     "absent" => {}

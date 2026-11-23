@@ -1226,14 +1226,22 @@ impl Surface {
   }
 
   pub fn text_input_changes(&mut self) -> Result<Vec<TextInputChange>, Never> {
-    Ok(match self.bound.text_input.as_mut() {
+    let changes = match self.bound.text_input.as_mut() {
       Some(input) => std::mem::take(&mut input.received),
       None => Vec::new(),
-    })
+    };
+    if !changes.is_empty() {
+      self.handled_input();
+    }
+    Ok(changes)
   }
 
   pub fn key_presses(&mut self) -> Result<Vec<KeyPress>, Never> {
-    Ok(std::mem::take(&mut self.bound.keyboard_events))
+    let presses = std::mem::take(&mut self.bound.keyboard_events);
+    if !presses.is_empty() {
+      self.handled_input();
+    }
+    Ok(presses)
   }
 
   pub fn set_window_title(&self, title: &str) -> Result<(), Never> {
@@ -1265,7 +1273,25 @@ impl Surface {
   }
 
   pub fn pointer_events(&mut self) -> Result<Vec<PointerEvent>, Never> {
-    Ok(std::mem::take(&mut self.bound.pointer_events))
+    let events = std::mem::take(&mut self.bound.pointer_events);
+    if events.iter().any(|event| {
+      matches!(
+        event,
+        PointerEvent::Down { .. }
+          | PointerEvent::Up
+          | PointerEvent::Scrolled { .. }
+          | PointerEvent::Pinched { .. }
+      )
+    }) {
+      self.handled_input();
+    }
+    Ok(events)
+  }
+
+  fn handled_input(&mut self) {
+    if let Some(timing) = self.bound.timing.as_mut() {
+      let Ok(()) = timing.handled_input();
+    }
   }
 
   pub fn draw(
@@ -1586,11 +1612,17 @@ impl Surface {
     also: &[BorrowedFd<'_>],
     until: Option<Duration>,
   ) -> Result<(), SurfaceError> {
-    self
+    if let Some(timing) = self.bound.timing.as_mut() {
+      let Ok(()) = timing.end_input_turn();
+    }
+    let dispatched = self
       .queue
       .dispatch_pending(&mut self.bound)
       .map_err(SurfaceError::Went)?;
     let flushed = self.flush()?;
+    if dispatched != 0 {
+      return Ok(());
+    }
 
     let guard = match self.connection.prepare_read() {
       Some(guard) => guard,
@@ -3043,7 +3075,7 @@ impl Dispatch<wp_presentation_feedback::WpPresentationFeedback, Committed> for B
         );
       }
       wp_presentation_feedback::Event::Discarded => {
-        let Ok(()) = tally.discarded();
+        let Ok(()) = tally.discarded(*committed);
       }
       _ => {}
     }

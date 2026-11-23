@@ -32,32 +32,18 @@
 //! and the host could open nothing else meanwhile. So shutting says so here
 //! too, and the loop wakes to read the flag at once.
 //!
-//! The loop has one other sleep, and it is here for the same reason. A tab with
-//! nothing on it yet holds its first frame back a moment for its rows, and that
-//! was a wait on the rows alone, which a shutting could not end: the music card
-//! asks the player several things before it has a row, and a close that landed
-//! meanwhile waited out the rest of the moment. So the first look listens on
-//! this socket too, beside a [`deadline`] the kernel holds for the moment. A
-//! byte is only *look again*: a picture that finished decoding writes one as
-//! well, and a look that ended on it drew the viewer empty under a press that
-//! then landed on nothing. What ends the look is the rows, the shut flag or the
-//! deadline, each asked after every byte.
+//! The incoming and outgoing panels can overlap during handoff. Each drawing
+//! thread has its own queue so either can drain notices while the other sleeps.
 
-use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+use std::io;
+use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, OnceLock};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use console_core_geometry::Size;
 use console_core_never::Never;
-use console_core_number_conversion::fitted;
 use console_core_shapes::Pixels;
-use rustix::event::{Nsecs, PollFd, PollFlags, Secs, poll};
-use rustix::time::{
-  Itimerspec, TimerfdClockId, TimerfdFlags, TimerfdTimerFlags, Timespec, timerfd_create,
-  timerfd_settime,
-};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum FrameState {
@@ -98,25 +84,6 @@ pub enum FrameReceived {
   No,
 }
 
-impl FrameReceived {
-  fn or(self, later: FrameReceived) -> Result<FrameReceived, Never> {
-    Ok(match (self, later) {
-      (FrameReceived::No, FrameReceived::No) => FrameReceived::No,
-      (FrameReceived::Yes, _) | (FrameReceived::No, FrameReceived::Yes) => FrameReceived::Yes,
-    })
-  }
-}
-
-impl WakeState {
-  pub fn and(self, later: WakeState) -> Result<WakeState, Never> {
-    let Ok(frame) = self.frame.or(later.frame);
-    let Ok(card) = self.card.or(later.card);
-    let Ok(rows) = self.rows.or(later.rows);
-
-    Ok(WakeState { frame, card, rows })
-  }
-}
-
 #[cfg_attr(
   dylint_lib = "explicit044_no_ambient_value",
   allow(
@@ -137,50 +104,50 @@ static LOOKING_AT: Mutex<Option<Looked>> = Mutex::new(None);
   dylint_lib = "explicit044_no_ambient_value",
   allow(
     explicit044_no_ambient_value,
-    reason = "the two ends of the socket the draw loop sleeps on: whoever changes the picture has to reach the loop that is sleeping, and neither was handed the other"
+    reason = "panel producers publish notices without owning the active surfaces, which can overlap during handoff"
   )
 )]
 #[cfg_attr(
   dylint_lib = "explicit068_no_global_mutable_state",
   expect(
     explicit068_no_global_mutable_state,
-    reason = "only one process-local wake channel is installed; its endpoints remain owned while every surface can poll them"
+    reason = "each drawing thread registers its own wake socket and producers notify every live listener"
   )
 )]
-static WAKE: OnceLock<Option<(UnixStream, UnixStream)>> = OnceLock::new();
+static LISTENERS: Mutex<Vec<Weak<Wake>>> = Mutex::new(Vec::new());
 
-fn wake() -> Result<Option<&'static (UnixStream, UnixStream)>, Never> {
-  Ok(
-    WAKE
-      .get_or_init(|| match UnixStream::pair() {
-        Ok((told, telling)) => {
-          let quiet = told
-            .set_nonblocking(true)
-            .and(telling.set_nonblocking(true));
-
-          match quiet {
-            Ok(()) => Some((told, telling)),
-            Err(fault) => {
-              console_core_logging::warn!("console-panel: a picture cannot wake the card: {fault}");
-
-              None
-            }
-          }
-        }
-        Err(fault) => {
-          console_core_logging::warn!("console-panel: a picture cannot wake the card: {fault}");
-
-          None
-        }
-      })
-      .as_ref(),
-  )
+struct Wake {
+  receiver: UnixStream,
+  sender: UnixStream,
 }
 
-pub fn waking() -> Result<Option<BorrowedFd<'static>>, Never> {
-  let Ok(wake) = wake();
+impl Wake {
+  fn open() -> io::Result<Arc<Self>> {
+    let (receiver, sender) = UnixStream::pair()?;
+    receiver.set_nonblocking(true)?;
+    sender.set_nonblocking(true)?;
+    let wake = Arc::new(Self { receiver, sender });
+    let mut listeners = LISTENERS
+      .lock()
+      .map_err(|_| io::Error::other("the wake queue registry is unavailable"))?;
+    listeners.retain(|listener| listener.strong_count() != 0);
+    listeners.push(Arc::downgrade(&wake));
+    Ok(wake)
+  }
+}
 
-  Ok(wake.map(|(told, _)| told.as_fd()))
+std::thread_local! {
+  static WAKE: Option<Arc<Wake>> = match Wake::open() {
+    Ok(wake) => Some(wake),
+    Err(fault) => {
+      console_core_logging::warn!("console-panel: cannot create a wake queue: {fault}");
+      None
+    }
+  };
+}
+
+pub(crate) fn with_waking<T>(wait: impl FnOnce(Option<BorrowedFd<'_>>) -> T) -> T {
+  WAKE.with(|wake| wait(wake.as_ref().map(|wake| wake.receiver.as_fd())))
 }
 
 pub fn tell(what: Notice) -> Result<(), Never> {
@@ -200,97 +167,29 @@ pub(crate) fn subscription_ready() -> Result<(), Never> {
 }
 
 fn signal_ready(byte: u8) -> Result<(), Never> {
-  let Ok(wake) = wake();
-
-  let telling = match wake {
-    Some((_, telling)) => telling,
-    None => return Ok(()),
-  };
-
-  match rustix::io::write(telling, &[byte]) {
-    Ok(_) => {}
-    Err(rustix::io::Errno::AGAIN) => return Ok(()),
-    Err(fault) => console_core_logging::warn!("console-panel: waking the card: {fault}"),
+  if let Ok(mut listeners) = LISTENERS.lock() {
+    listeners.retain(|listener| {
+      let Some(wake) = listener.upgrade() else {
+        return false;
+      };
+      match rustix::io::write(&wake.sender, &[byte]) {
+        Ok(_) | Err(rustix::io::Errno::AGAIN) => {}
+        Err(fault) => console_core_logging::warn!("console-panel: waking the card: {fault}"),
+      }
+      true
+    });
   }
 
   Ok(())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Listened {
-  Notified,
-  RanOut,
-}
-
-pub fn deadline(until: Duration) -> Result<Option<OwnedFd>, Never> {
-  let Ok(seconds) = fitted::<u64, Secs>(until.as_secs());
-  let Ok(nanoseconds) = fitted::<u32, Nsecs>(until.subsec_nanos());
-
-  let timer = match timerfd_create(
-    TimerfdClockId::Monotonic,
-    TimerfdFlags::CLOEXEC | TimerfdFlags::NONBLOCK,
-  ) {
-    Ok(timer) => timer,
-    Err(fault) => {
-      console_core_logging::warn!("console-panel: a first look has no deadline, so it is not taken: {fault}");
-
-      return Ok(None);
-    }
-  };
-
-  let once = Itimerspec {
-    it_interval: Timespec {
-      tv_sec: 0,
-      tv_nsec: 0,
-    },
-    it_value: Timespec {
-      tv_sec: seconds,
-      tv_nsec: nanoseconds,
-    },
-  };
-
-  Ok(
-    match timerfd_settime(&timer, TimerfdTimerFlags::empty(), &once) {
-      Ok(_before) => Some(timer),
-      Err(fault) => {
-        console_core_logging::warn!("console-panel: a first look has no deadline, so it is not taken: {fault}");
-
-        None
-      }
-    },
-  )
-}
-
-pub fn listened(deadline: Option<&OwnedFd>) -> Result<Listened, Never> {
-  let Ok(waking) = waking();
-
-  let deadline_3 = match deadline {
-    Some(deadline_2) => deadline_2,
-    None => return Ok(Listened::RanOut),
-  };
-
-  let mut watch = vec![PollFd::new(deadline_3, PollFlags::IN)];
-
-  watch.extend(waking.map(|waking_2| PollFd::from_borrowed_fd(waking_2, PollFlags::IN)));
-
-  let _told_or_not_what_happened_is_read_from_the_watch = poll(&mut watch, None);
-
-  Ok(
-    match watch
-      .first()
-      .map(|timer| timer.revents().contains(PollFlags::IN))
-    {
-      Some(true) => Listened::RanOut,
-      Some(false) | None => Listened::Notified,
-    },
-  )
-}
-
 pub fn wake_state() -> Result<WakeState, Never> {
-  let Ok(wake) = wake();
+  with_waking(read_wakes)
+}
 
-  let told = match wake {
-    Some((told, _)) => told,
+fn read_wakes(told: Option<BorrowedFd<'_>>) -> Result<WakeState, Never> {
+  let told = match told {
+    Some(told) => told,
     None => return Ok(WakeState::default()),
   };
 
@@ -622,6 +521,20 @@ mod tests {
 
   type Failure = Box<dyn std::error::Error>;
 
+  #[test]
+  fn overlapping_panels_do_not_drain_each_others_wakes() -> Result<(), Failure> {
+    let Ok(_turn) = serial_fixture();
+    let outgoing = Wake::open()?;
+    let incoming = Wake::open()?;
+    let Ok(()) = tell(Notice::Card);
+    let Ok(outgoing_wake) = read_wakes(Some(outgoing.receiver.as_fd()));
+    let Ok(incoming_wake) = read_wakes(Some(incoming.receiver.as_fd()));
+
+    assert_eq!(outgoing_wake.card, FrameReceived::Yes);
+    assert_eq!(incoming_wake.card, FrameReceived::Yes);
+    Ok(())
+  }
+
   fn a_frame(red: u8) -> Result<Pixels, Never> {
     Ok(Pixels {
       width: 2,
@@ -649,6 +562,7 @@ mod tests {
   fn a_picture_asked_for_is_decoded_away_from_the_loop_and_the_loop_is_told()
   -> Result<(), Failure> {
     let Ok(_turn) = serial_fixture();
+    let Ok(_before) = wake_state();
     let at = fresh_picture()?;
     let space = Size {
       width: 80,

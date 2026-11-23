@@ -1216,15 +1216,12 @@ fn defaults_meanwhile(looking: &ActorAddress) -> Result<Vec<console_panel::page:
 
   match onto {
     Destination::Settings => {
-      let Ok(search) = search_row(looking);
-      let Ok(where_) = where_row(looking);
-      let Ok(clock) = clock_row(looking);
-      let Ok(called) = named_row();
-      let Ok(naming) = console_panel::page::Row::naming("On this device", Aside(""));
-      let Ok(buttons) = buttons_row();
-      let Ok(game) = crate::rows::game_row();
+      let Ok(zone) = last_output(TIMEZONE);
+      let Ok(here) = hours::parse_zone(&zone);
+      let Ok(name) = last_output(HOSTNAME);
+      let Ok(called) = named::read(&name);
+      let Ok(mut rows) = device_rows(looking, here.as_deref(), &called);
       let Ok(kinds) = defaults::meanwhile_rows(|at| open(looking, Destination::Kind(at)));
-      let mut rows = vec![search, where_, clock, called, naming, buttons, game];
 
       rows.extend(kinds);
 
@@ -1332,6 +1329,8 @@ fn lang() -> Result<Option<String>, Never> {
 }
 
 const ZONES: &str = "zones";
+const TIMEZONE: &str = "timezone";
+const HOSTNAME: &str = "hostname";
 
 fn zones() -> Result<Vec<String>, Never> {
   let Ok(said) = run_and_note(ZONES, Program::Timedatectl, &["list-timezones"]);
@@ -1340,7 +1339,8 @@ fn zones() -> Result<Vec<String>, Never> {
 }
 
 fn here() -> Result<Option<String>, Never> {
-  let Ok(said) = run_output(
+  let Ok(said) = run_and_note(
+    TIMEZONE,
     Program::Timedatectl,
     &["show", "--property=Timezone", "--value"],
   );
@@ -1349,7 +1349,7 @@ fn here() -> Result<Option<String>, Never> {
 }
 
 fn called() -> Result<String, Never> {
-  let Ok(said) = run_output(Program::Hostnamectl, &["--static"]);
+  let Ok(said) = run_and_note(HOSTNAME, Program::Hostnamectl, &["--static"]);
 
   named::read(&said)
 }
@@ -1458,8 +1458,10 @@ fn language_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
   }
 }
 
-fn where_row(looking: &ActorAddress) -> Result<console_panel::page::Row, Never> {
-  let Ok(here) = here();
+fn where_row(
+  looking: &ActorAddress,
+  here: Option<&str>,
+) -> Result<console_panel::page::Row, Never> {
   let Ok(says) = crate::rows::where_you_are();
 
   let zone = match here {
@@ -1483,12 +1485,6 @@ fn clock_row(looking: &ActorAddress) -> Result<console_panel::page::Row, Never> 
   row.opening()
 }
 
-fn named_row() -> Result<console_panel::page::Row, Never> {
-  let Ok(name) = called();
-
-  called_row(&name)
-}
-
 fn search_row(looking: &ActorAddress) -> Result<console_panel::page::Row, Never> {
   let Ok(engine) = console_default_applications::engines::current();
   let Ok(says) = engine_says(&engine);
@@ -1506,21 +1502,31 @@ fn buttons_row() -> Result<console_panel::page::Row, Never> {
   row.opening()
 }
 
-fn setting_rows(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
+fn device_rows(
+  looking: &ActorAddress,
+  here: Option<&str>,
+  called: &str,
+) -> Result<Vec<console_panel::page::Row>, Never> {
   let Ok(search) = search_row(looking);
-  let Ok(where_) = where_row(looking);
+  let Ok(where_) = where_row(looking, here);
   let Ok(clock) = clock_row(looking);
-  let Ok(called) = named_row();
+  let Ok(called) = called_row(called);
   let Ok(naming) = console_panel::page::Row::naming("On this device", Aside(""));
   let Ok(buttons) = buttons_row();
   let Ok(game) = crate::rows::game_row();
+
+  Ok(vec![search, where_, clock, called, naming, buttons, game])
+}
+
+fn setting_rows(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
+  let Ok(here) = here();
+  let Ok(called) = called();
+  let Ok(mut rows) = device_rows(looking, here.as_deref(), &called);
   let Ok(applications) = editors::installed();
   let Ok(kinds) =
     defaults::defaults_rows(&applications, &|kind| opening(kind, &applications), |at| {
       open(looking, Destination::Kind(at))
     });
-  let mut rows = vec![search, where_, clock, called, naming, buttons, game];
-
   rows.extend(kinds);
 
   Ok(rows)

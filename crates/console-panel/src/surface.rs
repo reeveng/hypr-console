@@ -39,11 +39,8 @@
 //! tab again for, and a reading tells it when it lands -- so an open panel
 //! nobody touches is a process asleep in `poll`. Which event group is wanted
 //! and which words are worth a reading stay with the loop, because they are the
-//! tab in front's and the loop is what knows which tab that is. The one wait
-//! left with a number in it is `FIRST_LOOK`: a tab with nothing on it yet holds
-//! its first frame back a moment for its rows, because a card drawn empty and
-//! then filled is a flash somebody sees. It waits on the same socket, so a card
-//! shut during that moment is gone at once rather than at the end of it.
+//! tab in front's and the loop is what knows which tab that is. While rows
+//! are loading, the selected tab draws a cached preview or a loading message.
 //!
 //! **The shape list is closed.** `Panel`, `Text`, and `Picture` from
 //! `console-core-shapes`. Drawing is a match, and 016 makes a shape added later
@@ -55,7 +52,6 @@ use std::os::fd::OwnedFd;
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
 
 use console_actor::Actor;
 use console_core_color::Oklch;
@@ -108,10 +104,6 @@ use console_sound_effects::{Degree, SoundEffects};
 
 mod accessibility;
 
-#[cfg(kani)]
-#[path = "../proofs/first_frame.rs"]
-mod first_frame_proofs;
-
 const TAB_LEAST: i32 = EM * 40 / 9;
 const OVER_ROWS: i32 = EM * 5 / 9;
 const BEFORE_THE_FIRST_ROW: i32 = -1;
@@ -134,7 +126,6 @@ const INSIDE_A_ROW: i32 = EM * 8 / 9;
 const CARET: u32 = (EM / 9).unsigned_abs();
 const DRAGGED: f64 = 12.0;
 const A_NOTCH: f64 = 10.0;
-const FIRST_LOOK: Duration = Duration::from_millis(150);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Opened {
@@ -1502,9 +1493,10 @@ fn wait_for_frame(
   overlay: Overlay,
 ) -> Result<(Dirty, Stale), console_draw_surface::SurfaceError> {
   let (mut dirty, mut stale) = was;
-  let Ok(waking) = crate::frames::waking();
-  let also: Vec<std::os::fd::BorrowedFd<'_>> = waking.into_iter().collect();
-  surface.wait(&also, None)?;
+  crate::frames::with_waking(|waking| {
+    let also: Vec<_> = waking.into_iter().collect();
+    surface.wait(&also, None)
+  })?;
   let Ok(woken) = crate::frames::wake_state();
 
   match woken.rows {
@@ -3597,6 +3589,7 @@ pub(crate) enum Leaving {
 pub(crate) struct State {
   rows: Vec<Row>,
   model: CardModel,
+  loading: bool,
 }
 
 pub(crate) struct CardModel {
@@ -4001,6 +3994,18 @@ pub(crate) fn shapes(
           height: list_tall,
         },
       }));
+
+      if state.loading {
+        let Ok(face) = font(TextStyle::Body);
+        shapes.push(Shape::Text(Text {
+          at: Point { x: left, y: rows_start.saturating_add(INSIDE_A_ROW) },
+          width: inside_wide,
+          said: "Loading…".to_owned(),
+          weight: Weight::Plain,
+          font: face,
+          ink: wearing.soft,
+        }));
+      }
 
       let Ok(count) = fitted::<_, u64>(rows.len());
       let Ok(window_2) = crate::row_window::visible_rows(crate::row_window::RowViewport {
@@ -5631,6 +5636,7 @@ fn opened_on(
 ) -> Result<State, Never> {
   Ok(State {
     rows: Vec::new(),
+    loading: false,
     model: CardModel {
     here: match crate::page::find(&pages, start) {
       Ok(index) => index,
@@ -5949,77 +5955,13 @@ fn reading(page: &Page, here: u32) -> Result<Reading, Never> {
   let rows = page.rows.clone();
   let asking = thread::spawn(move || {
     let Ok(read) = rows.read();
-    let _nobody_waits_for_a_tab_left_behind = sending.send(read);
-    let Ok(()) = crate::frames::tell(crate::frames::Notice::Card);
+    if sending.send(read).is_ok() {
+      let Ok(()) = crate::frames::tell(crate::frames::Notice::Card);
+    }
   });
   let Ok(()) = console_program_lifetime::threads::let_go(asking);
 
   Ok(Reading { here, arrived })
-}
-
-struct Looked {
-  heard: Result<Vec<Row>, mpsc::TryRecvError>,
-  woken: Option<crate::frames::WakeState>,
-}
-
-#[derive(Clone, Copy)]
-struct FirstLook<'a> {
-  shut: &'a CloseWatch,
-  until: Duration,
-}
-
-fn first_look(reading: &Reading, rows: &[Row], look: FirstLook<'_>) -> Result<Looked, Never> {
-  match ::core::primitive::bool::then_some(rows.is_empty(), ()) {
-    ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => {
-      return Ok(Looked {
-        heard: reading.arrived.try_recv(),
-        woken: None,
-      });
-    }
-  }
-
-  let Ok(deadline) = crate::frames::deadline(look.until);
-  let looked = console_core_iteration::iterate(crate::frames::WakeState::default(), |woken| {
-    let Ok(heard) = crate::frames::wake_state();
-    let Ok(woken_2) = woken.and(heard);
-
-    let Ok(stopping) = look.shut.stop();
-
-    match (reading.arrived.try_recv(), stopping) {
-      (Err(mpsc::TryRecvError::Empty), StopRequest::Open) => {}
-      (Err(mpsc::TryRecvError::Empty), StopRequest::Requested) => {
-        return Ok(Stepped::Halt(Looked {
-          heard: Err(mpsc::TryRecvError::Empty),
-          woken: Some(woken_2),
-        }));
-      }
-      (landed, _) => {
-        return Ok(Stepped::Halt(Looked {
-          heard: landed,
-          woken: Some(woken_2),
-        }));
-      }
-    }
-
-    let Ok(listened) = crate::frames::listened(deadline.as_ref());
-
-    Ok(match listened {
-      crate::frames::Listened::Notified => Stepped::Again(woken_2),
-      crate::frames::Listened::RanOut => Stepped::Halt(Looked {
-        heard: reading.arrived.try_recv(),
-        woken: Some(woken_2),
-      }),
-    })
-  });
-
-  Ok(match looked {
-    Ok(looked_2) => looked_2,
-    Err(_endless) => Looked {
-      heard: reading.arrived.try_recv(),
-      woken: None,
-    },
-  })
 }
 
 fn meanwhile(page: Option<&Page>) -> Result<Vec<Row>, Never> {
@@ -6033,30 +5975,6 @@ fn meanwhile(page: Option<&Page>) -> Result<Vec<Row>, Never> {
 enum Dirty {
   Yes,
   No,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RowsForFrame {
-  Current,
-  Preview,
-  Pending,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DrawFrame {
-  Now,
-  Wait,
-}
-
-fn draw_frame(dirty: Dirty, painted: Visible, rows: RowsForFrame) -> Result<DrawFrame, Never> {
-  Ok(match (dirty, painted, rows) {
-    (Dirty::Yes, _, RowsForFrame::Current) | (Dirty::Yes, Visible::NotYet, RowsForFrame::Preview) => {
-      DrawFrame::Now
-    }
-    (Dirty::No, _, _)
-    | (Dirty::Yes, Visible::Yes, RowsForFrame::Preview)
-    | (Dirty::Yes, _, RowsForFrame::Pending) => DrawFrame::Wait,
-  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -6368,6 +6286,7 @@ fn serve(
   reported: Reported,
 ) -> Result<(), Never> {
   let mut reported_2 = reported;
+  crate::frames::with_waking(|_| ());
   let Ok(()) = crate::arrivals::follow();
   let Ok(_nothing_to_say_before_a_card_is_up) = tasks::told(&tasks, TaskEvent::CardUp);
   let Ok(()) = serving(
@@ -6652,10 +6571,11 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
   let logical = match surface.logical() {
     Ok(Some(logical)) => logical,
     Ok(None) => {
-      let Ok(waking) = crate::frames::waking();
-      let also: Vec<std::os::fd::BorrowedFd<'_>> = waking.into_iter().collect();
-
-      match surface.wait(&also, None) {
+      let waited = crate::frames::with_waking(|waking| {
+        let also: Vec<_> = waking.into_iter().collect();
+        surface.wait(&also, None)
+      });
+      match waited {
         Ok(()) => {}
         Err(fault) => {
           console_core_logging::warn!("console-panel: waiting for the initial size: {fault}");
@@ -6739,54 +6659,23 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
     }
   }
 
-  match (*stale, page) {
-    (Stale::Yes, Some(page_2)) => {
-      let Ok(started) = reading(page_2, state.here);
-
-      *asked = Some(started);
-      *stale = Stale::No;
+  if let (Stale::Yes, Some(page)) = (*stale, page) {
+    match &page.rows {
+      crate::page::Rows::Fixed(rows) => {
+        let rows = rows.clone();
+        let Ok(()) = apply_rows(state, rows);
+        *asked = None;
+        *dirty = Dirty::Yes;
+      }
+      crate::page::Rows::Computed(_) => {
+        let Ok(started) = reading(page, state.here);
+        *asked = Some(started);
+      }
     }
-    (Stale::Yes, None) | (Stale::No, _) => {}
+    *stale = Stale::No;
   }
 
-  let arrived = asked.as_ref().map(|reading| {
-    let Ok(looked) = first_look(
-      reading,
-      &state.rows,
-      FirstLook {
-        shut,
-        until: FIRST_LOOK,
-      },
-    );
-
-    (reading.here, looked)
-  });
-
-  let Ok(stopping) = shut.stop();
-
-  match stopping {
-    StopRequest::Requested => return Ok(ActionOutcome::Close),
-    StopRequest::Open => {}
-  }
-
-  let arrived_2 = match arrived {
-    Some((here, Looked { heard, woken })) => {
-      match woken.map(|woken_2| woken_2.rows) {
-        Some(crate::frames::FrameReceived::Yes) => *stale = Stale::Yes,
-        Some(crate::frames::FrameReceived::No) | None => {}
-      }
-
-      match woken {
-        Some(_what_the_first_look_heard_is_drawn_whole) => *dirty = Dirty::Yes,
-        None => {}
-      }
-
-      Some((here, heard))
-    }
-    None => None,
-  };
-
-  match arrived_2 {
+  match asked.as_ref().map(|reading| (reading.here, reading.arrived.try_recv())) {
     Some((here, Ok(read))) => {
       *asked = None;
 
@@ -6802,6 +6691,10 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
     Some((_, Err(mpsc::TryRecvError::Empty))) | None => {}
   }
 
+  if shut.stop() == Ok(StopRequest::Requested) {
+    return Ok(ActionOutcome::Close);
+  }
+
   match (state.at, state.rows.is_empty()) {
     (None, false) => {
       let Ok(first) = walked(&state.rows, BEFORE_THE_FIRST_ROW, Step(1));
@@ -6814,16 +6707,15 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
 
   let Ok(room) = scroll_room(state, &card);
   let mut accessibility_changed = accessibility::ViewChange::Unchanged;
-  let rows = match (asked.as_ref(), state.rows.as_slice()) {
-    (None, _) => RowsForFrame::Current,
-    (Some(_), []) => RowsForFrame::Pending,
-    (Some(_), [_, ..]) => RowsForFrame::Preview,
-  };
-  let Ok(draw) = draw_frame(*dirty, *painted, rows);
+  let loading = asked.is_some() && state.rows.is_empty();
+  if state.loading != loading {
+    state.loading = loading;
+    *dirty = Dirty::Yes;
+  }
 
-  match draw {
-    DrawFrame::Wait => {}
-    DrawFrame::Now => {
+  match dirty {
+    Dirty::No => {}
+    Dirty::Yes => {
       match finger.as_ref().map(|finger_2| finger_2.dragged) {
         Some(Dragged::Yes) => {}
         Some(Dragged::No) | None => {
@@ -7425,21 +7317,24 @@ mod tests {
   }
 
   #[test]
-  fn cached_rows_can_draw_the_first_frame_while_the_reader_is_pending() {
-    use super::{Dirty, DrawFrame, RowsForFrame, Visible, draw_frame};
+  fn a_tab_without_rows_displays_loading_and_keeps_its_tab_controls() -> Result<(), Failure> {
+    let Ok(sound) = page("Sound", &["Speakers"]);
+    let Ok(battery) = page("Battery", &[]);
+    let mut state = state_of(vec![sound, battery])?;
+    state.here = 1;
+    state.rows.clear();
+    state.loading = true;
+    let wearing = sample_palette()?;
+    let Ok(card) = card();
+    let Ok(panelled) = drawn(&state, &card, &wearing);
 
-    assert_eq!(
-      draw_frame(Dirty::Yes, Visible::NotYet, RowsForFrame::Preview),
-      Ok(DrawFrame::Now)
-    );
-    assert_eq!(
-      draw_frame(Dirty::Yes, Visible::NotYet, RowsForFrame::Pending),
-      Ok(DrawFrame::Wait)
-    );
-    assert_eq!(
-      draw_frame(Dirty::Yes, Visible::Yes, RowsForFrame::Preview),
-      Ok(DrawFrame::Wait)
-    );
+    assert!(panelled.shapes.iter().any(|shape| {
+      matches!(shape, console_core_shapes::Shape::Text(text) if text.said == "Loading…")
+    }));
+    assert!(panelled.touching.iter().any(|region| region.lands == Lands::Tab(0)));
+    assert!(!panelled.touching.iter().any(|region| matches!(region.lands, Lands::Row(_))));
+
+    Ok(())
   }
 
   fn plain_inks() -> Result<super::Inks, Never> {
@@ -7731,6 +7626,7 @@ mod tests {
 
     Ok(State {
       rows,
+      loading: false,
       model: super::CardModel {
       leaving: super::Leaving::No,
       pages,
@@ -10840,13 +10736,14 @@ mod tests {
   }
 
   fn woke_within(within: rustix::event::Timespec) -> Result<crate::frames::WakeState, Failure> {
-    let Ok(waking) = crate::frames::waking();
-    let waking_2 = waking.ok_or("a socket the loop is woken on")?;
-    let mut watch = [rustix::event::PollFd::new(
-      &waking_2,
-      rustix::event::PollFlags::IN,
-    )];
-    let _ready = rustix::event::poll(&mut watch, Some(&within))?;
+    let _ready = crate::frames::with_waking(|waking| {
+      let waking = waking.ok_or("a socket the loop is woken on")?;
+      let mut watch = [rustix::event::PollFd::from_borrowed_fd(
+        waking,
+        rustix::event::PollFlags::IN,
+      )];
+      Ok::<_, Failure>(rustix::event::poll(&mut watch, Some(&within))?)
+    })?;
     let Ok(woken) = crate::frames::wake_state();
 
     Ok(woken)
@@ -10855,13 +10752,15 @@ mod tests {
   fn woke_at_all(
     within: rustix::event::Timespec,
   ) -> Result<crate::frames::FrameReceived, Failure> {
-    let Ok(waking) = crate::frames::waking();
-    let waking_2 = waking.ok_or("a socket the loop is woken on")?;
-    let mut watch = [rustix::event::PollFd::new(
-      &waking_2,
-      rustix::event::PollFlags::IN,
-    )];
-    let woke = match rustix::event::poll(&mut watch, Some(&within)) {
+    let ready = crate::frames::with_waking(|waking| {
+      let waking = waking.ok_or("a socket the loop is woken on")?;
+      let mut watch = [rustix::event::PollFd::from_borrowed_fd(
+        waking,
+        rustix::event::PollFlags::IN,
+      )];
+      Ok::<_, Failure>(rustix::event::poll(&mut watch, Some(&within)))
+    })?;
+    let woke = match ready {
       Ok(0) => crate::frames::FrameReceived::No,
       Err(_interrupted) => crate::frames::FrameReceived::No,
       Ok(_ready) => crate::frames::FrameReceived::Yes,
@@ -10985,74 +10884,6 @@ mod tests {
     );
 
     Ok(())
-  }
-
-  fn looked_while(closing: Closing) -> Result<console_waiting::Outcome, Never> {
-    let (_rows_that_never_come, arrived) = std::sync::mpsc::sync_channel(1);
-    let (finished, done) = std::sync::mpsc::sync_channel(1);
-    let Ok((close, looking)) = super::CloseWatch::pair();
-
-    match closing {
-      Closing::BeforeRead => {
-        let Ok(()) = close.shut();
-      }
-      Closing::DuringRead => {}
-    }
-
-    let first = std::thread::spawn(move || {
-      let reading = super::Reading { here: 0, arrived };
-      let look = super::FirstLook {
-        shut: &looking,
-        until: Duration::from_secs(3600),
-      };
-      let Ok(_looked) = super::first_look(&reading, &[], look);
-      let _test_stopped_listening = finished.send(());
-    });
-    let Ok(()) = console_program_lifetime::threads::let_go(first);
-
-    let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(10));
-
-    console_waiting::until(patience, || {
-      match closing {
-        Closing::DuringRead => {
-          let Ok(()) = close.shut();
-        }
-        Closing::BeforeRead => {}
-      }
-
-      Ok(match done.try_recv() {
-        Ok(()) => console_waiting::Ready::Yes,
-        Err(_still_looking) => console_waiting::Ready::NotYet,
-      })
-    })
-  }
-
-  #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-  enum Closing {
-    DuringRead,
-    BeforeRead,
-  }
-
-  #[test]
-  fn a_panel_shut_while_it_waits_for_its_first_rows_stops_waiting() {
-    let Ok(_turn) = crate::frames::serial_fixture();
-    let Ok(_before) = crate::frames::wake_state();
-    assert_eq!(
-      looked_while(Closing::DuringRead),
-      Ok(console_waiting::Outcome::Happened),
-      "a panel was shut while its first rows were still being read, and it waited for them anyway"
-    );
-  }
-
-  #[test]
-  fn a_panel_already_shut_does_not_wait_for_its_first_rows() {
-    let Ok(_turn) = crate::frames::serial_fixture();
-    let Ok(_before) = crate::frames::wake_state();
-    assert_eq!(
-      looked_while(Closing::BeforeRead),
-      Ok(console_waiting::Outcome::Happened),
-      "the word that a panel was shut was read before its first look, and the look waited anyway"
-    );
   }
 
   #[test]

@@ -16,6 +16,11 @@
 //! this panel runs at. Only when the compositor will not say how long a refresh
 //! is does `FELT` stand in for it.
 //!
+//! Input also has a fixed budget. When a surface handles an input batch and
+//! commits a frame in the same turn, measure from handling the batch to
+//! presentation. A turn with no commit can be a no-op or a handoff to another
+//! surface, so it is counted separately.
+//!
 //! **The compositor's instant is the one that counts.** When the frame was
 //! shown comes back as a time on the compositor's clock, and it is compared
 //! with the moment of the commit only when that clock is the monotonic one this
@@ -37,6 +42,7 @@ use crate::line::Value;
 use crate::{FELT, Record, monotonic_now, written_down};
 
 const MONOTONIC: u32 = 1;
+pub const RESPONSE_BUDGET: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Painting(Option<Duration>);
@@ -45,6 +51,7 @@ pub struct Painting(Option<Duration>);
 pub struct Committed {
   painted: Duration,
   at: Duration,
+  input: Option<Duration>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +84,12 @@ pub struct Frames {
   held: u64,
   slowest_paint: Duration,
   slowest: Duration,
+  input: Option<Duration>,
+  responses: u64,
+  over_budget: u64,
+  without_frame: u64,
+  discarded_responses: u64,
+  slowest_response: Duration,
 }
 
 impl Frames {
@@ -92,6 +105,12 @@ impl Frames {
       held: 0,
       slowest_paint: Duration::ZERO,
       slowest: Duration::ZERO,
+      input: None,
+      responses: 0,
+      over_budget: 0,
+      without_frame: 0,
+      discarded_responses: 0,
+      slowest_response: Duration::ZERO,
     })
   }
 
@@ -103,6 +122,21 @@ impl Frames {
 
   pub fn late_frames(&self) -> Result<u64, Never> {
     Ok(self.late)
+  }
+
+  pub fn handled_input(&mut self) -> Result<(), Never> {
+    if self.input.is_none() {
+      let Ok(now) = monotonic_now();
+      self.input = now;
+    }
+    Ok(())
+  }
+
+  pub fn end_input_turn(&mut self) -> Result<(), Never> {
+    if self.input.take().is_some() {
+      self.without_frame = self.without_frame.saturating_add(1);
+    }
+    Ok(())
   }
 
   pub fn committed(
@@ -125,14 +159,17 @@ impl Frames {
 
         self.slowest_paint = self.slowest_paint.max(painted);
 
-        Some(Committed { painted, at })
+        Some(Committed { painted, at, input: self.input.take() })
       }
       (None, _) | (_, None) => None,
     })
   }
 
-  pub fn discarded(&mut self) -> Result<(), Never> {
+  pub fn discarded(&mut self, committed: Committed) -> Result<(), Never> {
     self.discarded = self.discarded.saturating_add(1);
+    if committed.input.is_some() {
+      self.discarded_responses = self.discarded_responses.saturating_add(1);
+    }
 
     Ok(())
   }
@@ -152,6 +189,27 @@ impl Frames {
 
     self.slowest = self.slowest.max(took);
 
+    if let Some(input) = committed.input {
+      let response = presented.at.saturating_sub(input);
+      self.responses = self.responses.saturating_add(1);
+      self.slowest_response = self.slowest_response.max(response);
+      if response > RESPONSE_BUDGET {
+        self.over_budget = self.over_budget.saturating_add(1);
+        let handling = committed.at.saturating_sub(input).saturating_sub(timed.painted);
+        let Ok(()) = written_down(Record {
+          who: self.who.clone(),
+          what: "interaction".to_owned(),
+          waited: response,
+          marks: vec![
+            ("handling".to_owned(), handling),
+            ("painting".to_owned(), timed.painted),
+            ("compositing".to_owned(), timed.composited),
+          ],
+          notes: Vec::new(),
+        });
+      }
+    }
+
     let Ok(missed) = missed(timed);
 
     match missed {
@@ -164,7 +222,8 @@ impl Frames {
     }
   }
 
-  pub fn finish(self) -> Result<(), Never> {
+  pub fn finish(mut self) -> Result<(), Never> {
+    let Ok(()) = self.end_input_turn();
     let Ok(now) = monotonic_now();
 
     let up = match (self.since, now) {
@@ -173,6 +232,7 @@ impl Frames {
     };
     let Ok(slowest_paint) = microseconds(self.slowest_paint);
     let Ok(slowest) = microseconds(self.slowest);
+    let Ok(slowest_response) = microseconds(self.slowest_response);
 
     written_down(Record {
       who: self.who,
@@ -184,6 +244,11 @@ impl Frames {
         ("late".to_string(), Value::Count(self.late)),
         ("discarded".to_string(), Value::Count(self.discarded)),
         ("held".to_string(), Value::Count(self.held)),
+        ("responses".to_string(), Value::Count(self.responses)),
+        ("over_50_ms".to_string(), Value::Count(self.over_budget)),
+        ("input_without_frame".to_string(), Value::Count(self.without_frame)),
+        ("discarded_responses".to_string(), Value::Count(self.discarded_responses)),
+        ("slowest_response_microseconds".to_string(), Value::Count(slowest_response)),
         (
           "slowest_paint_microseconds".to_string(),
           Value::Count(slowest_paint),
@@ -305,6 +370,7 @@ mod tests {
     let committed = Committed {
       painted: Duration::from_millis(40),
       at: Duration::from_secs(5),
+      input: Some(Duration::from_secs(4)),
     };
     let elsewhere = Presented {
       clock: 0,
@@ -314,5 +380,28 @@ mod tests {
 
     assert_eq!(frames.presented(committed, elsewhere), Ok(()));
     assert_eq!((frames.late, frames.slowest), (0, Duration::ZERO));
+    assert_eq!(frames.responses, 0);
+  }
+
+  #[test]
+  fn input_budget_includes_handling_and_presentation() {
+    let Ok(mut frames) = Frames::shown("test-panel");
+    let committed = Committed {
+      painted: Duration::from_millis(10),
+      at: Duration::from_millis(40),
+      input: Some(Duration::ZERO),
+    };
+    let at_budget = Presented {
+      clock: MONOTONIC,
+      at: RESPONSE_BUDGET,
+      refresh: AT_144,
+    };
+    let Ok(()) = frames.presented(committed, at_budget);
+    assert_eq!((frames.responses, frames.over_budget), (1, 0));
+
+    let late = Presented { at: Duration::from_millis(63), ..at_budget };
+    let Ok(()) = frames.presented(committed, late);
+    assert_eq!((frames.responses, frames.over_budget), (2, 1));
+    assert_eq!(frames.slowest_response, Duration::from_millis(63));
   }
 }

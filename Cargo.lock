@@ -2685,10 +2685,12 @@ dependencies = [
  "console-core-places",
  "console-core-state-machine",
  "console-device-name",
+ "console-login-window",
  "console-operating-system-linux",
  "console-program-contract",
  "console-repository",
  "console-session",
+ "rustix",
 ]
 
 [[package]]

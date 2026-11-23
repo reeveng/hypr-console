@@ -31,6 +31,13 @@ Open **Console Updates** from the launcher and choose **Install** when ready.
 An administrator can also install a specific tag with
 `sudo console-update legion-go-v0.1.1`.
 
+On a Legion Go with a login pattern, an administrator can enable pattern
+approval with `sudo console-update --enroll-pattern`. Console Updates then
+shows the available tag and accepts the familiar pattern by touch or gamepad.
+The updater keeps a root-owned copy of the hash. Re-enroll after changing the
+login pattern. Use `sudo console-update --forget-pattern` to return to password
+approval.
+
 The updater checks the archive against GitHub's asset digest and compares its
 source commit with the fetched tag. `console apply` takes the existing Snapper
 snapshots before exchanging the new checkout with `/etc/console`, then applies

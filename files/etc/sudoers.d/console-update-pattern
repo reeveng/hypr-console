@@ -1,0 +1,3 @@
+# The update verifier checks the enrolled pattern and the latest public tag.
+# Prevent sudo I/O logging from recording the pattern sent through stdin.
+@user@ ALL=(root) NOPASSWD: NOSETENV: NOLOG_INPUT: /usr/local/bin/console-update --pattern-status, /usr/local/bin/console-update --install-with-pattern

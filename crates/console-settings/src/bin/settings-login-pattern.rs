@@ -9,8 +9,9 @@
 //! finger as the touches every panel already hears, and the picture is the
 //! greeter's own, so the dots are where they will be at login.
 
+use std::io::{self, Write};
 use std::path::Path;
-use std::process::ExitCode;
+use std::process::{Command, ExitCode, Stdio};
 
 use console_core_arguments::{Operands, Subcommand, read_with};
 use console_core_color::palette::{Wearing, WearingError};
@@ -25,6 +26,7 @@ use console_draw_surface::{
 };
 use console_login_greeter::picture::render;
 use console_login_greeter::session::{press, touch};
+use console_login_pattern::Secret;
 use console_login_window::stored_pattern::{self, PatternStoreError};
 use console_program_contract::{Effect, Event, Exit};
 use console_settings::login::{Drawing, LoginPattern, LoginPatternEffect, LoginPatternEvent};
@@ -66,6 +68,7 @@ enum LoginPatternError {
   Palette(WearingError),
   Surface(SurfaceError),
   Store(PatternStoreError),
+  Update(String),
 }
 
 impl std::fmt::Display for LoginPatternError {
@@ -75,18 +78,32 @@ impl std::fmt::Display for LoginPatternError {
       LoginPatternError::Palette(why) => write!(to, "{why}"),
       LoginPatternError::Surface(why) => write!(to, "no surface to draw on: {why}"),
       LoginPatternError::Store(why) => write!(to, "{why}"),
+      LoginPatternError::Update(why) => write!(to, "{why}"),
     }
   }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Flow {
   Continue,
-  Finished,
+  Finished(Option<Secret>),
 }
 
 fn main() -> ExitCode {
   let words: Vec<String> = std::env::args().skip(1).collect();
+  if let [install, tag] = words.as_slice() {
+    if install == "--install-update" {
+      return match install_update(tag) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(why) => {
+          eprintln!("{WHO}: {why}");
+          let _notice = Command::new("notify-send")
+            .args(["Console update failed", &why.to_string()])
+            .status();
+          ExitCode::FAILURE
+        }
+      };
+    }
+  }
 
   let asked = match read_with::<Pattern, String>(&COMMAND, &words) {
     Ok(line) => {
@@ -121,12 +138,59 @@ fn ran(asked: Option<Pattern>) -> Result<Result<(), LoginPatternError>, Never> {
   };
 
   Ok(match asked {
-    None => run(&home_3),
+    None => {
+      let Ok(Transition { state, effects: _ }) = LoginPattern::initial_transition(&(), None);
+      run(state, Some(&home_3)).map(|_| ())
+    }
     Some(Pattern::Off) => stored_pattern::remove(&home_3).map_err(LoginPatternError::Store),
   })
 }
 
-fn run(home: &Path) -> Result<(), LoginPatternError> {
+fn install_update(tag: &str) -> Result<(), LoginPatternError> {
+  let Ok(drawing) = Drawing::installing(tag);
+  let Some(secret) = run(drawing, None)? else {
+    return Ok(());
+  };
+  let Ok(letters) = secret.as_str();
+  let result =
+    submit_update(tag, letters).map_err(|fault| LoginPatternError::Update(fault.to_string()))?;
+  if !result.status.success() {
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    let message = stderr
+      .trim()
+      .lines()
+      .last()
+      .unwrap_or("The installer stopped.");
+    return Err(LoginPatternError::Update(
+      message.strip_prefix("console-update: ").unwrap_or(message).to_owned(),
+    ));
+  }
+  let _notice = Command::new("notify-send")
+    .args(["Console update installed", tag])
+    .status();
+  Ok(())
+}
+
+fn submit_update(tag: &str, letters: &str) -> io::Result<std::process::Output> {
+  let mut child = Command::new("/usr/bin/sudo")
+    .args(["-n", "--", "/usr/local/bin/console-update", "--install-with-pattern"])
+    .stdin(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()?;
+  let mut input = child
+    .stdin
+    .take()
+    .ok_or_else(|| io::Error::other("the installer did not open an input pipe"))?;
+  let written = write!(input, "{tag}\n{letters}\n");
+  drop(input);
+  let result = child.wait_with_output()?;
+  if result.status.success() {
+    written?;
+  }
+  Ok(result)
+}
+
+fn run(drawing: Drawing, home: Option<&Path>) -> Result<Option<Secret>, LoginPatternError> {
   let worn = Wearing::worn().map_err(LoginPatternError::Palette);
   let wearing = worn?;
   let connected = Surface::connect();
@@ -147,9 +211,8 @@ fn run(home: &Path) -> Result<(), LoginPatternError> {
 
   shown.map_err(LoginPatternError::Surface)?;
 
-  let Ok(Transition { state, effects: _ }) = LoginPattern::initial_transition(&(), None);
   let turned = console_core_iteration::iterate(
-    (surface, state, Rendered::default()),
+    (surface, drawing, Rendered::default()),
     |(mut surface_2, mut drawing, mut rendered)| {
       Ok(
         match turn(
@@ -159,7 +222,7 @@ fn run(home: &Path) -> Result<(), LoginPatternError> {
           (&wearing, home),
         ) {
           Ok(Flow::Continue) => Step::Again((surface_2, drawing, rendered)),
-          Ok(Flow::Finished) => Step::Halt(Ok(())),
+          Ok(Flow::Finished(secret)) => Step::Halt(Ok(secret)),
           Err(fault) => Step::Halt(Err(fault)),
         },
       )
@@ -168,7 +231,7 @@ fn run(home: &Path) -> Result<(), LoginPatternError> {
 
   match turned {
     Ok(turned_2) => turned_2,
-    Err(_endless) => Ok(()),
+    Err(_endless) => Ok(None),
   }
 }
 
@@ -176,7 +239,7 @@ fn turn(
   surface: &mut Surface,
   drawing: &mut Drawing,
   rendered: &mut Rendered,
-  (wearing, home): (&Wearing, &Path),
+  (wearing, home): (&Wearing, Option<&Path>),
 ) -> Result<Flow, LoginPatternError> {
   let Ok(()) = draw(surface, drawing, wearing, rendered);
   let waited = surface.wait(&[], None);
@@ -186,7 +249,7 @@ fn turn(
   let Ok(closed) = surface.closed();
 
   match closed {
-    Closed::Yes => return Ok(Flow::Finished),
+    Closed::Yes => return Ok(Flow::Finished(None)),
     Closed::No => {}
   }
 
@@ -207,7 +270,7 @@ fn turn(
 
   for event in pressed.chain(touched) {
     flow = match flow {
-      Flow::Finished => Flow::Finished,
+      Flow::Finished(secret) => Flow::Finished(secret),
       Flow::Continue => apply_event(drawing, event, home)?,
     };
   }
@@ -218,7 +281,7 @@ fn turn(
 fn apply_event(
   drawing: &mut Drawing,
   event: LoginPatternEvent,
-  home: &Path,
+  home: Option<&Path>,
 ) -> Result<Flow, LoginPatternError> {
   let Ok(Transition { state, effects }) =
     LoginPattern::transition(drawing.clone(), Event::Custom(event));
@@ -228,6 +291,7 @@ fn apply_event(
   for effect in effects {
     match effect {
       Effect::Custom(LoginPatternEffect::Save(secret)) => {
+        let home = home.ok_or(LoginPatternError::Homeless)?;
         let Ok(letters) = secret.as_str();
         let hashed = stored_pattern::hashed(letters);
         let hash = hashed.map_err(LoginPatternError::Store)?;
@@ -235,7 +299,8 @@ fn apply_event(
 
         stored.map_err(LoginPatternError::Store)?;
       }
-      Effect::Stop(Exit::Success | Exit::Failure(_)) => return Ok(Flow::Finished),
+      Effect::Custom(LoginPatternEffect::Install(secret)) => return Ok(Flow::Finished(Some(secret))),
+      Effect::Stop(Exit::Success | Exit::Failure(_)) => return Ok(Flow::Finished(None)),
       Effect::Run(_)
       | Effect::Stream(_)
       | Effect::Fork(_)

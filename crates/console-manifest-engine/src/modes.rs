@@ -2,11 +2,14 @@
 //! how it begins. Nothing declares it: a path under a `bin` is run, a file
 //! that opens with `#!` or an ELF header is run, and the rest is read. The
 //! engine installs by this answer and the nested desktop stages by it, so it
-//! is said once, here.
+//! is said once, here. Sudo expects its policy files to be mode 0440.
 
 use console_core_never::Never;
 
 pub fn of(live: &str, head: &[u8]) -> Result<u32, Never> {
+  if live == "/etc/sudoers" || live.starts_with("/etc/sudoers.d/") {
+    return Ok(0o440);
+  }
   Ok(match ::core::primitive::bool::then_some(live.contains("/bin/") || live.contains("/sbin/"), ()) {
     ::core::option::Option::Some(()) => 0o755,
     ::core::option::Option::None => match head {
@@ -46,6 +49,14 @@ mod tests {
     assert_eq!(
       super::of("/home/@user@/.config/kdeglobals", b"[Col"),
       Ok(0o644)
+    );
+  }
+
+  #[test]
+  fn sudo_policy_uses_sudos_permissions() {
+    assert_eq!(
+      super::of("/etc/sudoers.d/console-update-pattern", b"# rule"),
+      Ok(0o440)
     );
   }
 }

@@ -5,11 +5,15 @@ use std::error::Error;
 use std::fs::{self, DirBuilder};
 use std::io::ErrorKind;
 use std::os::linux::net::SocketAddrExt;
-use std::os::unix::fs::DirBuilderExt;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::os::unix::net::{SocketAddr, UnixListener};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[path = "console-update/pattern.rs"]
+mod pattern;
 
 const REPOSITORY: &str = "https://github.com/reeveng/hypr-console";
 const RELEASE_API: &str = "https://api.github.com/repos/reeveng/hypr-console/releases";
@@ -22,6 +26,8 @@ const PENDING: &str = "pending";
 const PREVIOUS: &str = "previous";
 const HELD: &str = "held-tag";
 const NOTICED: &str = "noticed-tag";
+const UPDATER: &str = "/usr/local/bin/console-update";
+const USAGE: &str = "Usage: console-update [legion-go-vX.Y.Z | --check | --prompt | --rollback | --enroll-pattern | --forget-pattern]";
 
 type Fault = Box<dyn Error>;
 
@@ -31,6 +37,11 @@ enum Request {
   Prompt,
   Tag(String),
   Rollback,
+  EnrollPattern,
+  ForgetPattern,
+  PatternStatus,
+  PatternEntry,
+  VerifyPattern,
 }
 
 struct Release {
@@ -61,32 +72,53 @@ fn run() -> Result<(), Fault> {
   let request = match arguments.as_slice() {
     [] => Request::Latest,
     [word] if word == "--help" => {
-      println!("Usage: console-update [legion-go-vX.Y.Z | --check | --prompt | --rollback]");
+      println!("{USAGE}");
       return Ok(());
     }
     [word] if word == "--check" => Request::Check,
     [word] if word == "--prompt" => Request::Prompt,
     [word] if word == "--rollback" => Request::Rollback,
+    [word] if word == "--enroll-pattern" => Request::EnrollPattern,
+    [word] if word == "--forget-pattern" => Request::ForgetPattern,
+    [word] if word == "--pattern-status" => Request::PatternStatus,
+    [word] if word == "--install-with-pattern" => Request::PatternEntry,
+    [word] if word == "--verify-pattern-request" => Request::VerifyPattern,
     [word] if version(word).is_some() => Request::Tag(word.clone()),
-    _ => {
-      return Err(
-        "Usage: console-update [legion-go-vX.Y.Z | --check | --prompt | --rollback]".into(),
-      );
-    }
+    _ => return Err(USAGE.into()),
   };
   let live = Path::new(LIVE);
   if matches!(request, Request::Prompt) {
     return prompt(live);
   }
 
-  if output(Command::new("id").arg("-u"))? != "0" {
+  if !rustix::process::geteuid().is_root() {
     return Err("run console-update as root".into());
   }
   if fs::read_to_string("/sys/class/dmi/id/product_name")?.trim() != "83E1" {
     return Err("this release is for the first-generation Legion Go (83E1)".into());
   }
 
-  let _lock = UnixListener::bind_addr(&SocketAddr::from_abstract_name(b"console/update")?)?;
+  if matches!(request, Request::PatternEntry) {
+    if std::env::var("SUDO_UID").as_deref() != Ok("1000") {
+      return Err("only the desktop account can submit an update pattern".into());
+    }
+    // Use only the system environment when acting on a desktop request.
+    return Err(Command::new(UPDATER)
+      .arg("--verify-pattern-request")
+      .env_clear()
+      .env("PATH", "/usr/local/sbin:/usr/local/bin:/usr/bin")
+      .env("HOME", "/root")
+      .current_dir("/")
+      .exec()
+      .into());
+  }
+
+  let order = if matches!(request, Request::VerifyPattern) {
+    Some(pattern::Order::read()?)
+  } else {
+    None
+  };
+
   let releases = Path::new(RELEASES);
   DirBuilder::new()
     .mode(0o700)
@@ -98,13 +130,47 @@ fn run() -> Result<(), Fault> {
         Err(fault)
       }
     })?;
+  let metadata = fs::symlink_metadata(releases)?;
+  if !metadata.is_dir() || metadata.uid() != 0 || metadata.mode() & 0o077 != 0 {
+    return Err("the release state directory is not private to root".into());
+  }
+  if matches!(request, Request::PatternStatus) {
+    let status = if pattern::enrolled(releases)? {
+      "enrolled"
+    } else {
+      "absent"
+    };
+    println!("{status}");
+    return Ok(());
+  }
+
+  let _lock = UnixListener::bind_addr(&SocketAddr::from_abstract_name(b"console/update")?)?;
+  match request {
+    Request::EnrollPattern => return pattern::enroll(releases),
+    Request::ForgetPattern => return pattern::forget(releases),
+    _ => {}
+  }
+  if let Some(order) = &order {
+    pattern::verify(releases, order)?;
+  }
 
   let pending = optional(&releases.join(PENDING))?;
   if matches!(request, Request::Check) {
     return check(live, releases, pending.is_some());
   }
   if let Some(pending) = pending {
-    return settle(live, releases, Switch::read(&pending)?);
+    let change = Switch::read(&pending)?;
+    if let Some(order) = &order {
+      let target = if git(live, &["rev-parse", "HEAD"])? == change.after {
+        live.to_owned()
+      } else {
+        slot_path(releases, &change.slot)?
+      };
+      if change.restoring || !marker(&target)?.is_some_and(|(tag, _)| tag == order.tag) {
+        return Err("an administrator must resume the pending release".into());
+      }
+    }
+    return settle(live, releases, change);
   }
   if !git(live, &["status", "--porcelain"])?.is_empty() {
     return Err("the current checkout has uncommitted changes".into());
@@ -122,6 +188,16 @@ fn run() -> Result<(), Fault> {
     _ => None,
   };
   let release = release(tag)?;
+  if let Some(order) = order {
+    if order.tag != release.tag || !newer(live, &release.tag)? {
+      return Err("the selected release changed. Open Console Updates again".into());
+    }
+    if let Ok(mut desktop) = desktop_command() {
+      let _notice = desktop
+        .args(["notify-send", "Installing Console update", &release.tag])
+        .status();
+    }
+  }
   if let Some(current) = marker(live)? {
     let (installed_tag, installed_commit) = current;
     if git(live, &["rev-parse", "HEAD"])? != installed_commit {
@@ -198,13 +274,24 @@ fn prompt(live: &Path) -> Result<(), Fault> {
   if !newer(live, &tag)? {
     return checked(Command::new("notify-send").arg("Console is up to date"));
   }
+  match output(Command::new("/usr/bin/sudo").args(["-n", "--", UPDATER, "--pattern-status"]))?
+    .as_str()
+  {
+    "enrolled" => {
+      return checked(
+        Command::new("/usr/local/bin/settings-login-pattern").args(["--install-update", &tag]),
+      );
+    }
+    "absent" => {}
+    _ => return Err("the updater returned an invalid pattern status".into()),
+  }
   let question = format!("Install {tag} now? This will restart Console services.");
   let accepted = Command::new("/usr/local/bin/console-confirm")
     .env(console_core_internal_programs::CONFIRM_DOES, "Install")
     .arg(question)
     .status()?;
   if accepted.success() {
-    checked(Command::new("pkexec").args(["/usr/local/bin/console-update", &tag]))?;
+    checked(Command::new("pkexec").args([UPDATER, &tag]))?;
   }
   Ok(())
 }
@@ -543,7 +630,7 @@ fn apply(live: &Path, other: &Path, wanted: &str, previous: &str) -> Result<(), 
 }
 
 fn desktop_command() -> Result<Command, Fault> {
-  let account = output(Command::new("getent").args(["passwd", "1000"]))?;
+  let account = desktop_account()?;
   let user = account
     .split(':')
     .next()
@@ -559,6 +646,10 @@ fn desktop_command() -> Result<Command, Fault> {
     "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus",
   ]);
   Ok(command)
+}
+
+fn desktop_account() -> Result<String, Fault> {
+  output(Command::new("getent").args(["passwd", "1000"]))
 }
 
 fn marker(root: &Path) -> Result<Option<(String, String)>, Fault> {

@@ -38,6 +38,7 @@ pub const SAVE: &str = "Save";
 pub enum Step {
   Choosing,
   Confirming(Secret),
+  Installing,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,15 +56,30 @@ pub enum LoginPatternEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoginPatternEffect {
   Save(Secret),
+  Install(Secret),
 }
 
 pub struct LoginPattern;
 
 impl Drawing {
+  pub fn installing(tag: &str) -> Result<Self, Never> {
+    let Ok(pattern) = Pattern::new();
+    Ok(Self {
+      step: Step::Installing,
+      greeting: Greeting {
+        pattern,
+        status: Status::Message(format!(
+          "Draw your pattern to install {tag}. Tap away from the dots to cancel."
+        )),
+      },
+    })
+  }
+
   pub fn button(&self) -> Result<&'static str, Never> {
     Ok(match self.step {
       Step::Choosing => NEXT,
       Step::Confirming(_) => SAVE,
+      Step::Installing => "Install",
     })
   }
 }
@@ -201,6 +217,10 @@ fn submitted(drawing: Drawing, secret: Secret, effects: &mut Effects) -> Result<
   match (letters.chars().count() < fewest, drawing.step.clone()) {
     (true, step) => cleared(drawing, step, SHORT),
     (false, Step::Choosing) => cleared(drawing, Step::Confirming(secret), AGAIN),
+    (false, Step::Installing) => {
+      let Ok(()) = effects.offer(Effect::Custom(LoginPatternEffect::Install(secret)));
+      Ok(drawing)
+    }
     (false, Step::Confirming(first)) => match ::core::primitive::bool::then_some(first == secret, ()) {
       ::core::option::Option::Some(()) => {
         let Ok(()) = effects.offer_all([
@@ -262,6 +282,22 @@ mod tests {
     assert!(trace.state.greeting.pattern.path.is_empty());
     assert!(effects.is_empty());
 
+    Ok(())
+  }
+
+  #[test]
+  fn an_update_prompt_submits_once_without_saving_a_pattern() -> Result<(), &'static str> {
+    let Ok(mut drawing) = Drawing::installing("legion-go-v0.1.2");
+    drawing.greeting.pattern.at = Target::Login;
+    drawing.greeting.pattern.path = TWICE.to_vec();
+    let Ok(chosen) = presses(&[ButtonPress::Choose]);
+    let Ok(trace) = run_from::<LoginPattern>(drawing, &chosen);
+    let Ok(effects) = trace.effects();
+    let Ok(secret) = secret(TWICE.to_vec());
+    assert_eq!(
+      effects,
+      vec![Effect::Custom(LoginPatternEffect::Install(secret.ok_or(EXPECTED_DRAWING)?))]
+    );
     Ok(())
   }
 

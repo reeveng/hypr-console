@@ -309,15 +309,17 @@ pub fn render(
   canvas: Size<u32>,
   button: &str,
 ) -> Result<Vec<Shape>, Never> {
-  ring(
-    greeting,
-    wearing,
-    canvas,
-    Looks {
-      button,
-      cursor: Some(greeting.pattern.at),
-    },
-  )
+  render_with_cursor(greeting, wearing, canvas, button, Some(greeting.pattern.at))
+}
+
+pub fn render_with_cursor(
+  greeting: &Greeting,
+  wearing: &Wearing,
+  canvas: Size<u32>,
+  button: &str,
+  cursor: Option<Target>,
+) -> Result<Vec<Shape>, Never> {
+  ring(greeting, wearing, canvas, Looks { button, cursor })
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -9,15 +9,14 @@
 //! A pattern joins at least four dots, the least Android has ever accepted,
 //! because a pattern of one dot is a button rather than a secret. A finger
 //! lifted is Next or Save, as it is at login. B takes the last dot back, and
-//! with no dots drawn it puts the screen away without keeping anything. A hand
-//! with no pad has no B, so a tap that joins no dot is the same leaving: at
-//! login there is nowhere else to go, and here there always is.
+//! with no dots drawn it closes pattern setup without saving. A tap that
+//! joins no dot also closes setup. Update approval has its own close button.
 
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue};
 use console_input_event_devices::presses::ButtonPress;
 use console_login_greeter::greeting::{Greeting, Status};
-use console_login_pattern::{Clicked, Direction, Pattern, Secret, Touch};
+use console_login_pattern::{Clicked, Direction, Pattern, Secret, Target, Touch};
 use console_program_contract::{Effect, Event, Exit};
 
 pub const FEWEST: u32 = 4;
@@ -38,7 +37,7 @@ pub const SAVE: &str = "Save";
 pub enum Step {
   Choosing,
   Confirming(Secret),
-  Installing,
+  Installing { close_focused: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +50,7 @@ pub struct Drawing {
 pub enum LoginPatternEvent {
   Pressed(ButtonPress),
   Touched(Touch),
+  Close,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,12 +65,12 @@ impl Drawing {
   pub fn installing(tag: &str) -> Result<Self, Never> {
     let Ok(pattern) = Pattern::new();
     Ok(Self {
-      step: Step::Installing,
+      step: Step::Installing {
+        close_focused: false,
+      },
       greeting: Greeting {
         pattern,
-        status: Status::Message(format!(
-          "Draw your pattern to install {tag}. Tap away from the dots to cancel."
-        )),
+        status: Status::Message(format!("Draw your pattern to install {tag}.")),
       },
     })
   }
@@ -79,7 +79,7 @@ impl Drawing {
     Ok(match self.step {
       Step::Choosing => NEXT,
       Step::Confirming(_) => SAVE,
-      Step::Installing => "Install",
+      Step::Installing { .. } => "Install",
     })
   }
 }
@@ -115,6 +115,10 @@ impl Machine for LoginPattern {
     match event {
       Event::Custom(LoginPatternEvent::Pressed(press)) => pressed(drawing, press, effects),
       Event::Custom(LoginPatternEvent::Touched(touch)) => on_touch(drawing, touch, effects),
+      Event::Custom(LoginPatternEvent::Close) => match drawing.step {
+        Step::Installing { .. } => stopped(drawing, effects),
+        Step::Choosing | Step::Confirming(_) => Ok(drawing),
+      },
       Event::Opened
       | Event::Modified(_)
       | Event::Tick(..)
@@ -163,10 +167,28 @@ fn moved(drawing: Drawing, direction: Direction) -> Result<Drawing, Never> {
 }
 
 fn pressed(
-  drawing: Drawing,
+  mut drawing: Drawing,
   press: ButtonPress,
   effects: &mut Effects,
 ) -> Result<Drawing, Never> {
+  if let Step::Installing { close_focused } = &mut drawing.step {
+    match (*close_focused, press) {
+      (true, ButtonPress::Choose) => return stopped(drawing, effects),
+      (true, ButtonPress::Up) => return Ok(drawing),
+      (true, _) => {
+        *close_focused = false;
+        return Ok(drawing);
+      }
+      (false, ButtonPress::Up) if drawing.greeting.pattern.at == Target::Dot(0) => {
+        *close_focused = true;
+        return Ok(drawing);
+      }
+      (false, ButtonPress::Back) if drawing.greeting.pattern.path.is_empty() => {
+        return Ok(drawing);
+      }
+      (false, _) => {}
+    }
+  }
   match press {
     ButtonPress::Up => moved(drawing, Direction::Up),
     ButtonPress::Down => moved(drawing, Direction::Down),
@@ -188,19 +210,21 @@ fn pressed(
   }
 }
 
-fn on_touch(drawing: Drawing, touch: Touch, effects: &mut Effects) -> Result<Drawing, Never> {
+fn on_touch(mut drawing: Drawing, touch: Touch, effects: &mut Effects) -> Result<Drawing, Never> {
+  if let (Step::Installing { close_focused }, Touch::Down(_)) = (&mut drawing.step, touch) {
+    *close_focused = false;
+  }
   let pattern = &drawing.greeting.pattern;
 
-  match (touch, pattern.finger, pattern.path.is_empty()) {
-    (Touch::Up, Some(_), true) => stopped(drawing, effects),
-    (Touch::Up, Some(_), false)
-    | (Touch::Up, None, true | false)
-    | (Touch::Down(_) | Touch::Moved(_), Some(_) | None, true | false) => {
-      let Ok(clicked) = pattern.touch(touch);
-
-      on_click(drawing, clicked, effects)
-    }
+  if matches!(touch, Touch::Up)
+    && pattern.finger.is_some()
+    && pattern.path.is_empty()
+    && !matches!(drawing.step, Step::Installing { .. })
+  {
+    return stopped(drawing, effects);
   }
+  let Ok(clicked) = pattern.touch(touch);
+  on_click(drawing, clicked, effects)
 }
 
 fn on_click(drawing: Drawing, clicked: Clicked, effects: &mut Effects) -> Result<Drawing, Never> {
@@ -217,7 +241,7 @@ fn submitted(drawing: Drawing, secret: Secret, effects: &mut Effects) -> Result<
   match (letters.chars().count() < fewest, drawing.step.clone()) {
     (true, step) => cleared(drawing, step, SHORT),
     (false, Step::Choosing) => cleared(drawing, Step::Confirming(secret), AGAIN),
-    (false, Step::Installing) => {
+    (false, Step::Installing { .. }) => {
       let Ok(()) = effects.offer(Effect::Custom(LoginPatternEffect::Install(secret)));
       Ok(drawing)
     }
@@ -240,7 +264,6 @@ mod tests {
   use super::*;
   use console_core_geometry::Point;
   use console_core_state_machine::{run, run_from};
-  use console_login_pattern::Target;
 
   fn presses(presses: &[ButtonPress]) -> Result<Vec<Event<LoginPatternEvent>>, Never> {
     Ok(
@@ -299,6 +322,37 @@ mod tests {
       vec![Effect::Custom(LoginPatternEffect::Install(secret.ok_or(EXPECTED_DRAWING)?))]
     );
     Ok(())
+  }
+
+  #[test]
+  fn tapping_outside_the_ring_and_pressing_back_keep_the_update_prompt_open() {
+    let Ok(drawing) = Drawing::installing("legion-go-v0.1.2");
+    let actions = [
+      LoginPatternEvent::Touched(Touch::Down(Point { x: -30, y: -30 })),
+      LoginPatternEvent::Touched(Touch::Up),
+      LoginPatternEvent::Pressed(ButtonPress::Back),
+    ];
+    let Ok(trace) = run_from::<LoginPattern>(drawing.clone(), &actions.map(Event::Custom));
+    let Ok(effects) = trace.effects();
+
+    assert_eq!(trace.state, drawing);
+    assert!(effects.is_empty());
+  }
+
+  #[test]
+  fn the_update_prompt_closes_when_the_close_button_is_activated() {
+    let Ok(drawing) = Drawing::installing("legion-go-v0.1.2");
+    let Ok(tap) = run_from::<LoginPattern>(
+      drawing.clone(),
+      &[Event::Custom(LoginPatternEvent::Close)],
+    );
+    let Ok(tap_effects) = tap.effects();
+    let Ok(presses) = presses(&[ButtonPress::Up, ButtonPress::Choose]);
+    let Ok(pad) = run_from::<LoginPattern>(drawing, &presses);
+    let Ok(pad_effects) = pad.effects();
+
+    assert_eq!(tap_effects, vec![Effect::Stop(Exit::Success)]);
+    assert_eq!(pad_effects, tap_effects);
   }
 
   fn secret(path: Vec<u32>) -> Result<Option<Secret>, Never> {

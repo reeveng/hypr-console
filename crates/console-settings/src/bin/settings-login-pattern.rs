@@ -15,23 +15,29 @@ use std::process::{Command, ExitCode, Stdio};
 
 use console_core_arguments::{Operands, Subcommand, read_with};
 use console_core_color::palette::{Wearing, WearingError};
-use console_core_geometry::Size;
+use console_core_geometry::{Containment, Point, Rectangle, Size};
 use console_core_iteration::Step;
 use console_core_never::Never;
+use console_core_shapes::{Edge, Line, Panel, Round, Shape};
 use console_core_state_machine::{Machine, Transition};
 use console_core_words::Words;
 use console_draw_painting::{Rendered, painter};
 use console_draw_surface::{
-  Anchor, Closed, Keyboard, KeyboardEvent, Margin, Room, Surface, SurfaceError, Under, Wanted,
+  Anchor, Closed, Keyboard, KeyboardEvent, Margin, PointerEvent, Room, Surface, SurfaceError,
+  Under, Wanted,
 };
-use console_login_greeter::picture::render;
+use console_login_greeter::picture::render_with_cursor;
 use console_login_greeter::session::{press, touch};
 use console_login_pattern::Secret;
 use console_login_window::stored_pattern::{self, PatternStoreError};
 use console_program_contract::{Effect, Event, Exit};
-use console_settings::login::{Drawing, LoginPattern, LoginPatternEffect, LoginPatternEvent};
+use console_settings::login::{
+  Drawing, LoginPattern, LoginPatternEffect, LoginPatternEvent, Step as PatternStep,
+};
 
 const WHO: &str = "settings-login-pattern";
+const CLOSE_SIZE: u32 = 56;
+const CLOSE_MARGIN: i32 = 16;
 
 const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
   name: WHO,
@@ -256,16 +262,15 @@ fn turn(
   let Ok(keys) = surface.keyboard_events();
   let Ok(pointer) = surface.pointer_events();
   let Ok(logical) = surface.logical();
+  let update = matches!(drawing.step, PatternStep::Installing { .. });
   let pressed = keys.into_iter().filter_map(|KeyboardEvent::Down { key }| {
     let Ok(press) = press(key);
 
     press.map(LoginPatternEvent::Pressed)
   });
-  let touched = pointer.into_iter().filter_map(|event| {
-    let Ok(touch) = touch(event, logical);
-
-    touch.map(LoginPatternEvent::Touched)
-  });
+  let touched = pointer
+    .into_iter()
+    .filter_map(|event| pointer_event(event, logical, update));
   let mut flow = Flow::Continue;
 
   for event in pressed.chain(touched) {
@@ -276,6 +281,39 @@ fn turn(
   }
 
   Ok(flow)
+}
+
+fn close_corner(canvas: Size<u32>) -> Point<i32> {
+  let Ok(wide) = console_core_number_conversion::fitted::<_, i32>(canvas.width);
+  let Ok(side) = console_core_number_conversion::fitted::<_, i32>(CLOSE_SIZE);
+  let x = (wide.saturating_sub(side).saturating_sub(CLOSE_MARGIN)).max(0);
+  Point { x, y: CLOSE_MARGIN }
+}
+
+fn pointer_event(
+  event: PointerEvent,
+  logical: Option<Size<u32>>,
+  update: bool,
+) -> Option<LoginPatternEvent> {
+  if let (true, Some(canvas), PointerEvent::Down { at: (x, y) }) = (update, logical, event) {
+    let corner = close_corner(canvas);
+    let side = f64::from(CLOSE_SIZE);
+    let bounds = Rectangle {
+      origin: Point {
+        x: f64::from(corner.x),
+        y: f64::from(corner.y),
+      },
+      size: Size {
+        width: side,
+        height: side,
+      },
+    };
+    if bounds.contains(Point { x, y }) == Ok(Containment::Inside) {
+      return Some(LoginPatternEvent::Close);
+    }
+  }
+  let Ok(touch) = touch(event, logical);
+  touch.map(LoginPatternEvent::Touched)
 }
 
 fn apply_event(
@@ -330,7 +368,12 @@ fn draw(
     None => return Ok(()),
   };
   let Ok(button) = drawing.button();
-  let Ok(shapes) = render(&drawing.greeting, wearing, logical_3, button);
+  let focused = matches!(drawing.step, PatternStep::Installing { close_focused: true });
+  let cursor = (!focused).then_some(drawing.greeting.pattern.at);
+  let Ok(mut shapes) = render_with_cursor(&drawing.greeting, wearing, logical_3, button, cursor);
+  if matches!(drawing.step, PatternStep::Installing { .. }) {
+    draw_close(&mut shapes, logical_3, wearing, focused);
+  }
 
   let Ok(wanted) = rendered.wanted(shapes);
 
@@ -350,10 +393,67 @@ fn draw(
   Ok(())
 }
 
+fn draw_close(shapes: &mut Vec<Shape>, canvas: Size<u32>, wearing: &Wearing, focused: bool) {
+  let at = close_corner(canvas);
+  let Ok(half) = console_core_number_conversion::fitted::<_, i32>(CLOSE_SIZE / 2);
+  let x = at.x.saturating_add(half);
+  let y = at.y.saturating_add(half);
+  let (wide, color) = if focused {
+    (4, wearing.text)
+  } else {
+    (1, wearing.edge)
+  };
+  shapes.push(Shape::Panel(Panel {
+    at,
+    size: Size {
+      width: CLOSE_SIZE,
+      height: CLOSE_SIZE,
+    },
+    round: Round(12),
+    fill: wearing.panel,
+    edge: Edge::Of { wide, color },
+  }));
+  let left = x.saturating_sub(8);
+  let right = x.saturating_add(8);
+  let top = y.saturating_sub(8);
+  let bottom = y.saturating_add(8);
+  for (from_y, to_y) in [(top, bottom), (bottom, top)] {
+    shapes.push(Shape::Line(Line {
+      from: Point { x: left, y: from_y },
+      to: Point { x: right, y: to_y },
+      width: 3,
+      color: wearing.text,
+    }));
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
   use console_core_arguments::{Reason, ValidationError};
+
+  #[test]
+  fn only_a_tap_on_the_update_close_button_requests_close() {
+    let canvas = Some(Size {
+      width: 800,
+      height: 600,
+    });
+    let inside = PointerEvent::Down { at: (740.0, 32.0) };
+    let outside = PointerEvent::Down { at: (727.0, 32.0) };
+
+    assert_eq!(
+      pointer_event(inside, canvas, true),
+      Some(LoginPatternEvent::Close)
+    );
+    assert!(matches!(
+      pointer_event(outside, canvas, true),
+      Some(LoginPatternEvent::Touched(_))
+    ));
+    assert!(matches!(
+      pointer_event(inside, canvas, false),
+      Some(LoginPatternEvent::Touched(_))
+    ));
+  }
 
   #[test]
   fn off_forgets_nothing_chooses_and_it_refuses_anything_else() -> Result<(), ValidationError> {
